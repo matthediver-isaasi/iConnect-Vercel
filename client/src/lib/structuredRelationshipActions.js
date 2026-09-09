@@ -75,12 +75,27 @@ export function structuredRelationshipEndpointOptions({
   action,
   definition,
   side,
+  entityPipelines = {},
 }) {
   const endpoint = relationshipEndpointDescriptor(definition, side);
   if (!endpoint) return [];
   const repeatableId = action?.source?.scope === 'repeatable_row'
     ? action.source.repeatable_field_id : null;
   const options = [];
+  const primaryPipelines = endpoint.kind === 'member'
+    ? entityPipelines?.members
+    : entityPipelines?.organisations;
+  if (['member', 'organization'].includes(endpoint.kind)
+    && Array.isArray(primaryPipelines)
+    && primaryPipelines.length > 0) {
+    options.push({
+      value: `primary_pipeline_output:${endpoint.kind}`,
+      label: endpoint.kind === 'member'
+        ? 'Primary Member pipeline result'
+        : 'Primary Organisation pipeline result',
+      reference: { type: 'primary_pipeline_output', kind: endpoint.kind },
+    });
+  }
   if (repeatableId) {
     const containerIndex = fields.findIndex(field => String(field?.id) === String(repeatableId));
     // A form-level endpoint used by a row action must already have been
@@ -135,6 +150,9 @@ export function structuredRelationshipEndpointOptions({
 
 export function structuredEndpointReferenceValue(reference, repeatableFieldId = null) {
   if (reference?.type === 'action_output') return `action_output:${reference.action_id}`;
+  if (reference?.type === 'primary_pipeline_output') {
+    return `primary_pipeline_output:${reference.kind || 'member'}`;
+  }
   if (reference?.type !== 'field') return '';
   return reference.scope === 'row' && repeatableFieldId
     ? `field:repeatable_row:${repeatableFieldId}:${reference.field_id}`

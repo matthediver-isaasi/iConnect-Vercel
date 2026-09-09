@@ -1328,6 +1328,16 @@ test('anonymous and non-admin structured mutations cannot target another record'
       authorization: { isAdmin: true },
     }), true);
   }
+  assert.equal(assertStructuredMutationAuthorized({
+    action: { target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'create' },
+    recordId: null,
+    authorization: { allowPersistedCustomObjectCreates: true },
+  }), true);
+  assert.throws(() => assertStructuredMutationAuthorized({
+    action: { target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'upsert' },
+    recordId: null,
+    authorization: { allowPersistedCustomObjectCreates: true },
+  }), StructuredActionAuthorizationError);
 });
 
 test('non-admin Group and Custom Object creates fail before a ledger claim or insert', async () => {
@@ -2034,6 +2044,166 @@ function customResolverFixture({
     setBusyRecordIdentity(value) { busyRecordIdentity = value; },
   };
 }
+
+test('primary pipeline endpoints wait before ledger claim, then complete row-local links idempotently', async () => {
+  const fixture = customResolverFixture();
+  fixture.form.entity_pipelines = {
+    members: [{ id: 'primary-member', isPrimary: true }],
+    organisations: [],
+  };
+  fixture.store.member = [{ id: 'member-created', tenant_id: fixture.tenantId }];
+  const memberRelationship = {
+    id: 'department-member',
+    tenant_id: fixture.tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: fixture.objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+  };
+  fixture.store.custom_object_relationship_definition.push(memberRelationship);
+  fixture.form.structured_actions.actions.push({
+    id: 'link-department-member',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    operation: 'link_relationship',
+    relationship_definition_id: memberRelationship.id,
+    source_endpoint: {
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+      source: { type: 'action_output', action_id: 'resolve-department' },
+    },
+    target_endpoint: {
+      kind: 'member',
+      source: { type: 'primary_pipeline_output' },
+    },
+  });
+  const authorization = { isAdmin: true, allowPersistedRecordReferenceWrites: true };
+  const recordCountBeforePrimary = fixture.store.custom_object_record.length;
+
+  const prePipeline = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization,
+  });
+  assert.equal(prePipeline.success, false);
+  assert.equal(prePipeline.incomplete_count, 4);
+  assert.equal(fixture.store.custom_object_record.length, recordCountBeforePrimary);
+  assert.equal(fixture.ledger.size, 0, 'nothing may claim or mutate before the primary pipeline');
+  assert.ok(prePipeline.outcomes.every(
+    outcome => outcome.reason === 'primary_pipeline_output_unavailable',
+  ));
+  assert.deepEqual(
+    prePipeline.outcomes
+      .filter(outcome => outcome.action_id === 'link-department-member')
+      .map(outcome => [outcome.row_index, outcome.status, outcome.reason]),
+    [
+      [0, 'skipped', 'primary_pipeline_output_unavailable'],
+      [1, 'skipped', 'primary_pipeline_output_unavailable'],
+    ],
+  );
+  assert.equal(
+    [...fixture.ledger.keys()].some(key => key.startsWith('link-department-member:')),
+    false,
+    'a relationship waiting for the primary pipeline must not claim its ledger row',
+  );
+
+  const postPipeline = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization,
+    primaryRecords: { memberId: 'member-created' },
+  });
+  assert.equal(postPipeline.success, true, JSON.stringify(postPipeline));
+  assert.deepEqual(
+    postPipeline.outcomes
+      .filter(outcome => outcome.action_id === 'link-department-member')
+      .map(outcome => [outcome.row_index, outcome.status]),
+    [[0, 'completed'], [1, 'completed']],
+  );
+  assert.equal(
+    fixture.store.custom_object_relationship.filter(
+      edge => edge.relationship_definition_id === memberRelationship.id,
+    ).length,
+    2,
+  );
+
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization,
+    primaryRecords: { memberId: 'member-created' },
+  });
+  assert.equal(retry.success, true);
+  assert.ok(
+    retry.outcomes
+      .filter(outcome => outcome.action_id === 'link-department-member')
+      .every(outcome => outcome.status === 'already_completed'),
+  );
+  assert.equal(
+    fixture.store.custom_object_relationship.filter(
+      edge => edge.relationship_definition_id === memberRelationship.id,
+    ).length,
+    2,
+  );
+  fixture.store.member.push({ id: 'different-member', tenant_id: fixture.tenantId });
+  await assert.rejects(
+    processPersistedStructuredActions({
+      db: fixture.db,
+      formId: fixture.form.id,
+      submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization,
+      primaryRecords: { memberId: 'different-member' },
+    }),
+    /fingerprint drift/,
+  );
+});
+
+test('primary pipeline endpoints require a matching persisted primary pipeline', async () => {
+  const fixture = customResolverFixture();
+  fixture.form.structured_actions.actions.push({
+    id: 'link-department-member',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    operation: 'link_relationship',
+    relationship_definition_id: 'department-member',
+    source_endpoint: {
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+      source: { type: 'action_output', action_id: 'resolve-department' },
+    },
+    target_endpoint: {
+      kind: 'member',
+      source: { type: 'primary_pipeline_output' },
+    },
+  });
+  fixture.store.custom_object_relationship_definition.push({
+    id: 'department-member',
+    tenant_id: fixture.tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: fixture.objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+  });
+
+  await assert.rejects(
+    processPersistedStructuredActions({
+      db: fixture.db,
+      formId: fixture.form.id,
+      submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+      primaryRecords: { memberId: 'member-created' },
+    }),
+    /require configured primary pipelines: member/,
+  );
+});
 
 test('trusted non-admin processing resolves selected and Not-listed Custom Object records canonically', async () => {
   for (const notListedOperation of ['create', 'upsert']) {

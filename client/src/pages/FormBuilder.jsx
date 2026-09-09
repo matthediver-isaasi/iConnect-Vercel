@@ -980,6 +980,7 @@ function StructuredRecordActionsEditor({
   customObjects,
   customObjectFields,
   relationshipDefinitions,
+  entityPipelines,
   metadataLoading,
   metadataError,
 }) {
@@ -1089,6 +1090,7 @@ function StructuredRecordActionsEditor({
               action,
               definition,
               side,
+              entityPipelines,
             }).filter(option => {
               if (option.reference?.type !== 'action_output') return true;
               const candidate = actions.find(item => item.id === option.reference.action_id);
@@ -1182,7 +1184,12 @@ function StructuredRecordActionsEditor({
                               ...relationshipEndpointDescriptor(definition, side),
                               custom_object_id: relationshipEndpointDescriptor(definition, side)?.customObjectId || null,
                               customObjectId: undefined,
-                              source: options.find(option => option.value === value)?.reference || null,
+                              source: (() => {
+                                const selected = options.find(option => option.value === value)?.reference;
+                                return selected?.type === 'primary_pipeline_output'
+                                  ? { ...selected, kind: relationshipEndpointDescriptor(definition, side)?.kind }
+                                  : selected || null;
+                              })(),
                             },
                           })}>
                           <SelectTrigger data-testid={`select-link-endpoint-${side}-${actionIndex}`}><SelectValue placeholder="Select a compatible record…" /></SelectTrigger>
@@ -10919,6 +10926,7 @@ export default function FormBuilderPage() {
             action,
             definition,
             side,
+            entityPipelines: formData.entity_pipelines,
           });
           if (!selectedValue || !options.some(option => option.value === selectedValue)) {
             toast.error(`${actionName} needs a compatible ${relationshipEndpointLabel(definition, side)} endpoint.`);
@@ -12190,6 +12198,7 @@ export default function FormBuilderPage() {
                   customObjects={structuredActionMetadata.objects}
                   customObjectFields={structuredActionMetadata.fields}
                   relationshipDefinitions={structuredActionMetadata.relationships}
+                  entityPipelines={formData.entity_pipelines}
                   metadataLoading={structuredActionMetadataLoading}
                   metadataError={structuredActionMetadataError}
                 />

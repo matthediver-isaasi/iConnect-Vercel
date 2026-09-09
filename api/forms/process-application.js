@@ -826,6 +826,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
       return res.status(404).json({ error: 'Persisted form submission was not found', code: 'SUBMISSION_NOT_FOUND' });
     }
+    const persistedProcessingNotes = Array.isArray(persistedSubmission.processing_notes)
+      ? persistedSubmission.processing_notes
+      : [];
     if (trustedInternal && persistedSubmission.payment_status) {
       const persistedVerifiedMemberId = persistedSubmission.payment_meta?.verified_submitter_member_id || null;
       if (String(verified_submitter_member_id || '') !== String(persistedVerifiedMemberId || '')) {
@@ -967,6 +970,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // configured Not-listed record reference. The action executor reloads
       // both form and submission; a browser cannot supply this capability.
       allowPersistedRecordReferenceWrites: trustedInternal,
+      // The signed/internal path may execute an administrator-saved Custom
+      // Object create action. The browser cannot grant this capability and the
+      // executor still reloads the form contract and submitted answers.
+      allowPersistedCustomObjectCreates: trustedInternal,
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
     const persistCrmNotesForPipeline = async (entity, entityId, pipeline, authorMemberIdOverride = null) => {
@@ -1016,6 +1023,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           submissionId: submission_id,
           tenantId: effectiveEntityTenantId,
           authorization: processingAuthorization,
+          primaryRecords: {
+            memberId: persistedSubmission.created_member_id || null,
+            organizationId: persistedSubmission.created_organization_id || null,
+          },
         });
         structuredActionResult = structuredResult;
         for (const outcome of structuredResult?.outcomes || []) {
@@ -1115,9 +1126,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
         }
         if (processingNotes.length > 0) {
-          const priorNotes = Array.isArray(persistedSubmission.processing_notes)
-            ? persistedSubmission.processing_notes : [];
-          const retryUpdate = { processing_notes: [...priorNotes, ...processingNotes] };
+          const retryUpdate = {
+            processing_notes: [...persistedProcessingNotes, ...processingNotes],
+          };
           if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
             retryUpdate.payment_meta = {
               ...(persistedSubmission.payment_meta || {}),
@@ -3799,15 +3810,40 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
     const structuredMemberId = structuredActionResult?.created_member_id || null;
     const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
-    const resolvedMemberId = createdMemberId || structuredMemberId || null;
-    const resolvedOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
+    const primaryMemberId = createdMemberId || null;
+    const primaryOrganizationId = createdOrganizationId || null;
+    const resolvedMemberId = primaryMemberId || structuredMemberId || null;
+    const resolvedOrganizationId = primaryOrganizationId || structuredOrganizationId || prefill_organization_id || null;
+    if ((structuredActionResult?.outcomes || []).some(
+      outcome => outcome.reason === 'primary_pipeline_output_unavailable',
+    )) {
+      const postPipelineStructuredResult = await processPersistedStructuredActions({
+        db: supabase,
+        formId: form_id,
+        submissionId: submission_id,
+        tenantId: effectiveEntityTenantId,
+        authorization: processingAuthorization,
+        primaryRecords: {
+          memberId: primaryMemberId,
+          organizationId: primaryOrganizationId,
+        },
+      });
+      structuredActionResult = postPipelineStructuredResult;
+      for (const outcome of postPipelineStructuredResult?.outcomes || []) {
+        addProcessingNote({
+          kind: 'structured_action',
+          phase: 'post_primary_pipeline',
+          ...outcome,
+        });
+      }
+    }
     const relatedRecords = await processPrimaryPipelineRelatedRecords({
       db: supabase,
       tenantId: effectiveEntityTenantId,
       form: persistedForm,
       submission: persistedSubmission,
-      memberId: resolvedMemberId,
-      organizationId: resolvedOrganizationId,
+      memberId: primaryMemberId,
+      organizationId: primaryOrganizationId,
     });
     for (const outcome of relatedRecords?.outcomes || []) {
       addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
@@ -3833,7 +3869,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       if (createdMemberId || structuredMemberId) updatePayload.created_member_id = createdMemberId || structuredMemberId;
       if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
-      if (processingNotes.length > 0) updatePayload.processing_notes = processingNotes;
+      if (processingNotes.length > 0) {
+        updatePayload.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
       if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
         updatePayload.payment_meta = {
           ...(persistedSubmission.payment_meta || {}),

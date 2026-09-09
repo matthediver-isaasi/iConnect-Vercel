@@ -200,6 +200,11 @@ const endpointFieldFor = (action, input, fields) => {
 export function assertStructuredMutationAuthorized({ action, recordId, authorization = {} }) {
   const entity = entityName(action);
   if (authorization.isAdmin === true) return true;
+  if (entity === 'custom_object'
+    && authorization.allowPersistedCustomObjectCreates === true
+    && action?.operation === 'create') {
+    return true;
+  }
   if (entity === 'organization_group'
     && authorization.allowPersistedOrganizationGroupActions === true
     && ['create', 'upsert'].includes(action?.operation)) {
@@ -293,8 +298,8 @@ export function validateStructuredActionsContract(input, fields = []) {
         if (descriptor.kind === 'custom_object' && !descriptor.customObjectId) {
           errors.push(`${ep}.custom_object_id is required`);
         }
-        if (!['field', 'action_output'].includes(input.type)) {
-          errors.push(`${ep}.source.type must be field or action_output`);
+        if (!['field', 'action_output', 'primary_pipeline_output'].includes(input.type)) {
+          errors.push(`${ep}.source.type must be field, action_output, or primary_pipeline_output`);
         } else if (input.type === 'field') {
           if (!input.field_id) errors.push(`${ep}.source.field_id is required`);
           const fieldScope = endpointFieldScope(action, input);
@@ -317,7 +322,7 @@ export function validateStructuredActionsContract(input, fields = []) {
               errors.push(`${ep}.source.form field must precede the repeatable container`);
             }
           }
-        } else {
+        } else if (input.type === 'action_output') {
           const dependency = priorActions.get(String(input.action_id || ''));
           if (!input.action_id) errors.push(`${ep}.source.action_id is required`);
           if (!dependency || isRelationshipAction(dependency)) {
@@ -336,6 +341,8 @@ export function validateStructuredActionsContract(input, fields = []) {
               errors.push(`${ep}.source.action_id output is incompatible with the endpoint descriptor`);
             }
           }
+        } else if (!['member', 'organization'].includes(descriptor.kind)) {
+          errors.push(`${ep}.source.type primary_pipeline_output only supports Member or Organisation endpoints`);
         }
       }
       if (collectionEndpointCount > 1) {
@@ -620,13 +627,13 @@ export function expandStructuredActionInvocations(contract, form, submissionData
     const rows = submissionData?.[containerId];
     if (!container || !Array.isArray(rows)) continue;
     const visibleChildren = repeatableRowChildren(container).filter(child => !hidden.has(String(child?.id)));
-    rows.forEach((row) => {
+    rows.forEach((row, rowIndex) => {
       if (!row || typeof row !== 'object' || row._deleted === true || row.deleted === true || row.active === false) return;
       const values = visibleValues(row, hidden);
       if (isRepeatableRowEmpty(values, visibleChildren)) return;
       if (!row._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
       const selectedRecordId = selectedRelationshipRecordId(action, visibleChildren, values);
-      const base = { action, rowIndex: null, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` };
+      const base = { action, rowIndex, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` };
       invocations.push(...expandRecordReferenceItems(base));
     });
   }
@@ -695,6 +702,32 @@ function fieldRecordDescriptor(field) {
 function primaryPipelineFor(pipelines) {
   if (!Array.isArray(pipelines) || pipelines.length === 0) return null;
   return pipelines.find(pipeline => pipeline?.isPrimary || pipeline?.is_primary) || pipelines[0];
+}
+
+function primaryPipelineEndpointKinds(contract) {
+  return new Set(contract.actions.flatMap(action => (
+    isRelationshipAction(action)
+      ? Object.values(relationshipEndpoints(action))
+        .filter(endpoint => endpointInput(endpoint).type === 'primary_pipeline_output')
+        .map(endpoint => endpointDescriptor(endpoint).kind)
+      : []
+  )));
+}
+
+function assertPrimaryPipelineEndpointsConfigured(contract, form) {
+  const required = primaryPipelineEndpointKinds(contract);
+  const missing = [...required].filter(kind => {
+    const pipelines = kind === 'member'
+      ? form?.entity_pipelines?.members
+      : form?.entity_pipelines?.organisations;
+    return !primaryPipelineFor(pipelines);
+  });
+  if (missing.length) {
+    throw new StructuredActionContractError(
+      `Primary pipeline outputs require configured primary pipelines: ${missing.join(', ')}`,
+    );
+  }
+  return required;
 }
 
 function pipelineRelatedRecords(pipeline) {
@@ -1253,7 +1286,7 @@ function appendActionOutput(actionOutputs, invocation, recordId, status = 'compl
   actionOutputs.set(key, current);
 }
 
-function invocationFingerprintValues(invocation, actionOutputs = new Map()) {
+function invocationFingerprintValues(invocation, actionOutputs = new Map(), primaryRecords = {}) {
   if (isMultiRecordReferenceAction(invocation.action)) {
     const item = invocation.recordReferenceItemIdentity;
     if (!isFormNotListedValue(invocation.recordReferenceItemValue)) return { item };
@@ -1285,6 +1318,11 @@ function invocationFingerprintValues(invocation, actionOutputs = new Map()) {
       const input = endpointInput(endpoint);
       if (input.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
         rootEndpointValues[input.field_id] = invocation.rootValues?.[input.field_id];
+      } else if (input.type === 'primary_pipeline_output') {
+        const descriptor = endpointDescriptor(endpoint);
+        rootEndpointValues[`primary:${descriptor.kind}`] = descriptor.kind === 'member'
+          ? primaryRecords.memberId || null
+          : primaryRecords.organizationId || null;
       }
     }
     return { row: invocation.values, form_endpoints: rootEndpointValues };
@@ -1303,6 +1341,11 @@ function invocationFingerprintValues(invocation, actionOutputs = new Map()) {
       endpointValues[side] = dependency?.recordIds?.length
         ? [...dependency.recordIds].sort()
         : dependency?.recordId || null;
+    } else if (input.type === 'primary_pipeline_output') {
+      const descriptor = endpointDescriptor(endpoint);
+      endpointValues[side] = descriptor.kind === 'member'
+        ? primaryRecords.memberId || null
+        : primaryRecords.organizationId || null;
     }
   }
   return { endpoints: endpointValues };
@@ -1342,7 +1385,7 @@ async function resolveSelectedRecordReference(db, tenantId, invocation) {
   };
 }
 
-function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
+function relationshipEndpointRecordId(endpoint, invocation, actionOutputs, primaryRecords = {}) {
   const input = endpointInput(endpoint);
   let value;
   if (input.type === 'action_output') {
@@ -1359,6 +1402,13 @@ function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
       );
     }
     return dependency.recordIds?.length ? dependency.recordIds : dependency.recordId;
+  } else if (input.type === 'primary_pipeline_output') {
+    const descriptor = endpointDescriptor(endpoint);
+    value = descriptor.kind === 'member'
+      ? primaryRecords.memberId
+      : descriptor.kind === 'organization'
+        ? primaryRecords.organizationId
+        : null;
   } else {
     value = endpointFieldScope(invocation.action, input) === 'form'
       ? invocation.rootValues?.[input.field_id]
@@ -1397,11 +1447,29 @@ function organizationGroupRecordId(invocation, actionOutputs) {
   return value || null;
 }
 
-function assertCollectionDependenciesComplete(invocation, actionOutputs) {
+function assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecords = {}) {
   const dependencies = isRelationshipAction(invocation.action)
     ? Object.values(relationshipEndpoints(invocation.action)).map(endpointInput)
     : [organizationGroupSource(invocation.action)].filter(Boolean);
   for (const input of dependencies) {
+    if (input?.type === 'primary_pipeline_output') {
+      const endpoint = Object.values(relationshipEndpoints(invocation.action))
+        .find(candidate => endpointInput(candidate) === input);
+      const descriptor = endpointDescriptor(endpoint);
+      const recordId = descriptor.kind === 'member'
+        ? primaryRecords.memberId
+        : descriptor.kind === 'organization'
+          ? primaryRecords.organizationId
+          : null;
+      if (!recordId) {
+        const error = new StructuredActionContractError(
+          `Action is waiting for the primary ${descriptor.kind} pipeline result`,
+        );
+        error.code = 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
+        throw error;
+      }
+      continue;
+    }
     if (input?.type !== 'action_output') continue;
     const dependency = actionOutputs.get(
       relationshipOutputKey(String(input.action_id), invocation),
@@ -1450,13 +1518,18 @@ async function executeRelationshipInvocation(
   definition,
   actionOutputs,
   authorization,
+  primaryRecords,
 ) {
   if (!definition) throw new StructuredActionContractError('The relationship definition is unavailable');
   const endpoints = relationshipEndpoints(invocation.action);
   const sourceDescriptor = endpointDescriptor(endpoints.source);
   const targetDescriptor = endpointDescriptor(endpoints.target);
-  const sourceValue = relationshipEndpointRecordId(endpoints.source, invocation, actionOutputs);
-  const targetValue = relationshipEndpointRecordId(endpoints.target, invocation, actionOutputs);
+  const sourceValue = relationshipEndpointRecordId(
+    endpoints.source, invocation, actionOutputs, primaryRecords,
+  );
+  const targetValue = relationshipEndpointRecordId(
+    endpoints.target, invocation, actionOutputs, primaryRecords,
+  );
   const sourceIds = Array.isArray(sourceValue) ? sourceValue : [sourceValue];
   const targetIds = Array.isArray(targetValue) ? targetValue : [targetValue];
   const sourceOutput = endpointInput(endpoints.source).type === 'action_output'
@@ -1724,6 +1797,7 @@ export async function processPersistedStructuredActions({
   submissionId,
   tenantId,
   authorization = {},
+  primaryRecords = {},
 }) {
   if (!formId || !submissionId) throw new StructuredActionContractError('form_id and submission_id are required');
   const [{ data: form, error: formError }, { data: submission, error: submissionError }] = await Promise.all([
@@ -1734,6 +1808,7 @@ export async function processPersistedStructuredActions({
   if (submissionError || !submission) throw new StructuredActionContractError('Persisted submission was not found in the tenant');
   const contract = validateStructuredActionsContract(form.structured_actions, form.fields || []);
   if (!contract || contract.actions.length === 0) return null;
+  const requiredPrimaryKinds = assertPrimaryPipelineEndpointsConfigured(contract, form);
   const objectIds = [...new Set(contract.actions.flatMap(action => isRelationshipAction(action)
     ? Object.values(relationshipEndpoints(action)).map(endpoint => endpointDescriptor(endpoint).customObjectId)
     : [actionObjectId(action)]).filter(Boolean))];
@@ -1847,10 +1922,16 @@ export async function processPersistedStructuredActions({
     }
   }
   const notes = noteArray(submission.processing_notes);
-  const completed = new Map(notes
+  // The ledger is authoritative whenever it is available because its claim
+  // verifies the request fingerprint. Notes are only a compatibility fallback
+  // for callers without RPC support.
+  const completed = new Map((typeof db.rpc === 'function' ? [] : notes)
     .filter(n => n?.kind === 'structured_action' && n?.status === 'completed' && n?.invocation_key)
     .map(n => [n.invocation_key, n]));
   const outcomes = [];
+  const missingPrimaryKinds = [...requiredPrimaryKinds].filter(kind => (
+    kind === 'member' ? !primaryRecords.memberId : !primaryRecords.organizationId
+  ));
   const actionOutputs = new Map();
   for (const invocation of invocations.filter(item => isMultiRecordReferenceAction(item.action))) {
     const key = relationshipOutputKey(invocation.action.id, invocation);
@@ -1864,6 +1945,21 @@ export async function processPersistedStructuredActions({
     actionOutputs.get(key).itemStatuses.set(invocation.recordReferenceItemIdentity, 'pending');
   }
   for (const invocation of invocations) {
+    if (missingPrimaryKinds.length) {
+      const blocked = {
+        invocation_key: invocation.invocationKey,
+        action_id: invocation.action.id,
+        row_index: invocation.rowIndex,
+        status: 'skipped',
+        reason: 'primary_pipeline_output_unavailable',
+        retryable: true,
+        required_primary_kinds: missingPrimaryKinds,
+        error: `Waiting for primary pipeline output: ${missingPrimaryKinds.join(', ')}`,
+      };
+      outcomes.push(blocked);
+      notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...blocked });
+      continue;
+    }
     const prior = completed.get(invocation.invocationKey);
     if (prior) {
       const alreadyCompleted = {
@@ -1884,13 +1980,17 @@ export async function processPersistedStructuredActions({
       continue;
     }
     try {
-      assertCollectionDependenciesComplete(invocation, actionOutputs);
+      assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecords);
     } catch (error) {
+      const waitingForPrimary = error?.code === 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
       const blocked = {
         invocation_key: invocation.invocationKey,
         action_id: invocation.action.id,
         row_index: invocation.rowIndex,
-        status: 'failed',
+        status: waitingForPrimary ? 'skipped' : 'failed',
+        ...(waitingForPrimary
+          ? { reason: 'primary_pipeline_output_unavailable', retryable: true }
+          : {}),
         error: error.message || String(error),
         ...(error?.code ? { code: error.code } : {}),
       };
@@ -1905,7 +2005,7 @@ export async function processPersistedStructuredActions({
     const fingerprint = createHash('sha256').update(JSON.stringify({
       version: contract.version,
       action: invocation.action,
-      values: invocationFingerprintValues(invocation, actionOutputs),
+      values: invocationFingerprintValues(invocation, actionOutputs, primaryRecords),
     })).digest('hex');
     let claimedRecordId = null;
     if (typeof db.rpc === 'function') {
@@ -1946,7 +2046,13 @@ export async function processPersistedStructuredActions({
       ) || null;
       outcome = isRelationshipAction(invocation.action)
         ? await executeRelationshipInvocation(
-          db, tenantId, invocation, relationshipDefinition, actionOutputs, authorization,
+          db,
+          tenantId,
+          invocation,
+          relationshipDefinition,
+          actionOutputs,
+          authorization,
+          primaryRecords,
         )
         : await executeInvocation(
           db,
@@ -1995,7 +2101,10 @@ export async function processPersistedStructuredActions({
   const completedOutcomes = outcomes.filter(o => ['completed', 'already_completed'].includes(o.status));
   const failed = outcomes.filter(o => o.status === 'failed');
   const skipped = outcomes.filter(o => o.status === 'skipped');
-  const incomplete = outcomes.filter(o => o.reason === 'already_running');
+  const incomplete = outcomes.filter(o => [
+    'already_running',
+    'primary_pipeline_output_unavailable',
+  ].includes(o.reason));
   const firstMember = outcomes.find(o => o.entity_type === 'member' && o.record_id);
   const firstOrganization = outcomes.find(o => o.entity_type === 'organization' && o.record_id);
   return {

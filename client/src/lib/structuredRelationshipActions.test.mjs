@@ -39,6 +39,10 @@ const fields = [
   },
   { id: 'later-org', type: 'organisation_dropdown', label: 'Later organisation' },
 ];
+const entityPipelines = {
+  members: [{ id: 'primary-member', isPrimary: true }],
+  organisations: [{ id: 'primary-organization', isPrimary: true }],
+};
 
 test('relationship endpoint labels retain definition direction', () => {
   assert.equal(relationshipEndpointLabel(definition, 'source'), 'Employer (source)');
@@ -75,12 +79,15 @@ test('top-level link actions only offer compatible top-level fields and prior to
   ];
   const source = structuredRelationshipEndpointOptions({
     fields, actions, actionIndex: 2, action: actions[2], definition, side: 'source',
+    entityPipelines,
   });
   const target = structuredRelationshipEndpointOptions({
     fields, actions, actionIndex: 2, action: actions[2], definition, side: 'target',
+    entityPipelines,
   });
 
   assert.deepEqual(source.map(option => option.value), [
+    'primary_pipeline_output:organization',
     'field:form:org',
     'field:form:later-org',
     'action_output:create-org',
@@ -112,12 +119,15 @@ test('repeatable links can combine an earlier form endpoint and a current-row en
   ];
   const sourceOptions = structuredRelationshipEndpointOptions({
     fields, actions, actionIndex: 2, action: actions[2], definition, side: 'source',
+    entityPipelines,
   });
   const targetOptions = structuredRelationshipEndpointOptions({
     fields, actions, actionIndex: 2, action: actions[2], definition, side: 'target',
+    entityPipelines,
   });
 
   assert.deepEqual(sourceOptions.map(option => option.value), [
+    'primary_pipeline_output:organization',
     'field:form:org',
     'field:repeatable_row:rows:other-org',
   ]);
@@ -126,9 +136,13 @@ test('repeatable links can combine an earlier form endpoint and a current-row en
     'field:repeatable_row:rows:project',
     'action_output:same-row-project',
   ]);
-  assert.deepEqual(sourceOptions[0].reference, { type: 'field', scope: 'form', field_id: 'org' });
-  assert.deepEqual(targetOptions[0].reference, { type: 'field', scope: 'row', field_id: 'project' });
-  assert.equal(structuredEndpointReferenceValue(targetOptions[0].reference, 'rows'), targetOptions[0].value);
+  const formOrg = sourceOptions.find(option => option.value === 'field:form:org');
+  const rowProject = targetOptions.find(
+    option => option.value === 'field:repeatable_row:rows:project',
+  );
+  assert.deepEqual(formOrg.reference, { type: 'field', scope: 'form', field_id: 'org' });
+  assert.deepEqual(rowProject.reference, { type: 'field', scope: 'row', field_id: 'project' });
+  assert.equal(structuredEndpointReferenceValue(rowProject.reference, 'rows'), rowProject.value);
   assert.ok(!targetOptions.some(option => option.value.includes('other-row-project')));
 });
 
@@ -147,14 +161,27 @@ test('a form Organisation and current-row Organisation can be selected as opposi
   };
   const sourceOptions = structuredRelationshipEndpointOptions({
     fields, actions: [action], actionIndex: 0, action, definition: organisationRelationship, side: 'source',
+    entityPipelines,
   });
   const targetOptions = structuredRelationshipEndpointOptions({
     fields, actions: [action], actionIndex: 0, action, definition: organisationRelationship, side: 'target',
+    entityPipelines,
   });
   const primary = sourceOptions.find(option => option.value === 'field:form:org');
+  const primaryPipeline = sourceOptions.find(
+    option => option.value === 'primary_pipeline_output:organization',
+  );
   const secondary = targetOptions.find(option => option.value === 'field:repeatable_row:rows:other-org');
 
   assert.deepEqual(primary?.reference, { type: 'field', scope: 'form', field_id: 'org' });
+  assert.deepEqual(primaryPipeline?.reference, {
+    type: 'primary_pipeline_output',
+    kind: 'organization',
+  });
+  assert.equal(
+    structuredEndpointReferenceValue(primaryPipeline.reference),
+    primaryPipeline.value,
+  );
   assert.deepEqual(secondary?.reference, { type: 'field', scope: 'row', field_id: 'other-org' });
 });
 

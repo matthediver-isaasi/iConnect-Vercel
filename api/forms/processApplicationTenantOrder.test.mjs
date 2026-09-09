@@ -54,6 +54,21 @@ test('authorization, paid lifecycle, and stored submit-control all precede struc
   assert.match(src, /code:\s*'PROCESSING_AUTHORITY_MISMATCH'/);
 });
 
+test('structured actions wait for actual primary pipelines and preserve existing notes', () => {
+  assert.match(
+    src,
+    /primaryRecords:\s*\{\s*memberId:\s*primaryMemberId,\s*organizationId:\s*primaryOrganizationId,\s*\}/,
+  );
+  assert.doesNotMatch(
+    src,
+    /primaryRecords:\s*\{\s*memberId:\s*resolvedMemberId,\s*organizationId:\s*resolvedOrganizationId,\s*\}/,
+  );
+  assert.match(
+    src,
+    /updatePayload\.processing_notes = \[\.\.\.persistedProcessingNotes, \.\.\.processingNotes\];/,
+  );
+});
+
 test('authoritative form reload includes pages for hidden-field relationship validation', () => {
   assert.match(
     src,
