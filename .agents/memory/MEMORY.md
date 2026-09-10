@@ -152,3 +152,4 @@
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
 - [Directory Data Studio file access](directory-data-studio-file-access.md) — directory opt-in is not publication consent; file downloads must recheck source permissions, not just tenant membership.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
+- [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.

@@ -72,6 +72,8 @@ const RELATIONSHIP_FILTER_OPERATORS = new Set([
 const LIST_RELATIONSHIP_PROJECTION_LIMIT = 100;
 const ENDPOINT_ID_BATCH_SIZE = 200;
 const RELATIONSHIP_FIELD_TYPES = new Set(['boolean']);
+const V2_REPORT_MAX_CELL_EXPANSION = 10_000;
+const V2_REPORT_MAX_PAGE_EXPANSION = 100_000;
 
 function relationshipFieldDefinitions(definition) {
   const configuration = definition?.configuration;
@@ -486,6 +488,19 @@ function throwReportOccurrenceRpcDb(error) {
     throw new CustomObjectHttpError(
       503,
       'Occurrence report preview is temporarily unavailable because its database migration is incomplete. Apply migration 20261009_restore_custom_object_report_occurrence_page.sql to the destination database before retrying.',
+    );
+  }
+  throwDb(error);
+}
+
+function throwReportV2RpcDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /custom_object_report_(?:summary_page|distinct_count).*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Version 2 reports are temporarily unavailable because the required database functions are missing.',
     );
   }
   throwDb(error);
@@ -1864,22 +1879,47 @@ export function createCustomObjectService({
   async function relationshipDefinitionGraph(objectId) {
     requireSchemaManager();
     await object(objectId);
-    const [{ data, error }, { data: activeObjects, error: objectError }] = await Promise.all([
-      db.from('custom_object_relationship_definition').select('*')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true }),
-      db.from('custom_object_definition').select('id')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'active'),
+    const loadDefinitions = async () => {
+      const output = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        output.push(...(data || []));
+        if ((data || []).length < 1000) return output;
+      }
+    };
+    const loadObjects = async () => {
+      const output = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db.from('custom_object_definition')
+          .select('id,singular_label,plural_label')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        output.push(...(data || []).map((item) => ({
+          id: item.id,
+          singular_label: item.singular_label,
+          plural_label: item.plural_label,
+        })));
+        if ((data || []).length < 1000) return output;
+      }
+    };
+    const [definitions, activeObjects] = await Promise.all([
+      loadDefinitions(),
+      loadObjects(),
     ]);
-    throwDb(error);
-    throwDb(objectError);
-    const activeIds = new Set((activeObjects || []).map((item) => String(item.id)));
+    const activeIds = new Set(activeObjects.map((item) => String(item.id)));
     return {
-      data: (data || []).filter((definition) =>
+      data: definitions.filter((definition) =>
         relationshipObjectIds(definition).every((id) => activeIds.has(String(id)))),
+      objects: activeObjects,
     };
   }
 
@@ -3691,11 +3731,240 @@ export function createCustomObjectService({
 
   // Reports deliberately use ids, rather than labels, in their persisted contract.  Labels are
   // presentation only: this prevents a rename from silently changing the meaning of a report.
+  async function validateReportDefinitionV2(objectId, report) {
+    await activeObject(objectId);
+    await requireCapability(objectId, 'view_records');
+    if (String(report.start_object_id || '') !== String(objectId)) {
+      throw new CustomObjectHttpError(400, 'Report start_object_id must match its owning Custom Object');
+    }
+    const normalizeEndpoint = (value, label) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || !['custom_object', ...CORE_RELATIONSHIP_KINDS].includes(value.kind)) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      const customObjectId = value.customObjectId ?? value.custom_object_id ?? null;
+      if ((value.kind === 'custom_object' && !customObjectId)
+        || (value.kind !== 'custom_object' && customObjectId != null)) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      return { kind: value.kind, customObjectId: customObjectId ? String(customObjectId) : null };
+    };
+    const startEndpoint = normalizeEndpoint(report.start_endpoint, 'Report start endpoint');
+    if (typeof report.include_empty !== 'boolean') {
+      throw new CustomObjectHttpError(400, 'Report include_empty must be a boolean');
+    }
+    if ((report.multi_value ?? 'join') !== 'join') {
+      throw new CustomObjectHttpError(400, 'Report multi_value must be join');
+    }
+    const grainPath = report.grain_path;
+    if (!Array.isArray(grainPath) || grainPath.length > 6
+      || !Array.isArray(report.columns) || !report.columns.length) {
+      throw new CustomObjectHttpError(400, 'Report requires a grain path and at least one column');
+    }
+    const activeDefinitions = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: definitions, error } = await db.from('custom_object_relationship_definition')
+        .select('*').eq('tenant_id', tenantId).eq('status', 'active')
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      throwDb(error);
+      activeDefinitions.push(...(definitions || []).filter((item) => item.archived_at == null));
+      if ((definitions || []).length < 1000) break;
+    }
+    const byId = new Map(activeDefinitions.map((item) => [String(item.id), item]));
+    const endpointFor = (definition, side) => ({
+      kind: definition[`${side}_kind`],
+      customObjectId: definition[`${side}_custom_object_id`] || null,
+    });
+    const endpointKey = (value) => `${value.kind}:${value.customObjectId || ''}`;
+    const opposite = (side) => side === 'source' ? 'target' : 'source';
+    const authorizeEndpoint = async (value) => {
+      if (value.kind === 'custom_object') {
+        await activeObject(value.customObjectId);
+        await requireCapability(value.customObjectId, 'view_records');
+      } else if (!isAdmin) {
+        throw new CustomObjectHttpError(
+          403,
+          'Tenant administrator access is required for reports containing core entities',
+        );
+      }
+    };
+
+    // The start endpoint is selected from the owner's graph, not accepted as an
+    // arbitrary tenant endpoint. Search only routes the caller can traverse,
+    // and use the same six-hop bound as the report builder.
+    const ownerEndpoint = { kind: 'custom_object', customObjectId: objectId };
+    const targetKey = endpointKey(startEndpoint);
+    const queue = [{ endpoint: ownerEndpoint, depth: 0 }];
+    const seen = new Set([endpointKey(ownerEndpoint)]);
+    let authorizedStart = targetKey === endpointKey(ownerEndpoint);
+    let deniedEndpointSeen = false;
+    while (queue.length && !authorizedStart) {
+      const current = queue.shift();
+      if (current.depth >= 6) continue;
+      for (const definition of activeDefinitions) {
+        for (const side of ['source', 'target']) {
+          if (endpointKey(endpointFor(definition, side)) !== endpointKey(current.endpoint)) continue;
+          const next = endpointFor(definition, opposite(side));
+          const key = endpointKey(next);
+          if (seen.has(key)) continue;
+          try {
+            await authorizeEndpoint(next);
+          } catch (authorizationError) {
+            if (authorizationError instanceof CustomObjectHttpError
+              && [403, 404, 409].includes(authorizationError.status)) {
+              if (key === targetKey) deniedEndpointSeen = true;
+              continue;
+            }
+            throw authorizationError;
+          }
+          seen.add(key);
+          if (key === targetKey) {
+            authorizedStart = true;
+            break;
+          }
+          queue.push({ endpoint: next, depth: current.depth + 1 });
+        }
+        if (authorizedStart) break;
+      }
+    }
+    if (!authorizedStart) {
+      if (deniedEndpointSeen || (startEndpoint.kind !== 'custom_object' && !isAdmin)) {
+        throw new CustomObjectHttpError(403, 'Report start endpoint is not authorized');
+      }
+      throw new CustomObjectHttpError(409, 'Report start endpoint is disconnected or unavailable');
+    }
+
+    const resolvePath = async (path, label, initialEndpoint) => {
+      if (!Array.isArray(path) || path.length > 6) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      let current = initialEndpoint;
+      const endpointSeen = new Set([endpointKey(current)]);
+      const definitionSeen = new Set();
+      const resolved = [];
+      for (const hop of path) {
+        const id = String(hop?.relationship_definition_id || '');
+        const fromSide = hop?.from_side;
+        const definition = byId.get(id);
+        if (!definition || !['source', 'target'].includes(fromSide)
+          || definitionSeen.has(id)
+          || endpointKey(endpointFor(definition, fromSide)) !== endpointKey(current)) {
+          throw new CustomObjectHttpError(
+            409,
+            `${label} references a disconnected, unavailable, or cyclic relationship`,
+          );
+        }
+        const next = endpointFor(definition, opposite(fromSide));
+        if (endpointSeen.has(endpointKey(next))) {
+          throw new CustomObjectHttpError(409, `${label} is cyclic`);
+        }
+        await authorizeEndpoint(next);
+        const resolvedHop = {
+          definition,
+          fromSide,
+          toSide: opposite(fromSide),
+          endpoint: next,
+        };
+        resolved.push(resolvedHop);
+        definitionSeen.add(id);
+        endpointSeen.add(endpointKey(next));
+        current = next;
+      }
+      return { endpoint: current, hops: resolved };
+    };
+    const grain = await resolvePath(grainPath, 'Report grain path', startEndpoint);
+    const resolvedColumns = [];
+    for (const column of report.columns) {
+      if (!column || typeof column !== 'object' || Array.isArray(column)) {
+        throw new CustomObjectHttpError(400, 'Report column is malformed');
+      }
+      if (column.empty_label !== undefined && typeof column.empty_label !== 'string') {
+        throw new CustomObjectHttpError(400, 'Report column empty_label must be a string');
+      }
+      if (column.kind === 'count_distinct') {
+        if (!Array.isArray(column.path) || !column.path.length) {
+          throw new CustomObjectHttpError(
+            400,
+            'Count distinct column path must be a nonempty row-relative path',
+          );
+        }
+        const path = await resolvePath(column.path, 'Report count column path', grain.endpoint);
+        resolvedColumns.push({
+          ...column,
+          path,
+          label: column.label || 'Count',
+          countDistinct: true,
+        });
+        continue;
+      }
+      if (!['field', 'relationship_field'].includes(column.kind)) {
+        throw new CustomObjectHttpError(
+          400,
+          'Report column kind must be field, relationship_field, or count_distinct',
+        );
+      }
+      const path = await resolvePath(column.path ?? [], 'Report column path', startEndpoint);
+      const fieldId = String(column.field_id || '');
+      const relationshipFieldId = String(column.relationship_field_id || '');
+      if (column.kind === 'relationship_field') {
+        const hop = path.hops.at(-1);
+        if (!relationshipFieldId
+          || String(column.relationship_definition_id || '') !== String(hop?.definition.id || '')) {
+          throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        }
+        const relationshipField = hop && relationshipFieldDefinitions(hop.definition)
+          .find((item) => String(item.id) === relationshipFieldId);
+        if (!relationshipField || relationshipField[`display_on_${hop.fromSide}`] === false) {
+          throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        }
+        resolvedColumns.push({
+          ...column, path, relationshipField, label: column.label || relationshipField.label,
+        });
+      } else if (path.endpoint.kind === 'custom_object') {
+        const builtInField = String(column.field || fieldId);
+        if (builtInField === 'id') {
+          resolvedColumns.push({
+            ...column, path, coreField: 'id', label: column.label || 'ID',
+          });
+          continue;
+        }
+        const available = await fields(path.endpoint.customObjectId, true);
+        const access = await fieldAccess(path.endpoint.customObjectId, available);
+        const fieldDefinition = available.find((item) => String(item.id) === fieldId);
+        if (!fieldDefinition || access.get(String(fieldDefinition.id)) === 'none') {
+          throw new CustomObjectHttpError(403, 'Report field is unavailable');
+        }
+        resolvedColumns.push({
+          ...column,
+          path,
+          fieldDefinition,
+          label: column.label || fieldDefinition.label,
+        });
+      } else {
+        const allowed = path.endpoint.kind === 'member'
+          ? new Set(['id', 'first_name', 'last_name', 'full_name', 'email', 'organization_id'])
+          : new Set(['id', 'name', 'email']);
+        const coreField = String(column.field || fieldId);
+        if (!allowed.has(coreField)) {
+          throw new CustomObjectHttpError(403, 'Report core field is unavailable');
+        }
+        resolvedColumns.push({
+          ...column, path, coreField, label: column.label || coreField,
+        });
+      }
+    }
+    return {
+      version: 2, report, startEndpoint, grain, columns: resolvedColumns,
+    };
+  }
+
   async function validateReportDefinition(objectId, supplied) {
     let report = supplied;
     if (typeof supplied === 'string') {
       try { report = JSON.parse(supplied); } catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
     }
+    if (report?.version === 2) return validateReportDefinitionV2(objectId, report);
     if (!report || typeof report !== 'object' || Array.isArray(report) || report.version !== 1) {
       throw new CustomObjectHttpError(400, 'Report definition must use version 1');
     }
@@ -3822,6 +4091,79 @@ export function createCustomObjectService({
       .map(({ target, edge }) => ({ record: target, root: row.root, edges: [...row.edges, edge] })));
   }
 
+  // V2 projections must not inherit PostgREST's server row cap. V1 deliberately
+  // continues to use reportFollow unchanged for contract compatibility.
+  async function reportFollowV2(rows, hop, budget) {
+    if (!rows.length) return [];
+    const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+    const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+    const ids = [...new Set(rows.map((row) => String(row.record.id)))];
+    const edges = [];
+    const rootsByRoutedId = new Map();
+    for (const row of rows) {
+      const routedId = String(row.record.id);
+      const rootId = String(row.root.id);
+      const roots = rootsByRoutedId.get(routedId)
+        || rootsByRoutedId.set(routedId, new Map()).get(routedId);
+      roots.set(rootId, (roots.get(rootId) || 0) + 1);
+    }
+    const expansionByRoot = new Map();
+    for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
+      let afterId = null;
+      for (;;) {
+        let query = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
+          .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
+        if (afterId) query = query.gt('id', afterId);
+        const { data, error } = await query.range(0, 999);
+        throwDb(error);
+        const page = data || [];
+        for (const edge of page) {
+          const routedId = String(edge[routed]);
+          for (const [rootId, occurrences] of rootsByRoutedId.get(routedId) || []) {
+            budget.expanded += occurrences;
+            if (budget.expanded > V2_REPORT_MAX_PAGE_EXPANSION) {
+              throw new CustomObjectHttpError(
+                400,
+                'This report expands too many field values in one page. Use a distinct related-record count instead of joining all related values.',
+              );
+            }
+            const count = (expansionByRoot.get(rootId) || 0) + occurrences;
+            if (count > V2_REPORT_MAX_CELL_EXPANSION) {
+              throw new CustomObjectHttpError(
+                400,
+                `Version 2 report field expansion exceeds ${V2_REPORT_MAX_CELL_EXPANSION.toLocaleString('en-US')} values for one cell`,
+              );
+            }
+            expansionByRoot.set(rootId, count);
+          }
+        }
+        edges.push(...page);
+        if (page.length < 1000) break;
+        const nextId = String(page.at(-1)?.id || '');
+        if (!nextId || nextId === afterId) {
+          throw new CustomObjectHttpError(500, 'Version 2 report edge paging did not advance');
+        }
+        afterId = nextId;
+      }
+    }
+    const endpoints = await reportEndpointRows(hop.endpoint, edges.map((edge) => edge[other]));
+    const byRouted = new Map();
+    for (const edge of edges) {
+      const target = endpoints.get(String(edge[other]));
+      if (target) {
+        (byRouted.get(String(edge[routed]))
+          || byRouted.set(String(edge[routed]), []).get(String(edge[routed])))
+          .push({ target, edge });
+      }
+    }
+    const output = rows.flatMap((row) => (byRouted.get(String(row.record.id)) || [])
+      .map(({ target, edge }) => ({
+        record: target, root: row.root, edges: [...row.edges, edge],
+      })));
+    return output;
+  }
+
   function reportValue(value) {
     if (value === null || value === undefined) return '';
     if (Array.isArray(value)) return value.map(reportValue).filter(Boolean).join('; ');
@@ -3830,8 +4172,197 @@ export function createCustomObjectService({
     return String(value);
   }
 
+  function reportRpcPath(hops) {
+    return hops.map((hop) => ({
+      relationship_definition_id: hop.definition.id,
+      from_side: hop.fromSide,
+      endpoint_kind: hop.endpoint.kind,
+      endpoint_custom_object_id: hop.endpoint.customObjectId,
+    }));
+  }
+
+  async function executeReportV2(objectId, validated, requestedPage = null) {
+    const p = requestedPage ? pagination(requestedPage, 500) : pagination({}, 500);
+    const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
+    const afterCursor = exportMode ? (requestedPage.exportCursor || null) : null;
+    const { data: summary, error } = await db.rpc('custom_object_report_summary_page', {
+      p_tenant_id: tenantId,
+      p_start_kind: validated.startEndpoint.kind,
+      p_start_custom_object_id: validated.startEndpoint.customObjectId,
+      p_grain_path: reportRpcPath(validated.grain.hops),
+      p_include_empty: validated.report.include_empty,
+      p_offset: exportMode ? 0 : p.from,
+      p_limit: p.pageSize,
+      p_after_cursor: afterCursor,
+      p_include_total: !exportMode || requestedPage.includeTotal === true,
+    });
+    throwReportV2RpcDb(error);
+    const summaryRows = Array.isArray(summary?.rows) ? summary.rows : [];
+    const endpoints = [validated.startEndpoint, ...validated.grain.hops.map((hop) => hop.endpoint)];
+    const ancestryMaps = await Promise.all(endpoints.map((endpoint_, index) =>
+      reportEndpointRows(endpoint_, summaryRows.map((row) => row.record_ids?.[index]))));
+    const sameHop = (left, right) =>
+      String(left.definition.id) === String(right.definition.id) && left.fromSide === right.fromSide;
+    const valueFromItem = (item, column) => {
+      if (!item?.record) return undefined;
+      if (column.relationshipField) {
+        return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
+      }
+      if (column.fieldDefinition) {
+        return item.record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key];
+      }
+      if (column.coreField === 'full_name') {
+        return [item.record.first_name, item.record.last_name].filter(Boolean).join(' ').trim();
+      }
+      return item.record[column.coreField];
+    };
+    const countValues = new Map();
+    for (const column of validated.columns.filter((item) => item.countDistinct)) {
+      const terminalIndex = validated.grain.hops.length;
+      const startRecordIds = [...new Set(summaryRows.map((row) => row.record_ids?.[terminalIndex])
+        .filter((recordId) =>
+          recordId && ancestryMaps[terminalIndex].has(String(recordId)))
+        .map(String))];
+      const { data: counts, error: countError } = await db.rpc(
+        'custom_object_report_distinct_counts',
+        {
+          p_tenant_id: tenantId,
+          p_start_kind: validated.grain.endpoint.kind,
+          p_start_custom_object_id: validated.grain.endpoint.customObjectId,
+          p_start_record_ids: startRecordIds,
+          p_path: reportRpcPath(column.path.hops),
+        },
+      );
+      throwReportV2RpcDb(countError);
+      if (!Array.isArray(counts)) {
+        throw new CustomObjectHttpError(500, 'Distinct count RPC returned a malformed result');
+      }
+      const requested = new Set(startRecordIds);
+      const values = new Map();
+      for (const item of counts) {
+        const recordId = String(item?.record_id || '');
+        const rawCount = item?.count;
+        const count = Number(rawCount);
+        const integerShaped = typeof rawCount === 'number'
+          || (typeof rawCount === 'string' && /^\d+$/.test(rawCount));
+        if (typeof item?.record_id !== 'string'
+          || !requested.has(recordId) || values.has(recordId)
+          || !item || !Object.hasOwn(item, 'count') || rawCount === null || rawCount === ''
+          || !integerShaped || !Number.isSafeInteger(count) || count < 0) {
+          throw new CustomObjectHttpError(500, 'Distinct count RPC returned a malformed result');
+        }
+        values.set(recordId, count);
+      }
+      if (values.size !== requested.size) {
+        throw new CustomObjectHttpError(500, 'Distinct count RPC returned an incomplete result');
+      }
+      countValues.set(column, values);
+    }
+    const fieldPlans = new Map();
+    const fieldTraversalGroups = new Map();
+    for (const column of validated.columns.filter((item) => !item.countDistinct)) {
+      let common = 0;
+      while (common < column.path.hops.length
+        && common < validated.grain.hops.length
+        && sameHop(column.path.hops[common], validated.grain.hops[common])) common += 1;
+      const remaining = column.path.hops.slice(common);
+      let groupKey = null;
+      if (remaining.length) {
+        groupKey = [
+          endpoints[common].kind,
+          endpoints[common].customObjectId || '',
+          remaining.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/'),
+        ].join('|');
+        let group = fieldTraversalGroups.get(groupKey);
+        if (!group) {
+          group = { remaining, anchors: new Map() };
+          fieldTraversalGroups.set(groupKey, group);
+        }
+        for (const summaryRow of summaryRows) {
+          const anchorId = summaryRow.record_ids?.[common];
+          const anchor = ancestryMaps[common].get(String(anchorId || ''));
+          if (anchor) group.anchors.set(String(anchor.id), anchor);
+        }
+      }
+      fieldPlans.set(column, { common, remaining, groupKey });
+    }
+    const fieldTraversalResults = new Map();
+    const fieldExpansionBudget = { expanded: 0 };
+    for (const [groupKey, group] of fieldTraversalGroups) {
+      let traversed = [...group.anchors.values()].map((anchor) => ({
+        record: anchor, root: anchor, edges: [],
+      }));
+      for (const hop of group.remaining) traversed = await reportFollowV2(traversed, hop, fieldExpansionBudget);
+      const byAnchor = new Map();
+      for (const item of traversed) {
+        const anchorId = String(item.root.id);
+        (byAnchor.get(anchorId) || byAnchor.set(anchorId, []).get(anchorId)).push(item);
+      }
+      fieldTraversalResults.set(groupKey, byAnchor);
+    }
+    const data = [];
+    let renderedFieldValues = 0;
+    for (const summaryRow of summaryRows) {
+      const recordIds = Array.isArray(summaryRow.record_ids) ? summaryRow.record_ids : [];
+      const ancestry = endpoints.map((_, index) =>
+        ancestryMaps[index].get(String(recordIds[index] || '')) || null);
+      const row = { id: summaryRow.id, values: [] };
+      for (const column of validated.columns) {
+        if (column.countDistinct) {
+          const startRecordId = recordIds[validated.grain.hops.length] || null;
+          if (!startRecordId || !ancestry.at(-1)) {
+            row.values.push(0);
+          } else {
+            row.values.push(countValues.get(column).get(String(startRecordId)));
+          }
+          continue;
+        }
+        const { common, remaining, groupKey } = fieldPlans.get(column);
+        let items = [];
+        const anchor = ancestry[common];
+        if (anchor) {
+          if (!remaining.length) {
+            items = [{
+              record: anchor,
+              root: ancestry[0],
+              edges: (summaryRow.edges || []).slice(0, common),
+            }];
+          } else {
+            items = fieldTraversalResults.get(groupKey)?.get(String(anchor.id)) || [];
+          }
+        }
+        renderedFieldValues += items.length;
+        if (renderedFieldValues > V2_REPORT_MAX_PAGE_EXPANSION) {
+          throw new CustomObjectHttpError(
+            400,
+            'This report renders too many related field values in one page. Use a distinct related-record count instead of joining all related values.',
+          );
+        }
+        const uniqueValues = [...new Map(items.map((item) => valueFromItem(item, column))
+          .map((value) => [JSON.stringify(value), value])).values()];
+        const rendered = reportValue(uniqueValues);
+        row.values.push(items.length === 0 && column.empty_label !== undefined
+          ? column.empty_label
+          : rendered);
+      }
+      data.push(row);
+    }
+    const total = summary?.total == null ? null : (Number(summary.total) || 0);
+    return {
+      columns: validated.columns.map((column) => ({ label: column.label })),
+      data,
+      total: total ?? (exportMode ? null : data.length),
+      bounded: true,
+      has_more: Boolean(summary?.has_more),
+      next_cursor: summary?.last_cursor ?? afterCursor,
+    };
+  }
+
   async function executeReport(objectId, definition, requestedPage = null) {
     const validated = await validateReportDefinition(objectId, definition);
+    if (validated.version === 2) {
+      return executeReportV2(objectId, validated, requestedPage);
+    }
     const p = requestedPage ? pagination(requestedPage, 500) : null;
     const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
     const exportCursor = requestedPage?.exportCursor || null;
@@ -4140,7 +4671,7 @@ export function createCustomObjectService({
     // Keep the pre-existing synchronous contract for unrelated complex report
     // grains. The resumable path is deliberately limited to root rows and the
     // Department-style one-hop occurrence grain this task hardens.
-    if (validated.grain.hops.length && !occurrenceExport) {
+    if (validated.version !== 2 && validated.grain.hops.length && !occurrenceExport) {
       const result = await executeReport(objectId, definition);
       return {
         ...result,

@@ -140,6 +140,10 @@ function mockDb(seed = {}, rpcErrors = {}) {
       }
       const count = rows.length;
       if (this.slice) rows = rows.slice(...this.slice);
+      else if (this.table === 'custom_object_relationship'
+        && rpcErrors.__relationshipSelectCap) {
+        rows = rows.slice(0, rpcErrors.__relationshipSelectCap);
+      }
       return { data: structuredClone(rows), error: null, count: this.wantCount ? count : null };
     }
 
@@ -159,6 +163,9 @@ function mockDb(seed = {}, rpcErrors = {}) {
     rpc(name, args) {
       calls.push({ type: 'rpc', name, args });
       const execute = () => {
+        if (rpcErrors[name] && Object.hasOwn(rpcErrors[name], 'mockData')) {
+          return { data: structuredClone(rpcErrors[name].mockData), error: null };
+        }
         if (rpcErrors[name]) return { data: null, error: structuredClone(rpcErrors[name]) };
         if (name === 'custom_object_catalogue_counts') {
           const requestedIds = new Set(args.p_custom_object_ids);
@@ -275,6 +282,86 @@ function mockDb(seed = {}, rpcErrors = {}) {
             },
             error: null,
           };
+        }
+        if (name === 'custom_object_report_summary_page') {
+          const endpointRows = (kind, customObjectId) => {
+            const table = {
+              custom_object: 'custom_object_record',
+              member: 'member',
+              organization: 'organization',
+              organization_group: 'organization_group',
+            }[kind];
+            return (tables[table] || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && (kind !== 'custom_object'
+                || (row.custom_object_id === customObjectId && row.archived_at == null)));
+          };
+          let rows = endpointRows(args.p_start_kind, args.p_start_custom_object_id)
+            .map((record) => ({ ids: [record.id], edges: [] }));
+          for (const hop of args.p_grain_path || []) {
+            const routed = hop.from_side === 'source' ? 'source_record_id' : 'target_record_id';
+            const other = hop.from_side === 'source' ? 'target_record_id' : 'source_record_id';
+            const endpoints = new Set(endpointRows(
+              hop.endpoint_kind,
+              hop.endpoint_custom_object_id,
+            ).map((row) => row.id));
+            rows = rows.flatMap((row) => {
+              if (!row.ids.at(-1)) {
+                return args.p_include_empty
+                  ? [{ ids: [...row.ids, null], edges: [...row.edges, null] }]
+                  : [];
+              }
+              const matches = (tables.custom_object_relationship || []).filter((edge) =>
+                edge.tenant_id === args.p_tenant_id
+                && edge.relationship_definition_id === hop.relationship_definition_id
+                && edge.archived_at == null
+                && edge[routed] === row.ids.at(-1)
+                && endpoints.has(edge[other]))
+                .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+              if (!matches.length && args.p_include_empty) {
+                return [{ ids: [...row.ids, null], edges: [...row.edges, null] }];
+              }
+              return matches.map((edge) => ({
+                ids: [...row.ids, edge[other]],
+                edges: [...row.edges, structuredClone(edge)],
+              }));
+            });
+          }
+          const identified = rows.map((row) => ({
+            id: [...row.ids, ...row.edges.map((edge) => edge?.id || '')].join(':'),
+            record_ids: row.ids,
+            edges: row.edges,
+          })).sort((left, right) => left.id.localeCompare(right.id));
+          const candidates = identified.filter((row) =>
+            !args.p_after_cursor || row.id > args.p_after_cursor);
+          const offset = args.p_after_cursor ? 0 : args.p_offset;
+          const selected = candidates.slice(offset, offset + args.p_limit);
+          return {
+            data: {
+              total: args.p_include_total ? identified.length : null,
+              rows: structuredClone(selected),
+              has_more: candidates.length > offset + args.p_limit,
+              last_cursor: selected.at(-1)?.id || args.p_after_cursor || null,
+            },
+            error: null,
+          };
+        }
+        if (name === 'custom_object_report_distinct_counts') {
+          const data = (args.p_start_record_ids || []).map((recordId) => {
+            let ids = [recordId];
+            for (const hop of args.p_path || []) {
+              const routed = hop.from_side === 'source' ? 'source_record_id' : 'target_record_id';
+              const other = hop.from_side === 'source' ? 'target_record_id' : 'source_record_id';
+              ids = (tables.custom_object_relationship || []).filter((edge) =>
+                edge.tenant_id === args.p_tenant_id
+                && edge.relationship_definition_id === hop.relationship_definition_id
+                && edge.archived_at == null
+                && ids.includes(edge[routed]))
+                .map((edge) => edge[other]);
+            }
+            return { record_id: recordId, count: new Set(ids).size };
+          });
+          return { data, error: null };
         }
         if (name === 'custom_object_report_export_commit') {
           const job = (tables.custom_object_report_export_job || []).find((row) =>
@@ -783,6 +870,948 @@ test('occurrence report preview turns a missing RPC into an actionable service e
   );
 });
 
+test('version 2 reports page every row through summary RPC and anchor branch fields to row ancestry', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamName = field({
+    id: 'team-name', custom_object_id: teamObjectId, name: 'team_name',
+    label: 'Team', field_type: 'text', is_required: false,
+  });
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [teamName],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-a', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Alpha' } },
+      { id: 'team-b', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Beta' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Grace', last_name: 'Hopper' },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-da', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-db', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-b', archived_at: null },
+      { id: 'edge-ma', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'edge-mb', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-b', target_record_id: 'member-b', archived_at: null },
+    ],
+  });
+  const teamPath = [{ relationship_definition_id: departmentTeam.id, from_side: 'source' }];
+  const report = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [
+      ...teamPath,
+      { relationship_definition_id: teamMember.id, from_side: 'source' },
+    ],
+    include_empty: false,
+    columns: [
+      { kind: 'field', field_id: teamName.id, path: teamPath, label: 'Team' },
+      { kind: 'field', field: 'full_name', path: [
+        ...teamPath,
+        { relationship_definition_id: teamMember.id, from_side: 'source' },
+      ], label: 'Member' },
+    ],
+  };
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
+  assert.equal(result.total, 2);
+  assert.equal(result.data.length, 1);
+  assert.deepEqual(result.data[0].values, ['Alpha', 'Ada Lovelace']);
+  const call = db.calls.find((item) => item.name === 'custom_object_report_summary_page');
+  assert.deepEqual(Object.keys(call.args), [
+    'p_tenant_id', 'p_start_kind', 'p_start_custom_object_id', 'p_grain_path',
+    'p_include_empty', 'p_offset', 'p_limit', 'p_after_cursor', 'p_include_total',
+  ]);
+  assert.equal(call.args.p_tenant_id, tenantId);
+  assert.equal(call.args.p_limit, 1);
+  assert.equal(
+    db.calls.some((item) => item.name === 'custom_object_report_occurrence_page'),
+    false,
+  );
+});
+
+test('version 2 include-empty rows use empty labels and validated counts return numeric zero', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamName = field({
+    id: 'team-name', custom_object_id: teamObjectId, name: 'team_name',
+    label: 'Team', field_type: 'text', is_required: false,
+  });
+  const relationship = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [teamName],
+    custom_object_record: [
+      { id: 'department-empty', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ],
+    custom_object_relationship_definition: [relationship, teamMember],
+    custom_object_relationship: [],
+  });
+  const grainPath = [{ relationship_definition_id: relationship.id, from_side: 'source' }];
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: grainPath,
+    include_empty: true,
+    columns: [
+      { kind: 'field', field_id: teamName.id, path: grainPath, empty_label: 'No team' },
+      { kind: 'count_distinct', path: [{
+        relationship_definition_id: teamMember.id, from_side: 'source',
+      }], label: 'Members' },
+    ],
+  });
+  assert.deepEqual(result.data[0].values, ['No team', 0]);
+  const countCall = db.calls.find((item) =>
+    item.name === 'custom_object_report_distinct_counts');
+  assert.deepEqual(countCall.args.p_start_record_ids, []);
+});
+
+test('version 2 empty labels do not replace genuine blank field values', async () => {
+  const title = field({
+    id: 'title-field', name: 'title', label: 'Title',
+    field_type: 'text', is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [{
+      id: 'blank-record', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: '' },
+    }],
+    custom_object_relationship_definition: [],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{
+      kind: 'field', field_id: title.id, path: [], empty_label: 'Missing record',
+    }],
+  });
+  assert.deepEqual(result.data[0].values, ['']);
+});
+
+test('version 2 batches and deduplicates distinct counts once per column and page', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-a', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: {} },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId },
+      { id: 'member-b', tenant_id: tenantId },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-team-a', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-team-b', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-member-a', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'edge-member-b', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-b', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [{
+      relationship_definition_id: departmentTeam.id, from_side: 'source',
+    }],
+    include_empty: false,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: teamMember.id, from_side: 'source' }],
+      label: 'Members',
+    }],
+  });
+  assert.deepEqual(result.data.map((row) => row.values), [[2], [2]]);
+  const calls = db.calls.filter((item) =>
+    item.name === 'custom_object_report_distinct_counts');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args.p_start_record_ids, ['team-a']);
+  assert.deepEqual(Object.keys(calls[0].args), [
+    'p_tenant_id', 'p_start_kind', 'p_start_custom_object_id',
+    'p_start_record_ids', 'p_path',
+  ]);
+});
+
+test('version 2 rejects incomplete batched distinct-count RPC results', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const relationship = {
+    id: 'related-link', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: relatedObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: relatedObjectId, object_key: 'related', singular_label: 'Related', plural_label: 'Related' }),
+    ],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [relationship],
+  }, {
+    custom_object_report_distinct_counts: { mockData: [] },
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: [],
+      include_empty: false,
+      columns: [{
+        kind: 'count_distinct',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      }],
+    }),
+    /incomplete result/,
+  );
+});
+
+test('version 2 field fanout keyset-pages beyond one thousand edges and caches shared ancestry', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const members = Array.from({ length: 1001 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const memberEdges = members.map((member, index) => ({
+    id: `member-edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: teamMember.id,
+    source_record_id: 'team-shared',
+    target_record_id: member.id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-shared', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: {} },
+    ],
+    member: members,
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'department-edge-a', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-shared', archived_at: null },
+      { id: 'department-edge-b', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-shared', archived_at: null },
+      ...memberEdges,
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  const teamPath = [{
+    relationship_definition_id: departmentTeam.id, from_side: 'source',
+  }];
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: teamPath,
+    include_empty: false,
+    columns: [{
+      kind: 'field',
+      field: 'full_name',
+      path: [...teamPath, {
+        relationship_definition_id: teamMember.id, from_side: 'source',
+      }],
+      label: 'Members',
+    }],
+  });
+  assert.equal(result.data.length, 2);
+  assert.equal(result.data[0].values[0].split('; ').length, 1001);
+  assert.match(result.data[0].values[0], /Member 1000/);
+  assert.equal(result.data[1].values[0], result.data[0].values[0]);
+  const fanoutRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'range');
+  assert.equal(fanoutRanges.length, 2);
+  assert.deepEqual(fanoutRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [0, 999],
+  ]);
+  const cursorCalls = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship' && item.type === 'gt');
+  assert.deepEqual(cursorCalls.map((item) => item.value), ['member-edge-0999']);
+});
+
+test('version 2 groups five hundred distinct field anchors into bounded edge batches', async () => {
+  const relationship = {
+    id: 'root-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  const members = roots.map((_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const edges = roots.map((root, index) => ({
+    id: `edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: relationship.id,
+    source_record_id: root.id,
+    target_record_id: members[index].id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: roots,
+    member: members,
+    custom_object_relationship_definition: [relationship],
+    custom_object_relationship: edges,
+  }, { __relationshipSelectCap: 1000 });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [
+      {
+        kind: 'field',
+        field: 'full_name',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      },
+      {
+        kind: 'field',
+        field: 'email',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      },
+    ],
+    page: 1,
+    pageSize: 500,
+  });
+  assert.equal(result.data.length, 500);
+  assert.deepEqual(result.data[499].values, ['Member 499', '']);
+  const ranges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship' && item.type === 'range');
+  assert.equal(ranges.length, 3);
+  const routedBatches = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'in'
+    && item.column === 'source_record_id');
+  assert.deepEqual(routedBatches.map((item) => item.values.length), [200, 200, 100]);
+});
+
+test('version 2 fails descriptive over-limit field expansion while distinct counts still scale', async () => {
+  const relationship = {
+    id: 'root-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const members = Array.from({ length: 10001 }, (_, index) => ({
+    id: `member-${String(index).padStart(5, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const edges = members.map((member, index) => ({
+    id: `edge-${String(index).padStart(5, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: relationship.id,
+    source_record_id: 'root-a',
+    target_record_id: member.id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    member: members,
+    custom_object_relationship_definition: [relationship],
+    custom_object_relationship: edges,
+  }, { __relationshipSelectCap: 1000 });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const common = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+  };
+  const countResult = await service.previewReport(objectId, {
+    ...common,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+    }],
+  });
+  assert.deepEqual(countResult.data[0].values, [10001]);
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      ...common,
+      columns: [{
+        kind: 'field',
+        field: 'full_name',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      }],
+    }),
+    /field expansion exceeds 10,000 values for one cell/,
+  );
+});
+
+test('version 2 rejects cumulative page expansion when every cell remains below its limit', async () => {
+  const childObjectId = '44444444-4444-4444-8444-444444444444';
+  const rootChild = {
+    id: 'root-child', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: childObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const childMember = {
+    id: 'child-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: childObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  const members = Array.from({ length: 201 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: childObjectId,
+        object_key: 'child',
+        singular_label: 'Child',
+        plural_label: 'Children',
+      }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      ...roots,
+      {
+        id: 'shared-child',
+        tenant_id: tenantId,
+        custom_object_id: childObjectId,
+        archived_at: null,
+        data: {},
+      },
+    ],
+    member: members,
+    custom_object_relationship_definition: [rootChild, childMember],
+    custom_object_relationship: [
+      ...roots.map((root, index) => ({
+        id: `root-child-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: rootChild.id,
+        source_record_id: root.id,
+        target_record_id: 'shared-child',
+        archived_at: null,
+      })),
+      ...members.map((member, index) => ({
+        id: `child-member-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: childMember.id,
+        source_record_id: 'shared-child',
+        target_record_id: member.id,
+        archived_at: null,
+      })),
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: [],
+      include_empty: false,
+      page: 1,
+      pageSize: 500,
+      columns: [{
+        kind: 'field',
+        field: 'full_name',
+        path: [
+          { relationship_definition_id: rootChild.id, from_side: 'source' },
+          { relationship_definition_id: childMember.id, from_side: 'source' },
+        ],
+      }],
+    }),
+    /expands too many field values in one page/,
+  );
+});
+
+test('version 2 budgets cached field values again for repeated occurrences and columns', async () => {
+  const childObjectId = '44444444-4444-4444-8444-444444444444';
+  const rootChild = {
+    id: 'root-child', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: childObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const childMember = {
+    id: 'child-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: childObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  // One cached traversal is small (101 values), but rendering it for 500
+  // occurrences across two columns would construct 101,000 field values.
+  const members = Array.from({ length: 101 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+    email: `member-${index}@example.test`,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: childObjectId,
+        object_key: 'child',
+        singular_label: 'Child',
+        plural_label: 'Children',
+      }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      ...roots,
+      {
+        id: 'shared-child',
+        tenant_id: tenantId,
+        custom_object_id: childObjectId,
+        archived_at: null,
+        data: {},
+      },
+    ],
+    member: members,
+    custom_object_relationship_definition: [rootChild, childMember],
+    custom_object_relationship: [
+      ...roots.map((root, index) => ({
+        id: `root-child-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: rootChild.id,
+        source_record_id: root.id,
+        target_record_id: 'shared-child',
+        archived_at: null,
+      })),
+      ...members.map((member, index) => ({
+        id: `child-member-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: childMember.id,
+        source_record_id: 'shared-child',
+        target_record_id: member.id,
+        archived_at: null,
+      })),
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  const grainPath = [{
+    relationship_definition_id: rootChild.id,
+    from_side: 'source',
+  }];
+  const branchPath = [
+    ...grainPath,
+    { relationship_definition_id: childMember.id, from_side: 'source' },
+  ];
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: grainPath,
+      include_empty: false,
+      page: 1,
+      pageSize: 500,
+      columns: [
+        { kind: 'field', field: 'full_name', path: branchPath },
+        { kind: 'field', field: 'email', path: branchPath },
+      ],
+    }),
+    /renders too many related field values in one page/,
+  );
+  const branchQueries = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'eq'
+    && item.column === 'relationship_definition_id'
+    && item.value === childMember.id);
+  assert.equal(branchQueries.length, 1);
+});
+
+test('version 2 rejects null and fractional batched counts as malformed', async () => {
+  const relationship = {
+    id: 'related-link', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const baseSeed = {
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [relationship],
+  };
+  const report = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+    }],
+  };
+  for (const invalidCount of [null, 1.5]) {
+    const db = mockDb(baseSeed, {
+      custom_object_report_distinct_counts: {
+        mockData: [{ record_id: 'root-a', count: invalidCount }],
+      },
+    });
+    await assert.rejects(
+      () => createCustomObjectService({
+        db, context: context(), isAdmin: true,
+      }).previewReport(objectId, report),
+      /malformed result/,
+    );
+  }
+});
+
+test('version 2 validates disconnected starts and every count path before zero-row execution', async () => {
+  const unrelatedObjectId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: unrelatedObjectId, object_key: 'other', singular_label: 'Other', plural_label: 'Others' }),
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(() => service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: unrelatedObjectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  }), /disconnected or unavailable/);
+  await assert.rejects(() => service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'count_distinct', path: [{
+      relationship_definition_id: 'missing', from_side: 'source',
+    }] }],
+  }), /disconnected, unavailable, or cyclic/);
+  assert.equal(
+    db.calls.some((item) => item.name === 'custom_object_report_summary_page'),
+    false,
+  );
+});
+
+test('version 2 zero-row previews are bounded and large exports stay durable across summary cursors', async () => {
+  const definition = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [], label: 'ID' }],
+  };
+  const emptyDb = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [],
+  });
+  const empty = await createCustomObjectService({
+    db: emptyDb, context: context(), isAdmin: true,
+  }).previewReport(objectId, { definition, page: 1, pageSize: 25 });
+  assert.equal(empty.total, 0);
+  assert.equal(empty.page_count, 0);
+  assert.deepEqual(empty.data, []);
+
+  const records = Array.from({ length: 501 }, (_, index) => ({
+    id: `record-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  records.push({
+    id: 'foreign-record',
+    tenant_id: '99999999-9999-4999-8999-999999999999',
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: records,
+    custom_object_relationship_definition: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  let job = await service.exportReport(objectId, {
+    action: 'start', definition, name: 'V2 all records',
+  });
+  assert.equal(job.status, 'queued');
+  assert.equal(job.legacy_sync, undefined);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'processing');
+  assert.equal(job.processed, 500);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  assert.equal(job.processed, 501);
+  assert.equal(job.total, 501);
+  const pages = db.calls.filter((item) => item.name === 'custom_object_report_summary_page');
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0].args.p_after_cursor, null);
+  assert.equal(pages[0].args.p_include_total, true);
+  assert.equal(pages[1].args.p_after_cursor, 'record-0499');
+  assert.equal(pages[1].args.p_include_total, false);
+  assert.ok(pages.every((item) =>
+    item.args.p_tenant_id === tenantId && item.args.p_limit === 500));
+});
+
+test('version 2 connectivity searches an authorized six-hop route and loads graphs beyond one thousand definitions', async () => {
+  const deniedId = '44444444-4444-4444-8444-444444444444';
+  const allowedId = '55555555-5555-4555-8555-555555555555';
+  const startId = '66666666-6666-4666-8666-666666666666';
+  const relationship = (id, sourceId, targetId) => ({
+    id,
+    tenant_id: tenantId,
+    status: 'active',
+    archived_at: null,
+    source_kind: 'custom_object',
+    source_custom_object_id: sourceId,
+    target_kind: 'custom_object',
+    target_custom_object_id: targetId,
+    cardinality: 'many_to_many',
+    configuration: {},
+  });
+  const fillers = Array.from({ length: 1000 }, (_, index) => relationship(
+    `filler-${String(index).padStart(4, '0')}`,
+    `unused-source-${index}`,
+    `unused-target-${index}`,
+  ));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: deniedId, object_key: 'denied', singular_label: 'Denied', plural_label: 'Denied' }),
+      object({ id: allowedId, object_key: 'allowed', singular_label: 'Allowed', plural_label: 'Allowed' }),
+      object({ id: startId, object_key: 'start', singular_label: 'Start', plural_label: 'Starts' }),
+    ],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: objectId, can_view_records: true },
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: allowedId, can_view_records: true },
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: startId, can_view_records: true },
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [
+      ...fillers,
+      relationship('route-a-denied', objectId, deniedId),
+      relationship('route-b-denied-start', deniedId, startId),
+      relationship('route-c-allowed', objectId, allowedId),
+      relationship('route-d-allowed-start', allowedId, startId),
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: false,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: startId },
+    grain_path: [],
+    include_empty: false,
+    multi_value: 'join',
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  });
+  assert.equal(result.total, 0);
+  const definitionRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship_definition' && item.type === 'range');
+  assert.deepEqual(definitionRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
+});
+
+test('version 2 validates multi-value policy and relationship-field route visibility', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const definition = {
+    id: 'related-link',
+    tenant_id: tenantId,
+    status: 'active',
+    archived_at: null,
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: relatedObjectId,
+    cardinality: 'many_to_many',
+    configuration: {
+      relationship_fields: [{
+        id: 'private-note',
+        key: 'private_note',
+        label: 'Private note',
+        type: 'boolean',
+        display_on_source: false,
+        display_on_target: true,
+      }],
+    },
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: relatedObjectId, object_key: 'related', singular_label: 'Related', plural_label: 'Related' }),
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [definition],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const base = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  };
+  await assert.rejects(
+    () => service.previewReport(objectId, { ...base, multi_value: 'expand' }),
+    /multi_value must be join/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      ...base,
+      multi_value: 'join',
+      columns: [{
+        kind: 'relationship_field',
+        path: [{ relationship_definition_id: definition.id, from_side: 'source' }],
+        relationship_definition_id: definition.id,
+        relationship_field_id: 'private-note',
+      }],
+    }),
+    /relationship field is stale or unavailable/,
+  );
+});
+
 test('report validation rejects stale paths, stale fields, denied core access, and unsupported expansion rules', async () => {
   const visible = field({ id: 'visible-field', name: 'title', label: 'Title', field_type: 'text', is_required: false });
   const archivedRelationship = {
@@ -1016,6 +2045,61 @@ test('reports reject active paths whose custom endpoint has since been archived'
     canManageSchema: true,
   }).relationshipDefinitionGraph(objectId);
   assert.deepEqual(graph.data, []);
+  assert.deepEqual(graph.objects.map((item) => item.id), [objectId]);
+});
+
+test('relationship definition graph includes labelled active objects and paginates both collections', async () => {
+  const relatedObjects = Array.from({ length: 1001 }, (_, index) => object({
+    id: `object-${String(index).padStart(4, '0')}`,
+    object_key: `object_${index}`,
+    singular_label: `Object ${index}`,
+    plural_label: `Objects ${index}`,
+  }));
+  const definitions = Array.from({ length: 1001 }, (_, index) => ({
+    id: `definition-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'member',
+    source_custom_object_id: null,
+    target_kind: 'organization',
+    target_custom_object_id: null,
+    created_at: `2026-01-01T00:00:${String(index % 60).padStart(2, '0')}Z`,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object({ singular_label: 'Department', plural_label: 'Departments' }),
+      ...relatedObjects,
+      object({ id: 'archived-object', status: 'archived', singular_label: 'Old', plural_label: 'Old' }),
+    ],
+    custom_object_relationship_definition: definitions,
+  });
+  const graph = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+    canManageSchema: true,
+  }).relationshipDefinitionGraph(objectId);
+  assert.equal(graph.data.length, 1001);
+  assert.equal(graph.objects.length, 1002);
+  assert.deepEqual(
+    graph.objects.find((item) => item.id === objectId),
+    {
+      id: objectId,
+      singular_label: 'Department',
+      plural_label: 'Departments',
+    },
+  );
+  assert.equal(graph.objects.some((item) => item.id === 'archived-object'), false);
+  const definitionRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship_definition' && item.type === 'range');
+  const objectRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_definition' && item.type === 'range');
+  assert.deepEqual(definitionRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
+  assert.deepEqual(objectRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
 });
 
 test('report export resumes through every root without truncating or duplicating chunks', async () => {

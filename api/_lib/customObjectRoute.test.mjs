@@ -218,6 +218,53 @@ test('report preview and complete export remain on the record-data authorization
   ]);
 });
 
+test('report routes preserve the version 2 owner and endpoint contract at service boundary', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      previewReport: async (objectId, body) => {
+        calls.push(['preview', objectId, body]);
+        return { total: 0, data: [] };
+      },
+      exportReport: async (objectId, body) => {
+        calls.push(['export', objectId, body]);
+        return { id: 'job-1', status: 'queued' };
+      },
+    }),
+  });
+  const definition = {
+    version: 2,
+    start_object_id: 'object-1',
+    start_endpoint: { kind: 'member' },
+    grain_path: [],
+    include_empty: true,
+    columns: [{ kind: 'field', field: 'full_name', path: [], empty_label: 'Unknown' }],
+  };
+  const preview = response();
+  await handler({
+    method: 'POST',
+    query: { objectId: 'object-1', resource: 'report-preview' },
+    body: { definition, page: 1, pageSize: 25 },
+  }, preview);
+  assert.equal(preview.statusCode, 201);
+  const exported = response();
+  await handler({
+    method: 'POST',
+    query: { objectId: 'object-1', resource: 'report-export' },
+    body: { action: 'start', definition },
+  }, exported);
+  assert.equal(exported.statusCode, 201);
+  assert.deepEqual(calls, [
+    ['preview', 'object-1', { definition, page: 1, pageSize: 25 }],
+    ['export', 'object-1', { action: 'start', definition }],
+  ]);
+});
+
 test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {
   const checked = [];
   const handler = createCustomObjectRouteHandler('collection', {
