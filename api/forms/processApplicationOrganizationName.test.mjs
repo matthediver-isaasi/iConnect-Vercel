@@ -47,9 +47,11 @@ function makeSupabase({
   form,
   submission,
   existingOrganization = null,
+  existingMember = null,
   submitterMember = null,
   preferenceFields = [],
   organizationPreferenceValues = [],
+  memberPreferenceValues = [],
   pipelineEntityLinks = [],
   customObjectDefinitions = [],
   customObjectRecords = [],
@@ -69,6 +71,7 @@ function makeSupabase({
       this.filters = [];
       this.insertPayload = null;
       this.updatePayload = null;
+      this.deleteRequested = false;
     }
     select(columns = '*') { this.selected = columns; return this; }
     eq(column, value) { this.filters.push(['eq', column, value]); return this; }
@@ -94,7 +97,11 @@ function makeSupabase({
       updates.push({ table: this.table, payload });
       return this;
     }
-    delete() { deletes.push({ table: this.table, filters: this.filters }); return this; }
+    delete() {
+      this.deleteRequested = true;
+      deletes.push({ table: this.table, filters: this.filters });
+      return this;
+    }
     async maybeSingle() {
       if (this.table === 'form') return { data: this.selected === 'tenant_id' ? { tenant_id: form.tenant_id } : form, error: null };
       if (this.table === 'form_submission') {
@@ -117,7 +124,33 @@ function makeSupabase({
       }
       if (this.table === 'member') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
-        return { data: submitterMember?.id === id ? submitterMember : null, error: null };
+        const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
+        const candidate = existingMember || submitterMember;
+        return {
+          data: (id && candidate?.id === id)
+            || (email && candidate?.email?.toLowerCase() === String(email).toLowerCase())
+            ? candidate
+            : null,
+          error: null,
+        };
+      }
+      if (this.table === 'organization_preference_value') {
+        const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
+        const fieldId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'field_id')?.[2];
+        return {
+          data: organizationPreferenceValues.find(row =>
+            row.organization_id === organizationId && row.field_id === fieldId) || null,
+          error: null,
+        };
+      }
+      if (this.table === 'member_preference_value') {
+        const memberId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'member_id')?.[2];
+        const fieldId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'field_id')?.[2];
+        return {
+          data: memberPreferenceValues.find(row =>
+            row.member_id === memberId && row.field_id === fieldId) || null,
+          error: null,
+        };
       }
       const rows = {
         preference_field: preferenceFields,
@@ -154,6 +187,15 @@ function makeSupabase({
       if (this.table === 'member' && this.insertPayload) {
         return { data: { id: 'created-member', ...this.insertPayload }, error: null };
       }
+      if (this.table === 'member') {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
+        const candidate = existingMember || submitterMember;
+        if ((id && candidate?.id === id)
+            || (email && candidate?.email?.toLowerCase() === String(email).toLowerCase())) {
+          return { data: candidate, error: null };
+        }
+      }
       return { data: null, error: null };
     }
     then(resolve, reject) {
@@ -164,10 +206,40 @@ function makeSupabase({
       if (this.table === 'organization_preference_value') {
         const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
         const fieldIds = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'field_id')?.[2];
+        const fieldId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'field_id')?.[2];
+        if (this.deleteRequested) {
+          for (let index = organizationPreferenceValues.length - 1; index >= 0; index -= 1) {
+            const row = organizationPreferenceValues[index];
+            if (row.organization_id === organizationId
+                && (!fieldId || row.field_id === fieldId)
+                && (!fieldIds || fieldIds.includes(row.field_id))) {
+              organizationPreferenceValues.splice(index, 1);
+            }
+          }
+        }
         data = organizationPreferenceValues.filter(row => (
           row.organization_id === organizationId
+          && (!fieldId || row.field_id === fieldId)
           && (!fieldIds || fieldIds.includes(row.field_id))
         ));
+      }
+      if (this.table === 'member_preference_value') {
+        const memberId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'member_id')?.[2];
+        const fieldId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'field_id')?.[2];
+        if (this.deleteRequested) {
+          for (let index = memberPreferenceValues.length - 1; index >= 0; index -= 1) {
+            const row = memberPreferenceValues[index];
+            if (row.member_id === memberId && (!fieldId || row.field_id === fieldId)) {
+              memberPreferenceValues.splice(index, 1);
+            }
+          }
+        }
+        data = memberPreferenceValues.filter(row =>
+          row.member_id === memberId && (!fieldId || row.field_id === fieldId));
+      }
+      if (this.table === 'member' && this.updatePayload) {
+        const candidate = existingMember || submitterMember;
+        data = candidate ? [{ ...candidate, ...this.updatePayload }] : [];
       }
       if (this.table === 'organization' && !this.insertPayload && existingOrganization) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
@@ -190,17 +262,20 @@ function makeSupabase({
 
 async function invokeProcessor(payload, {
   existingOrganization = null,
+  existingMember = null,
   requestFormValues = payload.form_values,
   verifiedAdminAccess = true,
   submitterMember = null,
   preferenceFields = [],
   organizationPreferenceValues = [],
+  memberPreferenceValues = [],
   pipelineEntityLinks = [],
   customObjectDefinitions = [],
   customObjectRecords = [],
   relationshipDefinitions = [],
   relationshipEdges = [],
   persistedCreatedOrganizationId = null,
+  persistedCreatedMemberId = null,
   entityProcessingCompletedAt = null,
   idempotencyLookupError = null,
   requestBodyOverrides = {},
@@ -230,7 +305,7 @@ async function invokeProcessor(payload, {
     submission_data: payload.form_values,
     submitted_by_email: submitterMember?.email || null,
     organization_id: null,
-    created_member_id: null,
+    created_member_id: persistedCreatedMemberId,
     created_organization_id: persistedCreatedOrganizationId,
     entity_processing_completed_at: entityProcessingCompletedAt,
     payment_reference: null,
@@ -242,9 +317,11 @@ async function invokeProcessor(payload, {
     form,
     submission,
     existingOrganization,
+    existingMember,
     submitterMember,
     preferenceFields,
     organizationPreferenceValues,
+    memberPreferenceValues,
     pipelineEntityLinks,
     customObjectDefinitions,
     customObjectRecords,
@@ -450,6 +527,273 @@ for (const [surface, requestBodyOverrides] of [
     );
   });
 }
+
+function threeDepartmentMemberFixture() {
+  const organizationId = 'approved-parent-organization';
+  const departmentIds = ['department-radiology', 'department-cardiology', 'department-neurology'];
+  const organizationTypeFieldId = 'organization-type';
+  const payload = publicPayload({
+    fields: [
+      { id: 'member_email', type: 'email' },
+      {
+        ...dropdown,
+        id: 'organisation',
+        org_filter: {
+          type: 'custom',
+          field: organizationTypeFieldId,
+          values: ['Eligible'],
+          mode: 'include',
+        },
+      },
+      {
+        id: 'implicit_org_type',
+        type: 'select',
+        starts_hidden: true,
+        custom_field_id: organizationTypeFieldId,
+      },
+      {
+        id: 'departments',
+        type: 'relationship_dropdown',
+        selection_mode: 'multiple',
+        parent_field_id: 'organisation',
+        relationship_definition_id: 'organization-department',
+        relationship_parent_kind: 'organization',
+        relationship_parent_side: 'source',
+        related_kind: 'custom_object',
+        related_custom_object_id: 'department-object',
+        related_primary_display_field_id: 'department-name',
+      },
+    ],
+    form_values: {
+      member_email: 'three-departments@example.test',
+      organisation: organizationId,
+      implicit_org_type: '',
+      departments: departmentIds,
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'upsert',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'member_email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+        related_records: [{
+          id: 'member-departments',
+          relationship_definition_id: 'department-member',
+          source_field_id: 'departments',
+        }],
+      }],
+      organisations: [{
+        id: 'org-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'organisation',
+          target_type: 'core',
+          target_entity: 'organization',
+          target_field: 'name',
+        }],
+      }],
+    },
+  });
+  const database = relatedDepartmentDatabase();
+  database.preferenceFields.push({
+    id: organizationTypeFieldId,
+    tenant_id: 'tenant-runtime-org',
+    entity_scope: 'organization',
+    is_active: true,
+    name: 'Organisation type',
+    field_type: 'select',
+  });
+  database.customObjectRecords.push(
+    {
+      id: 'department-cardiology',
+      tenant_id: 'tenant-runtime-org',
+      custom_object_id: 'department-object',
+      archived_at: null,
+      data: { name: 'Cardiology' },
+    },
+    {
+      id: 'department-neurology',
+      tenant_id: 'tenant-runtime-org',
+      custom_object_id: 'department-object',
+      archived_at: null,
+      data: { name: 'Neurology' },
+    },
+  );
+  database.relationshipDefinitions.push({
+    id: 'department-member',
+    tenant_id: 'tenant-runtime-org',
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: 'department-object',
+    target_kind: 'member',
+    target_custom_object_id: null,
+    show_on_source: true,
+  });
+  database.relationshipEdges.push(
+    {
+      id: 'approved-parent-cardiology',
+      tenant_id: 'tenant-runtime-org',
+      relationship_definition_id: 'organization-department',
+      source_record_id: organizationId,
+      target_record_id: 'department-cardiology',
+      archived_at: null,
+    },
+    {
+      id: 'approved-parent-neurology',
+      tenant_id: 'tenant-runtime-org',
+      relationship_definition_id: 'organization-department',
+      source_record_id: organizationId,
+      target_record_id: 'department-neurology',
+      archived_at: null,
+    },
+  );
+  return {
+    payload,
+    departmentIds,
+    options: {
+      existingOrganization: {
+        id: organizationId,
+        tenant_id: 'tenant-runtime-org',
+        name: 'Approved Teaching Hospital',
+        status: 'Approved',
+      },
+      ...database,
+      organizationPreferenceValues: [{
+        id: 'saved-organization-type',
+        organization_id: organizationId,
+        field_id: organizationTypeFieldId,
+        value: 'Eligible',
+      }],
+    },
+  };
+}
+
+for (const [surface, requestBodyOverrides] of [
+  ['embedded signed handoff', {}],
+  ['standalone signed handoff', { form_values: {}, fields: [], entity_pipelines: {} }],
+]) {
+  test(`${surface} preserves hidden organization type and links three Departments to the primary Member`, async () => {
+    const fixture = threeDepartmentMemberFixture();
+    const result = await invokeProcessor(fixture.payload, {
+      ...fixture.options,
+      requestBodyOverrides,
+    });
+    const links = result.inserts.filter(entry =>
+      entry.table === 'custom_object_relationship'
+      && entry.payload.relationship_definition_id === 'department-member');
+
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.response.body.related_records?.success, true,
+      JSON.stringify(result.response.body.related_records));
+    assert.equal(result.deletes.some(entry =>
+      entry.table === 'organization_preference_value'), false);
+    assert.equal(
+      fixture.options.organizationPreferenceValues.some(row =>
+        row.field_id === 'organization-type' && row.value === 'Eligible'),
+      true,
+    );
+    assert.deepEqual(
+      links.map(entry => entry.payload.source_record_id).sort(),
+      [...fixture.departmentIds].sort(),
+    );
+    assert.equal(links.every(entry => entry.payload.target_record_id === 'created-member'), true);
+    assert.equal(result.response.body.related_records?.failed_count, 0);
+    const persistedNotes = result.updates
+      .filter(entry => entry.table === 'form_submission')
+      .flatMap(entry => entry.payload.processing_notes || []);
+    assert.equal(
+      persistedNotes.filter(note =>
+        note.kind === 'primary_pipeline_related_record'
+        && note.status === 'linked').length,
+      3,
+    );
+  });
+}
+
+test('completed-primary replay creates only missing Department links and reports a durable success', async () => {
+  const fixture = threeDepartmentMemberFixture();
+  const result = await invokeProcessor(fixture.payload, {
+    ...fixture.options,
+    persistedCreatedMemberId: 'created-member',
+    persistedCreatedOrganizationId: 'approved-parent-organization',
+    entityProcessingCompletedAt: '2026-09-10T08:00:00.000Z',
+  });
+  const links = result.inserts.filter(entry =>
+    entry.table === 'custom_object_relationship'
+    && entry.payload.relationship_definition_id === 'department-member');
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.body.already_processed, true);
+  assert.equal(result.response.body.related_records?.success, true,
+    JSON.stringify(result.response.body.related_records));
+  assert.equal(result.inserts.some(entry => entry.table === 'member'), false);
+  assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+  assert.deepEqual(
+    links.map(entry => entry.payload.source_record_id).sort(),
+    [...fixture.departmentIds].sort(),
+  );
+  assert.equal(result.response.body.related_records?.failed_count, 0);
+});
+
+test('completed-primary Department replay is idempotent when all three links already exist', async () => {
+  const fixture = threeDepartmentMemberFixture();
+  fixture.options.relationshipEdges.push(...fixture.departmentIds.map((departmentId, index) => ({
+    id: `existing-member-department-${index}`,
+    tenant_id: 'tenant-runtime-org',
+    relationship_definition_id: 'department-member',
+    source_record_id: departmentId,
+    target_record_id: 'created-member',
+    archived_at: null,
+  })));
+  const result = await invokeProcessor(fixture.payload, {
+    ...fixture.options,
+    persistedCreatedMemberId: 'created-member',
+    persistedCreatedOrganizationId: 'approved-parent-organization',
+    entityProcessingCompletedAt: '2026-09-10T08:00:00.000Z',
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.body.already_processed, true);
+  assert.equal(result.response.body.related_records?.success, true,
+    JSON.stringify(result.response.body.related_records));
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'custom_object_relationship'
+    && entry.payload.relationship_definition_id === 'department-member'), false);
+  assert.equal(
+    result.response.body.related_records?.outcomes.every(outcome =>
+      outcome.status === 'already_linked'),
+    true,
+  );
+});
+
+test('cross-tenant Department selection remains rejected without creating any links', async () => {
+  const fixture = threeDepartmentMemberFixture();
+  const crossTenant = fixture.options.customObjectRecords.find(record =>
+    record.id === 'department-neurology');
+  crossTenant.tenant_id = 'different-tenant';
+  const result = await invokeProcessor(fixture.payload, fixture.options);
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.body.related_records?.success, false);
+  assert.equal(result.response.body.related_records?.failed_count, 1);
+  assert.equal(
+    result.response.body.related_records?.outcomes[0]?.reason,
+    'submitted_relationship_invalid',
+  );
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'custom_object_relationship'
+    && entry.payload.relationship_definition_id === 'department-member'), false);
+});
 
 test('same-name not-listed fields materialize only the final winning organization-name source', async () => {
   const approvedOnly = {
@@ -1311,6 +1655,400 @@ test('an ignored hidden custom mapping is not restored by legacy field metadata'
   assert.equal(result.inserts.some(entry =>
     entry.table === 'organization_preference_value'
     && entry.payload.field_id === customFieldId), false);
+});
+
+for (const [label, submittedValue] of [
+  ['blank', ''],
+  ['nonblank', 'Forged hidden type'],
+]) {
+  test(`a hidden ${label} implicit organization custom binding preserves the existing value`, async () => {
+    const customFieldId = 'organization-type';
+    const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+    const payload = publicPayload();
+    payload.fields.push({
+      id: 'implicit_org_type',
+      type: 'select',
+      starts_hidden: true,
+      custom_field_id: customFieldId,
+    });
+    payload.form_values.organisation = organizationId;
+    payload.form_values.implicit_org_type = submittedValue;
+
+    const result = await invokeProcessor(payload, {
+      existingOrganization: {
+        id: organizationId,
+        tenant_id: 'tenant-runtime-org',
+        name: 'Existing eligible organization',
+      },
+      preferenceFields: [{
+        id: customFieldId,
+        entity_scope: 'organization',
+        field_type: 'select',
+      }],
+      organizationPreferenceValues: [{
+        id: 'saved-organization-type',
+        organization_id: organizationId,
+        field_id: customFieldId,
+        value: 'Eligible',
+      }],
+    });
+
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.deletes.some(entry =>
+      entry.table === 'organization_preference_value'), false);
+    assert.equal(result.updates.some(entry =>
+      entry.table === 'organization_preference_value'), false);
+    assert.equal(result.inserts.some(entry =>
+      entry.table === 'organization_preference_value'), false);
+  });
+}
+
+test('visible and absent implicit organization custom bindings retain clear/no-op semantics', async () => {
+  const customFieldId = 'organization-type';
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const preferenceFields = [{
+    id: customFieldId,
+    entity_scope: 'organization',
+    field_type: 'select',
+  }];
+  const organizationPreferenceValues = [{
+    id: 'saved-organization-type',
+    organization_id: organizationId,
+    field_id: customFieldId,
+    value: 'Eligible',
+  }];
+  const existingOrganization = {
+    id: organizationId,
+    tenant_id: 'tenant-runtime-org',
+    name: 'Existing eligible organization',
+  };
+  const visible = publicPayload();
+  visible.fields.push({
+    id: 'implicit_org_type',
+    type: 'select',
+    custom_field_id: customFieldId,
+  });
+  visible.form_values.organisation = organizationId;
+  visible.form_values.implicit_org_type = '';
+
+  const cleared = await invokeProcessor(visible, {
+    existingOrganization,
+    preferenceFields,
+    organizationPreferenceValues,
+  });
+  assert.equal(cleared.response.statusCode, 200);
+  assert.equal(cleared.deletes.some(entry =>
+    entry.table === 'organization_preference_value'), true);
+
+  const absent = publicPayload();
+  absent.fields.push({
+    id: 'implicit_org_type',
+    type: 'select',
+    custom_field_id: customFieldId,
+  });
+  absent.form_values.organisation = organizationId;
+  const untouched = await invokeProcessor(absent, {
+    existingOrganization,
+    preferenceFields,
+    organizationPreferenceValues,
+  });
+  assert.equal(untouched.response.statusCode, 200);
+  assert.equal(untouched.deletes.some(entry =>
+    entry.table === 'organization_preference_value'), false);
+  assert.equal(untouched.updates.some(entry =>
+    entry.table === 'organization_preference_value'), false);
+});
+
+test('a hidden implicit member custom binding is not written for a new member', async () => {
+  const customFieldId = 'member-category';
+  const payload = publicPayload({
+    fields: [
+      { id: 'member_email', type: 'email' },
+      {
+        id: 'implicit_member_category',
+        type: 'text',
+        starts_hidden: true,
+        custom_field_id: customFieldId,
+      },
+    ],
+    form_values: {
+      member_email: 'hidden-implicit@example.test',
+      implicit_member_category: 'Forged hidden category',
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'none',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'member_email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+      }],
+      organisations: [],
+    },
+  });
+  const result = await invokeProcessor(payload, {
+    preferenceFields: [{
+      id: customFieldId,
+      entity_scope: 'member',
+      field_type: 'text',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'member_preference_value'
+    && entry.payload.field_id === customFieldId), false);
+});
+
+function existingMemberImplicitPayload({
+  value = 'Changed category',
+  includeAnswer = true,
+  fieldOverrides = {},
+  payloadOverrides = {},
+} = {}) {
+  const formValues = { member_email: 'existing-member@example.test' };
+  if (includeAnswer) formValues.implicit_member_category = value;
+  return publicPayload({
+    fields: [
+      { id: 'member_email', type: 'email' },
+      {
+        id: 'implicit_member_category',
+        type: 'text',
+        custom_field_id: 'member-category',
+        ...fieldOverrides,
+      },
+    ],
+    form_values: formValues,
+    application_level: 'member',
+    create_entity_type: 'member',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'none',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'member_email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+      }],
+      organisations: [],
+    },
+    ...payloadOverrides,
+  });
+}
+
+function existingMemberImplicitOptions(overrides = {}) {
+  const member = {
+    id: 'existing-member',
+    tenant_id: null,
+    email: 'existing-member@example.test',
+    organization_id: null,
+    role_id: null,
+  };
+  return {
+    verifiedAdminAccess: true,
+    existingMember: member,
+    preferenceFields: [{
+      id: 'member-category',
+      entity_scope: 'member',
+      field_type: 'text',
+    }],
+    memberPreferenceValues: [{
+      id: 'saved-member-category',
+      member_id: member.id,
+      field_id: 'member-category',
+      value: 'Original category',
+    }],
+    ...overrides,
+  };
+}
+
+for (const [label, submittedValue] of [
+  ['blank', ''],
+  ['nonblank', 'Forged hidden category'],
+]) {
+  test(`a hidden ${label} implicit binding preserves an existing Member preference`, async () => {
+    const payload = existingMemberImplicitPayload({
+      value: submittedValue,
+      fieldOverrides: { starts_hidden: true },
+    });
+    const options = existingMemberImplicitOptions();
+    const result = await invokeProcessor(payload, options);
+
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.deletes.some(entry =>
+      entry.table === 'member_preference_value'), false);
+    assert.equal(result.updates.some(entry =>
+      entry.table === 'member_preference_value'), false);
+    assert.equal(result.inserts.some(entry =>
+      entry.table === 'member_preference_value'), false);
+    assert.deepEqual(options.memberPreferenceValues.map(row => row.value), ['Original category']);
+  });
+}
+
+test('visible clear and absent implicit bindings retain existing Member semantics', async () => {
+  const clearOptions = existingMemberImplicitOptions();
+  const cleared = await invokeProcessor(
+    existingMemberImplicitPayload({ value: '' }),
+    clearOptions,
+  );
+  assert.equal(cleared.response.statusCode, 200);
+  assert.equal(cleared.deletes.some(entry =>
+    entry.table === 'member_preference_value'), true);
+  assert.deepEqual(clearOptions.memberPreferenceValues, []);
+
+  const absentOptions = existingMemberImplicitOptions();
+  const untouched = await invokeProcessor(
+    existingMemberImplicitPayload({ includeAnswer: false }),
+    absentOptions,
+  );
+  assert.equal(untouched.response.statusCode, 200);
+  assert.equal(untouched.deletes.some(entry =>
+    entry.table === 'member_preference_value'), false);
+  assert.equal(untouched.updates.some(entry =>
+    entry.table === 'member_preference_value'), false);
+  assert.equal(untouched.inserts.some(entry =>
+    entry.table === 'member_preference_value'), false);
+  assert.deepEqual(absentOptions.memberPreferenceValues.map(row => row.value), ['Original category']);
+});
+
+test('authoritative visibility rules protect an existing Member implicit preference', async () => {
+  const payload = existingMemberImplicitPayload({
+    value: '',
+    payloadOverrides: {
+      visibility_rules: [{
+        trigger_field_id: 'hide_member_category',
+        operator: 'equals',
+        value: 'yes',
+        action: 'hide',
+        target_field_ids: ['implicit_member_category'],
+      }],
+    },
+  });
+  payload.fields.unshift({ id: 'hide_member_category', type: 'text' });
+  payload.form_values.hide_member_category = 'yes';
+  const options = existingMemberImplicitOptions();
+  const result = await invokeProcessor(payload, options);
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.deletes.some(entry =>
+    entry.table === 'member_preference_value'), false);
+  assert.deepEqual(options.memberPreferenceValues.map(row => row.value), ['Original category']);
+});
+
+test('a hidden page protects an existing Organisation implicit preference', async () => {
+  const customFieldId = 'organization-type';
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const payload = publicPayload({ pages: [{ id: 'hidden-details', starts_hidden: true }] });
+  payload.fields.push({
+    id: 'implicit_org_type',
+    page_id: 'hidden-details',
+    type: 'select',
+    custom_field_id: customFieldId,
+  });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.implicit_org_type = '';
+  const organizationPreferenceValues = [{
+    id: 'saved-organization-type',
+    organization_id: organizationId,
+    field_id: customFieldId,
+    value: 'Eligible',
+  }];
+  const result = await invokeProcessor(payload, {
+    existingOrganization: {
+      id: organizationId,
+      tenant_id: 'tenant-runtime-org',
+      name: 'Existing eligible organization',
+    },
+    preferenceFields: [{
+      id: customFieldId,
+      entity_scope: 'organization',
+      field_type: 'select',
+    }],
+    organizationPreferenceValues,
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.deletes.some(entry =>
+    entry.table === 'organization_preference_value'), false);
+  assert.deepEqual(organizationPreferenceValues.map(row => row.value), ['Eligible']);
+});
+
+test('an unauthenticated respondent cannot visibly mutate an existing Member preference', async () => {
+  const payload = existingMemberImplicitPayload({ value: 'Unauthorized change' });
+  const targetMember = {
+    id: 'existing-member',
+    tenant_id: null,
+    email: 'existing-member@example.test',
+    organization_id: null,
+    role_id: null,
+  };
+  const result = await invokeProcessor(payload, {
+    existingMember: targetMember,
+    verifiedAdminAccess: false,
+    preferenceFields: [{
+      id: 'member-category',
+      entity_scope: 'member',
+      field_type: 'text',
+    }],
+    memberPreferenceValues: [{
+      id: 'saved-member-category',
+      member_id: targetMember.id,
+      field_id: 'member-category',
+      value: 'Original category',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(result.updates.some(entry =>
+    entry.table === 'member_preference_value'), false);
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'member_preference_value'), false);
+});
+
+test('modern custom mappings still require explicit Ignore if hidden opt-in', async () => {
+  const customFieldId = 'organization-region';
+  const payload = publicPayload();
+  payload.fields.push({
+    id: 'hidden_region',
+    type: 'select',
+    starts_hidden: true,
+  });
+  payload.form_values.hidden_region = 'Explicit hidden region';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'hidden_region',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: customFieldId,
+  });
+
+  const result = await invokeProcessor(payload, {
+    preferenceFields: [{
+      id: customFieldId,
+      entity_scope: 'organization',
+      field_type: 'select',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'organization_preference_value'
+    && entry.payload.field_id === customFieldId
+    && entry.payload.value === 'Explicit hidden region'), true);
 });
 
 test('pipeline ownership of legacy core metadata does not suppress an independent custom mapping', async () => {

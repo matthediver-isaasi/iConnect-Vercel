@@ -1702,6 +1702,25 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         // is always present when the form rendered the field, so absent
         // means the form configuration itself doesn't include this field.
         if (field.custom_field_id) {
+          // A field-level custom_field_id is an implicit legacy binding, not a
+          // modern mapping with a configurable ignore_if_hidden policy. Hidden
+          // answers remain in persisted submission_data, so treating one as a
+          // write (especially a blank answer as a delete) can mutate an
+          // existing Member or Organisation using a control the respondent
+          // could not see. Persisted server-side visibility is authoritative
+          // for these implicit bindings; modern mappings above retain their
+          // explicit per-mapping ignore_if_hidden semantics.
+          if (hiddenSubmissionFieldIds.has(String(field.id))) {
+            addProcessingNote({
+              kind: 'hidden_implicit_custom_binding_ignored',
+              level: 'info',
+              stage: 'mapping_selection',
+              source_field_id: field.id,
+              target_field: field.custom_field_id,
+              message: 'Implicit custom-field binding ignored because its persisted source field was hidden for this submission.',
+            });
+            continue;
+          }
           const customField = prefFieldMap.get(field.custom_field_id);
           if (customField) {
             const pipelineOwnsCustomDestination = customField.entity_scope === 'organization'
