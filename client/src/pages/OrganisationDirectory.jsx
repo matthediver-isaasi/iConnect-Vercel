@@ -7,17 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, ExternalLink, ClipboardList, Mail, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
-import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
-import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus } from "@/components/directory/DirectoryObjectSourceField";
+import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
+import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -33,14 +34,13 @@ const getLogoUrl = (url, orgId) => {
 };
 
 export default function OrganisationDirectoryPage() {
-  const { isAdmin, isFeatureExcluded } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, memberInfo, authResolved } = useMemberAccess();
   const queryClient = useQueryClient();
   
   // Check if user can edit organisation logos (admin AND not excluded from feature)
   const canEditLogos = isAdmin && !isFeatureExcluded('action_org_logo_edit');
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage] = useState(4); // Number of rows per page
   const [sortOrder, setSortOrder] = useState("asc");
   const [editingOrg, setEditingOrg] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -49,19 +49,14 @@ export default function OrganisationDirectoryPage() {
   
   // State for organization profile modal
   const [selectedOrg, setSelectedOrg] = useState(null);
-  const [customFieldFilters, setCustomFieldFilters] = useState({});
+  const [directoryFilters, setDirectoryFilters] = useState({});
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const objectSourceQuery = useDirectoryObjectSources();
   const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
     ? []
     : (objectSourceQuery.data?.sources || []);
 
-  const { data: organizations = [], isLoading } = useQuery({
-    queryKey: ['organizations'],
-    queryFn: async () => {
-      return await base44.entities.Organization.list('name');
-    }
-    // No staleTime - always fetch fresh data to ensure Supabase signed URLs are valid
-  });
+  const directoryMetadataQuery = useOrganisationDirectoryMetadata();
 
   // Fetch display settings
   const { data: displaySettings } = useQuery({
@@ -177,16 +172,6 @@ export default function OrganisationDirectoryPage() {
     placeholderData: (previousData) => previousData // Keep previous data during refetches
   });
 
-  const organizationMemberCounts = useMemo(() => {
-    const counts = {};
-    members.forEach((member) => {
-      if (member.organization_id && !isDeletedMember(member)) {
-        counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [members]);
-
   // Fetch roles so reverse-card contact groups can be labelled by role name
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
@@ -283,188 +268,54 @@ export default function OrganisationDirectoryPage() {
     }
   });
 
-  // Get filterable fields for the directory filter dropdowns
-  const filterableFields = useMemo(() => {
-    return orgCustomFields.filter(f => f.is_filterable);
-  }, [orgCustomFields]);
-
-  const hasVisibleOrgTypes = (displaySettings?.visibleOrgTypes?.length ?? 0) > 0;
-
-  // Fetch all org-scoped fields to find the org_type field for type filtering
-  const { data: allOrgScopedFields = [] } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', 'organization', 'all-for-type-filter'],
-    enabled: hasVisibleOrgTypes,
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' }
-        });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
-        } catch {
-          return [];
-        }
-      }
-    },
-    staleTime: 5 * 60 * 1000
-  });
-
-  const orgTypeFieldId = useMemo(() => {
-    const fields = hasVisibleOrgTypes ? allOrgScopedFields : orgCustomFields;
-    const f = fields.find(f =>
-      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
-    );
-    return f?.id || null;
-  }, [allOrgScopedFields, orgCustomFields, hasVisibleOrgTypes]);
-
-  // Fetch organization preference values for custom field filtering (UI dropdowns)
-  // Note: application_status and excluded_orgs filtering is now done on the backend
-  const { data: allOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['all-org-preference-values'],
-    enabled: filterableFields.length > 0 || (hasVisibleOrgTypes && !!orgTypeFieldId),
-    queryFn: async () => {
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.listAll();
-        return values || [];
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60 * 1000,
-  });
-
-  // Build a lookup map: organization_id -> { field_id -> value }
-  // Normalizes values: JSON arrays/objects are parsed and reduced to primitive values
-  const orgPreferenceMap = useMemo(() => {
-    const map = {};
-    
-    // Helper to extract primitive value from object/array
-    const extractPrimitiveValue = (val) => {
-      if (val === null || val === undefined) return val;
-      
-      // If it's an object with a 'value' property, extract it
-      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
-        return val.value;
-      }
-      
-      // If it's an array, extract primitive values from each element
-      if (Array.isArray(val)) {
-        return val.map(item => {
-          if (typeof item === 'object' && item !== null && item.value !== undefined) {
-            return item.value;
-          }
-          return item;
-        });
-      }
-      
-      return val;
-    };
-    
-    allOrgPreferenceValues.forEach(pv => {
-      if (!map[pv.organization_id]) {
-        map[pv.organization_id] = {};
-      }
-      // Parse JSON array/object strings if applicable
-      let normalizedValue = pv.value;
-      if (typeof pv.value === 'string') {
-        const trimmed = pv.value.trim();
-        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-          try {
-            normalizedValue = JSON.parse(trimmed);
-          } catch {
-            // Keep as string if parse fails
-          }
-        }
-      }
-      // Extract primitive values from objects/arrays (e.g., {value: "x", label: "X"} -> "x")
-      normalizedValue = extractPrimitiveValue(normalizedValue);
-      // Use field_id (the actual DB column) not preference_field_id
-      map[pv.organization_id][pv.field_id] = normalizedValue;
-    });
-    return map;
-  }, [allOrgPreferenceValues]);
-
-  const filteredOrganizations = useMemo(() => {
-    // Note: application_status and excluded_orgs filtering is now done on the backend
-    // The organizations list already comes pre-filtered from the API
-    let filtered = [...organizations];
-
-    // Filter by visible organisation types
-    const visibleOrgTypes = displaySettings?.visibleOrgTypes || [];
-    if (visibleOrgTypes.length > 0 && orgTypeFieldId) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        const orgTypeValue = orgValues[orgTypeFieldId];
-        if (!orgTypeValue) return false;
-        if (Array.isArray(orgTypeValue)) {
-          return orgTypeValue.some(v => visibleOrgTypes.includes(v));
-        }
-        return visibleOrgTypes.includes(orgTypeValue);
-      });
-    }
-    
-    // Apply search filter
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter((org) =>
-        org.name?.toLowerCase().includes(searchLower) ||
-        org.domain?.toLowerCase().includes(searchLower)
-      );
-    }
-    
-    // Filter by custom fields
-    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => {
-      if (Array.isArray(value)) return value.length > 0;
-      return value && value !== 'all';
-    });
-    if (activeFilters.length > 0) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        return activeFilters.every(([fieldId, filterValue]) => {
-          const orgValue = orgValues[fieldId];
-          if (orgValue === undefined || orgValue === null || orgValue === '') return false;
-          return directoryFilterValueMatches(orgValue, filterValue);
-        });
-      });
-    }
-    
-    // Apply sorting
-    filtered.sort((a, b) => {
-      const nameA = (a.name || '').toLowerCase();
-      const nameB = (b.name || '').toLowerCase();
-      if (sortOrder === 'asc') {
-        return nameA.localeCompare(nameB);
-      } else {
-        return nameB.localeCompare(nameA);
-      }
-    });
-    
-    return filtered;
-  }, [organizations, searchQuery, sortOrder, customFieldFilters, orgPreferenceMap, displaySettings?.visibleOrgTypes, orgTypeFieldId]);
-
-  // Calculate itemsPerPage based on cardsPerRow and rowsPerPage
+  // The API owns filtering, sorting, authorization and pagination.
   const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;
-  const itemsPerPage = columnsNum * rowsPerPage;
-  
-  const totalPages = Math.ceil(filteredOrganizations.length / itemsPerPage);
-  const paginatedOrganizations = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredOrganizations.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredOrganizations, currentPage, itemsPerPage]);
+  const itemsPerPage = columnsNum * 4;
+  const directoryRequest = useMemo(() => ({
+    filters: directoryFilters,
+    search: debouncedSearch,
+    sort: sortOrder,
+    page: currentPage,
+    pageSize: itemsPerPage,
+  }), [directoryFilters, debouncedSearch, sortOrder, currentPage, itemsPerPage]);
+  const directoryQuery = useOrganisationDirectoryResults(
+    directoryRequest,
+    directoryMetadataQuery.isSuccess,
+  );
+  const organizations = directoryQuery.data?.organizations || [];
+  const totalOrganizations = directoryQuery.data?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(totalOrganizations / itemsPerPage));
+  const authoritativeFields = useAuthoritativeDirectoryFilters(
+    directoryMetadataQuery,
+    directoryQuery,
+    setDirectoryFilters,
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [itemsPerPage]);
+
+  useEffect(() => {
+    if (!directoryQuery.isError || ![400, 409, 422].includes(directoryQuery.error?.status)) return;
+    queryClient.invalidateQueries({ queryKey: ["organisation-directory-filters", memberInfo?.tenant_id, memberInfo?.id, "metadata"] });
+  }, [directoryQuery.isError, directoryQuery.error, queryClient, memberInfo?.tenant_id, memberInfo?.id]);
+
+  const resetAndSetFilters = (filters) => {
+    setDirectoryFilters(filters);
+    setCurrentPage(1);
+  };
 
   const updateLogoMutation = useMutation({
     mutationFn: async ({ orgId, logoUrl }) => {
       return await base44.entities.Organization.update(orgId, { logo_url: logoUrl });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
       toast.success('Logo updated successfully');
       setEditingOrg(null);
     },
@@ -519,11 +370,36 @@ export default function OrganisationDirectoryPage() {
     setShowDeleteConfirm(true);
   };
 
-  // Wait for all data sources to load before rendering to prevent flickering
-  if (isLoading || isLoadingMembers || !displaySettings) {
+  if (isDirectoryEmbedLocation()) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
+        The organisation directory is available in the authenticated application.
+      </div>
+    );
+  }
+
+  // Wait for every server-provided query field before first rendering.
+  if (!authResolved || isLoadingMembers || !displaySettings || directoryMetadataQuery.isPending) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (!memberInfo?.id || !memberInfo?.tenant_id) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
+        Sign in to view the organisation directory.
+      </div>
+    );
+  }
+
+  if (directoryMetadataQuery.isError) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex flex-col gap-3 items-center justify-center">
+        <p className="text-red-700">{directoryMetadataQuery.error?.message || "Unable to load directory filters"}</p>
+        <Button variant="outline" onClick={() => directoryMetadataQuery.refetch()}>Retry</Button>
       </div>
     );
   }
@@ -537,7 +413,7 @@ export default function OrganisationDirectoryPage() {
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{displaySettings?.header || 'Organisation Directory'}</h1>
           </div>
           <p className="text-slate-600">
-            {filteredOrganizations.length} {filteredOrganizations.length === 1 ? 'organisation' : 'organisations'}
+            {totalOrganizations} {totalOrganizations === 1 ? 'organisation' : 'organisations'}
           </p>
         </div>
 
@@ -550,12 +426,18 @@ export default function OrganisationDirectoryPage() {
                   <Input
                     placeholder="Search organisations by name or domain..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
                     className="pl-10"
                     data-testid="input-search-organisations"
                   />
                 </div>
-                <Select value={sortOrder} onValueChange={setSortOrder}>
+                <Select value={sortOrder} onValueChange={(value) => {
+                  setSortOrder(value);
+                  setCurrentPage(1);
+                }}>
                   <SelectTrigger className="w-full sm:w-36" data-testid="select-sort-order">
                     <SelectValue />
                   </SelectTrigger>
@@ -576,67 +458,30 @@ export default function OrganisationDirectoryPage() {
                 </Select>
               </div>
               
-              {filterableFields.length > 0 && (
-                <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
-                  {filterableFields.map(field => {
-                    const label = field._displayLabel || field.label;
-                    if (field.filter_multi_select && field.field_type !== 'boolean') {
-                      const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
-                      return (
-                        <div key={field.id} className="flex items-center gap-2">
-                          <span className="text-sm text-slate-700">{label}:</span>
-                          <MultiSelectFilter
-                            options={getDirectoryFilterOptions(field)}
-                            selected={current}
-                            onChange={(vals) => {
-                              setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
-                              setCurrentPage(1);
-                            }}
-                            placeholder={`All ${label}`}
-                            className="min-w-[200px] w-auto max-w-[280px]"
-                            data-testid={`select-filter-${field.name}`}
-                          />
-                        </div>
-                      );
-                    }
-                    const singleValue = Array.isArray(customFieldFilters[field.id])
-                      ? (customFieldFilters[field.id][0] || 'all')
-                      : (customFieldFilters[field.id] || 'all');
-                    return (
-                      <div key={field.id} className="flex items-center gap-2">
-                        <span className="text-sm text-slate-700">{label}:</span>
-                        <Select
-                          value={singleValue}
-                          onValueChange={(value) => {
-                            setCustomFieldFilters(prev => ({
-                              ...prev,
-                              [field.id]: value === "all" ? "" : value
-                            }));
-                            setCurrentPage(1);
-                          }}
-                        >
-                          <SelectTrigger className="min-w-[200px] w-auto max-w-[280px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${label}`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All</SelectItem>
-                            {getDirectoryFilterOptions(field).map(option => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <OrganisationDirectoryFilters
+                fields={authoritativeFields}
+                filters={directoryFilters}
+                onChange={resetAndSetFilters}
+                onClear={() => resetAndSetFilters({})}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {filteredOrganizations.length === 0 ?
+        {directoryQuery.isPending || directoryQuery.isFetching ? (
+          <Card className="border-slate-200">
+            <CardContent className="p-12 flex justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </CardContent>
+          </Card>
+        ) : directoryQuery.isError ? (
+          <Card className="border-red-200">
+            <CardContent className="p-12 text-center space-y-3">
+              <p className="text-red-700">{directoryQuery.error?.message || "Unable to load organisations"}</p>
+              <Button variant="outline" onClick={() => directoryQuery.refetch()}>Retry</Button>
+            </CardContent>
+          </Card>
+        ) : organizations.length === 0 ?
         <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
               <Building2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -649,8 +494,8 @@ export default function OrganisationDirectoryPage() {
 
         <>
             <div key={`org-grid-page-${currentPage}`} className={getGridClass()}>
-              {paginatedOrganizations.map((org) => {
-              const memberCount = organizationMemberCounts[org.id] || 0;
+              {organizations.map((org) => {
+              const memberCount = Number.isInteger(org.member_count) ? org.member_count : 0;
 
               return (
                 <Card 
@@ -978,7 +823,7 @@ export default function OrganisationDirectoryPage() {
                   sections.push(
                     <div key={key} className="flex items-center gap-2 text-slate-600">
                       <Users className="w-4 h-4" />
-                      <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
+                       <span>{Number.isInteger(selectedOrg?.member_count) ? selectedOrg.member_count : 0} members</span>
                     </div>
                   );
                 } else if (key === 'org_members_list') {

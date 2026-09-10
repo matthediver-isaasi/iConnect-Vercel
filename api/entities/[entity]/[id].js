@@ -346,6 +346,29 @@ export default async function handler(req, res) {
     }
   }
 
+  if (
+    ['PATCH', 'PUT', 'DELETE'].includes(req.method)
+    && entityNorm === 'systemsettings'
+  ) {
+    const { data: filterSetting, error: filterSettingError } = await supabase
+      .from('system_settings')
+      .select('setting_key')
+      .eq('id', id)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .limit(1);
+    if (filterSettingError) {
+      return res.status(500).json({ error: 'Failed to validate directory setting ownership' });
+    }
+    if (
+      req.body?.setting_key === 'org_directory_filterable_back_fields'
+      || filterSetting?.[0]?.setting_key === 'org_directory_filterable_back_fields'
+    ) {
+      return res.status(403).json({
+        error: 'Organisation directory filter settings must be managed through their dedicated endpoint',
+      });
+    }
+  }
+
   // SECURITY (Task #3330): survey version snapshots and normalised survey
   // answers are server-authoritative records. Writes go ONLY through the
   // publish endpoint / public submission endpoint (service role); reads are

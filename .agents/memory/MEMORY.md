@@ -153,3 +153,4 @@
 - [Directory Data Studio file access](directory-data-studio-file-access.md) — directory opt-in is not publication consent; file downloads must recheck source permissions, not just tenant membership.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
+- [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.

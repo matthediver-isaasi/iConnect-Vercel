@@ -37,6 +37,7 @@ const organization = {
   name: "Alpha Smoke Org",
   domain: "smoke.invalid",
   logo_url: null,
+  member_count: 1,
 };
 const preferenceField = {
   id: "org-field",
@@ -70,6 +71,66 @@ const dynamicOrder = [
   "org_member_count",
   "org_members_list",
 ];
+const directoryFilterFields = [
+  {
+    key: "org_member_count",
+    label: "Member count",
+    field_type: "number",
+    control: "number",
+    options: [],
+    multi_select: false,
+  },
+  {
+    key: "custom:org-field",
+    label: "Service region",
+    field_type: "dropdown",
+    control: "choice",
+    options: [
+      { value: "Europe", label: "Europe" },
+      { value: "Americas", label: "Americas" },
+    ],
+    multi_select: true,
+  },
+  {
+    key: sourceKey,
+    label: "Accreditations",
+    field_type: "text",
+    control: "text",
+    options: [],
+    multi_select: false,
+  },
+  {
+    key: "fixture:renewal_date",
+    label: "Renewal date",
+    field_type: "date",
+    control: "date",
+    options: [],
+    multi_select: false,
+  },
+  {
+    key: "fixture:has_contact",
+    label: "Has directory contact",
+    field_type: "presence",
+    control: "presence",
+    options: [],
+    multi_select: false,
+  },
+  {
+    key: "fixture:hidden",
+    label: "Internal fixture field",
+    field_type: "text",
+    control: "text",
+    options: [],
+    multi_select: false,
+  },
+];
+
+function initialFilterOverrides() {
+  return {
+    ...Object.fromEntries(directoryFilterFields.map(field => [field.key, true])),
+    "fixture:hidden": false,
+  };
+}
 
 function initialSettings() {
   const values = {
@@ -87,6 +148,7 @@ function initialSettings() {
     org_directory_view_members_role_ids: JSON.stringify(["smoke-role"]),
     org_directory_back_field_order: JSON.stringify(standardOrder),
     org_directory_custom_fields_label: "Organisation details",
+    org_directory_filterable_back_fields: JSON.stringify(initialFilterOverrides()),
   };
   return Object.entries(values).map(([setting_key, setting_value], index) => ({
     id: `setting-${index}`,
@@ -122,6 +184,8 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
     },
     writes: [],
     requests: [],
+    directoryPosts: [],
+    filterOverrides: initialFilterOverrides(),
     valuesAttempts: 0,
   };
   const customField = {
@@ -191,6 +255,34 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
             ],
         nextCursor: cursor ? null : "fixture-page-2",
       });
+    }
+    if (path === "/api/organisation-directory/filters") {
+      if (url.searchParams.get("settings") === "true") {
+        if (method === "GET") return json({ overrides: state.filterOverrides });
+        if (method === "PUT") {
+          const { changes } = request.postDataJSON();
+          state.filterOverrides = { ...state.filterOverrides, ...changes };
+          const persisted = state.settings.find(setting =>
+            setting.setting_key === "org_directory_filterable_back_fields"
+          );
+          persisted.setting_value = JSON.stringify(state.filterOverrides);
+          state.writes.push({ method, path: `${path}?settings=true`, body: { changes } });
+          return json({ overrides: state.filterOverrides });
+        }
+      }
+      const fields = directoryFilterFields.filter(field => state.filterOverrides[field.key] === true);
+      if (method === "GET") return json({ fields });
+      if (method === "POST") {
+        const body = request.postDataJSON();
+        state.directoryPosts.push(body);
+        return json({
+          organizations: [organization],
+          total: 1,
+          page: body.page,
+          pageSize: body.pageSize,
+          fields,
+        });
+      }
     }
 
     if (path === "/api/entities/SystemSettings" && method === "GET") return json(state.settings);
@@ -270,7 +362,8 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
 }
 
 function textTop(page, text) {
-  return page.getByText(text, { exact: true }).first().evaluate((element) => element.getBoundingClientRect().top);
+  return page.getByRole("dialog").getByText(text, { exact: true }).first()
+    .evaluate((element) => element.getBoundingClientRect().top);
 }
 
 async function attachNetworkRecord(testInfo, state) {
@@ -308,6 +401,128 @@ test("standard settings save/reload keeps custom object fields interleaved", asy
   const reloadTops = await Promise.all(rows.map((id) => page.getByTestId(id).evaluate((el) => el.getBoundingClientRect().top)));
   expect(reloadTops).toEqual([...reloadTops].sort((a, b) => a - b));
   expect(state.writes.some((write) => write.escaped)).toBeFalsy();
+  await attachNetworkRecord(testInfo, state);
+});
+
+test("filter settings persist core, custom, and Data Studio toggles without changing field order", async ({ page }, testInfo) => {
+  const state = await installFixtures(page);
+  await page.goto("/OrganisationDirectorySettings");
+  await expect(page.getByRole("heading", { name: "Organisation Directory Settings" })).toBeVisible();
+
+  const rows = [
+    "row-back-order-org_member_count",
+    "row-back-order-custom:org-field",
+    `row-back-order-${sourceKey}`,
+    "row-back-order-org_members_list",
+  ];
+  const switches = [
+    page.getByRole("switch", { name: "Use Member count as filter" }),
+    page.getByRole("switch", { name: "Use Service region as filter" }),
+    page.getByRole("switch", { name: "Use Accreditations as filter" }),
+  ];
+  for (const filterSwitch of switches) {
+    await expect(filterSwitch).toBeChecked();
+    await filterSwitch.click();
+  }
+  await page.screenshot({ path: "/tmp/task-4354-settings-filter-toggles.png", fullPage: true });
+  const before = await Promise.all(rows.map(id =>
+    page.getByTestId(id).evaluate(element => element.getBoundingClientRect().top)
+  ));
+
+  await page.getByTestId("button-save-back-order").click();
+  await expect(page.getByText("Settings saved successfully")).toBeVisible();
+  const filterWrite = state.writes.find(write =>
+    write.method === "PUT" && write.path === "/api/organisation-directory/filters?settings=true"
+  );
+  expect(filterWrite.body.changes).toEqual({
+    org_member_count: false,
+    "custom:org-field": false,
+    [sourceKey]: false,
+  });
+
+  await page.reload();
+  for (const filterSwitch of switches) await expect(filterSwitch).not.toBeChecked();
+  const after = await Promise.all(rows.map(id =>
+    page.getByTestId(id).evaluate(element => element.getBoundingClientRect().top)
+  ));
+  expect(before).toEqual([...before].sort((a, b) => a - b));
+  expect(after).toEqual([...after].sort((a, b) => a - b));
+  expect(JSON.parse(state.settings.find(setting =>
+    setting.setting_key === "org_directory_filterable_back_fields"
+  ).setting_value)).toMatchObject(filterWrite.body.changes);
+  expect(state.writes.some(write => write.escaped)).toBeFalsy();
+  await attachNetworkRecord(testInfo, state);
+});
+
+test("main directory renders enabled type-specific filters, submits selections, and clears them", async ({ page }, testInfo) => {
+  const state = await installFixtures(page);
+  await page.goto("/OrganisationDirectory");
+  await expect(page.getByTestId("card-organisation-smoke-org")).toBeVisible();
+
+  await expect(page.getByTestId("filter-custom:org-field")).toBeVisible();
+  await expect(page.getByLabel("Accreditations", { exact: true })).toHaveJSProperty("type", "text");
+  await expect(page.getByLabel("Member count", { exact: true })).toHaveAttribute("type", "number");
+  await expect(page.getByLabel("Renewal date", { exact: true })).toHaveAttribute("type", "date");
+  await expect(page.getByLabel("Has directory contact", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Internal fixture field", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/task-4354-directory-filter-controls.png", fullPage: true });
+
+  await page.getByTestId("filter-custom:org-field").click();
+  await page.getByTestId("filter-custom:org-field-option-Europe").click();
+  await page.keyboard.press("Escape");
+  await page.getByLabel("Member count", { exact: true }).fill("25");
+  await page.getByLabel("Renewal date", { exact: true }).fill("2027-06-30");
+  await page.getByLabel("Has directory contact", { exact: true }).selectOption("present");
+  await page.getByLabel("Accreditations", { exact: true }).fill("approved");
+
+  await expect.poll(() => state.directoryPosts.at(-1)?.filters).toEqual({
+    "custom:org-field": { operator: "eq", value: ["Europe"] },
+    org_member_count: { operator: "eq", value: "25" },
+    "fixture:renewal_date": { operator: "eq", value: "2027-06-30" },
+    "fixture:has_contact": { operator: "present", value: true },
+    [sourceKey]: { operator: "contains", value: "approved" },
+  });
+
+  // Clear while a new text draft is pending: its timer must not restore it.
+  await page.getByLabel("Accreditations", { exact: true }).fill("pending draft");
+  await page.getByRole("button", { name: "Clear all" }).click();
+  await page.waitForTimeout(400);
+  await expect(page.getByLabel("Accreditations", { exact: true })).toHaveValue("");
+  await expect.poll(() => state.directoryPosts.at(-1)?.filters).toEqual({});
+  await expect(page.getByTestId("filter-custom:org-field")).toContainText("All Service region");
+  expect(state.writes.some(write => write.escaped)).toBeFalsy();
+  await attachNetworkRecord(testInfo, state);
+});
+
+test("main directory filters wrap without overlap on a mobile viewport", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await installFixtures(page);
+  await page.goto("/OrganisationDirectory");
+  await expect(page.getByLabel("Renewal date", { exact: true })).toBeVisible();
+
+  const layout = await page.locator("label", { hasText: "Service region" }).evaluate(label => {
+    const container = label.parentElement?.parentElement;
+    const groups = [...(container?.children || [])]
+      .filter(element => element.querySelector("label"))
+      .map(element => element.getBoundingClientRect());
+    const overlap = groups.some((a, index) => groups.slice(index + 1).some(b =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    ));
+    return {
+      overlap,
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      groupsInsideViewport: groups.every(rect => rect.left >= 0 && rect.right <= window.innerWidth),
+    };
+  });
+  expect(layout.overlap).toBe(false);
+  expect(layout.groupsInsideViewport).toBe(true);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  await expect.poll(() => state.directoryPosts.at(-1)).toMatchObject({
+    filters: {},
+    page: 1,
+    pageSize: 12,
+  });
   await attachNetworkRecord(testInfo, state);
 });
 

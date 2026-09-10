@@ -328,7 +328,9 @@ function safeDisplayValue(definition, record, fields, tenantId) {
   return resolveCustomObjectDisplayValue({ objectDefinition: definition, record, fields: [primary] });
 }
 
-async function resolveSources({ db, context, settings, isAdmin = false }) {
+export async function resolveCustomObjectDirectorySources({
+  db, context, settings = false, isAdmin = false,
+}) {
   // PostgREST defaults to 1,000 rows. Page explicitly and deterministically so
   // opted-in objects above that boundary are not silently omitted.
   const definitions = await pagedRows(() => db.from('custom_object_definition')
@@ -435,7 +437,7 @@ export function createCustomObjectDirectory({
     async metadata({ directoryId = 'main', settings = false } = {}) {
       await resolveDirectory({ db, context, directoryId, settings, featureCheck, settingsCheck });
       return {
-        sources: (await resolveSources({
+        sources: (await resolveCustomObjectDirectorySources({
           db, context, settings, isAdmin,
         })).map(publicSource),
       };
@@ -453,7 +455,7 @@ export function createCustomObjectDirectory({
       }
       const parsed = parseCustomObjectDirectorySourceKey(sourceKey);
       if (!parsed) throw new CustomObjectDirectoryError(400, 'source_key is invalid');
-      const source = (await resolveSources({
+      const source = (await resolveCustomObjectDirectorySources({
         db, context, settings: false, isAdmin,
       }))
         .find((item) => item.key.toLowerCase() === String(sourceKey).toLowerCase());
@@ -523,7 +525,7 @@ export function createCustomObjectDirectory({
       }
       const parsed = parseCustomObjectDirectorySourceKey(sourceKey);
       if (!parsed) throw new CustomObjectDirectoryError(400, 'source_key is invalid');
-      const source = (await resolveSources({
+      const source = (await resolveCustomObjectDirectorySources({
         db, context, settings: false, isAdmin,
       }))
         .find((item) => item.key.toLowerCase() === String(sourceKey).toLowerCase());

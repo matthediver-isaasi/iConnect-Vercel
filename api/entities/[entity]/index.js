@@ -427,6 +427,19 @@ export default async function handler(req, res) {
     }
   }
 
+  // This JSON map is merge-updated and validated against the caller's current
+  // directory metadata by its dedicated endpoint. Generic SystemSettings
+  // writes would bypass both field authorization and lost-update protection.
+  if (
+    req.method === 'POST'
+    && entityNorm === 'systemsettings'
+    && req.body?.setting_key === 'org_directory_filterable_back_fields'
+  ) {
+    return res.status(403).json({
+      error: 'Organisation directory filter settings must be managed through their dedicated endpoint',
+    });
+  }
+
   // SECURITY (Task #3330): survey version snapshots and normalised survey
   // answers are server-authoritative records. Writes go ONLY through the
   // publish endpoint / public submission endpoint (service role); reads are

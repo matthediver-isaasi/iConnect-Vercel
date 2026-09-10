@@ -16,9 +16,12 @@ import { ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder } fr
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
+import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle";
+import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
+import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
 
 export default function OrganisationDirectorySettingsPage() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   const [directoryHeader, setDirectoryHeader] = useState("Organisation Directory");
@@ -38,6 +41,10 @@ export default function OrganisationDirectorySettingsPage() {
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
   const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
   const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
+  const filterSettings = useOrganisationDirectoryFilterSettings({
+    enabled: accessChecked,
+    identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
+  });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -66,24 +73,15 @@ export default function OrganisationDirectorySettingsPage() {
   });
 
   // Fetch organization custom fields to get application_status options
-  const { data: orgCustomFields = [] } = useQuery({
+  const { data: orgCustomFields = [], isPending: fieldsPending, isError: fieldsError, isFetching: fieldsFetching, refetch: refetchFields } = useQuery({
     queryKey: ['org-custom-fields-for-directory-settings'],
+    enabled: accessChecked,
     queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' }
-        });
-        return fields || [];
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true }
-          });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
-        } catch {
-          return [];
-        }
-      }
+      const fields = await base44.entities.PreferenceField.listAll({
+        filter: { is_active: true, entity_scope: 'organization' },
+        sort: { id: 'asc' },
+      });
+      return (fields || []).filter(f => f.entity_scope === 'organization');
     }
   });
 
@@ -255,6 +253,11 @@ export default function OrganisationDirectorySettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!settings || !filterSettings.isSuccess || filterSettings.isFetching
+        || fieldsPending || fieldsError || fieldsFetching
+        || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching) {
+        throw new Error("Wait for directory settings and field metadata to load before saving");
+      }
       // Validation: at least one of logo or title must be enabled
       if (!showLogo && !showTitle) {
         throw new Error('At least one of Logo or Title must be enabled');
@@ -441,10 +444,12 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'Tenant-wide order of core elements and custom fields on the reverse of organisation directory cards'
         });
       }
+      await filterSettings.save();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
       toast.success('Settings saved successfully');
     },
     onError: (error) => {
@@ -508,7 +513,7 @@ export default function OrganisationDirectorySettingsPage() {
       items[core.key] = { label: core.label, description: core.description };
     }
     for (const f of activeOrgFields) {
-      items[`custom:${f.id}`] = { label: f.label, isCustom: true };
+        items[`custom:${f.id}`] = { label: f.label, isCustom: true, field: f };
     }
     for (const source of objectSources) {
       items[source.key] = { label: source.label, isCustom: true, isObjectField: true };
@@ -918,21 +923,48 @@ export default function OrganisationDirectorySettingsPage() {
               cards. This is the tenant-wide default; individual dynamic directories can override it in Dynamic
               Directory Management. Visibility settings (member count toggle, reverse-card roles, per-directory
               custom field settings) still control what shows.
+              {" "}Use as filter controls which fields visitors can filter by in the main Organisation Directory.
+              Data Studio filters remain limited to fields the visitor has permission to access.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <DirectoryObjectSourcesGuidance query={objectSourcesQuery} />
+            {fieldsError && (
+              <div role="alert" className="text-sm text-red-700">
+                Custom fields could not be loaded. Saving is unavailable until they load.
+                <Button variant="link" onClick={() => refetchFields()}>Retry</Button>
+              </div>
+            )}
+            {filterSettings.isPending && <p role="status" className="text-sm text-slate-600">Loading filter settings…</p>}
+            {filterSettings.isError && (
+              <div role="alert" className="text-sm text-red-700">
+                Filter settings could not be loaded. Your saved choices have not been changed.
+                <Button variant="link" onClick={() => filterSettings.refetch()}>Retry</Button>
+              </div>
+            )}
             <BackFieldOrderList
               order={resolvedBackOrder}
               items={backOrderItems}
               droppableId="org-back-order"
               onChange={setBackFieldOrder}
-              disabled={objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+              disabled={fieldsPending || fieldsError || fieldsFetching || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+              renderControls={(key, item) => (
+                <DirectoryFilterToggle
+                  label={item.label}
+                  checked={isOrganisationDirectoryFieldFilterable(key, filterSettings.overrides, item.field)}
+                  disabled={!filterSettings.isSuccess || filterSettings.isFetching || saveMutation.isPending
+                    || fieldsPending || fieldsError || fieldsFetching
+                    || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+                  onCheckedChange={checked => filterSettings.setOverride(key, checked)}
+                />
+              )}
             />
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || !filterSettings.isSuccess || filterSettings.isFetching
+                  || fieldsPending || fieldsError || fieldsFetching
+                  || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-back-order"
               >
