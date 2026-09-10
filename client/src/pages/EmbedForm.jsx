@@ -26,7 +26,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
-import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefill, useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
@@ -332,6 +332,12 @@ export default function EmbedFormPage() {
       ? (form?.fields || []).map(field => field.id)
       : Object.keys(transitionInitialValues || {}),
   });
+  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+    form,
+    formSlug: form?.slug || slug,
+    formValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
   const [prefillApplied, setPrefillApplied] = useState(false);
 
   useEffect(() => {
@@ -561,6 +567,8 @@ export default function EmbedFormPage() {
       }
       const rounded = Math.round(result * 1e10) / 1e10;
       return rounded.toString();
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[action.id];
     }
     return null;
   };
@@ -571,6 +579,8 @@ export default function EmbedFormPage() {
       return rule.set_value;
     } else if (sourceType === 'field') {
       return formValues[rule.set_value_field_id];
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[`legacy_${rule.id}`];
     }
     return null;
   };
@@ -724,6 +734,20 @@ export default function EmbedFormPage() {
                   }
                 }
               }
+              else if ((action.set_value_source || 'static') === 'prefill'
+                  && activeSetValueActionsRef.current.has(actionKey)) {
+                const newValue = coerceValueForField(
+                  computeSetValue(action),
+                  action.target_field_id,
+                );
+                if (newValue === null || newValue === undefined) {
+                  if (action.target_field_id in originalValuesRef.current) {
+                    updates[action.target_field_id] = originalValuesRef.current[action.target_field_id];
+                  }
+                } else if (newValue !== formValues[action.target_field_id]) {
+                  updates[action.target_field_id] = newValue;
+                }
+              }
             }
           }
         }
@@ -754,6 +778,19 @@ export default function EmbedFormPage() {
             const currentTargetValue = formValues[rule.target_field_id];
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;
+            }
+          }
+          else if ((rule.set_value_source || 'static') === 'prefill') {
+            const newValue = coerceValueForField(
+              computeLegacySetValue(rule),
+              rule.target_field_id,
+            );
+            if (newValue === null || newValue === undefined) {
+              if (rule.target_field_id in originalValuesRef.current) {
+                updates[rule.target_field_id] = originalValuesRef.current[rule.target_field_id];
+              }
+            } else if (newValue !== formValues[rule.target_field_id]) {
+              updates[rule.target_field_id] = newValue;
             }
           }
         }
@@ -796,7 +833,7 @@ export default function EmbedFormPage() {
     if (Object.keys(updates).length > 0) {
       setFormValues(prev => ({ ...prev, ...updates }));
     }
-  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues]);
+  }, [form?.visibility_rules, form?.prefill_source, formValues, emptyRelationshipParentValues, conditionalPrefillValues]);
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 

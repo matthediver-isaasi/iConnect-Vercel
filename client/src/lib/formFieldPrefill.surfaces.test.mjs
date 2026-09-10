@@ -12,7 +12,7 @@ const surfaces = [
 test('every form runtime uses the shared dropdown-prefill hook', async () => {
   for (const relativePath of surfaces) {
     const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
-    assert.match(source, /import\s+\{\s*useFormFieldPrefill\s*\}/);
+    assert.match(source, /import\s+\{[^}]*\buseFormFieldPrefill\b[^}]*\}/);
     assert.match(source, /useFormFieldPrefill\s*\(\s*\{/);
   }
 });

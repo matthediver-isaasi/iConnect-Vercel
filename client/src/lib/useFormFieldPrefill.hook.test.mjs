@@ -15,7 +15,10 @@ globalThis.sessionStorage = dom.window.sessionStorage;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { publicClient } = await import('../api/publicClient.js');
-const { useFormFieldPrefill } = await import('./useFormFieldPrefill.js');
+const {
+  useConditionalFormFieldPrefill,
+  useFormFieldPrefill,
+} = await import('./useFormFieldPrefill.js');
 
 const form = id => ({
   id,
@@ -42,6 +45,20 @@ function Harness({ activeForm, initialValues, ready, onValues }) {
   useEffect(() => {
     setValues(initialValues);
   }, [activeForm.id, initialValues]);
+
+  useEffect(() => {
+    onValues(values);
+  }, [onValues, values]);
+
+  return null;
+}
+
+function ConditionalHarness({ activeForm, formValues, onValues }) {
+  const values = useConditionalFormFieldPrefill({
+    form: activeForm,
+    formSlug: activeForm.slug,
+    formValues,
+  });
 
   useEffect(() => {
     onValues(values);
@@ -94,6 +111,52 @@ test('form transition captures the destination default only after its initializa
       }));
     });
     assert.equal(latestValues.region, 'two:two');
+  } finally {
+    publicClient.getFormFieldPrefill = originalResolver;
+    await act(async () => root.unmount());
+  }
+});
+
+test('conditional prefill resolves the selected organisation for a rule set-value action', async () => {
+  const originalResolver = publicClient.getFormFieldPrefill;
+  publicClient.getFormFieldPrefill = async (_slug, _formId, sourceFieldId, recordId) => {
+    assert.equal(sourceFieldId, 'org');
+    assert.equal(recordId, 'organization-id');
+    return {
+      conditionalValues: {
+        action_set_organization_name: 'British Nuclear Medicine Society',
+      },
+    };
+  };
+
+  const activeForm = {
+    ...form('rule-parity'),
+    visibility_rules: [{
+      id: 'rule-4',
+      actions: [{
+        id: 'action_set_organization_name',
+        action_type: 'set_value',
+        target_field_id: 'organization_name',
+        set_value_source: 'prefill',
+        set_value_prefill_field: 'core.name',
+      }],
+    }],
+  };
+  const root = createRoot(document.getElementById('root'));
+  let latestValues = {};
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(ConditionalHarness, {
+        activeForm,
+        formValues: { org: 'organization-id' },
+        onValues: values => { latestValues = values; },
+      }));
+    });
+    assert.equal(
+      latestValues.action_set_organization_name,
+      'British Nuclear Medicine Society',
+    );
   } finally {
     publicClient.getFormFieldPrefill = originalResolver;
     await act(async () => root.unmount());

@@ -7,6 +7,7 @@ import {
   getFormLogicConditionOptions,
   isOnlyFormNotListedConditionOption,
 } from './formLogicConditions.js';
+import { getConditionalPrefillActionEntries } from './formFieldPrefill.js';
 import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
 import {
   FORM_NO_RELATIONSHIP_VALUE,
@@ -269,4 +270,69 @@ test('normal and embedded public forms use the shared ordinary-rule evaluator', 
     assert.match(source, /evaluateFormLogicCondition\(triggerValue, operator, value, \{ relationshipEmpty \}\)/);
     assert.match(source, /onRelationshipEmptyStateChange=\{handleRelationshipEmptyStateChange\}/);
   }
+});
+
+test('embedded form preserves rule 4 visibility and conditional form-field prefill parity', () => {
+  const rule = {
+    id: 'rule_1788772344434',
+    logic: 'and',
+    conditions: [
+      {
+        field_id: 'field_1788075690796',
+        operator: 'not_empty',
+        value: FORM_NOT_LISTED_VALUE,
+      },
+      {
+        field_id: 'field_1788075690796',
+        operator: 'not_equals',
+        value: FORM_NOT_LISTED_VALUE,
+      },
+    ],
+    actions: [
+      {
+        id: 'action_vis_1788772367339',
+        action_type: 'visibility',
+        field_states: {
+          field_1788075892819: { visible: true, enabled: null },
+        },
+      },
+      {
+        id: 'action_1789025977507',
+        action_type: 'set_value',
+        target_field_id: 'field_1788940619910',
+        set_value_source: 'prefill',
+        set_value_prefill_field: 'core.name',
+      },
+    ],
+  };
+  const form = {
+    prefill_source: 'form_field',
+    prefill_source_field_id: 'field_1788075690796',
+    fields: [
+      { id: 'field_1788075690796', type: 'organisation_dropdown' },
+      { id: 'field_1788075892819', type: 'relationship_dropdown' },
+      { id: 'field_1788940619910', type: 'text' },
+    ],
+    visibility_rules: [rule],
+  };
+  const conditionMet = value => rule.conditions.every(condition => (
+    evaluateFormLogicCondition(value, condition.operator, condition.value)
+  ));
+
+  assert.equal(conditionMet(''), false);
+  assert.equal(conditionMet(FORM_NOT_LISTED_VALUE), false);
+  assert.equal(conditionMet('organization-id'), true);
+  assert.deepEqual(getConditionalPrefillActionEntries(form), [{
+    key: 'action_1789025977507',
+    sourceId: 'field_1788075690796',
+  }]);
+
+  const embedSource = readFileSync(new URL('../pages/EmbedForm.jsx', import.meta.url), 'utf8');
+  assert.match(embedSource, /useConditionalFormFieldPrefill\(\{/);
+  assert.match(embedSource, /return conditionalPrefillValues\[action\.id\]/);
+  assert.match(embedSource, /return conditionalPrefillValues\[`legacy_\$\{rule\.id\}`\]/);
+  assert.match(
+    embedSource,
+    /set_value_source \|\| 'static'\) === 'prefill'[\s\S]*?activeSetValueActionsRef\.current\.has\(actionKey\)/,
+  );
 });
