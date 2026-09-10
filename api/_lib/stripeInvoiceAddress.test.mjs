@@ -61,6 +61,27 @@ test('PaymentIntent capture retrieves the payment method and updates Customer', 
   });
 });
 
+test('PaymentIntent capture keeps membership Customer strict but permits ordinary customerless charges', async () => {
+  const stripe = {
+    paymentMethods: { retrieve: async () => ({ billing_details: { address } }) },
+    paymentIntents: { update: async () => ({}) },
+    customers: { update: async () => { throw new Error('customer update must not run'); } },
+  };
+  await assert.rejects(
+    capturePaymentIntentBillingAddress({
+      stripe,
+      paymentIntent: { id: 'pi_membership', payment_method: 'pm_1', customer: null },
+    }),
+    /no reusable Customer/,
+  );
+  const snapshot = await capturePaymentIntentBillingAddress({
+    stripe,
+    paymentIntent: { id: 'pi_form', payment_method: 'pm_1', customer: null },
+    requireCustomer: false,
+  });
+  assert.equal(snapshot.postal_code, 'SW1A 1AA');
+});
+
 test('PaymentIntent retries use the immutable Stripe metadata snapshot', async () => {
   let paymentMethodReads = 0;
   const stripe = {

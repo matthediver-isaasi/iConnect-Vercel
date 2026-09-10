@@ -12,6 +12,8 @@ import {
   FORM_NOT_LISTED_TEXT_KEY,
   FORM_NOT_LISTED_VALUE,
 } from '../../shared/formNotListedChoice.js';
+import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
+import { retryPersistedStripeAddressMappings } from '../_lib/formStripeAddressMappingProcessing.js';
 
 const dropdown = {
   id: 'organisation',
@@ -58,6 +60,8 @@ function makeSupabase({
   relationshipDefinitions = [],
   relationshipEdges = [],
   idempotencyLookupError = null,
+  provenanceRows = [],
+  rpcResult = { data: null, error: null },
 }) {
   const inserts = [];
   const updates = [];
@@ -122,6 +126,7 @@ function makeSupabase({
         const insertedMatchesId = id && insertedOrganization?.id === id;
         return { data: matchesId || matchesName ? existingOrganization : insertedMatchesId ? insertedOrganization : null, error: null };
       }
+      if (this.table === 'form_stripe_address_mapping_ledger') return { data: null, error: null };
       if (this.table === 'member') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
@@ -202,6 +207,17 @@ function makeSupabase({
       let data = [];
       if (this.table === 'preference_field') data = preferenceFields;
       if (this.table === 'form_submission_pipeline_entity') data = pipelineEntityLinks;
+      if (this.table === 'form_submission_entity_creation') {
+        data = [
+          ...provenanceRows,
+          ...inserts.filter(entry => entry.table === this.table)
+            .flatMap(entry => Array.isArray(entry.payload) ? entry.payload : [entry.payload]),
+        ];
+      }
+      if (this.table === 'form_stripe_address_mapping_target') {
+        data = inserts.filter(entry => entry.table === this.table)
+          .flatMap(entry => Array.isArray(entry.payload) ? entry.payload : [entry.payload]);
+      }
       if (this.table === 'custom_object_relationship') data = relationshipEdges;
       if (this.table === 'organization_preference_value') {
         const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
@@ -241,9 +257,19 @@ function makeSupabase({
         const candidate = existingMember || submitterMember;
         data = candidate ? [{ ...candidate, ...this.updatePayload }] : [];
       }
+      if (this.table === 'member' && !this.updatePayload) {
+        const candidate = existingMember || submitterMember;
+        const ids = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'id')?.[2];
+        if (candidate && ids?.includes(candidate.id)) data = [candidate];
+      }
       if (this.table === 'organization' && !this.insertPayload && existingOrganization) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
-        if (id === existingOrganization.id) data = [existingOrganization];
+        const ids = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'id')?.[2];
+        if (id === existingOrganization.id || ids?.includes(existingOrganization.id)) data = [existingOrganization];
+      }
+      if (this.table === 'organization' && !this.insertPayload && insertedOrganization) {
+        const ids = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'id')?.[2];
+        if (ids?.includes(insertedOrganization.id)) data = [insertedOrganization];
       }
       return Promise.resolve({ data, error: null }).then(resolve, reject);
     }
@@ -255,7 +281,11 @@ function makeSupabase({
     deletes,
     client: {
       from(table) { return new Query(table); },
-      async rpc() { return { data: null, error: null }; },
+      async rpc(name, args) {
+        if (name === 'claim_form_stripe_address_mapping_processing') return { data: true, error: null };
+        if (name === 'release_form_stripe_address_mapping_processing') return { data: null, error: null };
+        return typeof rpcResult === 'function' ? rpcResult(name, args) : rpcResult;
+      },
     },
   };
 }
@@ -279,6 +309,9 @@ async function invokeProcessor(payload, {
   entityProcessingCompletedAt = null,
   idempotencyLookupError = null,
   requestBodyOverrides = {},
+  submissionOverrides = {},
+  provenanceRows = [],
+  rpcResult = { data: null, error: null },
 } = {}) {
   const previousSecret = process.env.SESSION_SECRET;
   process.env.SESSION_SECRET = 'runtime-org-name-test-secret';
@@ -312,6 +345,7 @@ async function invokeProcessor(payload, {
     payment_status: null,
     payment_meta: {},
     processing_notes: [],
+    ...submissionOverrides,
   };
   const db = makeSupabase({
     form,
@@ -328,6 +362,8 @@ async function invokeProcessor(payload, {
     relationshipDefinitions,
     relationshipEdges,
     idempotencyLookupError,
+    provenanceRows,
+    rpcResult,
   });
   const ids = {
     tenantId: form.tenant_id,
@@ -362,7 +398,14 @@ async function invokeProcessor(payload, {
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSecret;
   }
-  return { response, inserts: db.inserts, updates: db.updates, deletes: db.deletes };
+  return {
+    response,
+    inserts: db.inserts,
+    updates: db.updates,
+    deletes: db.deletes,
+    db: db.client,
+    submission,
+  };
 }
 
 test('public endpoint payload resolves nested not-listed text through canonical Organisation Name', async () => {
@@ -2112,3 +2155,256 @@ test('multiple organization pipelines without exactly one primary stay explicit'
   ]), null);
   assert.equal(ORGANIZATION_CORE_FIELD_MAPPINGS.website, 'website_url');
 });
+
+test('Stripe retry after organization insert adopts provenance before linkage without duplicating', async () => {
+  const payload = publicPayload();
+  const mappings = [{
+    source: 'formatted',
+    target_entity: 'organization',
+    target_type: 'core',
+    target_field: 'invoicing_address',
+  }];
+  const signatureForm = {
+    id: 'form-runtime-org',
+    tenant_id: 'tenant-runtime-org',
+    pages: [],
+    visibility_rules: [],
+    field_mappings: [],
+    application_level: 'organization',
+    create_entity_type: 'organization',
+    entity_action: 'create',
+    member_entity_action: 'none',
+    organization_entity_action: 'upsert',
+    additional_member_creations: [],
+    ...payload,
+    fields: payload.fields,
+    entity_pipelines: payload.entity_pipelines,
+  };
+  const insertedBeforeCrash = {
+    id: 'created-before-linkage',
+    tenant_id: 'tenant-runtime-org',
+    name: 'Runtime Organisation Ltd',
+    invoicing_address: null,
+  };
+  const result = await invokeProcessor(payload, {
+    verifiedAdminAccess: false,
+    existingOrganization: insertedBeforeCrash,
+    provenanceRows: [{
+      entity_type: 'organization',
+      entity_id: insertedBeforeCrash.id,
+      tenant_id: 'tenant-runtime-org',
+      form_submission_id: 'submission-runtime-org',
+    }],
+    submissionOverrides: {
+      payment_provider: 'stripe',
+      payment_status: 'paid',
+      payment_meta: {
+        stripe_address_mapping_config: {
+          version: 1,
+          mappings,
+          target_resolution: buildStripeAddressTargetResolution(signatureForm, mappings),
+        },
+        stripe_billing_address: {
+          line1: '10 High Street',
+          line2: null,
+          city: 'Leeds',
+          state: null,
+          postal_code: 'LS1 1AA',
+          country: 'GB',
+          formatted: '10 High Street\nLeeds\nLS1 1AA\nGB',
+        },
+      },
+    },
+    rpcResult: { data: { ok: true, applied: true }, error: null },
+  });
+  assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+  assert.equal(result.response.body.organization_id, insertedBeforeCrash.id);
+  assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+});
+
+test('Stripe retry after member insert adopts provenance before linkage without duplicating', async () => {
+  const emailField = { id: 'email', type: 'email', label: 'Email' };
+  const payload = {
+    fields: [emailField],
+    form_values: { email: 'retry@example.com' },
+    field_mappings: [],
+    application_level: 'member',
+    create_entity_type: 'member',
+    entity_action: 'create',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'none',
+    additional_member_creations: [],
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  const mappings = [{
+    source: 'country',
+    target_entity: 'member',
+    target_type: 'custom',
+    target_field: '30000000-0000-4000-8000-000000000002',
+  }];
+  const signatureForm = {
+    id: 'form-runtime-org',
+    tenant_id: 'tenant-runtime-org',
+    pages: [],
+    visibility_rules: [],
+    field_mappings: [],
+    application_level: 'member',
+    create_entity_type: 'member',
+    entity_action: 'create',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'none',
+    additional_member_creations: [],
+    ...payload,
+    fields: payload.fields,
+    entity_pipelines: payload.entity_pipelines,
+  };
+  const insertedBeforeCrash = {
+    id: 'member-before-linkage',
+    tenant_id: 'tenant-runtime-org',
+    email: 'retry@example.com',
+    organization_id: null,
+  };
+  const result = await invokeProcessor(payload, {
+    verifiedAdminAccess: false,
+    existingMember: insertedBeforeCrash,
+    provenanceRows: [{
+      entity_type: 'member',
+      entity_id: insertedBeforeCrash.id,
+      tenant_id: 'tenant-runtime-org',
+      form_submission_id: 'submission-runtime-org',
+    }],
+    submissionOverrides: {
+      payment_provider: 'stripe',
+      payment_status: 'paid',
+      payment_meta: {
+        stripe_address_mapping_config: {
+          version: 1,
+          mappings,
+          target_resolution: buildStripeAddressTargetResolution(signatureForm, mappings),
+        },
+        stripe_billing_address: {
+          line1: '10 High Street',
+          line2: null,
+          city: 'Leeds',
+          state: null,
+          postal_code: 'LS1 1AA',
+          country: 'GB',
+          formatted: '10 High Street\nLeeds\nLS1 1AA\nGB',
+        },
+      },
+    },
+    rpcResult: { data: { ok: true, applied: true }, error: null },
+  });
+  assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+  assert.equal(result.response.body.created_member_id, insertedBeforeCrash.id);
+  assert.equal(result.inserts.some(entry => entry.table === 'member'), false);
+});
+
+for (const recoveryCase of [
+  { label: 'newly created target', existingOrganization: null, verifiedAdminAccess: false },
+  {
+    label: 'authorized existing target',
+    existingOrganization: {
+      id: 'authorized-existing-org',
+      tenant_id: 'tenant-runtime-org',
+      name: 'Runtime Organisation Ltd',
+      invoicing_address: null,
+    },
+    verifiedAdminAccess: true,
+  },
+]) {
+  test(`RPC failure before linkage is completed by persisted retry for ${recoveryCase.label}`, async () => {
+    const payload = publicPayload();
+    const mappings = [{
+      source: 'formatted',
+      target_entity: 'organization',
+      target_type: 'core',
+      target_field: 'invoicing_address',
+    }];
+    const signatureForm = {
+      id: 'form-runtime-org',
+      tenant_id: 'tenant-runtime-org',
+      pages: [],
+      visibility_rules: [],
+      field_mappings: [],
+      application_level: 'organization',
+      create_entity_type: 'organization',
+      entity_action: 'create',
+      member_entity_action: 'none',
+      organization_entity_action: 'upsert',
+      additional_member_creations: [],
+      ...payload,
+      fields: payload.fields,
+      entity_pipelines: payload.entity_pipelines,
+    };
+    let applyAttempts = 0;
+    const firstRun = await invokeProcessor(payload, {
+      existingOrganization: recoveryCase.existingOrganization,
+      verifiedAdminAccess: recoveryCase.verifiedAdminAccess,
+      submissionOverrides: {
+        payment_provider: 'stripe',
+        payment_status: 'paid',
+        payment_meta: {
+          verified_admin_access: recoveryCase.verifiedAdminAccess,
+          stripe_address_mapping_config: {
+            version: 1,
+            mappings,
+            target_resolution: buildStripeAddressTargetResolution(signatureForm, mappings),
+          },
+          stripe_billing_address: {
+            line1: '10 High Street',
+            line2: null,
+            city: 'Leeds',
+            state: null,
+            postal_code: 'LS1 1AA',
+            country: 'GB',
+            formatted: '10 High Street\nLeeds\nLS1 1AA\nGB',
+          },
+        },
+      },
+      rpcResult(name) {
+        if (name !== 'apply_form_stripe_address_mappings') {
+          return { data: null, error: null };
+        }
+        applyAttempts += 1;
+        return applyAttempts === 1
+          ? { data: null, error: { message: 'temporary RPC outage' } }
+          : { data: { ok: true, applied: true }, error: null };
+      },
+    });
+    assert.equal(firstRun.response.statusCode, 500);
+    assert.equal(firstRun.submission.created_organization_id, null);
+    assert.equal(firstRun.submission.organization_id, null);
+    const checkpoint = firstRun.inserts.find(
+      entry => entry.table === 'form_stripe_address_mapping_target',
+    );
+    assert.ok(checkpoint, 'resolved target must be durable before address RPC');
+
+    const retryResult = await retryPersistedStripeAddressMappings({
+      db: firstRun.db,
+      submissionId: firstRun.submission.id,
+      tenantId: firstRun.submission.tenant_id,
+    });
+    assert.equal(retryResult.applied, true);
+    assert.equal(applyAttempts, 2);
+    const organizationInserts = firstRun.inserts.filter(entry => entry.table === 'organization');
+    assert.equal(
+      organizationInserts.length,
+      recoveryCase.existingOrganization ? 0 : 1,
+      'retry must not duplicate entity creation',
+    );
+  });
+}

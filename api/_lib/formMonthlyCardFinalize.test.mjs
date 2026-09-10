@@ -112,6 +112,14 @@ function matchesPredicate(row, pred) {
       if (pred.column.includes('->>')) {
         return String(actual) === String(pred.value);
       }
+      if (actual && pred.value
+          && typeof actual === 'object'
+          && (typeof pred.value === 'object' || typeof pred.value === 'string')) {
+        const expected = typeof pred.value === 'string'
+          ? JSON.parse(pred.value)
+          : pred.value;
+        return JSON.stringify(actual) === JSON.stringify(expected);
+      }
       return actual === pred.value;
     case 'neq':
       return actual !== pred.value;

@@ -92,6 +92,21 @@ test('confirm maps failures to the do-not-pay-again error', async () => {
   assert.equal(network.status, 'error');
 });
 
+test('confirm preserves captured-payment processing as a no-repay state', async () => {
+  const out = await confirmFormPayment({
+    submissionId: 's',
+    fetchImpl: mkFetch(503, {
+      paymentSucceeded: true,
+      retryable: true,
+      error: 'Address update pending',
+    }),
+  });
+  assert.deepEqual(out, {
+    status: 'processing',
+    error: 'Address update pending',
+  });
+});
+
 // --- wiring contracts ---------------------------------------------------------
 
 test('both form pages mount the page-level return handler before wizard state', () => {

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import {
   FORM_NOT_LISTED_VALUE,
   isFormNotListedValue,
@@ -53,6 +54,15 @@ import {
   partitionIgnoredHiddenMappings,
 } from '../_lib/formMappingFallbacks.js';
 import { persistPipelineCrmNotes } from '../_lib/formCrmNotes.js';
+import {
+  processPersistedStripeAddressMappings,
+  StripeAddressMappingError,
+} from '../_lib/formStripeAddressMappingProcessing.js';
+import {
+  loadPersistedFormEntityCreations,
+  singlePersistedCreationId,
+} from '../_lib/formEntityCreationProvenance.js';
+import { validateStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -602,6 +612,17 @@ const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
 };
 
 export default async function handler(req, res, { supabase = defaultSupabase } = {}) {
+  let stripeProcessingLease = null;
+  const releaseStripeProcessingLease = async () => {
+    if (!stripeProcessingLease) return;
+    const lease = stripeProcessingLease;
+    stripeProcessingLease = null;
+    await supabase.rpc('release_form_stripe_address_mapping_processing', {
+      p_tenant_id: lease.tenantId,
+      p_submission_id: lease.submissionId,
+      p_token: lease.token,
+    }).catch(() => {});
+  };
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -819,9 +840,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       verifiedAdminAccess: verified_admin_access,
     });
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
-      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_status, payment_meta, processing_notes')
+      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
-      supabase.from('form').select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
+      supabase.from('form').select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
     ]);
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
@@ -1037,6 +1058,73 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       allowPersistedCustomObjectCreates: trustedInternal,
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
+    const hasStripeAddressMappingWork = !!(
+      persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
+    );
+    let persistedEntityCreations = { member: new Set(), organization: new Set() };
+    if (hasStripeAddressMappingWork) {
+      persistedEntityCreations = await loadPersistedFormEntityCreations({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+      });
+      // Once address application committed, an admin retry must not replay
+      // ordinary mappings, structured actions, related records, or workflows:
+      // those could overwrite edits made after the payment-time snapshot won.
+      const { data: completedAddressMapping, error: completedAddressError } = await supabase
+        .from('form_stripe_address_mapping_ledger')
+        .select('member_id, organization_id')
+        .eq('form_submission_id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .maybeSingle();
+      if (completedAddressError) throw completedAddressError;
+      if (completedAddressMapping) {
+        return res.json({
+          success: true,
+          already_processed: true,
+          created_member_id: completedAddressMapping.member_id || persistedSubmission.created_member_id || null,
+          created_organization_id: completedAddressMapping.organization_id || persistedSubmission.created_organization_id || null,
+          organization_id: completedAddressMapping.organization_id || persistedSubmission.organization_id || null,
+          stripe_address_mappings: {
+            configured: true,
+            applied: false,
+            alreadyApplied: true,
+          },
+        });
+      }
+      const leaseToken = randomUUID();
+      const { data: leaseClaimed, error: leaseError } = await supabase.rpc(
+        'claim_form_stripe_address_mapping_processing',
+        {
+          p_tenant_id: effectiveEntityTenantId,
+          p_submission_id: submission_id,
+          p_token: leaseToken,
+        },
+      );
+      if (leaseError) throw leaseError;
+      if (leaseClaimed !== true) {
+        return res.status(409).json({
+          error: 'Stripe address processing is already in progress',
+          code: 'STRIPE_ADDRESS_PROCESSING_BUSY',
+        });
+      }
+      stripeProcessingLease = {
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+        token: leaseToken,
+      };
+      const targetResolution = validateStripeAddressTargetResolution(
+        persistedForm,
+        persistedSubmission.payment_meta.stripe_address_mapping_config.target_resolution,
+      );
+      if (!targetResolution.valid) {
+        await releaseStripeProcessingLease();
+        return res.status(409).json({
+          error: targetResolution.error,
+          code: 'STRIPE_ADDRESS_TARGET_RESOLUTION_DRIFT',
+        });
+      }
+    }
     const persistCrmNotesForPipeline = async (entity, entityId, pipeline, authorMemberIdOverride = null) => {
       if (!entityId || !pipeline?.mappings?.some(mapping => mapping.target_type === 'crm_note')) return;
       let authorMemberId = authenticatedSubmitterMember?.id
@@ -1057,10 +1145,19 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       });
     };
     const legacyCreatedRecordIds = {
-      member: new Set([persistedSubmission.created_member_id].filter(Boolean).map(String)),
+      member: new Set([
+        persistedSubmission.created_member_id,
+        ...persistedEntityCreations.member,
+      ].filter(Boolean).map(String)),
       // created_organization_id is also populated when a pipeline merely
       // references an existing organization, so it is not creation provenance.
       // Only an INSERT completed in this processing run may enter this set.
+      organization: new Set(persistedEntityCreations.organization),
+    };
+    // Unlike legacyCreatedRecordIds, this is exact current-run provenance.
+    // Never seed it from overloaded submission linkage columns.
+    const currentRunEntityCreations = {
+      member: new Set(),
       organization: new Set(),
     };
     const assertLegacyExistingRecordAuthorized = (entity, recordId) => {
@@ -1070,6 +1167,24 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         recordId,
         authorization: processingAuthorization,
       });
+    };
+    const persistEntityCreationProvenance = async (entity, entityId) => {
+      if (!entityId) return;
+      const { error } = await supabase.from('form_submission_entity_creation').upsert({
+        form_submission_id: submission_id,
+        tenant_id: effectiveEntityTenantId,
+        entity_type: entity,
+        entity_id: entityId,
+      }, { onConflict: 'form_submission_id,entity_type,entity_id' });
+      if (error) throw error;
+    };
+    const discardEntityCreationProvenance = async (entity, entityId) => {
+      if (!entityId) return;
+      await supabase.from('form_submission_entity_creation')
+        .delete()
+        .eq('form_submission_id', submission_id)
+        .eq('entity_type', entity)
+        .eq('entity_id', entityId);
     };
 
     // Versioned structured actions are an authoritative persisted contract.
@@ -1183,6 +1298,15 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           memberId: existingSubmission.created_member_id,
           organizationId: existingSubmission.created_organization_id,
         });
+        const stripeAddressMappings = await processPersistedStripeAddressMappings({
+          db: supabase,
+          submission: persistedSubmission,
+          tenantId: effectiveEntityTenantId,
+          memberId: existingSubmission.created_member_id,
+          organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+          authorization: processingAuthorization,
+          currentForm: persistedForm,
+        });
         for (const outcome of relatedRecords?.outcomes || []) {
           addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
         }
@@ -1216,6 +1340,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           organization_id: existingSubmission.created_organization_id,
           ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
           ...(relatedRecords ? { related_records: relatedRecords } : {}),
+          stripe_address_mappings: stripeAddressMappings,
         });
       }
     }
@@ -2209,6 +2334,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     let createdMemberId = null;
     let newlyCreatedMemberData = null; // Track member data for workflow trigger after custom fields saved (task 3196)
     let primaryMemberSkippedForHiddenIdentity = false;
+    const persistedCreatedMemberId = singlePersistedCreationId(persistedEntityCreations, 'member');
+    const persistedCreatedOrganizationId = singlePersistedCreationId(persistedEntityCreations, 'organization');
 
     const rejectCrossTenant = (row, stage, extra = {}) => {
       if (!isCrossTenantRow(effectiveEntityTenantId, row)) return false;
@@ -2237,7 +2364,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // synthetic prefill so the existing resolution chain targets the right
       // org. When the request already carries an explicit prefill that
       // disagrees, prefer the explicit one and leave a processing note.
-      let effectivePrefillOrgId = prefill_organization_id || null;
+      // Verified same-submission creation provenance outranks respondent
+      // references when resuming after an insert/linkage crash.
+      let effectivePrefillOrgId = persistedCreatedOrganizationId || prefill_organization_id || null;
       if (dropdownSelectedOrgId) {
         if (!effectivePrefillOrgId) {
           effectivePrefillOrgId = dropdownSelectedOrgId;
@@ -2336,6 +2465,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             // Resolving a tenant-validated organisation from a persisted
             // dropdown answer is reference use, not mutation. Require ownership
             // only once this path is actually going to alter the existing row.
+            // A pipeline checkpoint identifies a target; it grants no right
+            // to modify it. This guard only exempts actual creation provenance.
             assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
             console.log('[AppProcessor] Org update data:', orgUpdateData);
             // Write-time tenant guard (defence in depth): the UPDATE itself is
@@ -2455,6 +2586,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           }
 
           console.log('[AppProcessor] Creating organization with data:', orgInsertData);
+          // Reserve immutable provenance before the entity insert. A crash can
+          // now leave only a harmless orphan reservation, never an unprovable
+          // created entity that a retry mistakes for a selected reference.
+          if (hasStripeAddressMappingWork) {
+            orgInsertData.id = randomUUID();
+            await persistEntityCreationProvenance('organization', orgInsertData.id);
+          }
 
           const { data: newOrg, error: orgError } = await supabase
             .from('organization')
@@ -2463,6 +2601,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             .single();
 
           if (orgError) {
+            if (hasStripeAddressMappingWork) {
+              await discardEntityCreationProvenance('organization', orgInsertData.id);
+            }
             console.error('[AppProcessor] Failed to create organization:', orgError);
             addProcessingNote({
               level: 'error',
@@ -2475,6 +2616,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
           createdOrganizationId = newOrg.id;
           legacyCreatedRecordIds.organization.add(String(newOrg.id));
+          currentRunEntityCreations.organization.add(String(newOrg.id));
           if (notListedOrganizationSource
               && !hiddenSubmissionFieldIds.has(notListedOrganizationSource)) {
             serverCreatedOrganizations.set(notListedOrganizationSource, newOrg.id);
@@ -2600,7 +2742,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // synthetic prefill so the existing resolution chain targets the right
       // member. When the request already carries an explicit prefill that
       // disagrees, prefer the explicit one and leave a processing note.
-      let effectivePrefillMemberId = prefill_member_id || null;
+      let effectivePrefillMemberId = persistedCreatedMemberId || prefill_member_id || null;
       if (dropdownSelectedMemberId) {
         if (!effectivePrefillMemberId) {
           effectivePrefillMemberId = dropdownSelectedMemberId;
@@ -3001,6 +3143,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           console.log('[AppProcessor] login_enabled for member insert:', memberInsertData.login_enabled);
 
           console.log('[AppProcessor] Final memberInsertData:', JSON.stringify(memberInsertData));
+          if (hasStripeAddressMappingWork) {
+            memberInsertData.id = randomUUID();
+            await persistEntityCreationProvenance('member', memberInsertData.id);
+          }
 
           const { data: newMember, error: memberError } = await supabase
             .from('member')
@@ -3009,12 +3155,16 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             .single();
 
           if (memberError) {
+            if (hasStripeAddressMappingWork) {
+              await discardEntityCreationProvenance('member', memberInsertData.id);
+            }
             console.error('[AppProcessor] Failed to create member:', memberError);
             return res.status(500).json({ error: `Failed to create member: ${memberError.message}` });
           }
 
           createdMemberId = newMember.id;
           legacyCreatedRecordIds.member.add(String(newMember.id));
+          currentRunEntityCreations.member.add(String(newMember.id));
           console.log('[AppProcessor] Created member:', createdMemberId);
 
           // Task 3196: record_create workflows are triggered AFTER the
@@ -4068,6 +4218,55 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     for (const outcome of relatedRecords?.outcomes || []) {
       addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
     }
+    // Checkpoint resolved mapping targets before the atomic address RPC. A
+    // transient RPC failure must not strand a finalized paid submission with
+    // null linkage IDs; browser/webhook/cron retries reload these trusted
+    // service-written checkpoints.
+    if (hasStripeAddressMappingWork) {
+      const mappedEntities = new Set(
+        persistedSubmission.payment_meta.stripe_address_mapping_config.mappings
+          .map(mapping => mapping?.target_entity),
+      );
+      const targetCheckpoints = [];
+      if (mappedEntities.has('member') && resolvedMemberId) {
+        targetCheckpoints.push({
+          form_submission_id: submission_id,
+          tenant_id: effectiveEntityTenantId,
+          entity_type: 'member',
+          entity_id: resolvedMemberId,
+          checkpointed_at: new Date().toISOString(),
+        });
+      }
+      if (mappedEntities.has('organization') && resolvedOrganizationId) {
+        targetCheckpoints.push({
+          form_submission_id: submission_id,
+          tenant_id: effectiveEntityTenantId,
+          entity_type: 'organization',
+          entity_id: resolvedOrganizationId,
+          checkpointed_at: new Date().toISOString(),
+        });
+      }
+      if (targetCheckpoints.length > 0) {
+        const { error: checkpointError } = await supabase
+          .from('form_stripe_address_mapping_target')
+          .upsert(targetCheckpoints, { onConflict: 'form_submission_id,entity_type' });
+        if (checkpointError) throw checkpointError;
+      }
+    }
+    // Payment-derived mappings deliberately run last. The immutable accepted
+    // Stripe snapshot is still checked against current ordinary mappings, so
+    // configuration drift cannot create competing writers. The RPC commits
+    // all field writes with its completion ledger, making retries crash-safe.
+    const stripeAddressMappings = await processPersistedStripeAddressMappings({
+      db: supabase,
+      submission: persistedSubmission,
+      tenantId: effectiveEntityTenantId,
+      memberId: resolvedMemberId,
+      organizationId: resolvedOrganizationId,
+      authorization: processingAuthorization,
+      currentRunCreated: currentRunEntityCreations,
+      currentForm: persistedForm,
+    });
 
     // Persist processing notes (per-field outcomes from upsert/clear
     // helpers) to form_submission so silent failures become visible in
@@ -4140,6 +4339,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     }
 
     // Return the resolved organization_id (whether created or existing)
+    await releaseStripeProcessingLease();
     return res.json({
       success: structuredActionResult ? structuredActionResult.success : true,
       created_member_id: resolvedMemberId,
@@ -4158,9 +4358,11 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // Structured actions are additive: legacy pipelines/workflows above
       // retain their established ordering and their response remains intact.
       ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
-      ...(relatedRecords ? { related_records: relatedRecords } : {})
+      ...(relatedRecords ? { related_records: relatedRecords } : {}),
+      stripe_address_mappings: stripeAddressMappings,
     });
   } catch (error) {
+    await releaseStripeProcessingLease();
     console.error('[AppProcessor] Error:', error);
     if (error?.code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING') {
       return res.status(400).json({
@@ -4173,6 +4375,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       return res.status(error.status || 403).json({
         error: error.message,
         code: error.code || 'STRUCTURED_ACTION_FORBIDDEN',
+      });
+    }
+    if (error instanceof StripeAddressMappingError) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        code: error.code,
+        retryable: error.status >= 500,
       });
     }
     res.status(500).json({ error: 'Failed to process application' });

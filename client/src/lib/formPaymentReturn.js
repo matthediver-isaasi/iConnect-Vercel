@@ -69,7 +69,7 @@ export const CONFIRM_FALLBACK_ERROR =
  * action:'confirm'. Used by the page-level return hook and by the inline
  * Stripe (non-redirect) flow in FormPaymentSubmit.
  *
- * Returns { status: 'paid' | 'pending' | 'error', error? }.
+ * Returns { status: 'paid' | 'pending' | 'processing' | 'error', error? }.
  * 'paid' covers alreadyPaid repeats (refresh, reconciliation winning the
  * race) — the server responds 200 for those too.
  */
@@ -86,6 +86,12 @@ export async function confirmFormPayment({ submissionId, paymentIntentId = null,
       }),
     });
     const json = await res.json().catch(() => ({}));
+    if (!res.ok && json.paymentSucceeded) {
+      return {
+        status: 'processing',
+        error: json.error || CONFIRM_FALLBACK_ERROR,
+      };
+    }
     if (!res.ok) return { status: 'error', error: json.error || CONFIRM_FALLBACK_ERROR };
     if (json.pending) return { status: 'pending' };
     try { sessionStorage.removeItem(SS_KEY); } catch { /* ignore */ }

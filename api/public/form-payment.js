@@ -84,9 +84,50 @@ import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValida
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { getSessionMember } from '../_lib/session.js';
 import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
+import { validateFormStripeAddressMappingConfig } from '../_lib/formStripeAddressMappingConfig.js';
+import {
+  patchFormSubmissionPaymentMeta,
+  retryPersistedStripeAddressMappings,
+} from '../_lib/formStripeAddressMappingProcessing.js';
+import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
-const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+
+async function acceptedStripeAddressConfig(supabase, tenantId, form, paymentField) {
+  const validation = await validateFormStripeAddressMappingConfig({
+    supabase,
+    tenantId,
+    form,
+  });
+  if (!validation.ok) return validation;
+  const mappings = Array.isArray(paymentField?.stripe_billing_address_mappings)
+    ? paymentField.stripe_billing_address_mappings.map(mapping => ({
+        source: mapping.source,
+        target_entity: mapping.target_entity,
+        target_type: mapping.target_type,
+        target_field: mapping.target_field,
+      }))
+    : [];
+  if (mappings.length === 0) {
+    return { ok: true, config: null };
+  }
+  return {
+    ok: true,
+    config: {
+      version: 1,
+      mappings,
+      target_resolution: buildStripeAddressTargetResolution(form, mappings),
+    },
+  };
+}
+
+export function submissionRequiresStripeBillingAddress(submission) {
+  const meta = submission?.payment_meta || {};
+  return !!meta.membership
+    || (Array.isArray(meta.stripe_address_mapping_config?.mappings)
+      && meta.stripe_address_mapping_config.mappings.length > 0);
+}
 
 function sanitizeReturnPath(p) {
   if (typeof p !== 'string') return '/';
@@ -495,6 +536,17 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   if (!access) return;
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
+  const addressConfigResult = await acceptedStripeAddressConfig(
+    supabase, tenantData.id, form, paymentField,
+  );
+  if (!addressConfigResult.ok) {
+    return res.status(400).json({
+      error: addressConfigResult.error,
+      code: addressConfigResult.code,
+      details: addressConfigResult.details,
+    });
+  }
+  const stripeAddressMappingConfig = addressConfigResult.config;
   const enabledProviders = Array.isArray(paymentField.payment_providers) ? paymentField.payment_providers : [];
   if (!enabledProviders.includes('stripe')) {
     return res.status(400).json({ error: 'Monthly card payment is not enabled for this form' });
@@ -568,7 +620,11 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       payment_meta: withFormPaymentAccessProof({ prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
         verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
         verified_admin_access: access.verifiedAdminAccess === true,
-        membership: resolved.membershipMeta, monthly_card: {
+        membership: resolved.membershipMeta,
+        ...(stripeAddressMappingConfig
+          ? { stripe_address_mapping_config: stripeAddressMappingConfig }
+          : {}),
+        monthly_card: {
           offer,
            applicant_email: applicantEmail,
           pre_resolved_member_id: existingApplicant?.id || null,
@@ -840,6 +896,20 @@ async function handleCreate(req, res, supabase, tenantData) {
 
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
+  let stripeAddressMappingConfig = null;
+  if (provider === 'stripe') {
+    const addressConfigResult = await acceptedStripeAddressConfig(
+      supabase, tenantData.id, form, paymentField,
+    );
+    if (!addressConfigResult.ok) {
+      return res.status(400).json({
+        error: addressConfigResult.error,
+        code: addressConfigResult.code,
+        details: addressConfigResult.details,
+      });
+    }
+    stripeAddressMappingConfig = addressConfigResult.config;
+  }
 
   const enabledProviders = Array.isArray(paymentField.payment_providers) ? paymentField.payment_providers : [];
   if (!enabledProviders.includes(provider)) {
@@ -974,6 +1044,11 @@ async function handleCreate(req, res, supabase, tenantData) {
       } else {
       // Refresh the stored answers/amount so the payment reflects the
       // CURRENT form state (user may have edited values before retrying).
+      const reusablePaymentMeta = { ...(existing.payment_meta || {}) };
+      if (provider !== 'stripe') {
+        delete reusablePaymentMeta.stripe_address_mapping_config;
+        delete reusablePaymentMeta.stripe_billing_address;
+      }
       const { data: refreshed, error: refreshErr } = await supabase
         .from('form_submission')
         .update({
@@ -993,7 +1068,7 @@ async function handleCreate(req, res, supabase, tenantData) {
           payment_provider: storedPaymentProvider,
           submitted_by_email: submitterEmail,
           payment_meta: withFormPaymentAccessProof({
-            ...(existing.payment_meta || {}),
+            ...reusablePaymentMeta,
             price_field_id: paymentField.price_field_id || null,
             prefill_organization_id: prefill_organization_id || null,
             role_id: role_id || null,
@@ -1001,6 +1076,9 @@ async function handleCreate(req, res, supabase, tenantData) {
             verified_admin_access: access.verifiedAdminAccess === true,
             membership: membershipMeta,
             stripe_feature: stripeFeature,
+            ...(stripeAddressMappingConfig
+              ? { stripe_address_mapping_config: stripeAddressMappingConfig }
+              : {}),
             ...monthlyDirectDebitMeta,
           }, { accessPolicyRequired: access.restricted }),
         })
@@ -1037,6 +1115,9 @@ async function handleCreate(req, res, supabase, tenantData) {
         verified_admin_access: access.verifiedAdminAccess === true,
         membership: membershipMeta,
         stripe_feature: stripeFeature,
+        ...(stripeAddressMappingConfig
+          ? { stripe_address_mapping_config: stripeAddressMappingConfig }
+          : {}),
         ...monthlyDirectDebitMeta,
       }, { accessPolicyRequired: access.restricted }),
       ...(idemKey && { idempotency_key: idemKey }),
@@ -1131,6 +1212,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             mode: prior.publishableKey?.startsWith('pk_test_') ? 'test' : 'live',
             amount,
             currency,
+            requiresBillingAddress: submissionRequiresStripeBillingAddress(submissionRow),
           });
         }
         if (prior.kind === 'blocked') {
@@ -1202,6 +1284,7 @@ async function handleCreate(req, res, supabase, tenantData) {
               mode: creds.mode,
               amount,
               currency,
+              requiresBillingAddress: submissionRequiresStripeBillingAddress(submissionRow),
             });
           }
         } catch { /* fall through */ }
@@ -1216,6 +1299,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       mode: creds.mode,
       amount,
       currency,
+      requiresBillingAddress: submissionRequiresStripeBillingAddress(submissionRow),
     });
   }
 
@@ -1579,26 +1663,86 @@ async function handleConfirm(req, res, supabase, tenantData) {
     }, {
       accessPolicyRequired: access.restricted,
     });
-    const { data: authorizedRow, error: authorizationError } = await supabase
-      .from('form_submission')
-      .update({ payment_meta: paymentMeta })
-      .eq('id', row.id)
-      .eq('tenant_id', tenantData.id)
-      .select('*')
-      .maybeSingle();
-    if (authorizationError || !authorizedRow) {
+    let authorizedMeta;
+    try {
+      authorizedMeta = await patchFormSubmissionPaymentMeta({
+        db: supabase,
+        tenantId: tenantData.id,
+        submissionId: row.id,
+        patch: {
+          access_authorized_at: paymentMeta.access_authorized_at,
+          access_policy_required: paymentMeta.access_policy_required,
+          verified_submitter_member_id: paymentMeta.verified_submitter_member_id,
+          verified_admin_access: paymentMeta.verified_admin_access,
+        },
+      });
+    } catch (authorizationError) {
       console.error('[form-payment] Failed to persist live access authorization:', authorizationError);
       return res.status(500).json({
         error: 'Payment access was confirmed but could not be recorded. Please try confirming again.',
       });
     }
-    row = authorizedRow;
+    row = { ...row, payment_meta: authorizedMeta };
   }
 
   if (row.payment_status === 'paid') {
     // Idempotent: ensure finalisation ran (e.g. earlier confirm crashed
     // between CAS and side effects).
+    const needsStripeAddress = row.payment_provider === 'stripe' && (
+      !!row.payment_meta?.membership
+      || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
+    );
+    if (needsStripeAddress && !row.payment_meta?.stripe_billing_address) {
+      try {
+        const stripeFeature = row.payment_meta?.stripe_feature
+          || (row.payment_meta?.membership ? 'membership' : 'forms');
+        const found = await retrieveTenantPaymentIntent(
+          tenantData.id, stripeFeature, row.payment_reference,
+        );
+        const intent = found?.paymentIntent;
+        const metadataMatches = intent?.metadata?.type === 'form_payment'
+          && intent.metadata.form_submission_id === String(row.id)
+          && intent.metadata.tenant_id === String(tenantData.id);
+        if (!found || intent.status !== 'succeeded'
+            || (!metadataMatches && intent.id !== row.payment_reference)) {
+          throw new Error('The verified Stripe payment could not be reloaded');
+        }
+        const address = await capturePaymentIntentBillingAddress({
+          stripe: found.stripe,
+          paymentIntent: intent,
+          requireCustomer: !!row.payment_meta?.membership,
+        });
+        const savedMeta = await patchFormSubmissionPaymentMeta({
+          db: supabase,
+          tenantId: tenantData.id,
+          submissionId: row.id,
+          patch: { stripe_billing_address: address },
+        });
+        row = { ...row, payment_meta: savedMeta };
+      } catch (addressErr) {
+        return res.status(503).json({
+          error: 'Your payment succeeded, but Stripe billing address details are still being recovered. We will retry automatically; please do not pay again.',
+          paymentSucceeded: true,
+          retryable: true,
+          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
+        });
+      }
+    }
     if (form) await finalizeFormSubmission({ supabase, submission: row, form, baseUrl });
+    try {
+      await retryPersistedStripeAddressMappings({
+        db: supabase,
+        submissionId: row.id,
+        tenantId: tenantData.id,
+      });
+    } catch (addressErr) {
+      return res.status(503).json({
+        error: 'Your payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
+        paymentSucceeded: true,
+        retryable: true,
+        code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
+      });
+    }
     return res.status(200).json({ success: true, submissionId: row.id, status: 'paid' });
   }
   const resumableMonthlySetup = ['stripe_monthly_card', 'gocardless_monthly_dd'].includes(row.payment_provider)
@@ -1765,6 +1909,9 @@ async function handleConfirm(req, res, supabase, tenantData) {
       }
     }
     if (!session) return res.status(400).json({ error: 'Card checkout could not be found' });
+    // Checkout completion initializes the finite monthly plan. Address
+    // mapping itself remains gated by the verified paid-invoice ledger in
+    // processPersistedStripeAddressMappings.
     if (session.status !== 'complete' || !session.subscription) {
       return res.status(200).json({ success: false, pending: true, submissionId: row.id, status: session.status || 'pending' });
     }
@@ -1792,6 +1939,20 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (!outcome.handled) {
       return res.status(400).json({ error: outcome.detail || 'Monthly card set-up could not be completed' });
     }
+    try {
+      await retryPersistedStripeAddressMappings({
+        db: supabase,
+        submissionId: row.id,
+        tenantId: tenantData.id,
+      });
+    } catch (addressErr) {
+      return res.status(503).json({
+        error: 'Your first card payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
+        paymentSucceeded: true,
+        retryable: true,
+        code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
+      });
+    }
     return res.status(200).json({ success: true, submissionId: row.id, status: 'setup_complete' });
   }
 
@@ -1813,37 +1974,6 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (pi.status !== 'succeeded') {
       return res.status(400).json({ error: `Payment has not completed (status: ${pi.status})`, code: 'PAYMENT_NOT_SUCCEEDED' });
     }
-    if (row.payment_meta?.membership) {
-      let stripeBillingAddress;
-      try {
-        stripeBillingAddress = await capturePaymentIntentBillingAddress({
-          stripe: found.stripe,
-          paymentIntent: pi,
-        });
-      } catch (addressErr) {
-        return res.status(503).json({
-          error: 'Your payment succeeded, but Stripe billing address details could not be verified. We will retry automatically; please do not pay again.',
-          paymentSucceeded: true,
-          retryable: true,
-          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
-        });
-      }
-      const paymentMeta = { ...(row.payment_meta || {}), stripe_billing_address: stripeBillingAddress };
-      const { data: snapRow, error: snapErr } = await supabase
-        .from('form_submission')
-        .update({ payment_meta: paymentMeta })
-        .eq('id', row.id)
-        .select()
-        .maybeSingle();
-      if (snapErr || !snapRow) {
-        return res.status(503).json({
-          error: 'Your payment succeeded, but its billing address could not be saved. We will retry automatically; please do not pay again.',
-          paymentSucceeded: true,
-          retryable: true,
-        });
-      }
-      row = snapRow;
-    }
     const expectedMinor = Math.round(Number(row.payment_amount || 0) * 100);
     const receivedMinor = pi.amount_received ?? pi.amount;
     if (expectedMinor > 0 && receivedMinor < expectedMinor) {
@@ -1856,8 +1986,61 @@ async function handleConfirm(req, res, supabase, tenantData) {
       amount: receivedMinor != null ? receivedMinor / 100 : null,
       reference: pi.id,
     });
-    const finalRow = paidRow || { ...row, payment_status: 'paid' };
+    // The charge is authoritative before any address retrieval/write. A
+    // provider or database failure below must therefore remain recoverable
+    // without ever asking the submitter to pay a second time.
+    row = paidRow || { ...row, payment_status: 'paid', payment_reference: pi.id };
+    const needsStripeAddress = !!row.payment_meta?.membership
+      || (row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0);
+    if (needsStripeAddress && !row.payment_meta?.stripe_billing_address) {
+      let stripeBillingAddress;
+      try {
+        stripeBillingAddress = await capturePaymentIntentBillingAddress({
+          stripe: found.stripe,
+          paymentIntent: pi,
+          requireCustomer: !!row.payment_meta?.membership,
+        });
+      } catch (addressErr) {
+        return res.status(503).json({
+          error: 'Your payment succeeded, but Stripe billing address details could not be verified. We will retry automatically; please do not pay again.',
+          paymentSucceeded: true,
+          retryable: true,
+          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
+        });
+      }
+      let savedMeta;
+      try {
+        savedMeta = await patchFormSubmissionPaymentMeta({
+          db: supabase,
+          tenantId: tenantData.id,
+          submissionId: row.id,
+          patch: { stripe_billing_address: stripeBillingAddress },
+        });
+      } catch {
+        return res.status(503).json({
+          error: 'Your payment succeeded, but its billing address could not be saved. We will retry automatically; please do not pay again.',
+          paymentSucceeded: true,
+          retryable: true,
+        });
+      }
+      row = { ...row, payment_meta: savedMeta };
+    }
+    const finalRow = row;
     if (form) await finalizeFormSubmission({ supabase, submission: finalRow, form, baseUrl });
+    try {
+      await retryPersistedStripeAddressMappings({
+        db: supabase,
+        submissionId: row.id,
+        tenantId: tenantData.id,
+      });
+    } catch (addressErr) {
+      return res.status(503).json({
+        error: 'Your payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
+        paymentSucceeded: true,
+        retryable: true,
+        code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
+      });
+    }
     return res.status(200).json({ success: true, submissionId: row.id, status: 'paid', reconciled: !updated });
   }
 

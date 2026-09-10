@@ -76,6 +76,7 @@ import {
 } from '../../_lib/formMemberRoleAssignment.js';
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
+import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -1037,6 +1038,39 @@ export default async function handler(req, res) {
         });
         if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
         sanitizedBody.access_policy = validation.policy;
+      }
+
+      if (entityNormalized === 'form'
+        && [
+          'fields',
+          'entity_pipelines',
+          'field_mappings',
+          'application_level',
+          'auto_create_entity',
+          'create_entity_type',
+          'entity_action',
+          'member_entity_action',
+          'organization_entity_action',
+        ].some(key => (
+          Object.prototype.hasOwnProperty.call(sanitizedBody, key)
+        ))) {
+        const { data: persistedForm, error: persistedFormError } = await supabase
+          .from('form')
+          .select('fields, entity_pipelines, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action')
+          .eq('id', id)
+          .eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId)
+          .maybeSingle();
+        if (persistedFormError || !persistedForm) {
+          return res.status(404).json({ error: 'Form not found' });
+        }
+        const stripeMappingValidation = await validateFormStripeAddressMappingConfig({
+          supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          form: { ...persistedForm, ...sanitizedBody },
+        });
+        if (!stripeMappingValidation.ok) {
+          return res.status(422).json(stripeMappingValidation);
+        }
       }
 
       if (entityNormalized === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'structured_actions')) {

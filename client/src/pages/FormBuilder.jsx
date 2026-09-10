@@ -109,6 +109,11 @@ import {
   normalizePipelineMappingEntities,
 } from "../../../shared/formCrmNotes.js";
 import {
+  STRIPE_ADDRESS_SOURCES,
+  stripeAddressDestinationOptions,
+  validateStripeAddressMappings,
+} from "../../../shared/formStripeAddressMappings.js";
+import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
   repeatableRowChildren,
@@ -4649,8 +4654,22 @@ function EmailCard({
 // form field (number/currency-type) chosen here.
 const PAYMENT_PRICE_SOURCE_TYPES = new Set(['number', 'currency', 'percentage', 'select', 'radio', 'custom_field']);
 
-function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) {
+function PaymentFieldSettings({
+  field,
+  originalIndex,
+  allFields,
+  updateField,
+  customFields,
+  entityPipelines,
+  applicationLevel,
+  fieldMappings,
+  formConfig,
+}) {
   const [providers, setProviders] = useState(null);
+  const savedAddressMappings = Array.isArray(field.stripe_billing_address_mappings)
+    ? field.stripe_billing_address_mappings
+    : [];
+  const [addressMappings, setAddressMappings] = useState(savedAddressMappings);
 
   useEffect(() => {
     let cancelled = false;
@@ -4670,6 +4689,34 @@ function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) 
   const priceSourceFields = allFields.filter(f =>
     f.id !== field.id && PAYMENT_PRICE_SOURCE_TYPES.has(f.type)
   );
+  const mappingForm = formConfig || {
+    fields: allFields,
+    entity_pipelines: entityPipelines,
+    application_level: applicationLevel,
+    field_mappings: fieldMappings,
+  };
+  const destinationGroups = stripeAddressDestinationOptions({
+    form: mappingForm,
+    customFields,
+  });
+  const updateAddressMapping = (index, updates) => {
+    setAddressMappings(current => current.map((mapping, mappingIndex) => (
+      mappingIndex === index ? { ...mapping, ...updates } : mapping
+    )));
+  };
+  const applyAddressMappings = () => {
+    const result = validateStripeAddressMappings({
+      form: mappingForm,
+      mappings: addressMappings,
+      customFields,
+    });
+    if (!result.valid) {
+      toast.error(result.errors[0]);
+      return;
+    }
+    updateField(originalIndex, { stripe_billing_address_mappings: addressMappings });
+    toast.success('Stripe billing address mappings saved to this payment field.');
+  };
 
   return (
     <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -4701,6 +4748,136 @@ function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) 
           ))
         )}
       </div>
+
+      {enabled.includes('stripe') && (
+        <div className="space-y-2 border-t border-slate-200 pt-3" data-testid={`stripe-address-mappings-${field.id}`}>
+          <div>
+            <Label className="text-xs font-medium">Stripe billing address mappings</Label>
+            <p className="text-xs text-slate-500 mt-1">
+              After a successful Stripe payment, copy address details to the single primary Member or Organisation resolved by this form.
+              Destinations already written by another form mapping cannot be selected.
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Non-empty Stripe values replace existing values. Missing optional address parts leave existing values unchanged.
+              Save these mappings, then save the form to publish the changes.
+            </p>
+          </div>
+          {addressMappings.length === 0 && (
+            <p className="text-xs text-slate-400">No billing address details are mapped.</p>
+          )}
+          {addressMappings.map((mapping, mappingIndex) => {
+            const selectedGroup = destinationGroups.find(group => group.value === mapping.target_entity);
+            return (
+              <div key={`${mappingIndex}-${mapping.source}`} className="grid min-w-0 grid-cols-1 sm:grid-cols-2 gap-2 items-end rounded border bg-white p-2">
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Stripe value</Label>
+                  <Select
+                    value={mapping.source}
+                    onValueChange={source => updateAddressMapping(mappingIndex, { source })}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-source-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose value" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STRIPE_ADDRESS_SOURCES.map(option => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Resolved record</Label>
+                  <Select
+                    value={mapping.target_entity}
+                    onValueChange={target_entity => updateAddressMapping(mappingIndex, {
+                      target_entity,
+                      target_type: '',
+                      target_field: '',
+                    })}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-entity-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose record" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {destinationGroups.map(group => (
+                        <SelectItem key={group.value} value={group.value} disabled={!group.available}>
+                          {group.label}{group.ambiguous ? ' (ambiguous)' : !group.available ? ' (not resolved)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Destination field</Label>
+                  <Select
+                    value={mapping.target_type && mapping.target_field
+                      ? `${mapping.target_type}:${mapping.target_field}`
+                      : undefined}
+                    onValueChange={value => {
+                      const separator = value.indexOf(':');
+                      updateAddressMapping(mappingIndex, {
+                        target_type: value.slice(0, separator),
+                        target_field: value.slice(separator + 1),
+                      });
+                    }}
+                    disabled={!selectedGroup?.available}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-target-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(selectedGroup?.options || []).map(option => (
+                        <SelectItem key={option.value} value={option.value} disabled={option.conflict}>
+                          {option.label} ({option.target_type})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-600"
+                  onClick={() => setAddressMappings(current => current.filter((_, index) => index !== mappingIndex))}
+                  aria-label={`Remove Stripe address mapping ${mappingIndex + 1}`}
+                  data-testid={`remove-stripe-address-mapping-${mappingIndex}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddressMappings(current => [...current, {
+                source: 'line1',
+                target_entity: 'member',
+                target_type: '',
+                target_field: '',
+              }])}
+              data-testid="add-stripe-address-mapping"
+            >
+              <Plus className="w-3 h-3 mr-1" /> Add mapping
+            </Button>
+            <Button type="button" size="sm" onClick={applyAddressMappings} data-testid="save-stripe-address-mappings">
+              <Save className="w-3 h-3 mr-1" /> Save mappings
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setAddressMappings(savedAddressMappings)}
+              data-testid="reload-stripe-address-mappings"
+            >
+              Reload saved
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor={`payment-price-field-${field.id}`} className="text-xs">Price source field</Label>
@@ -6433,6 +6610,9 @@ function FieldCard({
   formId = null,
   idealPostcodesAvailable = false,
   idealPostcodesLoading = false,
+  entityPipelines = { members: [], organisations: [] },
+  fieldMappings = [],
+  formConfig = null,
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isSurveyForm = formType === 'survey';
@@ -6774,7 +6954,12 @@ function FieldCard({
                   <Select
                     value={getFieldTypeCategory(field.type) === 'payment' ? field.type : ''}
                     onValueChange={(value) => {
-                      if (value) updateField(originalIndex, { type: value });
+                      if (value) updateField(originalIndex, {
+                        type: value,
+                        ...(value === 'membership_payment'
+                          ? { stripe_billing_address_mappings: undefined }
+                          : {}),
+                      });
                     }}
                   >
                     <SelectTrigger className="h-9" data-testid={`select-payment-type-${field.id}`}>
@@ -8691,6 +8876,11 @@ function FieldCard({
                   originalIndex={originalIndex}
                   allFields={allFields}
                   updateField={updateField}
+                  customFields={customFields}
+                  entityPipelines={entityPipelines}
+                  applicationLevel={applicationLevel}
+                  fieldMappings={fieldMappings}
+                  formConfig={formConfig}
                 />
               )}
 
@@ -10800,6 +10990,15 @@ export default function FormBuilderPage() {
         }
       } else if (!formData.fields.some(f => f.id === pf.price_field_id)) {
         toast.error(`Payment field "${pf.label || 'Payment'}" points at a price source field that no longer exists.`);
+        return;
+      }
+      const stripeMappingValidation = validateStripeAddressMappings({
+        form: formData,
+        mappings: pf.stripe_billing_address_mappings || [],
+        customFields,
+      });
+      if (!stripeMappingValidation.valid) {
+        toast.error(stripeMappingValidation.errors[0]);
         return;
       }
     }
@@ -13103,6 +13302,9 @@ export default function FormBuilderPage() {
                                       formId={formId}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
+                                       entityPipelines={formData.entity_pipelines}
+                                       fieldMappings={formData.field_mappings}
+                                       formConfig={formData}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -13253,6 +13455,9 @@ export default function FormBuilderPage() {
                                       formId={formId}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
+                                        entityPipelines={formData.entity_pipelines}
+                                        fieldMappings={formData.field_mappings}
+                                        formConfig={formData}
                                                 />
                                               ))
                                             )}
@@ -13320,6 +13525,9 @@ export default function FormBuilderPage() {
                                       formId={formId}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
+                                        entityPipelines={formData.entity_pipelines}
+                                        fieldMappings={formData.field_mappings}
+                                        formConfig={formData}
                             />
                           ))}
                           {provided.placeholder}

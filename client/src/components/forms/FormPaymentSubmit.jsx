@@ -71,6 +71,8 @@ export default function FormPaymentSubmit({
   const [confirming, setConfirming] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [stripeMounted, setStripeMounted] = useState(false);
+  const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
+  const [paymentCaptured, setPaymentCaptured] = useState(false);
   // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
   const [gcDropin, setGcDropin] = useState(null);
 
@@ -152,6 +154,11 @@ export default function FormPaymentSubmit({
         setPaymentError(out.error);
         return false;
       }
+      if (out.status === 'processing') {
+        setPaymentCaptured(true);
+        setPaymentError(out.error);
+        return false;
+      }
       onPaid?.(submissionId);
       return true;
     } finally {
@@ -161,6 +168,7 @@ export default function FormPaymentSubmit({
 
   const startPayment = async (providerId) => {
     setPaymentError(null);
+    setPaymentCaptured(false);
     const payload = await buildPayload();
     if (!payload) return;
     setCreating(true);
@@ -225,7 +233,11 @@ export default function FormPaymentSubmit({
       stripeRef.current = stripe;
       const elements = stripe.elements({ clientSecret: json.clientSecret });
       elementsRef.current = elements;
-      const requiresStripeAddress = paymentPurpose === 'membership';
+      // This is a server decision: ordinary forms may map Stripe address
+      // components too, while membership payments still require the
+      // authoritative billing snapshot even without explicit mappings.
+      const requiresStripeAddress = json.requiresBillingAddress === true;
+      setStripeAddressRequired(requiresStripeAddress);
       const addressElement = requiresStripeAddress
         ? elements.create('address', { mode: 'billing' })
         : null;
@@ -283,6 +295,9 @@ export default function FormPaymentSubmit({
       });
       if (confirmError) throw new Error(confirmError.message);
       if (paymentIntent?.status === 'succeeded') {
+        // From this point the charge must never be offered again, even if the
+        // server-side address snapshot/mapping call is temporarily unavailable.
+        setPaymentCaptured(true);
         await confirmPayment({ submissionId: submissionIdRef.current, paymentIntentId: paymentIntent.id });
       }
     } catch (err) {
@@ -361,6 +376,21 @@ export default function FormPaymentSubmit({
             )}
           </div>
         </div>
+      ) : paymentCaptured ? (
+        <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid={`form-payment-captured-${field?.id}`}>
+          <p className="text-sm text-muted-foreground">
+            Your card payment was successful. We are finishing your submission; do not pay again.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => confirmPayment({ submissionId: submissionIdRef.current })}
+            disabled={anyBusy}
+            data-testid={`button-form-payment-retry-processing-${field?.id}`}
+          >
+            {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Retry processing
+          </Button>
+        </div>
       ) : fallbackToNormalSubmit ? (
         <>
           {amount > 0 && usableProviders !== null && usableProviders.length === 0 && (
@@ -380,7 +410,7 @@ export default function FormPaymentSubmit({
         </>
       ) : stripeMounted && selectedProvider === 'stripe' ? (
         <div className="w-full max-w-2xl space-y-4" data-testid={`form-payment-provider-content-${field.id}`}>
-          {paymentPurpose === 'membership' && (
+          {stripeAddressRequired && (
             <div
               id={`form-payment-address-element-${field.id}`}
               className="min-h-[100px] w-full rounded-md border p-3"

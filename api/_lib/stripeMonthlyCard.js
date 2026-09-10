@@ -48,6 +48,7 @@ import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
 import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
 import { captureCheckoutBillingAddress } from './stripeInvoiceAddress.js';
+import { patchFormSubmissionPaymentMeta } from './formStripeAddressMappingProcessing.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
@@ -1175,27 +1176,22 @@ export async function compensateFormMonthlyCardConflict({
       throw new Error('paid conflicting checkout has no invoice to refund');
     }
 
-    let submissionMeta = {};
     if (formSubmissionId) {
-      const { data: formRow, error: formReadErr } = await db
-        .from('form_submission')
-        .select('payment_meta')
-        .eq('id', formSubmissionId)
-        .maybeSingle();
-      if (formReadErr) throw new Error(`load conflicting form submission failed: ${formReadErr.message}`);
-      submissionMeta = formRow?.payment_meta || {};
+      const conflictState = {
+        status: 'conflict_refunded',
+        resolved_at: new Date().toISOString(),
+        refund_id: refundId,
+      };
+      await patchFormSubmissionPaymentMeta({
+        db,
+        tenantId: agreement.tenant_id,
+        submissionId: formSubmissionId,
+        patch: { monthly_card_state: conflictState },
+      });
       const { error: formUpdateErr } = await db
         .from('form_submission')
         .update({
           payment_status: 'failed',
-          payment_meta: {
-            ...submissionMeta,
-            monthly_card_state: {
-              status: 'conflict_refunded',
-              resolved_at: new Date().toISOString(),
-              refund_id: refundId,
-            },
-          },
           processing_notes: `${detail || 'Membership for this year is already recorded'}. The duplicate Stripe subscription was cancelled${refundId ? ' and its payment refunded' : ' before a payment was taken'}.`,
         })
         .eq('id', formSubmissionId);
@@ -1339,11 +1335,14 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       stripe,
     });
 
-    if (!agreement.metadata?.card?.billing_address) {
+    if (!agreement.metadata?.stripe_billing_address) {
       const billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
       const nextMetadata = {
         ...(agreement.metadata || {}),
-        card: { ...(agreement.metadata?.card || {}), billing_address: billingAddress },
+        // Keep the consent/accounting card snapshot immutable. The
+        // authoritative Stripe address is fulfilment data, not an accounting
+        // term, and is therefore stored in its own namespace.
+        stripe_billing_address: billingAddress,
       };
       const { error: addressSaveErr } = await db
         .from('membership_billing_agreements')
@@ -1353,26 +1352,19 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
         throw new Error(`persist Stripe billing address snapshot failed: ${addressSaveErr.message}`);
       }
       agreement = { ...agreement, metadata: nextMetadata };
-      const formSubmissionId = agreement.metadata?.form_submission_id
-        || object.metadata?.form_submission_id;
-      if (formSubmissionId) {
-        const { data: formRow, error: formReadErr } = await db
-          .from('form_submission')
-          .select('payment_meta')
-          .eq('id', formSubmissionId)
-          .maybeSingle();
-        if (formReadErr) throw new Error(`load form payment address context failed: ${formReadErr.message}`);
-        const { error: formSaveErr } = await db
-          .from('form_submission')
-          .update({
-            payment_meta: {
-              ...(formRow?.payment_meta || {}),
-              stripe_billing_address: billingAddress,
-            },
-          })
-          .eq('id', formSubmissionId);
-        if (formSaveErr) throw new Error(`persist form Stripe billing address snapshot failed: ${formSaveErr.message}`);
-      }
+    }
+    // Repair the submission independently on every replay. A prior attempt
+    // may have saved the immutable agreement snapshot and then crashed before
+    // copying it to form_submission.
+    const formSubmissionId = agreement.metadata?.form_submission_id
+      || object.metadata?.form_submission_id;
+    if (formSubmissionId && agreement.metadata?.stripe_billing_address) {
+      await patchFormSubmissionPaymentMeta({
+        db,
+        tenantId: agreement.tenant_id,
+        submissionId: formSubmissionId,
+        patch: { stripe_billing_address: agreement.metadata.stripe_billing_address },
+      });
     }
 
     if (isFormCheckout) {

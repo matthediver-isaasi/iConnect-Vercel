@@ -347,7 +347,22 @@ test('reconciliation retries and clears pending Structured Actions and Related R
       return Promise.resolve({ data, error: null }).then(resolve, reject);
     }
   }
-  const supabase = { from: table => new Query(table) };
+  const supabase = {
+    from: table => new Query(table),
+    rpc: async (name, args) => {
+      if (name === 'claim_form_stripe_address_mapping_retries') {
+        return { data: [], error: null };
+      }
+      assert.equal(name, 'patch_form_submission_payment_meta');
+      assert.equal(args.p_tenant_id, row.tenant_id);
+      assert.equal(args.p_submission_id, row.id);
+      row.payment_meta = { ...row.payment_meta, ...args.p_patch };
+      // Preserve the test's existing observable contract while modelling the
+      // atomic merge performed by the production RPC.
+      updates.push({ payment_meta: row.payment_meta });
+      return { data: row.payment_meta, error: null };
+    },
+  };
   const previousFetch = globalThis.fetch;
   const previousAppUrl = process.env.APP_URL;
   const previousSecret = process.env.SESSION_SECRET;

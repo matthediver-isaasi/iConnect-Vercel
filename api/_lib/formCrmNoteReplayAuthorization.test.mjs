@@ -55,11 +55,16 @@ test('partial pipeline evidence resumes only that exact pipeline and never marks
   assert.match(source, /updatePayload\.entity_processing_completed_at = new Date\(\)\.toISOString\(\)/);
 });
 
-test('primary and additional pipeline checkpoints authorize only their exact entity targets', async () => {
+test('pipeline checkpoints identify targets without granting organisation mutation authority', async () => {
   const source = await readFile(processorPath, 'utf8');
   assert.match(source, /persistPipelineEntityCheckpoint\(\s*'organization',\s*resolvePrimaryOrganizationPipeline\(orgPipelines\),\s*createdOrganizationId/);
   assert.match(source, /persistPipelineEntityCheckpoint\(\s*'member',\s*memberPipelines\.find\(item => item\.isPrimary \|\| item\.is_primary\),\s*createdMemberId/);
-  assert.match(source, /persistedPipelineTargetId\('organization', primaryOrgPipeline\)/);
+  const organizationWrite = source.slice(
+    source.indexOf('if (Object.keys(orgUpdateData).length > 0)'),
+    source.indexOf("console.log('[AppProcessor] Org update data:'"),
+  );
+  assert.match(organizationWrite, /assertLegacyExistingRecordAuthorized\('organization', existingOrg\.id\)/);
+  assert.doesNotMatch(organizationWrite, /persistedPipelineTargetId|isExactPrimaryPipelineReplay/);
   assert.match(source, /persistedPipelineTargetId\('member', primaryMemberPipeline\)/);
   assert.match(source, /persistedPipelineTargetId\('member', memberConfig\)/);
   assert.match(source, /if \(updateError\)[\s\S]*throw updateError/);

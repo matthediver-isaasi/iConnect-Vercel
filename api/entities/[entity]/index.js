@@ -74,6 +74,7 @@ import {
   validateFormMemberRoleAssignments,
 } from '../../_lib/formMemberRoleAssignment.js';
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
+import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1462,6 +1463,17 @@ export default async function handler(req, res) {
         });
         if (!roleValidation.ok) {
           return res.status(422).json(roleValidation);
+        }
+      }
+
+      if (entityNorm === 'form') {
+        const stripeMappingValidation = await validateFormStripeAddressMappingConfig({
+          supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          form: sanitizedBody,
+        });
+        if (!stripeMappingValidation.ok) {
+          return res.status(422).json(stripeMappingValidation);
         }
       }
 

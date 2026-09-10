@@ -21,6 +21,10 @@ import { findFormMonthlyCardAgreement } from './formMonthlyCardCheckout.js';
 import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 import { capturePaymentIntentBillingAddress } from './stripeInvoiceAddress.js';
 import {
+  patchFormSubmissionPaymentMeta,
+  retryPersistedStripeAddressMappings,
+} from './formStripeAddressMappingProcessing.js';
+import {
   findFormMonthlyDirectDebitAgreement,
   persistMonthlyDirectDebitLink,
 } from './formMonthlyDirectDebitCheckout.js';
@@ -33,7 +37,7 @@ import {
   formMembershipQuoteAmountMinor,
 } from './formStripeInvoiceSettlement.js';
 
-const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 // Only look at rows old enough that the browser confirm is clearly not
 // coming, and young enough to be worth polling.
@@ -224,37 +228,35 @@ export async function reconcileFormPayments(supabase, {
               throw new Error('Stripe PaymentIntent amount/currency does not match the immutable membership quote');
             }
           }
-          if (row.payment_meta?.membership && !row.payment_meta?.stripe_billing_address) {
-            const billingAddress = await capturePaymentIntentBillingAddress({
-              stripe: found.stripe,
-              paymentIntent: pi,
-            });
-            const { data: addressed, error: addressErr } = await supabase
-              .from('form_submission')
-              .update({
-                payment_meta: {
-                  ...(row.payment_meta || {}),
-                  stripe_billing_address: billingAddress,
-                },
-              })
-              .eq('id', row.id)
-              .select()
-              .maybeSingle();
-            if (addressErr || !addressed) {
-              throw new Error(`persist Stripe billing address snapshot failed: ${addressErr?.message || 'row not updated'}`);
-            }
-            row.payment_meta = addressed.payment_meta;
-          }
           const receivedMinor = pi.amount_received ?? pi.amount;
           const { updated, row: paidRow } = await markFormSubmissionPaid(supabase, row.id, {
             amount: receivedMinor != null ? receivedMinor / 100 : null,
             reference: pi.id,
           });
           if (updated) results.paid += 1;
+          // Preserve paid first. Address capture is a post-payment,
+          // retryable obligation and must never leave a successful charge in
+          // pending (where a user could be invited to pay again).
+          const currentRow = paidRow || { ...row, payment_status: 'paid', payment_reference: pi.id };
+          const needsStripeAddress = !!currentRow.payment_meta?.membership
+            || (currentRow.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0);
+          if (needsStripeAddress && !currentRow.payment_meta?.stripe_billing_address) {
+            const billingAddress = await capturePaymentIntentBillingAddress({
+              stripe: found.stripe,
+              paymentIntent: pi,
+              requireCustomer: !!currentRow.payment_meta?.membership,
+            });
+            currentRow.payment_meta = await patchFormSubmissionPaymentMeta({
+              db: supabase,
+              tenantId: row.tenant_id,
+              submissionId: row.id,
+              patch: { stripe_billing_address: billingAddress },
+            });
+          }
           if (form) {
             const fin = await finalizeFormSubmission({
               supabase,
-              submission: paidRow || { ...row, payment_status: 'paid' },
+              submission: currentRow,
               form,
               baseUrl: await resolveBaseUrl(row.tenant_id),
             });
@@ -312,6 +314,13 @@ export async function reconcileFormPayments(supabase, {
       .limit(20);
     if (error) throw error;
     for (const row of unfinalized || []) {
+      const addressRequired = row.payment_provider === 'stripe' && (
+        !!row.payment_meta?.membership
+        || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
+      );
+      // Do not claim ordinary finalization from a stale metadata snapshot
+      // while the address retry sweep still owes the authoritative snapshot.
+      if (addressRequired && !row.payment_meta?.stripe_billing_address) continue;
       const form = await loadForm(row.form_id, row.tenant_id);
       if (!hasFormPaymentAccessProof(row, form)) continue;
       const fin = await finalizeFormSubmission({ supabase, submission: row, form, baseUrl: await resolveBaseUrl(row.tenant_id) });
@@ -417,25 +426,27 @@ export async function reconcileFormPayments(supabase, {
         form,
         baseUrl: rowBaseUrl,
       });
-      const nextPaymentMeta = { ...(row.payment_meta || {}) };
+        const paymentMetaPatch = {};
       let shouldPersist = false;
       if (row.payment_meta?.structured_actions_pending && pipelineOut.structuredActions?.success) {
-        nextPaymentMeta.structured_actions_pending = false;
-        nextPaymentMeta.structured_actions_result = pipelineOut.structuredActions;
+        paymentMetaPatch.structured_actions_pending = false;
+        paymentMetaPatch.structured_actions_result = pipelineOut.structuredActions;
         results.structuredActionsReconciled = (results.structuredActionsReconciled || 0) + 1;
         shouldPersist = true;
       }
       if (row.payment_meta?.related_records_pending && pipelineOut.relatedRecords?.success) {
-        nextPaymentMeta.related_records_pending = false;
-        nextPaymentMeta.related_records_result = pipelineOut.relatedRecords;
+        paymentMetaPatch.related_records_pending = false;
+        paymentMetaPatch.related_records_result = pipelineOut.relatedRecords;
         results.relatedRecordsReconciled = (results.relatedRecordsReconciled || 0) + 1;
         shouldPersist = true;
       }
       if (shouldPersist) {
-        const { error: clearError } = await supabase.from('form_submission').update({
-          payment_meta: nextPaymentMeta,
-        }).eq('id', row.id).eq('tenant_id', row.tenant_id);
-        if (clearError) throw clearError;
+        await patchFormSubmissionPaymentMeta({
+          db: supabase,
+          tenantId: row.tenant_id,
+          submissionId: row.id,
+          patch: paymentMetaPatch,
+        });
       }
     }
   } catch (err) {
@@ -531,6 +542,107 @@ export async function reconcileFormPayments(supabase, {
   } catch (err) {
     console.warn('[formPaymentReconciliation] Monthly-DD setup_complete sweep failed:', err?.message);
     recordMonitoringFailure(results, 'monthly-dd-retry-sweep', err);
+  }
+
+  // Address fulfilment is deliberately independent of the ordinary
+  // finalization stamp. A payment can be paid/finalized while Stripe address
+  // retrieval, the snapshot write, or the atomic target-write RPC is
+  // temporarily unavailable; keep replaying those obligations without age
+  // bounds and without reopening the charge.
+  try {
+    const { data: claimedAddressRows, error } = await supabase.rpc(
+      'claim_form_stripe_address_mapping_retries',
+      { p_limit: 20 },
+    );
+    if (error) throw error;
+    for (const claim of claimedAddressRows || []) {
+      let row = claim?.submission || claim;
+      let retrySucceeded = false;
+      let retryError = null;
+      try {
+        if (row.payment_provider === 'stripe_monthly_card'
+            && !row.payment_meta?.stripe_billing_address) {
+          const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;
+          const { data: agreement, error: agreementErr } = await findFormMonthlyCardAgreement(
+            supabase,
+            {
+              tenantId: row.tenant_id,
+              submissionId: row.id,
+              agreementId,
+            },
+          );
+          if (agreementErr) throw agreementErr;
+          const address = agreement?.metadata?.stripe_billing_address;
+          if (!address) throw new Error('monthly Stripe billing address snapshot is unavailable');
+          const savedMeta = await patchFormSubmissionPaymentMeta({
+            db: supabase,
+            tenantId: row.tenant_id,
+            submissionId: row.id,
+            patch: { stripe_billing_address: address },
+          });
+          row = { ...row, payment_meta: savedMeta };
+        }
+        if (row.payment_provider === 'stripe'
+            && !row.payment_meta?.stripe_billing_address) {
+          const stripeFeature = row.payment_meta?.stripe_feature
+            || (row.payment_meta?.membership ? 'membership' : 'forms');
+          const found = await retrievePaymentIntent(
+            row.tenant_id, stripeFeature, row.payment_reference,
+          );
+          const intent = found?.paymentIntent;
+          const metadataMatches = intent?.metadata?.type === 'form_payment'
+            && intent.metadata.form_submission_id === String(row.id)
+            && intent.metadata.tenant_id === String(row.tenant_id);
+          if (!found || intent.status !== 'succeeded'
+              || (!metadataMatches && intent.id !== row.payment_reference)) {
+            throw new Error('verified Stripe payment is unavailable for address retry');
+          }
+          const address = await capturePaymentIntentBillingAddress({
+            stripe: found.stripe,
+            paymentIntent: intent,
+            requireCustomer: !!row.payment_meta?.membership,
+          });
+          const savedMeta = await patchFormSubmissionPaymentMeta({
+            db: supabase,
+            tenantId: row.tenant_id,
+            submissionId: row.id,
+            patch: { stripe_billing_address: address },
+          });
+          row = { ...row, payment_meta: savedMeta };
+        }
+        const mappingResult = await retryPersistedStripeAddressMappings({
+          db: supabase,
+          submissionId: row.id,
+          tenantId: row.tenant_id,
+        });
+        retrySucceeded = mappingResult?.applied === true || mappingResult?.alreadyApplied === true;
+        if (!retrySucceeded) retryError = mappingResult?.reason || 'Stripe address mapping is still pending';
+        // The RPC ledger makes every replay safe; no public cron-summary
+        // counter is needed (and retaining the established response shape
+        // keeps monitoring consumers backwards compatible).
+      } catch (err) {
+        retryError = err?.message;
+        console.warn('[formPaymentReconciliation] Stripe address mapping retry failed for', row.id, err?.message);
+        recordMonitoringFailure(results, 'stripe-address-mapping-retry', err);
+      } finally {
+        const { error: finishError } = await supabase.rpc(
+          'finish_form_stripe_address_mapping_retry',
+          {
+            p_tenant_id: row.tenant_id,
+            p_submission_id: row.id,
+            p_succeeded: retrySucceeded,
+            p_error: retryError,
+          },
+        );
+        if (finishError) {
+          console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError.message);
+          recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Stripe address mapping sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'stripe-address-mapping-retry-sweep', err);
   }
 
   return results;

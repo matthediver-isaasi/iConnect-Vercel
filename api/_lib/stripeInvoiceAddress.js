@@ -56,7 +56,11 @@ function objectId(value) {
   return typeof value === 'string' ? value : value?.id || null;
 }
 
-export async function capturePaymentIntentBillingAddress({ stripe, paymentIntent }) {
+export async function capturePaymentIntentBillingAddress({
+  stripe,
+  paymentIntent,
+  requireCustomer = true,
+}) {
   if (!stripe || !paymentIntent) {
     throw new StripeBillingAddressError('Stripe payment details are unavailable');
   }
@@ -86,7 +90,10 @@ export async function capturePaymentIntentBillingAddress({ stripe, paymentIntent
   }
   const customerId = objectId(paymentIntent.customer);
   if (!customerId) {
-    throw new StripeBillingAddressError('Stripe membership payment has no reusable Customer');
+    if (requireCustomer) {
+      throw new StripeBillingAddressError('Stripe membership payment has no reusable Customer');
+    }
+    return snapshot;
   }
   await stripe.customers.update(customerId, { address: {
     line1: snapshot.line1,

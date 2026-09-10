@@ -64,6 +64,7 @@ export function useFormPaymentReturn() {
       .then((out) => {
         if (out.status === 'paid') setState({ active: true, status: 'paid', error: null });
         else if (out.status === 'pending') setState({ active: true, status: 'pending', error: null });
+        else if (out.status === 'processing') setState({ active: true, status: 'processing', error: out.error });
         else setState({ active: true, status: 'error', error: out.error });
       });
   }, []);
@@ -85,6 +86,13 @@ const SCREENS = {
     bubbleClass: 'bg-blue-100',
     title: 'Direct Debit being confirmed',
     body: 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.',
+  },
+  processing: {
+    icon: Clock,
+    iconClass: 'text-blue-600',
+    bubbleClass: 'bg-blue-100',
+    title: 'Payment received — finishing submission',
+    body: 'Your card payment was successful. We are completing the remaining submission updates automatically. Please do not pay again.',
   },
   cancelled: {
     icon: XCircle,
@@ -120,7 +128,7 @@ export function FormPaymentReturnScreen({ status, error, successMessage, onRetur
   const Icon = def.icon;
   const body = status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
-    : status === 'error'
+    : (status === 'error' || status === 'processing') && error
       ? error
       : def.body;
   const showReturn = (status === 'cancelled' || status === 'error') && onReturnToForm;

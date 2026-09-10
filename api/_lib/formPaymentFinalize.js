@@ -70,6 +70,7 @@ export async function finalizeFormSubmission({ supabase, submission, form, baseU
     .update({ payment_meta: { ...meta, finalized: true, finalized_at: new Date().toISOString() } })
     .eq('id', submission.id)
     .eq('payment_status', 'paid')
+    .eq('payment_meta', JSON.stringify(meta))
     .filter('payment_meta->finalized', 'is', null)
     .select('id')
     .maybeSingle();
@@ -77,7 +78,25 @@ export async function finalizeFormSubmission({ supabase, submission, form, baseU
     console.error('[formPaymentFinalize] Finalize claim failed:', claimErr);
     return { finalized: false };
   }
-  if (!claimed) return { finalized: true, alreadyFinalized: true };
+  if (!claimed) {
+    const { data: fresh, error: freshErr } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('id', submission.id)
+      .maybeSingle();
+    if (freshErr || !fresh) return { finalized: false };
+    if (fresh.payment_meta?.finalized) {
+      return { finalized: true, alreadyFinalized: true };
+    }
+    // A sibling metadata key changed between read and claim. Retry from the
+    // exact fresh snapshot rather than replacing that key.
+    return finalizeFormSubmission({
+      supabase,
+      submission: fresh,
+      form,
+      baseUrl,
+    });
+  }
 
   // Entity pipelines / field mappings — same internal call as the normal
   // submit path, via the shared runner (also used by the reconciliation

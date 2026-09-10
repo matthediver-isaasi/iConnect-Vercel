@@ -63,7 +63,7 @@ import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // Full form columns needed for entity pipelines + submission emails.
-export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
@@ -130,7 +130,8 @@ async function writeClaim(db, submissionId, meta, { expectedCurrentStatus, stale
     .from('form_submission')
     .update({ payment_meta: newMeta })
     .eq('id', submissionId)
-    .eq('payment_status', 'setup_complete');
+    .eq('payment_status', 'setup_complete')
+    .eq('payment_meta', JSON.stringify(meta));
 
   if (expectedCurrentStatus === 'absent') {
     query = query.filter('payment_meta->monthly_card_state', 'is', null);
@@ -179,6 +180,7 @@ async function writeClaimResult(db, submissionId, { done, ownerToken }) {
       .from('form_submission')
       .update({ payment_meta: nextMeta })
       .eq('id', submissionId)
+      .eq('payment_meta', JSON.stringify(meta))
       .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
       .select('id');
     if (error) {
@@ -216,6 +218,7 @@ async function writeConflictState(db, submissionId, {
       processing_notes: `${conflictState.detail}. The Stripe subscription will be cancelled and any successful payment refunded automatically.`,
     })
     .eq('id', submissionId)
+    .eq('payment_meta', JSON.stringify(meta))
     .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
     .select('id');
   if (error) return false;
@@ -239,6 +242,7 @@ async function renewClaimLease(db, submissionId, ownerToken) {
     .from('form_submission')
     .update({ payment_meta: { ...meta, monthly_card_state: renewedState } })
     .eq('id', submissionId)
+    .eq('payment_meta', JSON.stringify(meta))
     .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
     .select('id');
   if (error) return false;

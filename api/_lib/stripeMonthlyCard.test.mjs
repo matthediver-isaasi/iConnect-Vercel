@@ -1269,6 +1269,19 @@ function captureDb(reads = {}) {
   const db = {
     updates,
     inserts,
+    async rpc(name, args) {
+      if (name !== 'patch_form_submission_payment_meta') {
+        return { data: null, error: new Error(`unexpected RPC ${name}`) };
+      }
+      const current = reads.form_submission?.data?.payment_meta || {};
+      const merged = { ...current, ...(args.p_patch || {}) };
+      if (reads.form_submission?.data) reads.form_submission.data.payment_meta = merged;
+      updates.push({
+        table: 'form_submission',
+        payload: { payment_meta: merged },
+      });
+      return { data: merged, error: null };
+    },
     from(table) {
       const chain = {
         _table: table,
@@ -1402,12 +1415,13 @@ test('compensateFormMonthlyCardConflict: cancels sub, refunds paid invoice with 
 
   // Form submission marked failed with the conflict-refunded state (prior
   // payment_meta preserved).
-  const formUpd = db.updates.find((u) => u.table === 'form_submission');
-  assert.ok(formUpd, 'expected a form_submission update');
-  assert.equal(formUpd.payload.payment_status, 'failed');
-  assert.equal(formUpd.payload.payment_meta.foo, 'bar');
-  assert.equal(formUpd.payload.payment_meta.monthly_card_state.status, 'conflict_refunded');
-  assert.equal(formUpd.payload.payment_meta.monthly_card_state.refund_id, 're_1');
+  const formStatusUpd = db.updates.find((u) => u.table === 'form_submission' && u.payload.payment_status);
+  const formMetaUpd = db.updates.find((u) => u.table === 'form_submission' && u.payload.payment_meta);
+  assert.ok(formStatusUpd && formMetaUpd, 'expected atomic metadata patch and status update');
+  assert.equal(formStatusUpd.payload.payment_status, 'failed');
+  assert.equal(formMetaUpd.payload.payment_meta.foo, 'bar');
+  assert.equal(formMetaUpd.payload.payment_meta.monthly_card_state.status, 'conflict_refunded');
+  assert.equal(formMetaUpd.payload.payment_meta.monthly_card_state.refund_id, 're_1');
 
   // A durable PENDING compensation state is persisted BEFORE any Stripe call
   // (so a crash mid-cleanup is recoverable by the reconcile cron sweep).
@@ -1447,9 +1461,10 @@ test('compensateFormMonthlyCardConflict: no refund when invoice amount_paid=0, s
   assert.equal(stripe.calls.refundCreate.length, 0, 'no refund attempted for a zero-paid invoice');
   assert.deepEqual(stripe.calls.subCancel.map((c) => c.id), ['sub_1']);
 
-  const formUpd = db.updates.find((u) => u.table === 'form_submission');
-  assert.equal(formUpd.payload.payment_status, 'failed');
-  assert.equal(formUpd.payload.payment_meta.monthly_card_state.refund_id, null);
+  const formStatusUpd = db.updates.find((u) => u.table === 'form_submission' && u.payload.payment_status);
+  const formMetaUpd = db.updates.find((u) => u.table === 'form_submission' && u.payload.payment_meta);
+  assert.equal(formStatusUpd.payload.payment_status, 'failed');
+  assert.equal(formMetaUpd.payload.payment_meta.monthly_card_state.refund_id, null);
 
   // Final agreement update is the resolved cancellation (the first update is
   // the durable pending marker written before Stripe).

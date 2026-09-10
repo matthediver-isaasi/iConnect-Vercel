@@ -25,6 +25,12 @@ pollute the SOURCE DB. To test a helper that imports the module-level `supabase`
 against the real schema, run the node process with
 `SUPABASE_URL=$DEST_SUPABASE_URL SUPABASE_SERVICE_KEY=$DEST_SUPABASE_KEY`.
 
+The Secrets inventory is not a complete inventory of runtime-injected variables.
+
+**Why:** The secret-existence check has reported `DEST_DATABASE_URL` absent while destination migration and validation processes could use it successfully. Treating that inventory result as proof of missing runtime access unnecessarily blocks migration work.
+
+**How to apply:** Before requesting credentials, use the existing destination-only runner or a read-only connection check that never prints connection values. Never substitute SOURCE or the generic database URL.
+
 **Member-auth E2E is impossible in this workspace:** `getSessionMember`
 selects `member` with an embedded `organization:organization_id(tenant_id)`
 join, and the SOURCE DB's `organization` table has no `tenant_id` column —

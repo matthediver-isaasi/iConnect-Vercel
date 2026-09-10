@@ -46,6 +46,10 @@ args = "ai-assistant-tests"
 task = "workflow.run"
 args = "custom-object-crm-live"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "stripe-address-mappings"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -84,6 +88,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node scripts/verify-custom-object-relationship-list-live.mjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "stripe-address-mappings"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --test shared/formStripeAddressMappings.test.mjs api/_lib/formStripeAddress*.test.mjs api/_lib/formEntityCreationProvenance.test.mjs api/_lib/stripeInvoiceAddress.test.mjs api/_lib/formEntityPipelines.test.mjs api/_lib/formMonthlyCard*.test.mjs api/_lib/stripeMonthlyCard.test.mjs api/forms/processApplication*.test.mjs supabase/migrations/20261017_form_stripe_address_mapping_processing.test.mjs && npx tsx --test client/src/lib/formPaymentReturn.test.mjs"
 
 [workflows.workflow.metadata]
 isValidation = true
