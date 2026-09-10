@@ -37,6 +37,9 @@ import {
   resolveRelationshipSelectionPills,
   resolveRelationshipParentTransition,
   shouldClearFilteredOrganisationValue,
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+  rowSourceDependencyIds,
 } from "@/lib/formRelationshipDropdown";
 import {
   intersectConditionalOptions,
@@ -71,6 +74,7 @@ import {
   ensureRepeatableRowIds,
   isRepeatableUniqueOptionAvailable,
   isRepeatableRowField,
+  isRepeatableValueEmpty,
   normalizeRepeatableRowField,
   reconcilePendingRepeatableRows,
   removeRepeatableExcludedSelection,
@@ -83,6 +87,7 @@ import {
 } from "../../../../shared/formRepeatableRows.js";
 
 let organizationQueryInstanceSequence = 0;
+let relationshipQueryInstanceSequence = 0;
 
 function SpreadsheetCell({ headingId, contextId, testId, children }) {
   const cellRef = useRef(null);
@@ -1030,21 +1035,52 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     : {};
   const relationshipParentValue = relationshipValues.parentValue;
   const relationshipCurrentValue = relationshipValues.currentValue;
+  const hasRowOptionSource = field.type === 'relationship_dropdown' && field.option_source !== undefined;
+  const usesRowOptionSource = isCustomObjectRowSource(field);
+  const relationshipDependencyAnswers = useMemo(() => (
+    Object.fromEntries(rowSourceDependencyIds(field).map(sourceId => {
+      if (isDistinctRowSource(field) && String(sourceId) === String(field.parent_field_id)) {
+        return [sourceId, relationshipParentValue ?? null];
+      }
+      const source = resolveSavedFormField(allFields, sourceId);
+      return [sourceId, getSavedFormFieldValue(allFormValues, source) ?? null];
+    }))
+  ), [field, allFields, allFormValues, relationshipParentValue]);
+  const relationshipDependencySignature = JSON.stringify(relationshipDependencyAnswers);
+  const previousRelationshipDependencySignature = useRef(relationshipDependencySignature);
+  const relationshipDependencyRevision = useRef(0);
+  if (previousRelationshipDependencySignature.current !== relationshipDependencySignature) {
+    previousRelationshipDependencySignature.current = relationshipDependencySignature;
+    relationshipDependencyRevision.current += 1;
+  }
+  const relationshipDependenciesReady = !usesRowOptionSource || Object.values(relationshipDependencyAnswers)
+    .every(answer => !isRepeatableValueEmpty(answer) && !Array.isArray(answer) && typeof answer !== 'object');
+  const [relationshipQueryInstance] = useState(() => {
+    relationshipQueryInstanceSequence += 1;
+    return relationshipQueryInstanceSequence;
+  });
   const {
     data: relationshipOptionPayload,
     isLoading: relationshipOptionsLoading,
     isError: relationshipOptionsError,
     isSuccess: relationshipOptionsLoaded,
+    refetch: retryRelationshipOptions,
   } = useQuery({
-    queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue, field.repeatable_container_field_id],
+    queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue, field.repeatable_container_field_id]
+      .concat([relationshipQueryInstance, relationshipDependencyRevision.current]),
     queryFn: () => publicClient.listFormRelationshipOptions(
       formSlug,
       field.id,
       relationshipParentValue,
       field.repeatable_container_field_id,
+      usesRowOptionSource ? relationshipDependencyAnswers : null,
     ),
-    enabled: field.type === 'relationship_dropdown' && !!formSlug && !!field.parent_field_id
-      && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE,
+    enabled: field.type === 'relationship_dropdown' && !!formSlug && (
+      hasRowOptionSource
+        ? (usesRowOptionSource && relationshipDependenciesReady
+          && (!isDistinctRowSource(field) || (!!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE)))
+        : (!!field.parent_field_id && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE)
+    ),
     staleTime: 60 * 1000,
   });
   const rawRelationshipOptions = useMemo(
@@ -1063,13 +1099,16 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     ),
     [field, rawRelationshipOptions, conditionalResolution],
   );
-  const relationshipResultIsEmpty = isConfirmedEmptyRelationshipResult({
+  const relationshipResultIsEmpty = usesRowOptionSource && !isDistinctRowSource(field)
+    ? relationshipDependenciesReady && relationshipOptionsLoaded && !relationshipOptionsError
+      && rawRelationshipOptions.length === 0
+    : isConfirmedEmptyRelationshipResult({
     fieldType: field.type,
     parentValue: relationshipParentValue,
     options: rawRelationshipOptions,
     optionsLoaded: relationshipOptionsLoaded,
     optionsError: relationshipOptionsError,
-  });
+    });
   const previousRelationshipParent = useRef();
 
   useEffect(() => {
@@ -1956,13 +1995,24 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
           options: relationshipOptions,
           notListedText,
         });
-        const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
+        const missingConfiguration = !formSlug || (
+          hasRowOptionSource
+            ? (!field.option_source?.custom_object_id
+              || !field.option_source?.primary_display_field_id
+              || (isDistinctRowSource(field) && (!field.option_source?.value_field_id
+                || !field.parent_field_id || !field.relationship_definition_id)))
+            : (!field.parent_field_id || !field.relationship_definition_id)
+        );
+        const requiresRelationshipParent = !usesRowOptionSource || isDistinctRowSource(field);
         const canChooseNotListed = effectiveRelationshipOptions.some(option => option.id === FORM_NOT_LISTED_VALUE);
-        const relationshipDisabled = isFieldDisabled || missingConfiguration || (!relationshipParentValue && !canChooseNotListed)
+        const relationshipDisabled = isFieldDisabled || missingConfiguration
+          || !relationshipDependenciesReady
+          || (requiresRelationshipParent && !relationshipParentValue && !canChooseNotListed)
           || relationshipOptionsLoading || relationshipOptionsError || effectiveRelationshipOptions.length === 0;
         let placeholder = field.placeholder || 'Select an option';
         if (missingConfiguration) placeholder = 'This field is not configured';
-        else if (!relationshipParentValue && !canChooseNotListed) placeholder = 'Select a parent record first';
+        else if (!relationshipDependenciesReady) placeholder = 'Select the previous column first';
+        else if (requiresRelationshipParent && !relationshipParentValue && !canChooseNotListed) placeholder = 'Select a parent record first';
         else if (relationshipOptionsLoading) placeholder = 'Loading options…';
         else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
         else if (relationshipResultIsEmpty) placeholder = formNoRelationshipLabel(field);
@@ -2048,7 +2098,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                 </div>
               )}
               {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
-              {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
+              {relationshipOptionsError && <div className="flex items-center gap-2 text-xs text-red-600">
+                <span>Related records could not be loaded.</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>
+              </div>}
               {relationshipResultIsEmpty && (
                 <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
                   {formNoRelationshipLabel(field)}
@@ -2081,7 +2134,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               </SelectContent>
             </Select>
             {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
-            {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
+            {relationshipOptionsError && <div className="flex items-center gap-2 text-xs text-red-600">
+              <span>Related records could not be loaded.</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>
+            </div>}
             {relationshipResultIsEmpty && (
               <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
                 {formNoRelationshipLabel(field)}

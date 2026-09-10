@@ -1,4 +1,9 @@
 import { resolveCountryToIso2 } from './countries.js';
+import {
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+  validateRowSourceConfiguration,
+} from './formCustomObjectRowSources.js';
 
 export const REPEATABLE_ROW_SCHEMA_VERSION = 1;
 export const REPEATABLE_ROW_FIELD_TYPE = 'repeatable_row';
@@ -130,9 +135,15 @@ export function normalizeRepeatableRowField(field = {}) {
 }
 
 function relationshipValueDescriptor(field) {
+  if (isDistinctRowSource(field)
+      || (field?.option_source !== undefined && !isCustomObjectRowSource(field))) {
+    return { kind: null, customObjectId: null };
+  }
+  const sourceObjectId = isCustomObjectRowSource(field)
+    ? field.option_source.custom_object_id : null;
   return {
-    kind: field?.related_kind || (field?.custom_object_id ? 'custom_object' : null),
-    customObjectId: field?.related_custom_object_id || field?.custom_object_id || null,
+    kind: field?.related_kind || (sourceObjectId || field?.custom_object_id ? 'custom_object' : null),
+    customObjectId: sourceObjectId || field?.related_custom_object_id || field?.custom_object_id || null,
   };
 }
 
@@ -383,6 +394,8 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
     if (!CHILD_TYPES.has(child.type)) {
       errors.push({ code: 'unsupported_child_type', child_id: child.id, message: `Unsupported repeatable row child type: ${child.type || 'unknown'}` });
     }
+    const rowSourceValidation = validateRowSourceConfiguration(child, config.children);
+    errors.push(...rowSourceValidation.errors);
     const rawChild = repeatableRowChildren(field)[index];
     if (rawChild?.exclude_values_from !== undefined) {
       const sourceId = child.exclude_values_from?.source_field_id;
@@ -421,6 +434,13 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
     }
     if (child.type === 'relationship_dropdown') {
       const parentId = child.parent_field_id;
+      const directRowSource = isCustomObjectRowSource(child)
+        && child.option_source.kind === 'records'
+        && !parentId
+        && !child.relationship_definition_id
+        && !child.relationship_parent_kind
+        && !child.relationship_parent_custom_object_id
+        && !child.parent_custom_object_id;
       const scope = child.parent_field_scope ?? 'row';
       const parentFields = scope === 'form' ? rootFields : config.children;
       const parentIndex = parentFields.findIndex(
@@ -431,14 +451,19 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
         ? containerIndex >= 0 && parentIndex >= 0 && parentIndex < containerIndex
         : parentIndex >= 0 && parentIndex < index;
       const parent = parentFields[parentIndex];
-      const parentDescriptor = parent?.type === 'organisation_dropdown'
+      const parentDescriptor = parent?.option_source !== undefined
+        && !isCustomObjectRowSource(parent)
+        ? null
+        : parent?.type === 'organisation_dropdown'
         ? { kind: 'organization', customObjectId: null }
         : parent?.type === 'organisation_group_dropdown'
           ? { kind: 'organization_group', customObjectId: null }
-          : parent?.type === 'relationship_dropdown'
+          : parent?.type === 'relationship_dropdown' && !isDistinctRowSource(parent)
             ? {
               kind: parent.related_kind || 'custom_object',
-              customObjectId: parent.related_custom_object_id || parent.custom_object_id || null,
+              customObjectId: (isCustomObjectRowSource(parent)
+                ? parent.option_source.custom_object_id : null)
+                || parent.related_custom_object_id || parent.custom_object_id || null,
             }
             : null;
       const expectedKind = child.relationship_parent_kind || null;
@@ -448,9 +473,12 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
         && (!expectedKind || parentDescriptor.kind === expectedKind)
         && (!expectedObjectId || (parentDescriptor.kind === 'custom_object'
           && String(parentDescriptor.customObjectId) === String(expectedObjectId)));
-      if (!isValidScope || !precedesChild
-          || !descriptorMatches) {
+      if (!directRowSource && (!isValidScope || !precedesChild
+          || !descriptorMatches)) {
         errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'A relationship child must reference a compatible preceding parent' });
+      }
+      if (isDistinctRowSource(parent)) {
+        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'A distinct scalar relationship child cannot be used as a relationship parent' });
       }
     }
     if (child.type === 'organisation_dropdown' && child.organisation_group_parent_field_id) {
@@ -515,6 +543,16 @@ export function validateRepeatableRows(field, value, options = {}) {
         continue;
       }
       if (isRepeatableValueEmpty(selected)) continue;
+      if (isCustomObjectRowSource(child)
+          && (Array.isArray(selected) || selected === '__form_not_listed__')) {
+        errors.push({
+          code: 'invalid_selection',
+          row: rowIndex,
+          child_id: child.id,
+          message: `${child.label || child.id} must contain one catalogue selection`,
+        });
+        continue;
+      }
       if (Array.isArray(child.options) && child.options.length) {
         const allowed = new Set(child.options.map(optionValue).filter((item) => item != null).map(String));
         if (selectedValues(selected).some((item) => (

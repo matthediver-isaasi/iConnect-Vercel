@@ -56,6 +56,10 @@ import {
   normalizeEligibleRelationships,
   formBuilderRelationshipLabel,
   relationshipFieldConfig,
+  validateRowSourceConfiguration,
+  compatibleRowSourceFilterPairs,
+  rowSourceInputDomain,
+  rowSourceObjectFieldDomain,
 } from "@/lib/formRelationshipDropdown";
 import {
   relationshipEndpointDescriptor,
@@ -6010,6 +6014,7 @@ function RepeatableRowsSettings({
   eligibleRelationships = [],
   allFields = [],
   customFields = [],
+  customObjects = [],
 }) {
   const config = normalizeRepeatableRowField(field);
   const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
@@ -6054,6 +6059,29 @@ function RepeatableRowsSettings({
       updateChildren(nextChildren);
     }
   }, [allFields, field.id, children]);
+
+  useEffect(() => {
+    const nextChildren = children.map(child => {
+      if (!child.option_source?.custom_object_id) return child;
+      const object = customObjects.find(candidate => (
+        String(candidate.id) === String(child.option_source.custom_object_id)
+      ));
+      if (!object?.primary_display_field_id
+          || String(child.option_source.primary_display_field_id) === String(object.primary_display_field_id)) {
+        return child;
+      }
+      return {
+        ...child,
+        option_source: {
+          ...child.option_source,
+          primary_display_field_id: object.primary_display_field_id,
+        },
+      };
+    });
+    if (nextChildren.some((child, index) => child !== children[index])) {
+      updateChildren(nextChildren);
+    }
+  }, [children, customObjects]);
 
   return (
     <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/30 p-4" data-testid={`repeatable-rows-config-${field.id}`}>
@@ -6138,18 +6166,43 @@ function RepeatableRowsSettings({
       {children.length === 0 && <p className="text-xs text-amber-700">Add at least one field to make this row usable.</p>}
       {children.map((child, childIndex) => {
         const preceding = children.slice(0, childIndex);
+        const scalarPreceding = preceding.filter(item => rowSourceInputDomain(item, {
+          customFields,
+          customObjects,
+        }));
+        const rowSource = child.option_source;
+        const selectedSourceObject = customObjects.find(object => object.id === rowSource?.custom_object_id);
+        const sourceObjectFields = (selectedSourceObject?.fields
+          || selectedSourceObject?.custom_fields
+          || []).filter(sourceField => !['picklist', 'dropdown'].includes(sourceField.field_type));
+        const filterPairs = compatibleRowSourceFilterPairs(
+          sourceObjectFields,
+          scalarPreceding,
+          { customFields, customObjects },
+        );
+        const filterObjectFields = sourceObjectFields.filter(sourceField => (
+          filterPairs.some(pair => pair.objectField.id === sourceField.id)
+        ));
+        const rowSourceValidation = validateRowSourceConfiguration(child, children);
         const containerIndex = allFields.findIndex(candidate => candidate?.id === field.id);
         const formPreceding = (containerIndex < 0 ? allFields : allFields.slice(0, containerIndex));
-        const parentScope = child.parent_field_scope || 'row';
+        const parentScope = rowSource ? 'row' : (child.parent_field_scope || 'row');
         const groupParentScope = child.organisation_group_parent_scope || 'row';
-        const relationshipParents = parentScope === 'form'
+        const relationshipParents = (parentScope === 'form'
           ? getEligibleRelationshipParents(formPreceding)
-          : getEligibleRelationshipParents(preceding);
+          : getEligibleRelationshipParents(preceding))
+          .filter(parent => parent.option_source?.kind !== 'distinct');
         const organisationGroupParents = (groupParentScope === 'form' ? formPreceding : preceding)
           .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
         const selectedRelationshipParent = relationshipParents.find(parent => parent.id === child.parent_field_id);
         const compatibleRelationships = selectedRelationshipParent
-          ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
+          ? eligibleRelationships.filter(item => {
+              if (!isRelationshipCompatibleWithParent(item, selectedRelationshipParent)) return false;
+              if (!rowSource?.custom_object_id) return true;
+              const config = relationshipFieldConfig(item, selectedRelationshipParent);
+              return config.related_kind === 'custom_object'
+                && String(config.related_custom_object_id || '') === String(rowSource.custom_object_id);
+            })
           : [];
         const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
         const dependencySource = preceding.find(item => item.id === dependency?.source_field_id);
@@ -6191,6 +6244,23 @@ function RepeatableRowsSettings({
                 <Select value={child.type} onValueChange={type => updateChild(childIndex, {
                   type,
                   parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
+                  parent_field_scope: type === 'relationship_dropdown' ? child.parent_field_scope : undefined,
+                  option_source: type === 'relationship_dropdown' ? child.option_source : undefined,
+                  relationship_definition_id: type === 'relationship_dropdown' ? child.relationship_definition_id : undefined,
+                  relationship_parent_side: type === 'relationship_dropdown' ? child.relationship_parent_side : undefined,
+                  relationship_parent_kind: type === 'relationship_dropdown' ? child.relationship_parent_kind : undefined,
+                  relationship_parent_custom_object_id: type === 'relationship_dropdown' ? child.relationship_parent_custom_object_id : undefined,
+                  parent_custom_object_id: type === 'relationship_dropdown' ? child.parent_custom_object_id : undefined,
+                  organization_side: type === 'relationship_dropdown' ? child.organization_side : undefined,
+                  related_kind: type === 'relationship_dropdown' ? child.related_kind : undefined,
+                  related_custom_object_id: type === 'relationship_dropdown' ? child.related_custom_object_id : undefined,
+                  related_primary_display_field_id: type === 'relationship_dropdown' ? child.related_primary_display_field_id : undefined,
+                  custom_object_id: type === 'relationship_dropdown' ? child.custom_object_id : undefined,
+                  custom_object_name: type === 'relationship_dropdown' ? child.custom_object_name : undefined,
+                  custom_object_primary_display_field_id: type === 'relationship_dropdown' ? child.custom_object_primary_display_field_id : undefined,
+                  relationship_definition: type === 'relationship_dropdown' ? child.relationship_definition : undefined,
+                  relationship_key: type === 'relationship_dropdown' ? child.relationship_key : undefined,
+                  not_listed_choice: type === 'relationship_dropdown' ? child.not_listed_choice : undefined,
                   organisation_group_parent_field_id: type === 'organisation_dropdown'
                     ? child.organisation_group_parent_field_id
                     : undefined,
@@ -6199,7 +6269,7 @@ function RepeatableRowsSettings({
                     ? child.exclude_values_from
                     : undefined,
                 })}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9" data-testid={`select-repeatable-child-type-${field.id}-${child.id}`}><SelectValue /></SelectTrigger>
                   <SelectContent className="max-h-64">
                     {safeTypes.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
                   </SelectContent>
@@ -6307,7 +6377,156 @@ function RepeatableRowsSettings({
             )}
             {child.type === 'relationship_dropdown' && (
               <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
-                <div className="space-y-1 md:col-span-2">
+                <div className="space-y-3 rounded border border-blue-200 bg-blue-50 p-3 md:col-span-2">
+                  <div>
+                    <Label className="text-xs font-medium">Option data source</Label>
+                    <Select
+                      value={rowSource?.kind || 'relationship'}
+                      onValueChange={kind => {
+                        if (kind === 'relationship') {
+                          updateChild(childIndex, { option_source: undefined });
+                          return;
+                        }
+                        updateChild(childIndex, {
+                          option_source: {
+                            version: 1,
+                            kind,
+                            custom_object_id: rowSource?.custom_object_id || '',
+                            primary_display_field_id: rowSource?.primary_display_field_id || '',
+                            ...(kind === 'distinct' ? { value_field_id: rowSource?.value_field_id || '' } : {}),
+                            filters: rowSource?.filters || [],
+                          },
+                          selection_mode: RELATIONSHIP_SELECTION_SINGLE,
+                          not_listed_choice: undefined,
+                          parent_field_scope: child.parent_field_id ? 'row' : undefined,
+                          ...(child.parent_field_scope === 'form' ? {
+                            parent_field_id: undefined,
+                            relationship_definition_id: undefined,
+                            relationship_parent_side: undefined,
+                            relationship_parent_kind: undefined,
+                            relationship_parent_custom_object_id: undefined,
+                            parent_custom_object_id: undefined,
+                            organization_side: undefined,
+                            related_kind: undefined,
+                            related_custom_object_id: undefined,
+                            related_primary_display_field_id: undefined,
+                            custom_object_id: undefined,
+                            custom_object_name: undefined,
+                            custom_object_primary_display_field_id: undefined,
+                            relationship_definition: undefined,
+                            relationship_key: undefined,
+                          } : {}),
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="mt-1 h-9" data-testid={`select-row-option-source-${field.id}-${child.id}`}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="relationship">Related records (legacy)</SelectItem>
+                        <SelectItem value="records">Records from a custom object</SelectItem>
+                        <SelectItem value="distinct">Distinct related field values</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {rowSource && (
+                    <>
+                      <p className="text-xs text-blue-800">
+                        This publishes the selected object, label and filter field configuration to the public form.
+                        Respondent answers are sent only for the equality filters listed below.
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Custom object</Label>
+                          <Select value={rowSource.custom_object_id || ''} onValueChange={custom_object_id => {
+                            const object = customObjects.find(item => item.id === custom_object_id);
+                             updateChild(childIndex, {
+                               option_source: {
+                                 ...rowSource,
+                                 custom_object_id,
+                                 primary_display_field_id: object?.primary_display_field_id || '',
+                                 ...(rowSource.kind === 'distinct' ? { value_field_id: '' } : {}),
+                                 filters: [],
+                               },
+                               parent_field_id: undefined,
+                               parent_field_scope: undefined,
+                               relationship_definition_id: undefined,
+                               relationship_parent_side: undefined,
+                               relationship_parent_kind: undefined,
+                               relationship_parent_custom_object_id: undefined,
+                               parent_custom_object_id: undefined,
+                               organization_side: undefined,
+                               related_kind: undefined,
+                               related_custom_object_id: undefined,
+                               related_primary_display_field_id: undefined,
+                               custom_object_id: undefined,
+                               custom_object_name: undefined,
+                               custom_object_primary_display_field_id: undefined,
+                               relationship_definition: undefined,
+                               relationship_key: undefined,
+                             });
+                          }}>
+                            <SelectTrigger className="h-9" data-testid={`select-row-source-object-${field.id}-${child.id}`}><SelectValue placeholder="Choose object…" /></SelectTrigger>
+                            <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.name || object.object_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Primary label field</Label>
+                          <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm" data-testid={`row-source-primary-label-${field.id}-${child.id}`}>
+                            {sourceObjectFields.find(sourceField => sourceField.id === selectedSourceObject?.primary_display_field_id)?.label
+                              || sourceObjectFields.find(sourceField => sourceField.id === selectedSourceObject?.primary_display_field_id)?.name
+                              || 'Select a custom object'}
+                          </div>
+                        </div>
+                        {rowSource.kind === 'distinct' && <div className="space-y-1 md:col-span-2">
+                          <Label className="text-xs">Projected field (distinct values)</Label>
+                          <Select value={rowSource.value_field_id || ''} onValueChange={value_field_id => updateChild(childIndex, { option_source: { ...rowSource, value_field_id } })}>
+                            <SelectTrigger className="h-9" data-testid={`select-row-source-value-${field.id}-${child.id}`}><SelectValue placeholder="Choose projected field…" /></SelectTrigger>
+                            <SelectContent>{sourceObjectFields.map(sourceField => <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || sourceField.name || sourceField.field_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs">Equality filters</Label>
+                          <Button type="button" size="sm" variant="outline" data-testid={`add-row-source-filter-${field.id}-${child.id}`} disabled={!filterPairs.length} onClick={() => updateChild(childIndex, { option_source: {
+                            ...rowSource,
+                            filters: [...(rowSource.filters || []), {
+                              field_id: filterPairs[0]?.objectField.id || '',
+                              source_field_id: filterPairs[0]?.input.id || '',
+                            }],
+                          } })}><Plus className="mr-1 h-3 w-3" /> Add filter</Button>
+                        </div>
+                        {(rowSource.filters || []).map((filter, filterIndex) => {
+                          const targetDomain = rowSourceObjectFieldDomain(sourceObjectFields.find(sourceField => sourceField.id === filter.field_id));
+                          const compatibleInputs = scalarPreceding.filter(input => (
+                            rowSourceInputDomain(input, { customFields, customObjects }) === targetDomain
+                          ));
+                          return <div key={`${filterIndex}-${filter.field_id}`} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                          <Select value={filter.field_id || ''} onValueChange={field_id => {
+                            const domain = rowSourceObjectFieldDomain(sourceObjectFields.find(sourceField => sourceField.id === field_id));
+                            const compatible = scalarPreceding.filter(input => (
+                              rowSourceInputDomain(input, { customFields, customObjects }) === domain
+                            ));
+                            const source_field_id = compatible.some(input => input.id === filter.source_field_id)
+                              ? filter.source_field_id : compatible[0]?.id || '';
+                            updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.map((item, index) => index === filterIndex ? { ...item, field_id, source_field_id } : item) } });
+                          }}>
+                            <SelectTrigger className="h-8" data-testid={`select-row-filter-target-${field.id}-${child.id}-${filterIndex}`}><SelectValue placeholder="Object field" /></SelectTrigger>
+                            <SelectContent>{filterObjectFields.map(sourceField => <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || sourceField.name || sourceField.field_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <span className="text-xs">equals</span>
+                          <Select value={filter.source_field_id || ''} onValueChange={source_field_id => updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.map((item, index) => index === filterIndex ? { ...item, source_field_id } : item) } })}>
+                            <SelectTrigger className="h-8" data-testid={`select-row-filter-input-${field.id}-${child.id}-${filterIndex}`}><SelectValue placeholder="Earlier column" /></SelectTrigger>
+                            <SelectContent>{compatibleInputs.map(source => <SelectItem key={source.id} value={source.id}>{source.label || source.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <Button type="button" variant="ghost" size="icon" data-testid={`remove-row-source-filter-${field.id}-${child.id}-${filterIndex}`} className="h-8 w-8" onClick={() => updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.filter((_, index) => index !== filterIndex) } })}><X className="h-3 w-3" /></Button>
+                        </div>;
+                        })}
+                      </div>
+                      {!rowSourceValidation.valid && <p className="text-xs text-amber-700">{rowSourceValidation.errors[0]?.message}</p>}
+                    </>
+                  )}
+                </div>
+                {!rowSource && <><div className="space-y-1 md:col-span-2">
                   <Label className="text-xs">Selection control</Label>
                   <Select
                     value={relationshipSelectionMode(child)}
@@ -6372,10 +6591,10 @@ function RepeatableRowsSettings({
                   {relationshipSelectionMode(child) === RELATIONSHIP_SELECTION_MULTIPLE && (
                     <p className="text-xs text-slate-500">Other can be selected alongside related records.</p>
                   )}
-                </div>
+                </div></>}
                 <div className="space-y-1">
                   <Label className="text-xs">Parent field scope</Label>
-                  <Select value={parentScope} onValueChange={parent_field_scope => updateChild(childIndex, {
+                  <Select disabled={Boolean(rowSource)} value={rowSource ? 'row' : parentScope} onValueChange={parent_field_scope => updateChild(childIndex, {
                     parent_field_scope,
                     parent_field_id: undefined,
                     relationship_definition_id: undefined,
@@ -6383,26 +6602,44 @@ function RepeatableRowsSettings({
                     <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="row">Same row</SelectItem>
-                      <SelectItem value="form">Earlier form field</SelectItem>
+                      {!rowSource && <SelectItem value="form">Earlier form field</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Parent field</Label>
-                  <Select value={child.parent_field_id || ''} onValueChange={parent_field_id => updateChild(childIndex, { parent_field_id })}>
-                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose earlier field…" /></SelectTrigger>
+                  <Select value={child.parent_field_id || '__none__'} onValueChange={parent_field_id => updateChild(childIndex, {
+                    parent_field_id: parent_field_id === '__none__' ? undefined : parent_field_id,
+                    parent_field_scope: rowSource ? 'row' : child.parent_field_scope,
+                    relationship_definition_id: undefined,
+                    relationship_parent_side: undefined,
+                    relationship_parent_kind: undefined,
+                    relationship_parent_custom_object_id: undefined,
+                    parent_custom_object_id: undefined,
+                    organization_side: undefined,
+                    related_kind: undefined,
+                    related_custom_object_id: undefined,
+                    related_primary_display_field_id: undefined,
+                    custom_object_id: undefined,
+                    custom_object_name: undefined,
+                    custom_object_primary_display_field_id: undefined,
+                    relationship_definition: undefined,
+                    relationship_key: undefined,
+                  })}>
+                    <SelectTrigger className="h-9" data-testid={`select-row-relationship-parent-${field.id}-${child.id}`}><SelectValue placeholder="Choose earlier field…" /></SelectTrigger>
                     <SelectContent>
+                      {rowSource?.kind === 'records' && <SelectItem value="__none__">No relationship constraint</SelectItem>}
                       {relationshipParents.map(parent => <SelectItem key={parent.id} value={parent.id}>{parent.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Relationship</Label>
-                  <Select value={child.relationship_definition_id ? `${child.relationship_definition_id}:${child.relationship_parent_side || child.organization_side || 'default'}` : ''} onValueChange={selectionKey => {
+                  <Select disabled={!selectedRelationshipParent} value={child.relationship_definition_id ? `${child.relationship_definition_id}:${child.relationship_parent_side || child.organization_side || 'default'}` : ''} onValueChange={selectionKey => {
                     const relationship = compatibleRelationships.find(item => relationshipSelectionKey(item) === selectionKey);
                     if (relationship) updateChild(childIndex, relationshipFieldConfig(relationship, selectedRelationshipParent));
                   }}>
-                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
+                    <SelectTrigger className="h-9" data-testid={`select-row-relationship-definition-${field.id}-${child.id}`}><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
                     <SelectContent>
                       {compatibleRelationships.map(item => <SelectItem key={relationshipSelectionKey(item)} value={relationshipSelectionKey(item)}>{formBuilderRelationshipLabel(item, selectedRelationshipParent)}</SelectItem>)}
                     </SelectContent>
@@ -6650,6 +6887,15 @@ function FieldCard({
     staleTime: 5 * 60 * 1000,
   });
   const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
+  const discoveredCustomObjects = (
+    relationshipDiscovery?.custom_objects || relationshipDiscovery?.objects || []
+  ).map(object => ({
+    ...object,
+    fields: object.fields || object.custom_fields
+      || relationshipDiscovery?.custom_object_fields?.[object.id]
+      || relationshipDiscovery?.fields?.[object.id]
+      || [],
+  }));
   const selectedRelationshipParent = relationshipParents.find(parent => parent.id === field.parent_field_id);
   const compatibleRelationships = selectedRelationshipParent
     ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
@@ -7213,6 +7459,7 @@ function FieldCard({
                   originalIndex={originalIndex}
                   updateField={updateField}
                   eligibleRelationships={eligibleRelationships}
+                  customObjects={discoveredCustomObjects}
                   allFields={allFields}
                   customFields={customFields}
                 />

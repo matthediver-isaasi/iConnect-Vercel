@@ -77,6 +77,7 @@ import {
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
+import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -1070,6 +1071,19 @@ export default async function handler(req, res) {
         });
         if (!stripeMappingValidation.ok) {
           return res.status(422).json(stripeMappingValidation);
+        }
+        if (Object.prototype.hasOwnProperty.call(sanitizedBody, 'fields')) {
+          const rowSourceValidation = await validateFormRowSourceConfiguration({
+            db: supabase,
+            tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+            form: { ...persistedForm, ...sanitizedBody },
+            canConfigure: !!tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx),
+            isTenantUser: !!tenantCtx.tenantUserId,
+            authorRoleId: tenantCtx.roleId,
+          });
+          if (!rowSourceValidation.ok) {
+            return res.status(rowSourceValidation.status).json(rowSourceValidation);
+          }
         }
       }
 

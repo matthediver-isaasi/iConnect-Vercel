@@ -7,6 +7,7 @@ import {
   isFormNotListedValue,
   resolveFormNotListedDisplayValue,
 } from './formNotListedChoice.js';
+import { isDistinctRowSource } from './formCustomObjectRowSources.js';
 
 // The builder persists its versioned configuration in `repeatable_row` with
 // `child_fields`; early drafts used config.children. Normalize both so every
@@ -87,7 +88,9 @@ export function formatRepeatableRows(field, value, options = {}) {
       const displayValue = containsFormNotListedValue(rawValue)
         ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field, row })
         : rawValue;
-      const formatted = child.type === 'relationship_dropdown' && typeof options.formatCell === 'function'
+      const formatted = isDistinctRowSource(child)
+        ? formatRepeatableCellValue(rawValue)
+        : child.type === 'relationship_dropdown' && typeof options.formatCell === 'function'
         ? formatCell(rawValue, child, row, rowIndex)
         : containsFormNotListedValue(rawValue)
         ? formatRepeatableCellValue(displayValue, child)
@@ -117,7 +120,9 @@ export function collectRepeatableRelationshipRecordIds(fields, submissionData) {
   for (const field of fields || []) {
     if (!isRepeatableRowsField(field)) continue;
     const children = getRepeatableRowChildren(field);
-    const relationshipChildren = children.filter((child) => child.type === 'relationship_dropdown');
+    const relationshipChildren = children.filter((child) => (
+      child.type === 'relationship_dropdown' && !isDistinctRowSource(child)
+    ));
     if (!relationshipChildren.length) continue;
     const value = field.id != null && submissionData?.[field.id] !== undefined
       ? submissionData[field.id]

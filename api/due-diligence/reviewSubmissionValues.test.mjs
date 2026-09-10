@@ -25,6 +25,41 @@ test('effective review values use amended field IDs and preserve original ID/nam
   );
 });
 
+test('effective review values preserve an original repeatable answer until an amendment replaces it', () => {
+  const form = {
+    fields: [{
+      id: 'assets',
+      name: 'Assets',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'type', type: 'relationship_dropdown' },
+        { id: 'maker', type: 'relationship_dropdown' },
+        { id: 'model', type: 'relationship_dropdown' },
+      ],
+    }],
+  };
+  const originalRows = [{
+    _row_id: 'row-1',
+    type: 'type-a',
+    maker: 'Acme',
+    model: 'model-a',
+  }];
+  assert.deepEqual(
+    effectiveReviewSubmissionValues(form, { Assets: originalRows }, {}),
+    { assets: originalRows },
+  );
+  const amendedRows = [{
+    _row_id: 'row-1',
+    type: 'type-a',
+    maker: 'Beta',
+    model: 'model-b',
+  }];
+  assert.deepEqual(
+    effectiveReviewSubmissionValues(form, { Assets: originalRows }, { assets: amendedRows }),
+    { assets: amendedRows },
+  );
+});
+
 test('effective review values preserve not-listed text and clear it when the answer is amended away', () => {
   const form = {
     fields: [{
@@ -57,11 +92,24 @@ test('effective review values preserve not-listed text and clear it when the ans
 test('review saves validate effective relationship amendments before persistence', () => {
   const source = read('save-review.js');
   assert.match(source, /createFormRelationshipService/);
+  assert.match(source, /validateRepeatableRowSubmission/);
+  assert.match(source, /computeHiddenFieldIds/);
   assert.match(source, /effectiveReviewSubmissionValues/);
-  assert.match(source, /validateSubmission\(\{ form, submissionData \}\)/);
+  assert.match(
+    source,
+    /validateRepeatableRowSubmission\(\{[\s\S]*?form,[\s\S]*?submissionData,[\s\S]*?hiddenFieldIds/,
+  );
+  assert.match(
+    source,
+    /validateSubmission\(\{[\s\S]*?form,[\s\S]*?submissionData,[\s\S]*?hiddenFieldIds/,
+  );
   assert.ok(
-    source.indexOf('validateSubmission({ form, submissionData })') < source.indexOf('.update(updateData)'),
-    'relationship validation must happen before the review update',
+    source.indexOf('validateRepeatableRowSubmission({') < source.indexOf('.update(updateData)'),
+    'repeatable row-source validation must happen before the review update',
+  );
+  assert.ok(
+    source.indexOf('.validateSubmission({') < source.indexOf('.update(updateData)'),
+    'ordinary relationship validation must happen before the review update',
   );
   assert.match(source, /status\(400\)\.json\(\{ error: 'Invalid relationship selection' \}\)/);
 });

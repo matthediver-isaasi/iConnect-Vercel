@@ -22,6 +22,19 @@ test('paid create, monthly-card, and quote paths validate repeatable rows before
   }
 });
 
+test('paid paths pass persisted form configuration and submitted answers to the shared row validator', async () => {
+  const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function validatePaymentRelationships');
+  const end = source.indexOf('\nasync function ', start);
+  const validationHelper = source.slice(start, end);
+  assert.match(
+    validationHelper,
+    /validateRepeatableRowSubmission\(\{[\s\S]*?tenantId: tenantData\.id,[\s\S]*?form,[\s\S]*?submissionData: values/,
+  );
+  assert.match(validationHelper, /hiddenFieldIds/);
+  assert.doesNotMatch(validationHelper, /values\.(?:fields|option_source)/);
+});
+
 test('paid paths reuse one LMIC visibility context for validation and charge resolution', async () => {
   const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
   for (const name of ['handleQuote', 'handleCreateMonthlyCard', 'handleCreate']) {
@@ -182,7 +195,7 @@ test('form payment UI requests provider availability for the resolved payment pu
   );
   assert.match(source, /membershipQuote\?\.matched \? 'membership' : 'forms'/);
   assert.match(source, /form-payment-providers\?purpose=\$\{encodeURIComponent\(paymentPurpose\)\}/);
-  assert.match(source, /\[paymentPurpose\]/);
+  assert.match(source, /queryKey: \['form-payment-providers', paymentPurpose\]/);
   assert.match(source, /json\.publishableKey/);
   assert.match(source, /stripeConfigurationError/);
 });

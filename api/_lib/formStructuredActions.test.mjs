@@ -439,6 +439,145 @@ const repeatable = {
   },
 };
 
+function structuralRepeatableActionFixture(repeatableField, submittedValue) {
+  const form = {
+    id: 'form-repeatable-structural',
+    tenant_id: 'tenant-repeatable-structural',
+    fields: [repeatableField],
+    structured_actions: {
+      version: 1,
+      actions: [{
+        id: 'create-person',
+        source: { scope: 'repeatable_row', repeatable_field_id: repeatableField.id },
+        target: { kind: 'member', custom_object_id: null },
+        operation: 'upsert',
+        uniqueness_field: 'email',
+        mappings: [{
+          id: 'email-map',
+          source_field_id: 'email',
+          target_type: 'core',
+          target_field_id: 'email',
+        }],
+      }],
+    },
+  };
+  const submission = {
+    id: 'submission-repeatable-structural',
+    form_id: form.id,
+    tenant_id: form.tenant_id,
+    submission_data: { [repeatableField.id]: submittedValue },
+  };
+  let sideEffects = 0;
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+    }
+    select() { return this; }
+    eq(column, value) { this.filters.push([column, value]); return this; }
+    async maybeSingle() {
+      const row = this.table === 'form' ? form
+        : this.table === 'form_submission' ? submission : null;
+      const matches = row && this.filters.every(([key, value]) => String(row[key]) === String(value));
+      return { data: matches ? row : null, error: null };
+    }
+    then(resolve, reject) {
+      return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+    }
+  }
+  return {
+    form,
+    db: {
+      from: table => new Query(table),
+      rpc: async () => {
+        sideEffects += 1;
+        return { data: null, error: null };
+      },
+    },
+    sideEffectCount: () => sideEffects,
+  };
+}
+
+test('structured actions reject malformed repeatable answers before claiming side effects', async () => {
+  for (const submittedValue of [
+    { email: 'person@example.test' },
+    [{ email: 'person@example.test', forged: 'value' }],
+  ]) {
+    const fixture = structuralRepeatableActionFixture(repeatable, submittedValue);
+    await assert.rejects(() => processPersistedStructuredActions({
+      db: fixture.db,
+      formId: fixture.form.id,
+      submissionId: 'submission-repeatable-structural',
+      tenantId: fixture.form.tenant_id,
+      authorization: {},
+    }), /Repeatable row answer must be an array|unsupported field/);
+    assert.equal(fixture.sideEffectCount(), 0);
+  }
+});
+
+test('structured actions reject malformed row-source configuration before side effects', async () => {
+  const sourceField = {
+    ...repeatable,
+    repeatable_row: {
+      ...repeatable.repeatable_row,
+      child_fields: [
+        ...repeatable.repeatable_row.child_fields,
+        {
+          id: 'child_region',
+          type: 'relationship_dropdown',
+          option_source: {
+            version: 1,
+            kind: 'distinct',
+            custom_object_id: '10000000-0000-0000-0000-000000000001',
+            primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+            value_field_id: 'not-a-database-uuid',
+            filters: [],
+          },
+        },
+      ],
+    },
+  };
+  const fixture = structuralRepeatableActionFixture(sourceField, [{
+    email: 'person@example.test',
+    child_region: 'North',
+  }]);
+  await assert.rejects(() => processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: 'submission-repeatable-structural',
+    tenantId: fixture.form.tenant_id,
+    authorization: {},
+  }), /option source is malformed/);
+  assert.equal(fixture.sideEffectCount(), 0);
+});
+
+test('row-source record reference descriptors use option-source metadata without legacy aliases', () => {
+  const source = {
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'records',
+      custom_object_id: '10000000-0000-0000-0000-000000000001',
+      primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+      filters: [],
+    },
+  };
+  assert.deepEqual(recordReferenceFieldCapability(source), {
+    kind: 'custom_object',
+    customObjectId: source.option_source.custom_object_id,
+    cardinality: 'single',
+    supportsNotListed: false,
+  });
+  assert.equal(recordReferenceFieldCapability({
+    ...source,
+    selection_mode: 'multiple',
+  }), null);
+  assert.equal(recordReferenceFieldCapability({
+    ...source,
+    not_listed_choice: { enabled: true, label: 'Other' },
+  }), null);
+});
+
 test('validates the versioned structured-actions contract against persisted fields', () => {
   const contract = validateStructuredActionsContract({
     version: 1,

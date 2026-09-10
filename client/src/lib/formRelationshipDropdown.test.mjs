@@ -9,6 +9,13 @@ import {
   getEligibleRelationshipParents,
   getRelationshipDependentFields,
   isRelationshipCompatibleWithParent,
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+  rowSourceDependencyIds,
+  validateRowSourceConfiguration,
+  compatibleRowSourceFilterPairs,
+  rowSourceInputDomain,
+  relationshipParentDescriptor,
   normalizeEligibleRelationships,
   normalizeRelationshipOptions,
   resolveFormRendererFieldValue,
@@ -25,6 +32,175 @@ import {
   relationshipSelectionMode,
   toggleRelationshipSelection,
 } from '../../../shared/formRelationshipSelection.js';
+
+test('direct record row sources are relationship parents without legacy aliases; projected scalars are not', () => {
+  const parent = {
+    id: 'parent', type: 'relationship_dropdown',
+    option_source: {
+      version: 1, kind: 'records', filters: [],
+      custom_object_id: '11111111-1111-4111-8111-111111111111',
+      primary_display_field_id: '22222222-2222-4222-8222-222222222222',
+    },
+  };
+  const scalar = {
+    ...parent, id: 'scalar',
+    option_source: {
+      ...parent.option_source, kind: 'distinct',
+      value_field_id: '33333333-3333-4333-8333-333333333333',
+    },
+  };
+  assert.deepEqual(relationshipParentDescriptor(parent), {
+    kind: 'custom_object', custom_object_id: parent.option_source.custom_object_id,
+  });
+  assert.deepEqual(relationshipParentDescriptor(scalar), {});
+  assert.deepEqual(relationshipParentDescriptor({ ...parent, option_source: {} }), {});
+  assert.deepEqual(getEligibleRelationshipParents([parent, scalar]), [parent]);
+  const relation = {
+    source_kind: 'custom_object',
+    source_custom_object_id: '44444444-4444-4444-8444-444444444444',
+    target_kind: 'custom_object',
+    target_custom_object_id: parent.option_source.custom_object_id,
+  };
+  assert.equal(isRelationshipCompatibleWithParent(relation, parent), true);
+  assert.equal(isRelationshipCompatibleWithParent(relation, scalar), false);
+});
+
+test('row-source domains use authoritative metadata and do not treat times as dates', () => {
+  const customFields = [{ id: 'amount', field_type: 'number' }];
+  assert.equal(rowSourceInputDomain({ type: 'percentage' }), 'number');
+  assert.equal(rowSourceInputDomain({ type: 'time' }), 'string');
+  assert.equal(rowSourceInputDomain({ type: 'datetime' }), null);
+  assert.equal(rowSourceInputDomain({
+    type: 'custom_field', custom_field_id: 'amount', custom_field_type: 'date',
+  }, { customFields }), 'number');
+  assert.equal(rowSourceInputDomain({
+    type: 'custom_field', custom_field_id: 'missing', custom_field_type: 'number',
+  }, { customFields }), null);
+  const pairs = compatibleRowSourceFilterPairs([
+    { id: 'numeric', field_type: 'number' },
+    { id: 'day', field_type: 'date' },
+  ], [
+    { id: 'percent', type: 'percentage' },
+    { id: 'clock', type: 'time' },
+    { id: 'day-input', type: 'date' },
+  ]);
+  assert.deepEqual(pairs.map(pair => [pair.objectField.id, pair.input.id]), [
+    ['numeric', 'percent'], ['day', 'day-input'],
+  ]);
+});
+
+test('custom object row sources expose only declared dependency columns', () => {
+  const countryId = '55555555-5555-4555-8555-555555555555';
+  const field = {
+    id: '66666666-6666-4666-8666-666666666666',
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'records',
+      custom_object_id: '11111111-1111-4111-8111-111111111111',
+      primary_display_field_id: '22222222-2222-4222-8222-222222222222',
+      filters: [
+        { field_id: '33333333-3333-4333-8333-333333333333', source_field_id: countryId },
+        { field_id: '44444444-4444-4444-8444-444444444444', source_field_id: countryId },
+      ],
+    },
+  };
+  assert.equal(isCustomObjectRowSource(field), true);
+  assert.equal(isDistinctRowSource(field), false);
+  assert.deepEqual(rowSourceDependencyIds(field), [countryId]);
+  assert.deepEqual(validateRowSourceConfiguration(field, [
+    { id: countryId, type: 'text' },
+    field,
+  ]), { valid: true, errors: [] });
+});
+
+test('distinct row source requires projection and relationship parent', () => {
+  const field = {
+    id: 'result',
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'distinct',
+      custom_object_id: '11111111-1111-4111-8111-111111111111',
+      primary_display_field_id: '22222222-2222-4222-8222-222222222222',
+      filters: [],
+    },
+  };
+  const validation = validateRowSourceConfiguration(field);
+  assert.equal(validation.valid, false);
+  assert.ok(validation.errors.some(error => error.code === 'invalid_row_option_source'));
+});
+
+test('distinct row source includes its parent among request dependencies', () => {
+  const field = {
+    type: 'relationship_dropdown',
+    parent_field_id: '55555555-5555-4555-8555-555555555555',
+    option_source: {
+      version: 1,
+      kind: 'distinct',
+      custom_object_id: '11111111-1111-4111-8111-111111111111',
+      primary_display_field_id: '22222222-2222-4222-8222-222222222222',
+      value_field_id: '33333333-3333-4333-8333-333333333333',
+      filters: [{ field_id: '44444444-4444-4444-8444-444444444444', source_field_id: '66666666-6666-4666-8666-666666666666' }],
+    },
+  };
+  assert.deepEqual(rowSourceDependencyIds(field), [
+    '55555555-5555-4555-8555-555555555555',
+    '66666666-6666-4666-8666-666666666666',
+  ]);
+});
+
+test('row filter domains intersect object fields with normal, custom, and distinct inputs', () => {
+  const objectId = '71111111-1111-4111-8111-111111111111';
+  const projectedNumberId = '81111111-1111-4111-8111-111111111112';
+  const fields = [
+    { id: 'text-target', field_type: 'text' },
+    { id: 'number-target', field_type: 'decimal' },
+    { id: 'date-target', field_type: 'date' },
+    { id: 'boolean-target', field_type: 'boolean' },
+    { id: 'picklist-target', field_type: 'picklist' },
+  ];
+  const customObjects = [{
+    id: objectId,
+    fields: [{ id: projectedNumberId, field_type: 'number' }],
+  }];
+  const inputs = [
+    { id: 'plain-text', type: 'text' },
+    { id: 'plain-date', type: 'date' },
+    { id: 'plain-boolean', type: 'boolean' },
+    { id: 'custom-number', type: 'custom_field', custom_field_id: 'custom-number-definition' },
+    {
+      id: 'distinct-number',
+      type: 'relationship_dropdown',
+      parent_field_id: 'parent',
+      relationship_definition_id: 'relationship',
+      option_source: {
+        version: 1,
+        kind: 'distinct',
+        custom_object_id: objectId,
+        primary_display_field_id: '81111111-1111-4111-8111-111111111111',
+        value_field_id: projectedNumberId,
+        filters: [],
+      },
+    },
+  ];
+  const metadata = {
+    customObjects,
+    customFields: [{ id: 'custom-number-definition', field_type: 'decimal' }],
+  };
+  assert.equal(rowSourceInputDomain(inputs[4], metadata), 'number');
+  assert.deepEqual(
+    compatibleRowSourceFilterPairs(fields, inputs, metadata)
+      .map(pair => `${pair.objectField.id}:${pair.input.id}`),
+    [
+      'text-target:plain-text',
+      'number-target:custom-number',
+      'number-target:distinct-number',
+      'date-target:plain-date',
+      'boolean-target:plain-boolean',
+    ],
+  );
+});
 
 test('builder labels an Organisation relationship by the Departments it returns', () => {
   const relationship = {

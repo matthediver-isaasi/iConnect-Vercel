@@ -4,6 +4,10 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { executeStageActions } from './_stageActions.js';
 import { calculateTrafficLightScore, calculateDynamicScore, determineRiskLevel } from './_scoring.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { effectiveReviewSubmissionValues } from './reviewSubmissionValues.js';
 
 export default async function handler(req, res) {
@@ -60,7 +64,7 @@ export default async function handler(req, res) {
     if (reviewedFormValues !== undefined) {
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('id, fields')
+        .select('id, fields, pages, visibility_rules')
         .eq('id', ddSubmission.form_submission?.form_id)
         .eq('tenant_id', tenantCtx.tenantId)
         .single();
@@ -70,16 +74,53 @@ export default async function handler(req, res) {
       const originalSubmissionValues = ddSubmission.original_form_values
         ?? ddSubmission.form_submission?.submission_data
         ?? {};
+      const mergedReviewedFormValues = {
+        ...(ddSubmission.reviewed_form_values
+          && typeof ddSubmission.reviewed_form_values === 'object'
+          && !Array.isArray(ddSubmission.reviewed_form_values)
+          ? ddSubmission.reviewed_form_values
+          : {}),
+        ...(reviewedFormValues
+          && typeof reviewedFormValues === 'object'
+          && !Array.isArray(reviewedFormValues)
+          ? reviewedFormValues
+          : {}),
+      };
       const submissionData = effectiveReviewSubmissionValues(
         form,
         originalSubmissionValues,
-        reviewedFormValues,
+        mergedReviewedFormValues,
       );
       try {
+        const visibilityOptions = {};
+        if (rulesUseLmicOperators(form.visibility_rules)) {
+          visibilityOptions.lmicCodes = await loadTenantLmicCodes(
+            supabase,
+            tenantCtx.tenantId,
+          );
+        }
+        const hiddenFieldIds = computeHiddenFieldIds(
+          form,
+          submissionData,
+          visibilityOptions,
+        );
+        await validateRepeatableRowSubmission({
+          db: supabase,
+          tenantId: tenantCtx.tenantId,
+          form,
+          submissionData,
+          hiddenFieldIds,
+          visibilityOptions,
+        });
         await createFormRelationshipService({
           db: supabase,
           tenantId: tenantCtx.tenantId,
-        }).validateSubmission({ form, submissionData });
+        }).validateSubmission({
+          form,
+          submissionData,
+          hiddenFieldIds,
+          visibilityOptions,
+        });
       } catch (error) {
         if (error instanceof FormRelationshipError && error.status < 500) {
           return res.status(400).json({ error: 'Invalid relationship selection' });

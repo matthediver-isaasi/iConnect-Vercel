@@ -12,6 +12,49 @@ import {
   isRepeatableRowField,
   repeatableRowChildren,
 } from '../../../shared/formRepeatableRows.js';
+export {
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+  rowSourceDependencyIds,
+  validateRowSourceConfiguration,
+} from '../../../shared/formCustomObjectRowSources.js';
+import {
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+  rowSourceValueDomain,
+} from '../../../shared/formCustomObjectRowSources.js';
+
+export function rowSourceObjectFieldDomain(field) {
+  return rowSourceValueDomain(field?.field_type || field?.type);
+}
+
+export function rowSourceInputDomain(field, { customFields = [], customObjects = [] } = {}) {
+  if (!field) return null;
+  if (isDistinctRowSource(field)) {
+    const object = customObjects.find(candidate => (
+      String(candidate?.id) === String(field.option_source.custom_object_id)
+    ));
+    const projected = (object?.fields || object?.custom_fields || []).find(candidate => (
+      String(candidate?.id) === String(field.option_source.value_field_id)
+    ));
+    return rowSourceObjectFieldDomain(projected);
+  }
+  if (field.type === 'custom_field') {
+    const definition = customFields.find(candidate => String(candidate?.id) === String(field.custom_field_id));
+    return rowSourceValueDomain(definition?.field_type);
+  }
+  return rowSourceValueDomain(field.type);
+}
+
+export function compatibleRowSourceFilterPairs(objectFields, precedingFields, metadata = {}) {
+  return (objectFields || []).flatMap(objectField => {
+    const domain = rowSourceObjectFieldDomain(objectField);
+    if (!domain) return [];
+    return (precedingFields || [])
+      .filter(input => rowSourceInputDomain(input, metadata) === domain)
+      .map(input => ({ objectField, input, domain }));
+  });
+}
 
 export function getEligibleRelationshipParents(fields, fieldId) {
   const list = Array.isArray(fields) ? fields : [];
@@ -20,6 +63,7 @@ export function getEligibleRelationshipParents(fields, fieldId) {
   return preceding.filter((field) => (
     ['organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'].includes(field?.type)
     && !isRelationshipMultiSelect(field)
+    && (field.option_source === undefined || (isCustomObjectRowSource(field) && !isDistinctRowSource(field)))
     && field.id
   ));
 }
@@ -52,6 +96,11 @@ export function relationshipParentDescriptor(field) {
   if (field.type === 'organisation_dropdown') return { kind: 'organization' };
   if (field.type === 'organisation_group_dropdown') return { kind: 'organization_group' };
   if (field.type === 'relationship_dropdown') {
+    if (field.option_source !== undefined) {
+      return isCustomObjectRowSource(field) && !isDistinctRowSource(field)
+        ? { kind: 'custom_object', custom_object_id: field.option_source.custom_object_id }
+        : {};
+    }
     return {
       kind: field.related_kind || (field.custom_object_id ? 'custom_object' : null),
       custom_object_id: field.related_custom_object_id || field.custom_object_id || null,
@@ -236,6 +285,16 @@ export function resolveRelationshipParentTransition({
   optionsLoaded = false,
 }) {
   if (field?.type !== 'relationship_dropdown') return null;
+  if (isCustomObjectRowSource(field) && !isDistinctRowSource(field)) {
+    const available = new Set((options || []).map(option => String(option?.id)));
+    if (!optionsLoaded) return null;
+    if (isRelationshipMultiSelect(field)) {
+      const current = Array.isArray(value) ? value : (value ? [value] : []);
+      const next = current.filter(entry => available.has(String(entry)));
+      return next.length === current.length ? null : next;
+    }
+    return value && !available.has(String(value)) ? emptyRelationshipSelection(field) : null;
+  }
   if (isRelationshipMultiSelect(field)) {
     const next = reconcileRelationshipSelection({
       field,

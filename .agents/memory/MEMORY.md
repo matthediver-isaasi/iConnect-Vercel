@@ -100,10 +100,8 @@
 - [Cross-tenant member cleanup references](cross-tenant-member-cleanup-references.md) — tenant-scoped member deletion must fail closed when another tenant's rows reference candidate UUIDs.
 - [Bulk Member deletion FK indexes](bulk-member-delete-fk-indexes.md) — missing child FK indexes can turn bulk Member deletion into thousands of full-table scans.
 - [Form relationship value security](form-relationship-value-security.md) — dependent option reads do not secure writes; revalidate every submit/amend path and scope label reads to persisted submissions.
-- [Conditional form-filter authority](conditional-form-filter-authority.md) — resolve saved rules server-side; send only dependency answers, preserve base restrictions, and fail closed on drift.
+- [Dependent form options](form-dependent-options-index.md) — authoritative filter rules, confirmed-empty states, and nested field parity across validation and output.
 - [Tenant-scoped admin password resets](tenant-admin-password-reset-scope.md) — multi-tenant admins must reset the request tenant, not their default; reset links must never trust Origin.
-- [Relationship empty-result rules](relationship-empty-result-rules.md) — confirmed zero options is transient rule state, never a saved relationship answer; loading/error/no-parent must not match.
-- [Nested form-field parity](nested-form-field-parity.md) — container children must be discovered explicitly across option APIs, validation, caches, and every label/export surface.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
@@ -157,3 +155,4 @@
 - [Pending detail queries](query-pending-lifecycle.md) — disabled queries stay pending; discovery needs a valid identity, and temporary tab content needs valid accessible labels.
 - [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
+- [Row-source answer semantics](form-row-source-answer-types.md) — projected distinct values are scalars, not record references, even when they share the legacy relationship dropdown type.

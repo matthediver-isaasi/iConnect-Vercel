@@ -3,6 +3,7 @@ import {
   isRepeatableRowField,
   repeatableRowChildren,
 } from '../../shared/formRepeatableRows.js';
+import { isDistinctRowSource } from '../../shared/formCustomObjectRowSources.js';
 
 const MAX_IDS = 2000;
 
@@ -21,7 +22,7 @@ function relationshipIdsFromSubmission(fields, submissionData) {
       const value = field?.id != null
         ? (scopeData[field.id] ?? (field.name ? scopeData[field.name] : undefined))
         : (field?.name ? scopeData[field.name] : undefined);
-      if (field?.type === 'relationship_dropdown' && field.id) {
+      if (field?.type === 'relationship_dropdown' && field.id && !isDistinctRowSource(field)) {
         for (const id of (Array.isArray(value) ? value : [value])) {
           if (id != null && id !== '') ids.add(String(id));
         }

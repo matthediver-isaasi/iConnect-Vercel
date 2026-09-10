@@ -606,3 +606,336 @@ test('accepts an auto-selected not-listed relationship beneath a not-listed row 
     error => error.status === 400 && /Invalid not-listed selection/.test(error.message),
   );
 });
+
+function customObjectRowSourceFixture() {
+  const id = suffix => `20000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`;
+  const ids = {
+    container: id(1),
+    a: id(2),
+    b: id(3),
+    c: id(4),
+    parentObject: id(5),
+    recordObject: id(6),
+    parentDisplay: id(7),
+    recordDisplay: id(8),
+    maker: id(9),
+    relationship: id(10),
+  };
+  const recordSource = {
+    version: 1,
+    kind: 'records',
+    custom_object_id: ids.recordObject,
+    primary_display_field_id: ids.recordDisplay,
+    filters: [],
+  };
+  const a = {
+    id: ids.a,
+    type: 'relationship_dropdown',
+    required: true,
+    option_source: {
+      ...recordSource,
+      custom_object_id: ids.parentObject,
+      primary_display_field_id: ids.parentDisplay,
+    },
+  };
+  const relationship = {
+    parent_field_id: ids.a,
+    relationship_definition_id: ids.relationship,
+    relationship_parent_kind: 'custom_object',
+    relationship_parent_custom_object_id: ids.parentObject,
+    relationship_parent_side: 'source',
+    related_kind: 'custom_object',
+  };
+  const b = {
+    id: ids.b,
+    type: 'relationship_dropdown',
+    required: true,
+    ...relationship,
+    option_source: {
+      ...recordSource,
+      kind: 'distinct',
+      value_field_id: ids.maker,
+    },
+  };
+  const c = {
+    id: ids.c,
+    type: 'relationship_dropdown',
+    required: true,
+    ...relationship,
+    option_source: {
+      ...recordSource,
+      filters: [{ field_id: ids.maker, source_field_id: ids.b }],
+    },
+  };
+  return {
+    ids,
+    form: {
+      id: 'three-stage-row-source-form',
+      fields: [{
+        id: ids.container,
+        type: 'repeatable_rows',
+        min_rows: 1,
+        children: [a, b, c],
+      }],
+    },
+    seed: {
+      custom_object_definition: [
+        {
+          id: ids.parentObject,
+          tenant_id: 'tenant-1',
+          status: 'active',
+          primary_display_field_id: ids.parentDisplay,
+        },
+        {
+          id: ids.recordObject,
+          tenant_id: 'tenant-1',
+          status: 'active',
+          primary_display_field_id: ids.recordDisplay,
+        },
+      ],
+      preference_field: [
+        {
+          id: ids.parentDisplay,
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.parentObject,
+          entity_scope: 'custom_object',
+          is_active: true,
+          archived_at: null,
+          name: 'name',
+          field_type: 'text',
+        },
+        {
+          id: ids.recordDisplay,
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          entity_scope: 'custom_object',
+          is_active: true,
+          archived_at: null,
+          name: 'name',
+          field_type: 'text',
+        },
+        {
+          id: ids.maker,
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          entity_scope: 'custom_object',
+          is_active: true,
+          archived_at: null,
+          name: 'maker',
+          field_type: 'text',
+        },
+      ],
+      custom_object_relationship_definition: [{
+        id: ids.relationship,
+        tenant_id: 'tenant-1',
+        status: 'active',
+        archived_at: null,
+        source_kind: 'custom_object',
+        source_custom_object_id: ids.parentObject,
+        target_kind: 'custom_object',
+        target_custom_object_id: ids.recordObject,
+        show_on_source: true,
+      }],
+      custom_object_record: [
+        {
+          id: 'type-a',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.parentObject,
+          archived_at: null,
+          data: { name: 'Type A' },
+        },
+        {
+          id: 'type-b',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.parentObject,
+          archived_at: null,
+          data: { name: 'Type B' },
+        },
+        {
+          id: 'model-acme',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          archived_at: null,
+          data: { name: 'Acme model', maker: 'Acme' },
+        },
+        {
+          id: 'model-beta',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          archived_at: null,
+          data: { name: 'Beta model', maker: 'Beta' },
+        },
+        {
+          id: 'model-mismatch',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          archived_at: null,
+          data: { name: 'Other type model', maker: 'Acme' },
+        },
+        {
+          id: 'model-archived',
+          tenant_id: 'tenant-1',
+          custom_object_id: ids.recordObject,
+          archived_at: '2026-01-01',
+          data: { name: 'Archived model', maker: 'Acme' },
+        },
+        {
+          id: 'model-foreign',
+          tenant_id: 'tenant-2',
+          custom_object_id: ids.recordObject,
+          archived_at: null,
+          data: { name: 'Foreign model', maker: 'Acme' },
+        },
+      ],
+      custom_object_relationship: [
+        {
+          id: 'edge-acme',
+          tenant_id: 'tenant-1',
+          relationship_definition_id: ids.relationship,
+          source_record_id: 'type-a',
+          target_record_id: 'model-acme',
+          archived_at: null,
+        },
+        {
+          id: 'edge-beta',
+          tenant_id: 'tenant-1',
+          relationship_definition_id: ids.relationship,
+          source_record_id: 'type-a',
+          target_record_id: 'model-beta',
+          archived_at: null,
+        },
+        {
+          id: 'edge-mismatch',
+          tenant_id: 'tenant-1',
+          relationship_definition_id: ids.relationship,
+          source_record_id: 'type-b',
+          target_record_id: 'model-mismatch',
+          archived_at: null,
+        },
+        {
+          id: 'edge-archived',
+          tenant_id: 'tenant-1',
+          relationship_definition_id: ids.relationship,
+          source_record_id: 'type-a',
+          target_record_id: 'model-archived',
+          archived_at: null,
+        },
+        {
+          id: 'edge-foreign',
+          tenant_id: 'tenant-2',
+          relationship_definition_id: ids.relationship,
+          source_record_id: 'type-a',
+          target_record_id: 'model-foreign',
+          archived_at: null,
+        },
+      ],
+    },
+  };
+}
+
+function rowSourceDb(seed) {
+  const tables = structuredClone(seed);
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+    }
+    select() { return this; }
+    eq(column, value) {
+      this.filters.push(row => row[column] === value);
+      return this;
+    }
+    is(column, value) {
+      this.filters.push(row => (value === null ? row[column] == null : row[column] === value));
+      return this;
+    }
+    in(column, values) {
+      this.filters.push(row => values.includes(row[column]));
+      return this;
+    }
+    range(from, to) {
+      this.slice = [from, to + 1];
+      return this;
+    }
+    execute() {
+      const rows = (tables[this.table] || []).filter(row => (
+        this.filters.every(filter => filter(row))
+      ));
+      return {
+        data: structuredClone(this.slice ? rows.slice(...this.slice) : rows),
+        error: null,
+      };
+    }
+    async maybeSingle() {
+      const result = this.execute();
+      return { ...result, data: result.data[0] || null };
+    }
+    then(resolve, reject) {
+      return Promise.resolve(this.execute()).then(resolve, reject);
+    }
+  }
+  return { from(table) { return new Query(table); } };
+}
+
+test('validates persisted A-record to B-distinct to C-filtered-record row sources as one row', async (t) => {
+  const fixture = customObjectRowSourceFixture();
+  const validRow = {
+    [fixture.ids.a]: 'type-a',
+    [fixture.ids.b]: 'Acme',
+    [fixture.ids.c]: 'model-acme',
+  };
+  const validate = row => validateRepeatableRowSubmission({
+    db: rowSourceDb(fixture.seed),
+    tenantId: 'tenant-1',
+    form: fixture.form,
+    submissionData: { [fixture.ids.container]: [row] },
+  });
+
+  await validate(validRow);
+
+  const rejected = [
+    ['forged direct record', { ...validRow, [fixture.ids.a]: 'type-forged' }],
+    ['stale distinct scalar', { ...validRow, [fixture.ids.b]: 'Stale maker' }],
+    ['archived final record', { ...validRow, [fixture.ids.c]: 'model-archived' }],
+    ['cross-tenant final record', { ...validRow, [fixture.ids.c]: 'model-foreign' }],
+    ['record from a different parent', { ...validRow, [fixture.ids.c]: 'model-mismatch' }],
+    ['record not matching the selected scalar', { ...validRow, [fixture.ids.c]: 'model-beta' }],
+  ];
+  for (const [name, row] of rejected) {
+    await t.test(name, async () => {
+      await assert.rejects(
+        validate(row),
+        error => error.status === 400 && /Invalid Custom Object row source selection/.test(error.message),
+      );
+    });
+  }
+});
+
+test('hidden row-source children are ignored, but become authoritative when effectively visible', async () => {
+  const fixture = customObjectRowSourceFixture();
+  fixture.form.fields.unshift({ id: 'mode', type: 'text' });
+  fixture.form.visibility_rules = [{
+    trigger_field_id: 'mode',
+    operator: 'equals',
+    value: 'hide',
+    action: 'hide',
+    target_field_ids: [fixture.ids.b, fixture.ids.c],
+  }];
+  const staleRow = {
+    [fixture.ids.a]: 'type-a',
+    [fixture.ids.b]: 'Stale maker',
+    [fixture.ids.c]: 'model-archived',
+  };
+  const input = mode => ({
+    db: rowSourceDb(fixture.seed),
+    tenantId: 'tenant-1',
+    form: fixture.form,
+    submissionData: { mode, [fixture.ids.container]: [staleRow] },
+  });
+
+  await validateRepeatableRowSubmission(input('hide'));
+  await assert.rejects(
+    validateRepeatableRowSubmission(input('show')),
+    error => error.status === 400 && /Invalid Custom Object row source selection/.test(error.message),
+  );
+});

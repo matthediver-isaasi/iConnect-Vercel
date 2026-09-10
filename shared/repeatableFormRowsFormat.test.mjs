@@ -51,6 +51,34 @@ test('collects only relationship IDs from configured repeatable children', () =>
   );
 });
 
+test('distinct custom-object values stay literal and are never collected for label lookup', () => {
+  const distinctField = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'region',
+      label: 'Region',
+      type: 'relationship_dropdown',
+      options: [{ value: 'North', label: 'Stale static option label' }],
+      relationship_definition_id: 'relationship-1',
+      parent_field_id: 'parent',
+      option_source: {
+        version: 1,
+        kind: 'distinct',
+        custom_object_id: '10000000-0000-0000-0000-000000000001',
+        primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+        value_field_id: '10000000-0000-0000-0000-000000000003',
+        filters: [],
+      },
+    }],
+  };
+  const rows = [{ region: 'North' }];
+  assert.deepEqual(collectRepeatableRelationshipRecordIds([distinctField], { rows }), []);
+  assert.equal(formatRepeatableRowsText(distinctField, rows, {
+    formatCell: () => 'Unavailable record',
+  }), 'Row 1\nRegion: North');
+});
+
 test('collects nested organisation IDs from builder-shaped rows', () => {
   assert.deepEqual(collectRepeatableOrganisationIds([field], { employment: value }), ['org-1', 'org-2']);
 });

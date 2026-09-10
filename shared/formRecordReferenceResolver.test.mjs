@@ -91,3 +91,38 @@ test('configuration warning requires an explicit identity mapping', () => {
     identity_mapping: { target_field_id: 'name', target_type: 'custom' },
   }, [picker]), '');
 });
+
+test('record-backed row sources advertise their action descriptor but distinct and malformed sources do not', () => {
+  const source = {
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'records',
+      custom_object_id: '10000000-0000-0000-0000-000000000001',
+      primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+      filters: [],
+    },
+  };
+  assert.equal(recordReferencePickerCapability(source)?.target?.custom_object_id,
+    source.option_source.custom_object_id);
+  assert.equal(recordReferencePickerCapability({
+    ...source,
+    option_source: {
+      ...source.option_source,
+      kind: 'distinct',
+      value_field_id: '10000000-0000-0000-0000-000000000003',
+    },
+  }), null);
+  assert.equal(recordReferencePickerCapability({
+    ...source,
+    option_source: { ...source.option_source, forged: true },
+  }), null);
+  assert.equal(recordReferencePickerCapability({
+    ...source,
+    selection_mode: 'multiple',
+  }), null);
+  assert.equal(recordReferencePickerCapability({
+    ...source,
+    not_listed_choice: { enabled: true, label: 'Other' },
+  }), null);
+});

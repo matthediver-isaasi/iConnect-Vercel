@@ -603,8 +603,68 @@ class PublicClient {
     });
   }
 
-  async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null) {
-    if (!formSlug || !fieldId || !parentRecordId) return [];
+  async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null, dependencyAnswers = null) {
+    if (!formSlug || !fieldId) return [];
+    const path = `/api/public/form/${encodeURIComponent(formSlug)}/relationship-options`;
+    // Assignment-linked surveys use the same options endpoint as direct forms.
+    // Carry the opaque URL token so the server can enforce the assignment
+    // window/access mode instead of incorrectly treating this as direct access.
+    const assignmentToken = (() => {
+      if (typeof window === 'undefined') return null;
+      const encoded = window.location.pathname.match(/^\/survey\/([^/]+)\/?$/)?.[1];
+      if (!encoded) return null;
+      try { return decodeURIComponent(encoded); } catch { return null; }
+    })();
+    if (dependencyAnswers && typeof dependencyAnswers === 'object') {
+      const pageSize = 100;
+      const requestOptions = extra => this._fetch(path, {
+          method: 'POST',
+          credentials: 'include',
+          body: JSON.stringify({
+          fieldId,
+          ...(containerFieldId ? { containerFieldId } : {}),
+          ...(assignmentToken ? { assignment_token: assignmentToken } : {}),
+          dependencyAnswers,
+          ...extra,
+        }),
+      });
+      // Current servers honor all:true with a hard 5,000 option ceiling. This
+      // avoids repeatedly rescanning the same filtered record source.
+      const first = await requestOptions({ all: true });
+      const firstItems = Array.isArray(first) ? first : first?.data || [];
+      const total = Number(first?.total);
+      const expectedTotal = Number.isFinite(total) ? total : firstItems.length;
+      if (expectedTotal > 5000) throw new Error('Too many related records are available to display.');
+      if (firstItems.length >= expectedTotal) {
+        return { ...first, data: firstItems.slice(0, expectedTotal), total: expectedTotal };
+      }
+
+      // Compatibility with servers that ignore all:true and still paginate.
+      const pagedFirst = await requestOptions({ page: 1, pageSize });
+      const pagedFirstItems = Array.isArray(pagedFirst) ? pagedFirst : pagedFirst?.data || [];
+      const pages = Math.ceil(expectedTotal / pageSize);
+      const items = [...pagedFirstItems];
+      const seenOptionIds = new Set(pagedFirstItems.map(item => String(item?.id ?? item?.value ?? '')));
+      for (let page = 2; page <= pages; page += 1) {
+        const result = await requestOptions({ page, pageSize });
+        const next = Array.isArray(result) ? result : result?.data || [];
+        if (next.length === 0 && items.length < expectedTotal) {
+          throw new Error('Related record pagination ended before all options were returned.');
+        }
+        const nextIds = next.map(item => String(item?.id ?? item?.value ?? ''));
+        if (nextIds.length > 0 && nextIds.every(optionId => seenOptionIds.has(optionId))) {
+          throw new Error('Related record pagination did not advance.');
+        }
+        nextIds.forEach(optionId => seenOptionIds.add(optionId));
+        items.push(...next);
+        if (items.length > 5000) throw new Error('Too many related records are available to display.');
+      }
+      if (items.length < expectedTotal) {
+        throw new Error('Related record options were truncated.');
+      }
+      return { ...pagedFirst, data: items.slice(0, expectedTotal), total: expectedTotal };
+    }
+    if (!parentRecordId) return [];
     const params = new URLSearchParams({
       fieldId,
       // organizationId is retained for older servers; parentRecordId names
@@ -615,7 +675,7 @@ class PublicClient {
       pageSize: '100',
     });
     if (containerFieldId) params.set('containerFieldId', containerFieldId);
-    const path = `/api/public/form/${encodeURIComponent(formSlug)}/relationship-options`;
+    if (assignmentToken) params.set('assignment_token', assignmentToken);
     const requestOptions = {
       credentials: 'include'
     };

@@ -365,6 +365,30 @@ test('unique multi-select relationship columns reject overlapping records across
   );
 });
 
+test('custom object row sources accept exactly one catalogue value', () => {
+  const sourceChild = {
+    id: 'child_record',
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'records',
+      custom_object_id: '10000000-0000-0000-0000-000000000001',
+      primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+      filters: [],
+    },
+  };
+  const sourceField = {
+    type: 'repeatable_rows',
+    child_fields: [sourceChild],
+  };
+  assert.equal(validateRepeatableRows(sourceField, [{ child_record: 'record-1' }]).valid, true);
+  for (const value of [['record-1'], '__form_not_listed__']) {
+    const result = validateRepeatableRows(sourceField, [{ child_record: value }]);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some(error => error.code === 'invalid_selection'));
+  }
+});
+
 test('unique dropdown options exclude sibling selections but retain the current row value', () => {
   const child = {
     id: 'org',

@@ -242,6 +242,18 @@ test('ordinary submissions load persisted visibility context for repeatable vali
   assert.match(source, /validateRepeatableRowSubmission\(\{[\s\S]*?visibilityOptions: submissionVisibilityOptions,/);
 });
 
+test('ordinary submissions validate persisted row-source answers before the first submission write', async () => {
+  const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+  const validation = source.indexOf('await validateRepeatableRowSubmission({');
+  const insert = source.indexOf('.insert(finalSubmissionRecord)');
+  assert.ok(validation > -1, 'shared repeatable row-source validator is invoked');
+  assert.ok(insert > validation, 'row-source validation completes before submission persistence');
+  const validationBlock = source.slice(validation, source.indexOf('});', validation));
+  assert.match(validationBlock, /form: relationshipForm/);
+  assert.match(validationBlock, /submissionData: submission_data \|\| \{\}/);
+  assert.doesNotMatch(validationBlock, /req\.body\.(?:fields|option_source)/);
+});
+
 test('submission email diagnostics normalize token-bearing paths and ignore unknown surfaces', () => {
   const diagnostics = buildSubmissionEmailRequestContext({
     headers: {

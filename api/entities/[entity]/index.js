@@ -75,6 +75,7 @@ import {
 } from '../../_lib/formMemberRoleAssignment.js';
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
+import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1474,6 +1475,17 @@ export default async function handler(req, res) {
         });
         if (!stripeMappingValidation.ok) {
           return res.status(422).json(stripeMappingValidation);
+        }
+        const rowSourceValidation = await validateFormRowSourceConfiguration({
+          db: supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          form: sanitizedBody,
+          canConfigure: !!tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx),
+          isTenantUser: !!tenantCtx.tenantUserId,
+          authorRoleId: tenantCtx.roleId,
+        });
+        if (!rowSourceValidation.ok) {
+          return res.status(rowSourceValidation.status).json(rowSourceValidation);
         }
       }
 

@@ -4,6 +4,10 @@ import {
   relationshipSelectionMode,
   RELATIONSHIP_SELECTION_SINGLE,
 } from './formRelationshipSelection.js';
+import {
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+} from './formCustomObjectRowSources.js';
 
 export const RESOLVE_RECORD_REFERENCE_OPERATION = 'resolve_record_reference';
 export const RESOLVE_RECORD_REFERENCES_OPERATION = 'resolve_record_references';
@@ -26,17 +30,22 @@ const PICKER_ADAPTERS = Object.freeze({
 });
 
 export function recordReferencePickerCapability(field) {
+  // A present but malformed source must not silently regain record semantics.
+  if (field?.option_source !== undefined
+      && (!isCustomObjectRowSource(field) || isDistinctRowSource(field))) return null;
   const adapter = PICKER_ADAPTERS[field?.type];
   if (!adapter) return null;
   const cardinality = field.type === 'relationship_dropdown'
     ? relationshipSelectionMode(field)
     : RELATIONSHIP_SELECTION_SINGLE;
+  const sourceObjectId = isCustomObjectRowSource(field)
+    ? field.option_source.custom_object_id : null;
   const kind = adapter.dynamicTarget
-    ? (field.related_kind || (field.related_custom_object_id || field.custom_object_id
+    ? (field.related_kind || (sourceObjectId || field.related_custom_object_id || field.custom_object_id
       ? 'custom_object' : null))
     : adapter.kind;
   const customObjectId = kind === 'custom_object'
-    ? (field.related_custom_object_id || field.custom_object_id || null)
+    ? (sourceObjectId || field.related_custom_object_id || field.custom_object_id || null)
     : null;
   return {
     adapter: field.type,

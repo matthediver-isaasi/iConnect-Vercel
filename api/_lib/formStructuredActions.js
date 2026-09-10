@@ -2,8 +2,13 @@ import { computeHiddenFieldIds } from './formFieldVisibility.js';
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { createFormRelationshipService } from './formRelationshipOptions.js';
+import { validateRepeatableRowSubmission } from './formRepeatableRowValidation.js';
 import { coercePreferenceValueForStorage } from './preferenceValueStorage.js';
-import { repeatableRowChildren, isRepeatableRowEmpty } from '../../shared/formRepeatableRows.js';
+import {
+  isRepeatableRowField,
+  repeatableRowChildren,
+  isRepeatableRowEmpty,
+} from '../../shared/formRepeatableRows.js';
 import { createHash } from 'node:crypto';
 import {
   resolveCustomObjectDisplayValue,
@@ -30,6 +35,10 @@ import {
   recordReferencePickerCapability,
   recordReferencePickerCompatibility,
 } from '../../shared/formRecordReferenceResolver.js';
+import {
+  isCustomObjectRowSource,
+  isDistinctRowSource,
+} from '../../shared/formCustomObjectRowSources.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -728,9 +737,14 @@ function fieldRecordDescriptor(field) {
   }
   if (field?.type === 'member_dropdown') return { kind: 'member', customObjectId: null };
   if (['relationship_dropdown', 'custom_object_relationship'].includes(field?.type)) {
+    if (isDistinctRowSource(field)
+        || (field.option_source !== undefined && !isCustomObjectRowSource(field))) return null;
+    const sourceObjectId = isCustomObjectRowSource(field)
+      ? field.option_source.custom_object_id : null;
     return {
       kind: field.related_kind || 'custom_object',
-      customObjectId: field.related_custom_object_id || field.custom_object_id || null,
+      customObjectId: sourceObjectId
+        || field.related_custom_object_id || field.custom_object_id || null,
     };
   }
   return null;
@@ -1036,6 +1050,37 @@ function validateRuntimeMappingCompatibility(contract, formFields, preferenceFie
 
 async function validateDirectSelectors(db, tenantId, form, submissionData, visibilityOptions = {}) {
   const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions);
+  const relationshipService = createFormRelationshipService({ db, tenantId });
+  // Structured actions are another submission side-effect path, so repeatable
+  // answers must pass the same structural and dynamic validation as ordinary,
+  // paid, manual and amendment submissions. Run this before iterating rows:
+  // malformed non-array answers must be rejected rather than throwing from
+  // `.entries()`, and hidden containers/children retain the central validator's
+  // established treatment.
+  const structuralSubmissionData = { ...(submissionData || {}) };
+  for (const container of form.fields || []) {
+    if (!isRepeatableRowField(container)) continue;
+    const key = Object.prototype.hasOwnProperty.call(structuralSubmissionData, container.id)
+      ? container.id : container.name;
+    const rows = key != null ? structuralSubmissionData[key] : undefined;
+    if (!Array.isArray(rows)) continue;
+    // Structured-action processing has always treated persisted soft-deleted
+    // rows as tombstones. Exclude those rows from answer validation rather than
+    // weakening the shared repeatable schema to accept action-only metadata.
+    structuralSubmissionData[key] = rows.filter(row => !(
+      row && typeof row === 'object' && !Array.isArray(row)
+      && (row._deleted === true || row.deleted === true || row.active === false)
+    ));
+  }
+  await validateRepeatableRowSubmission({
+    db,
+    tenantId,
+    form,
+    submissionData: structuralSubmissionData,
+    relationshipService,
+    visibilityOptions,
+    hiddenFieldIds: hidden,
+  });
   const checks = [];
   const inspect = (field, value, context) => {
     if (!field || hidden.has(field.id) || value == null || value === '') return;
@@ -1053,7 +1098,9 @@ async function validateDirectSelectors(db, tenantId, form, submissionData, visib
     if (field.type === 'member_dropdown') return ['member', null];
     if (['organisation_dropdown', 'organization_dropdown'].includes(field.type)) return ['organization', null];
     if (['organisation_group_dropdown', 'organization_group_dropdown'].includes(field.type)) return ['organization_group', null];
-    const objectId = field.related_custom_object_id || field.custom_object_id;
+    const objectId = isCustomObjectRowSource(field) && !isDistinctRowSource(field)
+      ? field.option_source.custom_object_id
+      : field.related_custom_object_id || field.custom_object_id;
     return objectId ? ['custom_object_record', objectId] : [null, null];
   };
   for (const { field, value, context } of checks) {
@@ -1067,7 +1114,6 @@ async function validateDirectSelectors(db, tenantId, form, submissionData, visib
       if (error || !data) throw new StructuredActionContractError(`Invalid relationship selector at ${context}`);
     }
   }
-  const relationshipService = createFormRelationshipService({ db, tenantId });
   await relationshipService.validateSubmission({
     form,
     submissionData: submissionData || {},
