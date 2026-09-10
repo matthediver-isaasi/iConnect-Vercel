@@ -674,6 +674,50 @@ export const normalizeDuplicateDynamicTokens = (design) => {
   return { design: clone, changed: true, renames };
 };
 
+// Accept persisted object/JSON-string designs, never a type marker alone.
+// Clone at the ownership boundary so editing cannot mutate a cached template.
+export const normalizeEmailDesign = (value) => {
+  try {
+    const design = typeof value === 'string' ? JSON.parse(value) : JSON.parse(JSON.stringify(value));
+    const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+    const hasId = (v) => typeof v.id === 'string' && v.id.trim().length > 0;
+    const validBlocks = (blocks, nested = false) => Array.isArray(blocks) && blocks.every(block => {
+      if (!isObject(block) || !hasId(block) || !Object.values(BLOCK_TYPES).includes(block.type)) return false;
+      // The renderer supports sections/columns only at the top level.
+      if (block.type === BLOCK_TYPES.SECTION) {
+        return !nested && block.columns === undefined && validBlocks(block.children, true);
+      }
+      if (block.type === BLOCK_TYPES.COLUMNS) {
+        const columnIds = new Set();
+        return !nested && block.children === undefined && Array.isArray(block.columns) &&
+          block.columns.every(column => {
+            if (!isObject(column) || !hasId(column) || columnIds.has(column.id)) return false;
+            columnIds.add(column.id);
+            return validBlocks(column.blocks, true);
+          });
+      }
+      if (block.type === BLOCK_TYPES.SOCIAL_ICONS &&
+        (!Array.isArray(block.platforms) || !block.platforms.every(platform =>
+          isObject(platform) && typeof platform.key === 'string'))) return false;
+      return block.children === undefined && block.columns === undefined;
+    });
+    if (!isObject(design) || !validBlocks(design.blocks)) return null;
+    const withStyles = (blocks) => blocks.map(block => ({
+      ...block,
+      styles: isObject(block.styles) ? block.styles : {},
+      ...(block.children ? { children: withStyles(block.children) } : {}),
+      ...(block.columns ? { columns: block.columns.map(column => ({ ...column, blocks: withStyles(column.blocks) })) } : {}),
+    }));
+    return {
+      ...design,
+      blocks: withStyles(design.blocks),
+      globalStyles: { ...defaultEmailDesign.globalStyles, ...(isObject(design.globalStyles) ? design.globalStyles : {}) },
+    };
+  } catch {
+    return null;
+  }
+};
+
 export const defaultEmailDesign = {
   type: 'custom-email-builder',
   version: 1,

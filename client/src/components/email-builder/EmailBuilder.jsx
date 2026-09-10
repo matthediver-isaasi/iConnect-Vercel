@@ -21,7 +21,7 @@ import BlockRenderer from './BlockRenderer';
 import BlockEditor from './BlockEditor';
 import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
-import { BLOCK_TYPES, createBlock, defaultEmailDesign, nextDynamicTokenIndex, cloneBlockForDuplicate, normalizeDuplicateDynamicTokens } from './types';
+import { BLOCK_TYPES, createBlock, defaultEmailDesign, normalizeEmailDesign, nextDynamicTokenIndex, cloneBlockForDuplicate, normalizeDuplicateDynamicTokens } from './types';
 import { designToHtml } from './mjmlConverter';
 import { PanelRightOpen, PanelRightClose, PanelLeftClose, Blocks, Layers, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -50,8 +50,9 @@ export default function EmailBuilder({
   // broken design.
   const initialRepairRef = useRef(false);
   const [design, setDesign] = useState(() => {
-    if (initialDesign && initialDesign.blocks) {
-      const { design: repaired, changed } = normalizeDuplicateDynamicTokens(initialDesign);
+    const snapshot = normalizeEmailDesign(initialDesign);
+    if (snapshot) {
+      const { design: repaired, changed } = normalizeDuplicateDynamicTokens(snapshot);
       initialRepairRef.current = changed;
       return {
         ...repaired,
@@ -61,7 +62,7 @@ export default function EmailBuilder({
         },
       };
     }
-    return { ...defaultEmailDesign };
+    return normalizeEmailDesign(defaultEmailDesign);
   });
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedChildId, setSelectedChildId] = useState(null);

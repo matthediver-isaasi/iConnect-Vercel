@@ -6,7 +6,7 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefi
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /directory-object-fields\.smoke\.spec\.mjs/,
+  testMatch: /(?:directory-object-fields\.smoke|campaign-visual-loading)\.spec\.mjs/,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

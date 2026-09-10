@@ -20,7 +20,8 @@ import { base44 } from "@/api/base44Client";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
-import { defaultEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
+import { defaultEmailDesign, normalizeEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
+import { applyCampaignTemplate, resolveCampaignContent } from '@/lib/campaignEmailContent';
 import TestSendDialog from '@/components/TestSendDialog';
 import { cn } from "@/lib/utils";
 import { ChevronsUpDown } from "lucide-react";
@@ -202,6 +203,8 @@ export default function EmailCampaignEdit() {
   const [testSending, setTestSending] = useState(false);
   const [editorTab, setEditorTab] = useState('html');
   const [showVisualEditor, setShowVisualEditor] = useState(false);
+  const [contentReplacement, setContentReplacement] = useState(null);
+  const hydratedCampaignId = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
@@ -253,27 +256,10 @@ export default function EmailCampaignEdit() {
   });
 
   useEffect(() => {
-    if (campaign) {
-      let parsedDesign = campaign.design_json;
-      if (typeof parsedDesign === 'string') {
-        try {
-          parsedDesign = JSON.parse(parsedDesign);
-        } catch (e) {
-          parsedDesign = null;
-        }
-      }
-      const hasDesign = parsedDesign && typeof parsedDesign === 'object' && 
-        (parsedDesign.type === 'custom-email-builder' || Array.isArray(parsedDesign.blocks));
-      if (hasDesign) {
-        parsedDesign = {
-          ...parsedDesign,
-          globalStyles: {
-            ...defaultEmailDesign.globalStyles,
-            ...(parsedDesign.globalStyles || {}),
-          },
-        };
-      }
-      setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
+    if (campaign && hydratedCampaignId.current !== id) {
+      hydratedCampaignId.current = id;
+      const content = resolveCampaignContent(campaign);
+      setEditorMode(content.editorMode);
       let audiences = campaign.target_audiences;
       if (!Array.isArray(audiences) || audiences.length === 0) {
         if (campaign.target_type) {
@@ -293,8 +279,8 @@ export default function EmailCampaignEdit() {
         from_email: campaign.from_email || '',
         reply_to: campaign.reply_to || '',
         email_template_id: campaign.email_template_id || '',
-        html_content: campaign.html_content || '',
-        design_json: parsedDesign || null,
+        html_content: content.html_content,
+        design_json: content.design_json,
         target_audiences: audiences,
         communication_category_id: campaign.communication_category_id || '',
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
@@ -302,7 +288,7 @@ export default function EmailCampaignEdit() {
       });
       setScheduleMode(campaign.scheduled_at ? 'scheduled' : 'immediate');
     }
-  }, [campaign]);
+  }, [campaign, id]);
 
   const { data: footerData, isLoading: footerLoading, error: footerError } = useQuery({
     queryKey: ['email-footer-preview'],
@@ -404,22 +390,41 @@ export default function EmailCampaignEdit() {
     return () => clearTimeout(debounceTimer);
   }, [selectedListIds, formData.communication_category_id]);
 
-  const handleTemplateSelect = async (templateId) => {
+  const linkedTemplate = emailTemplates.find(t => t.id === formData.email_template_id);
+  const canReloadVisualTemplate = linkedTemplate && linkedTemplate.editor_type !== 'html' && normalizeEmailDesign(linkedTemplate.design_json);
+  const hasCurrentContent = !!(formData.html_content.trim() || formData.design_json);
+
+  const applyTemplate = (template) => {
+    const next = applyCampaignTemplate(formData, template);
+    setFormData(next);
+    setEditorMode(resolveCampaignContent(next).editorMode);
+    setShowVisualEditor(false);
+  };
+
+  const startNewDesign = () => {
+    const design = normalizeEmailDesign(defaultEmailDesign);
+    setFormData(prev => ({ ...prev, design_json: design, html_content: designToHtml(design) }));
+    setEditorMode('visual');
+    setShowVisualEditor(true);
+  };
+
+  const openVisualEditor = () => {
+    if (formData.design_json) setShowVisualEditor(true);
+    else if (hasCurrentContent) setContentReplacement({ type: 'blank' });
+    else startNewDesign();
+  };
+
+  const handleTemplateSelect = (templateId) => {
     const actualId = templateId === 'none' ? null : templateId;
-    setFormData(prev => ({ ...prev, email_template_id: actualId }));
-    
-    if (actualId) {
-      const template = emailTemplates.find(t => t.id === actualId);
-      if (template) {
-        setFormData(prev => ({
-          ...prev,
-          subject: prev.subject || template.subject || '',
-          html_content: template.body || '',
-          from_name: prev.from_name || template.from_name || '',
-          from_email: prev.from_email || template.from_email || ''
-        }));
-      }
+    if (!actualId) {
+      // Unlinking is not a request to discard the campaign's content.
+      setFormData(prev => ({ ...prev, email_template_id: null }));
+      return;
     }
+    const template = emailTemplates.find(t => t.id === actualId);
+    if (!template) return;
+    if (hasCurrentContent) setContentReplacement({ type: 'template', template });
+    else applyTemplate(template);
   };
 
   const handleSaveCampaign = async () => {
@@ -445,7 +450,7 @@ export default function EmailCampaignEdit() {
       if (saveData.email_template_id === '' || saveData.email_template_id === 'none') {
         saveData.email_template_id = null;
       }
-      if (saveData.design_json && typeof saveData.design_json === 'object' && saveData.design_json.blocks) {
+      if (saveData.design_json && Array.isArray(saveData.design_json.blocks)) {
         // Guard: repair duplicated dynamic tokens before persisting.
         const { design: repairedDesign, changed } = normalizeDuplicateDynamicTokens(saveData.design_json);
         if (changed) saveData.design_json = repairedDesign;
@@ -1140,7 +1145,7 @@ export default function EmailCampaignEdit() {
                     size="sm"
                     onClick={() => {
                       if (editorMode === 'visual' && formData.design_json) {
-                        toast.info('Switching to HTML mode. You can edit HTML directly, but switching back will lose visual editor changes.');
+                        toast.info('Editing the HTML will remove the editable visual design from this campaign.');
                       }
                       setEditorMode('html');
                     }}
@@ -1152,6 +1157,29 @@ export default function EmailCampaignEdit() {
                   </Button>
                 </div>
               </div>
+
+              {!formData.design_json && hasCurrentContent && (
+                <Alert data-testid="alert-html-only-design">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="space-y-3">
+                    <p>This campaign has HTML content but no valid visual design. Your HTML has been kept unchanged. It cannot be opened as editable blocks.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {canReloadVisualTemplate && (
+                        <Button type="button" variant="outline" size="sm"
+                          data-testid="button-reload-template"
+                          onClick={() => setContentReplacement({ type: 'template', template: linkedTemplate })}>
+                          Reload linked visual template
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" size="sm"
+                        data-testid="button-start-new-design"
+                        onClick={() => setContentReplacement({ type: 'blank' })}>
+                        Start a new blank design
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {editorMode === 'visual' && (
                 <div className="space-y-4">
@@ -1167,13 +1195,14 @@ export default function EmailCampaignEdit() {
                     {formData.design_json && (
                       <p className="text-sm text-green-600 flex items-center justify-center gap-1">
                         <Check className="w-4 h-4" />
-                        Design saved
+                        Campaign-local visual design
                       </p>
                     )}
                     
                     <Button
                       type="button"
-                      onClick={() => setShowVisualEditor(true)}
+                      onClick={openVisualEditor}
+                      disabled={!formData.design_json && hasCurrentContent}
                       className="gap-2"
                       data-testid="button-open-visual-editor"
                     >
@@ -1226,8 +1255,8 @@ export default function EmailCampaignEdit() {
                     <Alert>
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>
-                        This campaign has visual editor data saved. Changes you make here to the HTML will be used when sending, 
-                        but switching back to Visual Builder will restore your visual design (not the HTML edits you make here).
+                        Editing this HTML removes the campaign's editable visual design. Your HTML edits will be preserved;
+                        returning to visual editing will require explicitly replacing the content with a template or a new design.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -1247,7 +1276,7 @@ export default function EmailCampaignEdit() {
                     <TabsContent value="html" className="mt-3">
                       <textarea
                         value={formData.html_content}
-                        onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value }))}
+                        onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value, design_json: null }))}
                         placeholder="Enter raw HTML content..."
                         className="w-full min-h-[500px] p-4 font-mono text-sm border rounded-md bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                         spellCheck={false}
@@ -1548,6 +1577,28 @@ export default function EmailCampaignEdit() {
         onSend={handleTestSend}
         sending={testSending}
       />
+
+      <Dialog open={!!contentReplacement} onOpenChange={(open) => { if (!open) setContentReplacement(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replace campaign content?</DialogTitle>
+            <DialogDescription>
+              {contentReplacement?.type === 'template'
+                ? `Loading "${contentReplacement.template.name}" will replace this campaign's current HTML and visual design with the template's current content. The template may have changed since this campaign was created.`
+                : "Starting a blank design will replace this campaign's current HTML and visual design. Existing HTML cannot be converted to editable blocks."}
+              {' '}Any campaign content edits will be lost. The source template will not be changed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContentReplacement(null)}>Keep current content</Button>
+            <Button data-testid="button-confirm-content-replacement" onClick={() => {
+              if (contentReplacement.type === 'template') applyTemplate(contentReplacement.template);
+              else startNewDesign();
+              setContentReplacement(null);
+            }}>Replace content</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Full-screen Visual Email Editor Modal */}
       <Dialog open={showVisualEditor} onOpenChange={setShowVisualEditor}>
