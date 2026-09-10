@@ -187,3 +187,45 @@ mtime_ms = 1789064883845
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/14bf9539-29f9-4b54-9488-ea4ad7a02782/a003e21c-c349-4c5b-aea6-2ebffc88e075"
 storage_version_token = "1789064908686755"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "EHq7I0gyF8bc5TTydYRL5"
+uri = "file://guides/pdf/dashboard-reporting-functionality.pdf"
+type = "pdf"
+title = "Dashboard and Reporting"
+description = "11-page PDF with formatted headings, tables and page numbers."
+logical_id = "7d6c0ae1-bf58-4792-89b9-f5cc5a00b6db"
+content_hash = "sha256:449bb0038f72f38ea4ab5d0f4f47953e0129675ffeb4bc77cf1ba768d7857d89"
+size = 245600
+mtime_ms = 1789075420376
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/7d6c0ae1-bf58-4792-89b9-f5cc5a00b6db/51ce7b15-622f-4a1a-8d7f-d2ea62f794f1"
+storage_version_token = "1789075436306654"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "RYnEOQFNL9NjggengOkEg"
+uri = "file://guides/pdf/crm-search-export-functionality.pdf"
+type = "pdf"
+title = "CRM Search and Export"
+description = "10-page PDF with formatted headings, tables and page numbers."
+logical_id = "869525fc-c863-4d7a-991c-abcd12fd5398"
+content_hash = "sha256:df8bd258a11aa5baadc87e88f73c37eed69f33a69a34196db84a91ed2b773b6a"
+size = 192536
+mtime_ms = 1789075420316
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/869525fc-c863-4d7a-991c-abcd12fd5398/e6aeec61-79b1-4cac-8db5-92ef9c1181ea"
+storage_version_token = "1789075437330427"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "6Mj5X3LDRBpDfInhWND67"
+uri = "file://guides/pdf/due-diligence-functionality.pdf"
+type = "pdf"
+title = "Due Diligence"
+description = "12-page PDF with formatted headings, tables and page numbers."
+logical_id = "17cdda71-1783-4a2b-b9e2-19ffb666927c"
+content_hash = "sha256:3e01b3a479f245e9778c38020931cefdfa795af8a0b468a4a39377e5d855804f"
+size = 228473
+mtime_ms = 1789075420240
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17cdda71-1783-4a2b-b9e2-19ffb666927c/bfecf0fe-9526-4fec-ac5f-7d4634d28768"
+storage_version_token = "1789075438155280"
+content_type = "application/pdf"
