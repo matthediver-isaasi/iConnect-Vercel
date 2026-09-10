@@ -23,7 +23,7 @@ const ID_CHUNK = 200;
 const MAX_FILTERS = 50;
 const CORE_FIELDS = Object.freeze([
   { key: 'org_member_count', label: 'Member count', field_type: 'number', control: 'number' },
-  { key: 'org_members_list', label: 'Members / contacts list', field_type: 'text', control: 'text' },
+  { key: 'org_members_list', label: 'Members / contacts list', field_type: 'text', control: 'source-choice', multi_select: false },
 ]);
 
 export class OrganisationDirectoryFilterError extends Error {
@@ -37,13 +37,35 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function diagnosticContext(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (normalized.includes('preference value')) return 'preference_values';
+  if (normalized.includes('eligibility field')) return 'eligibility_fields';
+  if (normalized.includes('relationship')) return 'relationship_values';
+  if (normalized.includes('member')) return 'member_inventory';
+  if (normalized.includes('field inventory')) return 'field_inventory';
+  if (normalized.includes('organisation inventory')) return 'organization_inventory';
+  if (normalized.includes('record')) return 'object_records';
+  if (normalized.includes('setting')) return 'settings';
+  return 'directory_query';
+}
+
 async function checked(query, message) {
   const result = await query;
-  if (result.error) throw new Error(message || result.error.message);
+  if (result.error) {
+    const error = new Error(message
+      ? `Organisation directory query failed: ${message}`
+      : 'Organisation directory query failed');
+    error.diagnosticCode = 'DIRECTORY_QUERY_FAILED';
+    error.diagnosticContext = diagnosticContext(message);
+    const dbCode = String(result.error.code || '');
+    if (/^[A-Z0-9]{5,}$/.test(dbCode)) error.dbCode = dbCode;
+    throw error;
+  }
   return result.data || [];
 }
 
-async function paged(build, message) {
+export async function readCompleteOrganisationDirectoryPages(build, message) {
   const output = [];
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const start = page * PAGE_SIZE;
@@ -51,8 +73,21 @@ async function paged(build, message) {
     output.push(...batch);
     if (batch.length < PAGE_SIZE) return output;
   }
-  throw new Error(message || 'Organisation directory query exceeded its supported inventory size');
+  // A one-row probe distinguishes an inventory of exactly 100,000 rows from
+  // a larger inventory. Exact-boundary inventories are complete; larger ones
+  // must fail explicitly rather than being silently truncated.
+  const probeStart = MAX_PAGES * PAGE_SIZE;
+  const probe = await checked(build().range(probeStart, probeStart), message);
+  if (!probe.length) return output;
+  const error = new Error(message
+    ? `Organisation directory inventory exhausted its supported limit: ${message}`
+    : 'Organisation directory inventory exhausted its supported limit');
+  error.diagnosticCode = 'DIRECTORY_INVENTORY_EXHAUSTED';
+  error.diagnosticContext = diagnosticContext(message);
+  throw error;
 }
+
+const paged = readCompleteOrganisationDirectoryPages;
 
 async function chunked(ids, build, message) {
   const output = [];
@@ -112,7 +147,7 @@ function fieldShape(type) {
 
 function metadataForField(field) {
   const key = `custom:${field.id}`;
-  const control = fieldShape(field.field_type);
+  let control = fieldShape(field.field_type);
   let options = [];
   if (['country', 'countries'].includes(String(field.field_type))) {
     options = countryOptions(field);
@@ -121,14 +156,15 @@ function metadataForField(field) {
   } else if (control === 'choice') {
     options = parseOptions(field.options);
   }
+  if (control === 'text') control = 'source-choice';
   return {
     key,
     label: String(field.label || field.name || 'Field'),
     field_type: String(field.field_type || 'text'),
     control,
     options,
-    multi_select: ['multiselect', 'multi_select', 'multi-select', 'countries', 'checkbox']
-      .includes(String(field.field_type)),
+    multi_select: ['list', 'multiselect', 'multi_select', 'multi-select', 'countries', 'checkbox']
+      .includes(String(field.field_type).toLowerCase()),
     _field: field,
     _kind: 'custom',
   };
@@ -136,7 +172,7 @@ function metadataForField(field) {
 
 function metadataForObjectSource(source) {
   const type = source.field?.field_type || 'text';
-  const control = fieldShape(type);
+  let control = fieldShape(type);
   let options = [];
   if (['country', 'countries'].includes(type)) {
     options = countryOptions(source.field || {});
@@ -145,13 +181,18 @@ function metadataForObjectSource(source) {
   } else if (control === 'choice') {
     options = parseOptions(source.field?.options);
   }
+  if (control === 'text' || String(type).toLowerCase() === 'list') {
+    control = 'source-choice';
+    options = [];
+  }
   return {
     key: source.key,
     label: source.label,
     field_type: type,
     control,
     options,
-    multi_select: ['list', 'countries'].includes(type),
+    multi_select: ['list', 'multiselect', 'multi_select', 'multi-select', 'countries', 'checkbox']
+      .includes(String(type).toLowerCase()),
     _source: source,
     _kind: 'object',
   };
@@ -297,6 +338,10 @@ export function matchesOrganisationDirectoryFilter(rawValues, filter, metadata) 
   if (filter.operator === 'present') return values.some(nonempty);
   if (filter.operator === 'absent') return !values.some(nonempty);
   const wanted = Array.isArray(filter.value) ? filter.value : [filter.value];
+  if (metadata.control === 'source-choice' && filter.operator === 'eq') {
+    const requested = new Set(wanted.map((value) => String(value).trim()));
+    return canonicalSourceValues(rawValues).some((value) => requested.has(value));
+  }
   if (filter.operator === 'between') {
     const actual = values.map((value) => comparable(value, metadata.field_type))
       .filter(Number.isFinite);
@@ -323,7 +368,7 @@ export function matchesOrganisationDirectoryFilter(rawValues, filter, metadata) 
   });
 }
 
-function validateRequest(input, fieldByKey) {
+function validateRequest(input, fieldByKey, sourceOptions = new Map()) {
   if (!isPlainObject(input)) throw new OrganisationDirectoryFilterError(400, 'JSON body is required');
   const filters = input.filters ?? {};
   if (!isPlainObject(filters) || Object.keys(filters).length > MAX_FILTERS) {
@@ -335,6 +380,7 @@ function validateRequest(input, fieldByKey) {
     if (!metadata) throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${key}`);
     const allowedOperators = {
       choice: new Set(['eq']),
+      'source-choice': new Set(['eq']),
       presence: new Set(['present', 'absent']),
       text: new Set(['eq', 'contains', 'present', 'absent']),
       number: new Set(['eq', 'gte', 'lte', 'between', 'present', 'absent']),
@@ -350,18 +396,31 @@ function validateRequest(input, fieldByKey) {
     if (filter.value === undefined || JSON.stringify(filter.value).length > 10000) {
       throw new OrganisationDirectoryFilterError(400, `Filter value is required: ${key}`);
     }
-    if (metadata.control === 'choice') {
+    if (metadata.control === 'choice' || metadata.control === 'source-choice') {
       if (filter.operator !== 'eq'
           || (!Array.isArray(filter.value)
             && !['string', 'number', 'boolean'].includes(typeof filter.value))) {
         throw new OrganisationDirectoryFilterError(400, `Invalid choice filter: ${key}`);
       }
-      const requested = (Array.isArray(filter.value) ? filter.value : [filter.value])
+      const rawRequested = Array.isArray(filter.value) ? filter.value : [filter.value];
+      if (rawRequested.some((value) =>
+        !['string', 'number', 'boolean'].includes(typeof value))) {
+        throw new OrganisationDirectoryFilterError(400, `Invalid choice filter: ${key}`);
+      }
+      const requested = rawRequested
         .map((value) => String(value).trim());
       if (!requested.length || requested.some((value) => !value)) {
         throw new OrganisationDirectoryFilterError(400, `Filter value is required: ${key}`);
       }
-      const allowed = new Set(metadata.options.map((option) => option.value));
+      if (metadata.control === 'source-choice'
+          && !metadata.multi_select && requested.length > 1) {
+        throw new OrganisationDirectoryFilterError(
+          400,
+          `Filter field accepts only one option: ${key}`,
+        );
+      }
+      const allowed = metadata.control === 'source-choice'
+        ? sourceOptions.get(key) : new Set(metadata.options.map((option) => option.value));
       if (requested.some((value) => !allowed.has(value))) {
         throw new OrganisationDirectoryFilterError(400, `Filter option is unavailable: ${key}`);
       }
@@ -425,7 +484,7 @@ function validateRequest(input, fieldByKey) {
 
 async function loadOrganizations(db, tenantId) {
   return paged(() => db.from('organization')
-    .select('id, name, logo_url, domain')
+    .select('id, name, logo_url')
     .eq('tenant_id', tenantId).order('id', { ascending: true }),
   'Organisation inventory exceeds the supported size');
 }
@@ -436,8 +495,11 @@ async function loadPreferenceValues(db, organizationIds, fieldIds) {
     const ids = organizationIds.slice(offset, offset + ID_CHUNK);
     for (const fieldId of fieldIds) {
       output.push(...await paged(() => db.from('organization_preference_value')
-        .select('organization_id, field_id, value').eq('field_id', fieldId)
-        .in('organization_id', ids).order('organization_id', { ascending: true }),
+        .select('id, organization_id, field_id, value').eq('field_id', fieldId)
+        .in('organization_id', ids)
+        .order('organization_id', { ascending: true })
+        .order('field_id', { ascending: true })
+        .order('id', { ascending: true }),
       'Organisation preference values exceed the supported size'));
     }
   }
@@ -455,6 +517,39 @@ function preferenceMap(rows) {
   return output;
 }
 
+function canonicalSourceValues(rawValues) {
+  const visit = (raw) => {
+    if (raw === null || raw === undefined) return [];
+    if (Array.isArray(raw)) return raw.flatMap(visit);
+    if (isPlainObject(raw)) {
+      return Object.hasOwn(raw, 'value') ? visit(raw.value) : [];
+    }
+    if (!['string', 'number', 'boolean'].includes(typeof raw)) return [];
+    if (typeof raw !== 'string') return [String(raw)];
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      // A normal unquoted string is not JSON and reaches the catch branch.
+      return visit(parsed);
+    } catch {
+      return [trimmed];
+    }
+  };
+  return visit(rawValues);
+}
+
+function sourceOptionSet(rawValues) {
+  return new Set(canonicalSourceValues(rawValues));
+}
+
+function sortedOptions(values) {
+  return [...values].sort((left, right) => left.localeCompare(right, undefined, {
+    sensitivity: 'variant',
+  }) || (left < right ? -1 : left > right ? 1 : 0))
+    .map((value) => ({ value, label: value }));
+}
+
 async function objectValuesByOrganization(db, context, metadata, organizationIds) {
   const source = metadata._source;
   const orgColumn = `${source.direction}_record_id`;
@@ -463,15 +558,19 @@ async function objectValuesByOrganization(db, context, metadata, organizationIds
   for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
     const ids = organizationIds.slice(offset, offset + ID_CHUNK);
     edges.push(...await paged(() => db.from('custom_object_relationship')
-      .select(`${orgColumn}, ${recordColumn}`).eq('tenant_id', context.tenantId)
+      .select(`id, ${orgColumn}, ${recordColumn}`).eq('tenant_id', context.tenantId)
       .eq('relationship_definition_id', source.relationship_id).is('archived_at', null)
-      .in(orgColumn, ids).order(recordColumn, { ascending: true }),
+      .in(orgColumn, ids)
+      .order(orgColumn, { ascending: true })
+      .order(recordColumn, { ascending: true })
+      .order('id', { ascending: true }),
     'Custom Object relationship values exceed the supported size'));
   }
   const recordIds = [...new Set(edges.map((edge) => edge[recordColumn]).filter(Boolean))];
   const records = await chunked(recordIds, (ids) => db.from('custom_object_record')
     .select('id, data').eq('tenant_id', context.tenantId).eq('custom_object_id', source.object_id)
-    .is('archived_at', null).in('id', ids), 'Failed to load Custom Object records');
+    .is('archived_at', null).in('id', ids).order('id', { ascending: true }),
+  'Failed to load Custom Object records');
   const recordsById = new Map(records.map((record) => [String(record.id), record]));
   const output = new Map();
   for (const edge of edges) {
@@ -525,7 +624,138 @@ function matchesSavedEligibility(organization, ownId, exclusions, statusFieldIds
   return true;
 }
 
+async function loadEligiblePopulation(db, context, inventory, extraFieldIds = []) {
+  let organizations = await loadOrganizations(db, context.tenantId);
+  const organizationIds = organizations.map(({ id }) => id);
+  const eligibilityFields = await paged(() => db.from('preference_field').select('id, name')
+    .eq('tenant_id', context.tenantId).eq('entity_scope', 'organization')
+    .in('name', [
+      'application_status', 'org_type', 'organisation_type', 'organization_type',
+    ]).order('id', { ascending: true }),
+  'Organisation eligibility field inventory exceeds the supported size');
+  // Domains have an established active-definition contract. Keep this separate
+  // from legacy eligibility fields, whose historical semantics include inactive
+  // definitions and must not be changed as part of the domain projection fix.
+  const domainFields = await paged(() => db.from('preference_field').select('id, name')
+    .eq('tenant_id', context.tenantId).eq('entity_scope', 'organization')
+    .eq('name', 'verified_domains').eq('is_active', true)
+    .order('id', { ascending: true }),
+  'Organisation domain field inventory exceeds the supported size');
+  const namedFields = [...eligibilityFields, ...domainFields];
+  const neededFieldIds = [...new Set([
+    ...extraFieldIds,
+    ...namedFields.map((field) => field.id),
+  ])];
+  const preferences = preferenceMap(
+    await loadPreferenceValues(db, organizationIds, neededFieldIds),
+  );
+  const statusFieldIds = namedFields.filter((field) =>
+    field.name === 'application_status').map((field) => field.id);
+  const typeFieldIds = namedFields.filter((field) =>
+    ['org_type', 'organisation_type', 'organization_type'].includes(field.name))
+    .map((field) => field.id);
+  organizations = organizations.filter((organization) => matchesSavedEligibility(
+    organization,
+    context.organizationId,
+    new Set(savedArray(inventory.settingMap.get('org_directory_excluded_orgs'))),
+    statusFieldIds,
+    typeFieldIds,
+    new Set(savedArray(inventory.settingMap.get('org_directory_allowed_application_statuses'))),
+    new Set(savedArray(inventory.settingMap.get('org_directory_visible_org_types'))),
+    preferences,
+  ));
+  return { organizations, preferences, namedFields };
+}
+
+async function sourceValuesForField({
+  db, context, inventory, field, population, memberValues,
+}) {
+  const organizationIds = population.organizations.map(({ id }) => id);
+  if (field._kind === 'custom') {
+    const rows = organizationIds.flatMap((organizationId) =>
+      population.preferences.get(`${organizationId}:${field._field.id}`) || []);
+    return sourceOptionSet(rows, field.field_type);
+  }
+  if (field._kind === 'object') {
+    const values = await objectValuesByOrganization(db, context, field, organizationIds);
+    return sourceOptionSet([...values.values()].flat(), field.field_type);
+  }
+  const members = memberValues || await visibleMemberCore(
+    db, context, inventory.settingMap, organizationIds,
+  );
+  return sourceOptionSet([...members.names.values()].flat(), field.field_type);
+}
+
+function validateOptionsRequest(input, fields) {
+  if (!isPlainObject(input)) throw new OrganisationDirectoryFilterError(400, 'JSON body is required');
+  const fieldKey = input.fieldKey;
+  const field = typeof fieldKey === 'string' ? fields.get(fieldKey) : null;
+  if (!field || field.control !== 'source-choice') {
+    throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${String(fieldKey || '')}`);
+  }
+  const search = input.search ?? '';
+  const page = Number(input.page ?? 1);
+  const pageSize = Number(input.pageSize ?? 50);
+  const selected = input.selected ?? [];
+  if (typeof search !== 'string' || search.length > 500) {
+    throw new OrganisationDirectoryFilterError(400, 'search must be a string of at most 500 characters');
+  }
+  if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize)
+      || pageSize < 1 || pageSize > 100) {
+    throw new OrganisationDirectoryFilterError(400, 'Invalid page or pageSize');
+  }
+  if (!Array.isArray(selected) || selected.length > 500
+      || selected.some((value) => !['string', 'number', 'boolean'].includes(typeof value))) {
+    throw new OrganisationDirectoryFilterError(400, 'selected must be an array of scalar values');
+  }
+  if (!field.multi_select && selected.length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      400,
+      `Filter field accepts only one option: ${field.key}`,
+    );
+  }
+  return {
+    field, search, page, pageSize,
+    selected: [...new Set(selected.map((value) => String(value).trim()).filter(Boolean))],
+  };
+}
+
+function authorityToken(inventory, enabled, requiredKeys) {
+  const byKey = new Map(enabled.map((field) => [field.key, field]));
+  const fields = [...requiredKeys].sort().map((key) => {
+    const field = byKey.get(key);
+    if (!field) return [key, null];
+    return [key, {
+      ...publicMetadata(field),
+      source: field._source ? {
+        relationship_id: field._source.relationship_id,
+        direction: field._source.direction,
+        object_id: field._source.object_id,
+        field_id: field._source.field_id || field._source._field?.id,
+      } : null,
+      custom_field_id: field._field?.id || null,
+    }];
+  });
+  const settings = [...inventory.settingMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, value]);
+  const overrides = Object.entries(inventory.overrides || {})
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify({ fields, settings, overrides });
+}
+
 export function createOrganisationDirectoryFilters({ db, context, isAdmin = false }) {
+  const enabledFields = (inventory) => inventory.fields.filter((field) =>
+    isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
+  const revalidateAuthority = async (token, requiredKeys) => {
+    const current = await buildInventory({ db, context, settingsMode: false, isAdmin });
+    if (authorityToken(current, enabledFields(current), requiredKeys) !== token) {
+      throw new OrganisationDirectoryFilterError(
+        409,
+        'Organisation directory authority changed; retry',
+      );
+    }
+  };
   return {
     async metadata({ settings = false } = {}) {
       const inventory = await buildInventory({ db, context, settingsMode: settings, isAdmin });
@@ -539,37 +769,40 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
 
     async search(input) {
       const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
-      const enabled = inventory.fields.filter((field) =>
-        isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
+      const enabled = enabledFields(inventory);
       const byKey = new Map(enabled.map((field) => [field.key, field]));
-      const request = validateRequest(input, byKey);
-      let organizations = await loadOrganizations(db, context.tenantId);
-      const organizationIds = organizations.map(({ id }) => id);
-      const customFilterFields = enabled.filter((field) =>
-        request.filters[field.key] && field._kind === 'custom');
-
-      const eligibilityFields = await checked(db.from('preference_field').select('id, name')
-        .eq('tenant_id', context.tenantId).eq('entity_scope', 'organization')
-        .in('name', ['application_status', 'org_type', 'organisation_type', 'organization_type']),
-      'Failed to load organisation eligibility fields');
-      const neededFieldIds = [...new Set([
-        ...customFilterFields.map((field) => field._field.id),
-        ...eligibilityFields.map((field) => field.id),
-      ])];
-      const preferences = preferenceMap(await loadPreferenceValues(db, organizationIds, neededFieldIds));
-      const statusFieldIds = eligibilityFields.filter((field) => field.name === 'application_status').map((field) => field.id);
-      const typeFieldIds = eligibilityFields.filter((field) =>
-        ['org_type', 'organisation_type', 'organization_type'].includes(field.name)).map((field) => field.id);
-      organizations = organizations.filter((organization) => matchesSavedEligibility(
-        organization,
-        context.organizationId,
-        new Set(savedArray(inventory.settingMap.get('org_directory_excluded_orgs'))),
-        statusFieldIds,
-        typeFieldIds,
-        new Set(savedArray(inventory.settingMap.get('org_directory_allowed_application_statuses'))),
-        new Set(savedArray(inventory.settingMap.get('org_directory_visible_org_types'))),
-        preferences,
-      ));
+      if (!isPlainObject(input?.filters ?? {})) {
+        throw new OrganisationDirectoryFilterError(400, 'filters must be an object with at most 50 fields');
+      }
+      const requestedKeys = Object.keys(input.filters ?? {});
+      if (requestedKeys.length > MAX_FILTERS) {
+        throw new OrganisationDirectoryFilterError(400, 'filters must be an object with at most 50 fields');
+      }
+      const unavailableKey = requestedKeys.find((key) => !byKey.has(key));
+      if (unavailableKey) {
+        throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${unavailableKey}`);
+      }
+      const requestedFields = requestedKeys.map((key) => byKey.get(key));
+      // The response also returns the complete enabled metadata inventory, so
+      // revalidate every exposed source rather than only submitted filters.
+      const authorityKeys = new Set(enabled.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, enabled, authorityKeys);
+      const population = await loadEligiblePopulation(
+        db,
+        context,
+        inventory,
+        requestedFields.filter((field) => field._kind === 'custom')
+          .map((field) => field._field.id),
+      );
+      let organizations = population.organizations;
+      const preferences = population.preferences;
+      const sourceOptions = new Map();
+      for (const field of requestedFields.filter((item) => item.control === 'source-choice')) {
+        sourceOptions.set(field.key, await sourceValuesForField({
+          db, context, inventory, field, population,
+        }));
+      }
+      const request = validateRequest(input, byKey, sourceOptions);
 
       const eligibleIds = organizations.map(({ id }) => id);
       const showMemberCount = !savedFalse(
@@ -601,9 +834,13 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
       const search = request.search.trim().toLocaleLowerCase();
       const showDomains = !savedFalse(inventory.settingMap.get('org_directory_show_domains'));
       const showLogo = !savedFalse(inventory.settingMap.get('org_directory_show_logo'));
+      const domainFieldIds = population.namedFields.filter((field) =>
+        field.name === 'verified_domains').map((field) => field.id);
+      const domainsFor = (organizationId) => domainFieldIds.flatMap((fieldId) =>
+        canonicalSourceValues(preferences.get(`${organizationId}:${fieldId}`) || [], 'list'));
       if (search) {
         organizations = organizations.filter((organization) =>
-          [organization.name, ...(showDomains ? [organization.domain] : [])].some((value) =>
+          [organization.name, ...(showDomains ? domainsFor(organization.id) : [])].some((value) =>
             String(value || '').toLocaleLowerCase().includes(search)));
       }
       organizations.sort((left, right) => {
@@ -614,12 +851,13 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
       });
       const total = organizations.length;
       const start = (request.page - 1) * request.pageSize;
+      await revalidateAuthority(initialAuthority, authorityKeys);
       return {
         organizations: organizations.slice(start, start + request.pageSize).map((organization) => ({
           id: organization.id,
           name: organization.name,
           ...(showLogo ? { logo_url: organization.logo_url } : {}),
-          ...(showDomains ? { domain: organization.domain } : {}),
+          ...(showDomains ? { domain: domainsFor(organization.id)[0] || null } : {}),
           ...(showMemberCount ? {
             member_count: memberValues.counts.get(String(organization.id)) || 0,
           } : {}),
@@ -628,6 +866,45 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         page: request.page,
         pageSize: request.pageSize,
         fields: enabled.map(publicMetadata),
+      };
+    },
+
+    async options(input) {
+      const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
+      const enabled = enabledFields(inventory);
+      const request = validateOptionsRequest(
+        input,
+        new Map(enabled.map((field) => [field.key, field])),
+      );
+      const authorityKeys = new Set(enabled.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, enabled, authorityKeys);
+      const population = await loadEligiblePopulation(
+        db,
+        context,
+        inventory,
+        request.field._kind === 'custom' ? [request.field._field.id] : [],
+      );
+      const allValues = await sourceValuesForField({
+        db, context, inventory, field: request.field, population,
+      });
+      const unavailableSelected = request.selected.filter((value) => !allValues.has(value));
+      const selectedOptions = sortedOptions(new Set(
+        request.selected.filter((value) => allValues.has(value)),
+      ));
+      const needle = request.search.trim().toLocaleLowerCase();
+      const matching = sortedOptions(new Set(
+        [...allValues].filter((value) =>
+          !needle || value.toLocaleLowerCase().includes(needle)),
+      ));
+      const start = (request.page - 1) * request.pageSize;
+      await revalidateAuthority(initialAuthority, authorityKeys);
+      return {
+        options: matching.slice(start, start + request.pageSize),
+        total: matching.length,
+        page: request.page,
+        pageSize: request.pageSize,
+        selectedOptions,
+        unavailableSelected,
       };
     },
   };

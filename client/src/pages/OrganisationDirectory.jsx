@@ -292,13 +292,22 @@ export default function OrganisationDirectoryPage() {
   );
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [itemsPerPage]);
+
+  // This also covers filters removed by a newer authoritative metadata
+  // response, rather than leaving the user on an out-of-range results page.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [directoryFilters]);
 
   useEffect(() => {
     if (!directoryQuery.isError || ![400, 409, 422].includes(directoryQuery.error?.status)) return;
@@ -378,8 +387,7 @@ export default function OrganisationDirectoryPage() {
     );
   }
 
-  // Wait for every server-provided query field before first rendering.
-  if (!authResolved || isLoadingMembers || !displaySettings || directoryMetadataQuery.isPending) {
+  if (!authResolved) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -391,6 +399,16 @@ export default function OrganisationDirectoryPage() {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
         Sign in to view the organisation directory.
+      </div>
+    );
+  }
+
+  // Metadata is intentionally disabled without an authenticated member, so
+  // only include its pending state in the authenticated loading gate.
+  if (isLoadingMembers || !displaySettings || directoryMetadataQuery.isPending) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
@@ -428,7 +446,6 @@ export default function OrganisationDirectoryPage() {
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
-                      setCurrentPage(1);
                     }}
                     className="pl-10"
                     data-testid="input-search-organisations"

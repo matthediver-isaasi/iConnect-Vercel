@@ -95,7 +95,7 @@ const directoryFilterFields = [
     key: sourceKey,
     label: "Accreditations",
     field_type: "text",
-    control: "text",
+    control: "source-choice",
     options: [],
     multi_select: false,
   },
@@ -185,9 +185,18 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
     writes: [],
     requests: [],
     directoryPosts: [],
+    optionsPosts: [],
     filterOverrides: initialFilterOverrides(),
     valuesAttempts: 0,
   };
+  const sourceOptions = [
+    { value: "Approved", label: "Approved" },
+    { value: "In review", label: "In review" },
+    ...Array.from({ length: 50 }, (_, index) => {
+      const number = String(index + 3).padStart(2, "0");
+      return { value: `Fixture status ${number}`, label: `Fixture status ${number}` };
+    }),
+  ];
   const customField = {
     id: source.field_id,
     label: "Accreditation status",
@@ -274,6 +283,28 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
       if (method === "GET") return json({ fields });
       if (method === "POST") {
         const body = request.postDataJSON();
+        if (body.action === "options") {
+          state.optionsPosts.push(body);
+          const search = String(body.search || "").trim().toLocaleLowerCase();
+          const matching = sourceOptions.filter(option =>
+            option.label.toLocaleLowerCase().includes(search)
+          );
+          const pageSize = Math.min(50, Math.max(1, Number(body.pageSize) || 50));
+          const totalPages = Math.max(1, Math.ceil(matching.length / pageSize));
+          const page = Math.min(totalPages, Math.max(1, Number(body.page) || 1));
+          const selected = Array.isArray(body.selected) ? body.selected.map(String) : [];
+          const selectedSet = new Set(selected);
+          const selectedOptions = sourceOptions.filter(option => selectedSet.has(option.value));
+          const available = new Set(selectedOptions.map(option => option.value));
+          return json({
+            options: matching.slice((page - 1) * pageSize, page * pageSize),
+            total: matching.length,
+            page,
+            pageSize,
+            selectedOptions,
+            unavailableSelected: selected.filter(value => !available.has(value)),
+          });
+        }
         state.directoryPosts.push(body);
         return json({
           organizations: [organization],
@@ -460,7 +491,10 @@ test("main directory renders enabled type-specific filters, submits selections, 
   await expect(page.getByTestId("card-organisation-smoke-org")).toBeVisible();
 
   await expect(page.getByTestId("filter-custom:org-field")).toBeVisible();
-  await expect(page.getByLabel("Accreditations", { exact: true })).toHaveJSProperty("type", "text");
+  const sourceFilter = page.getByTestId(`filter-${sourceKey}`);
+  await expect(sourceFilter.getByRole("radiogroup", { name: "Accreditations options" })).toBeVisible();
+  await expect(page.getByLabel("Search Accreditations options")).toHaveAttribute("type", "search");
+  await expect(page.getByLabel("Accreditations", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Member count", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByLabel("Renewal date", { exact: true })).toHaveAttribute("type", "date");
   await expect(page.getByLabel("Has directory contact", { exact: true })).toHaveValue("");
@@ -473,23 +507,73 @@ test("main directory renders enabled type-specific filters, submits selections, 
   await page.getByLabel("Member count", { exact: true }).fill("25");
   await page.getByLabel("Renewal date", { exact: true }).fill("2027-06-30");
   await page.getByLabel("Has directory contact", { exact: true }).selectOption("present");
-  await page.getByLabel("Accreditations", { exact: true }).fill("approved");
+  await sourceFilter.getByLabel("Approved", { exact: true }).check();
 
   await expect.poll(() => state.directoryPosts.at(-1)?.filters).toEqual({
     "custom:org-field": { operator: "eq", value: ["Europe"] },
     org_member_count: { operator: "eq", value: "25" },
     "fixture:renewal_date": { operator: "eq", value: "2027-06-30" },
     "fixture:has_contact": { operator: "present", value: true },
-    [sourceKey]: { operator: "contains", value: "approved" },
+    [sourceKey]: { operator: "eq", value: ["Approved"] },
+  });
+  await expect.poll(() => state.optionsPosts.at(-1)?.selected).toEqual(["Approved"]);
+  await expect(sourceFilter.getByRole("button", { name: "Remove Approved" })).toBeVisible();
+
+  await sourceFilter.getByRole("button", { name: "Clear Accreditations" }).click();
+  await expect.poll(() => state.directoryPosts.at(-1)?.filters).toEqual({
+    "custom:org-field": { operator: "eq", value: ["Europe"] },
+    org_member_count: { operator: "eq", value: "25" },
+    "fixture:renewal_date": { operator: "eq", value: "2027-06-30" },
+    "fixture:has_contact": { operator: "present", value: true },
   });
 
-  // Clear while a new text draft is pending: its timer must not restore it.
-  await page.getByLabel("Accreditations", { exact: true }).fill("pending draft");
   await page.getByRole("button", { name: "Clear all" }).click();
-  await page.waitForTimeout(400);
-  await expect(page.getByLabel("Accreditations", { exact: true })).toHaveValue("");
   await expect.poll(() => state.directoryPosts.at(-1)?.filters).toEqual({});
   await expect(page.getByTestId("filter-custom:org-field")).toContainText("All Service region");
+  expect(state.writes.some(write => write.escaped)).toBeFalsy();
+  await attachNetworkRecord(testInfo, state);
+});
+
+test("source-value options use bounded paging and server-side search", async ({ page }, testInfo) => {
+  const state = await installFixtures(page);
+  await page.goto("/OrganisationDirectory");
+  const sourceFilter = page.getByTestId(`filter-${sourceKey}`);
+  await expect(sourceFilter.getByLabel("Approved", { exact: true })).toBeVisible();
+
+  await expect.poll(() => state.optionsPosts[0]).toEqual({
+    action: "options",
+    fieldKey: sourceKey,
+    search: "",
+    page: 1,
+    pageSize: 50,
+    selected: [],
+  });
+  expect(state.optionsPosts[0].pageSize).toBeLessThanOrEqual(50);
+  await expect(sourceFilter.getByText("Page 1 of 2", { exact: true })).toBeVisible();
+
+  await sourceFilter.getByRole("button", { name: "Next" }).click();
+  await expect(sourceFilter.getByLabel("Fixture status 51", { exact: true })).toBeVisible();
+  await expect.poll(() => state.optionsPosts.at(-1)).toMatchObject({
+    action: "options",
+    fieldKey: sourceKey,
+    search: "",
+    page: 2,
+    pageSize: 50,
+  });
+
+  await page.getByLabel("Search Accreditations options").fill("review");
+  await expect(sourceFilter.getByLabel("In review", { exact: true })).toBeVisible();
+  await expect(sourceFilter.getByLabel("Approved", { exact: true })).toHaveCount(0);
+  await expect(sourceFilter.getByText("Page 1 of 1", { exact: true })).toBeVisible();
+  await expect.poll(() => state.optionsPosts.at(-1)).toMatchObject({
+    action: "options",
+    fieldKey: sourceKey,
+    search: "review",
+    page: 1,
+    pageSize: 50,
+    selected: [],
+  });
+  expect(state.directoryPosts.every(body => body.action !== "options")).toBe(true);
   expect(state.writes.some(write => write.escaped)).toBeFalsy();
   await attachNetworkRecord(testInfo, state);
 });
@@ -533,7 +617,7 @@ test("standard directory retries, renders multiple records, and paginates", asyn
   await expect(page.getByText("Values unavailable")).toBeVisible();
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.getByText("Record Alpha", { exact: true })).toBeVisible();
-  await expect(page.getByText("Approved", { exact: true })).toBeVisible();
+  await expect(page.getByTestId(`directory-object-source-${sourceKey}`).getByText("Approved", { exact: true })).toBeVisible();
   await expect(page.getByText("Record Beta", { exact: true })).toBeVisible();
 
   const memberTop = await textTop(page, "1 members");

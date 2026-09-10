@@ -23,6 +23,13 @@ function handler(options = {}) {
       calls.push(['search', input]);
       return { organizations: [], total: 0, page: 1, pageSize: 12, fields: [] };
     },
+    async options(input) {
+      calls.push(['options', input]);
+      return {
+        options: [], total: 0, page: 1, pageSize: 50,
+        selectedOptions: [], unavailableSelected: [],
+      };
+    },
   };
   return {
     calls,
@@ -58,6 +65,26 @@ test('GET and POST enforce authentication and directory feature access', async (
   await allowed.run({ method: 'POST', query: {}, headers: {}, body }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(allowed.calls, [['search', body]]);
+});
+
+test('POST action options routes the exact request body to the options service', async () => {
+  const allowed = handler();
+  const body = {
+    action: 'options',
+    fieldKey: 'custom:allowed',
+    search: '',
+    page: 1,
+    pageSize: 50,
+    selected: [],
+  };
+  const res = response();
+  await allowed.run({ method: 'POST', query: {}, headers: {}, body }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(allowed.calls, [['options', body]]);
+  assert.deepEqual(res.body, {
+    options: [], total: 0, page: 1, pageSize: 50,
+    selectedOptions: [], unavailableSelected: [],
+  });
 });
 
 test('settings mode uses the settings feature independently and rejects embed requests', async () => {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   matchesOrganisationDirectoryFilter,
   OrganisationDirectoryFilterError,
+  readCompleteOrganisationDirectoryPages,
   saveOrganisationDirectoryFilterOverrides,
 } from './organisationDirectoryFilters.js';
 
@@ -45,6 +46,59 @@ test('filter matching supports AND-building primitives and choice OR values', ()
   assert.equal(matchesOrganisationDirectoryFilter([false, 0], {
     operator: 'present',
   }, { field_type: 'text' }), true);
+});
+
+function syntheticPagedQuery(total, error = null) {
+  return () => ({
+    range(from, to) {
+      const length = Math.max(0, Math.min(total - from, to - from + 1));
+      return Promise.resolve({
+        data: error ? null : Array.from({ length }, (_, index) => from + index),
+        error,
+      });
+    },
+  });
+}
+
+test('complete paging accepts exactly 100000 rows and explicitly rejects a real extra row', async () => {
+  const exact = await readCompleteOrganisationDirectoryPages(
+    syntheticPagedQuery(100000),
+    'Organisation inventory exceeds the supported size',
+  );
+  assert.equal(exact.length, 100000);
+  await assert.rejects(
+    () => readCompleteOrganisationDirectoryPages(
+      syntheticPagedQuery(100001),
+      'Organisation inventory exceeds the supported size',
+    ),
+    (error) => error.diagnosticCode === 'DIRECTORY_INVENTORY_EXHAUSTED'
+      && error.diagnosticContext === 'organization_inventory',
+  );
+});
+
+test('query diagnostics preserve only safe PostgreSQL codes and remain distinct from exhaustion', async () => {
+  await assert.rejects(
+    () => readCompleteOrganisationDirectoryPages(
+      syntheticPagedQuery(0, {
+        code: '42703',
+        message: 'column secret_internal_name does not exist',
+        details: 'sensitive details',
+      }),
+      'Organisation inventory exceeds the supported size',
+    ),
+    (error) => error.diagnosticCode === 'DIRECTORY_QUERY_FAILED'
+      && error.diagnosticContext === 'organization_inventory'
+      && error.dbCode === '42703'
+      && !error.message.includes('secret_internal_name')
+      && !error.message.includes('sensitive details'),
+  );
+  await assert.rejects(
+    () => readCompleteOrganisationDirectoryPages(
+      syntheticPagedQuery(0, { code: 'bad code!', message: 'private' }),
+      'Organisation inventory exceeds the supported size',
+    ),
+    (error) => error.dbCode === undefined,
+  );
 });
 
 function settingsDb(initialValue = undefined) {

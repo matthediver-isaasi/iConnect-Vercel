@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
+import OrganisationDirectorySourceChoice from "@/components/directory/OrganisationDirectorySourceChoice";
 
 function useDebouncedValue(value, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -138,7 +139,13 @@ export default function OrganisationDirectoryFilters({ fields, filters, onChange
         return (
           <div key={`${field.key}:${clearEpoch}`} className="space-y-1 min-w-[200px]">
             <label className="block text-sm font-medium text-slate-700">{field.label}</label>
-            {field.control === "choice" && field.multi_select ? (
+            {field.control === "source-choice" ? (
+              <OrganisationDirectorySourceChoice
+                field={field}
+                selected={Array.isArray(filter?.value) ? filter.value : []}
+                onChange={(value) => setField(field.key, value.length ? { operator: "eq", value } : null)}
+              />
+            ) : field.control === "choice" && field.multi_select ? (
               <MultiSelectFilter
                 options={field.options || []}
                 selected={Array.isArray(filter?.value) ? filter.value : []}

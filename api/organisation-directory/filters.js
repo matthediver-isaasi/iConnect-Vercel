@@ -73,14 +73,23 @@ export function createHandler(dependencies = {}) {
         return res.json({ overrides });
       }
       if (req.method === 'POST' && !settings) {
-        return res.json(await service.search(req.body));
+        return res.json(req.body?.action === 'options'
+          ? await service.options(req.body)
+          : await service.search(req.body));
       }
       res.setHeader('Allow', settings ? 'GET, PUT' : 'GET, POST');
       return res.status(405).json({ error: 'Method not allowed' });
     } catch (error) {
       const status = error instanceof OrganisationDirectoryFilterError ? error.status : 500;
+      if (status === 500) {
+        console.error('[organisation-directory-filters]', {
+          code: error?.diagnosticCode || 'DIRECTORY_INTERNAL_ERROR',
+          context: error?.diagnosticContext || 'request',
+          ...(error?.dbCode ? { dbCode: error.dbCode } : {}),
+        });
+      }
       return res.status(status).json({
-        error: status === 500 ? (error.message || 'Failed to load organisation directory filters') : error.message,
+        error: status === 500 ? 'Failed to load organisation directory filters' : error.message,
       });
     }
   };

@@ -33,6 +33,14 @@ async function waitForText(container, text) {
   }
 }
 
+async function waitFor(condition) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (condition()) return;
+    await settle(25);
+  }
+  assert.fail("Timed out waiting for mounted view");
+}
+
 async function mount(child) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -237,6 +245,147 @@ test("mounted authenticated hooks GET metadata then POST the complete stable req
     page: 2,
     pageSize: 12,
   });
+  await view.cleanup();
+  client.clear();
+});
+
+function SourceChoiceHarness({ initial = {}, multiSelect = true }) {
+  const [value, setValue] = useState(initial);
+  const sourceField = {
+    key: "sector",
+    label: "Sector",
+    control: "source-choice",
+    field_type: "text",
+    multi_select: multiSelect,
+    options: [],
+  };
+  return <>
+    <OrganisationDirectoryFilters
+      fields={[sourceField]}
+      filters={value}
+      onChange={setValue}
+      onClear={() => setValue({})}
+    />
+    <output>{JSON.stringify(value)}</output>
+  </>;
+}
+
+function withAuthenticatedQueryClient(client, child) {
+  return (
+    <QueryClientProvider client={client}>
+      <LayoutProvider><Identity>{child}</Identity></LayoutProvider>
+    </QueryClientProvider>
+  );
+}
+
+test("mounted source choices search and page without clearing multi-selections during refresh", async () => {
+  const calls = [];
+  globalThis.fetch = async (_url, options = {}) => {
+    const body = JSON.parse(options.body);
+    calls.push(body);
+    const optionsForPage = body.search
+      ? [{ value: "searched", label: "Searched sector" }]
+      : body.page === 2
+        ? [{ value: "second", label: "Second page sector" }]
+        : [{ value: "first", label: "First sector" }];
+    return new Response(JSON.stringify({
+      options: optionsForPage,
+      total: body.search ? 1 : 51,
+      page: body.page,
+      pageSize: 50,
+      selectedOptions: body.selected.includes("first")
+        ? [{ value: "first", label: "First sector" }]
+        : [],
+      unavailableSelected: [],
+    }), { status: 200 });
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = await mount(withAuthenticatedQueryClient(client, <SourceChoiceHarness />));
+  await waitFor(() => view.container.textContent.includes("First sector"));
+
+  await act(async () => view.container.querySelector('input[type="checkbox"]').click());
+  await waitFor(() => view.container.querySelector("output").textContent.includes('"value":["first"]'));
+  await waitFor(() => view.container.textContent.includes("First sector ×"));
+  assert.match(view.container.textContent, /First sector ×/);
+
+  const refresh = [...view.container.querySelectorAll("button")].find(button => button.textContent === "Refresh");
+  await act(async () => refresh.click());
+  assert.match(view.container.querySelector("output").textContent, /"first"/);
+  await waitFor(() => !refresh.disabled);
+
+  const next = [...view.container.querySelectorAll("button")].find(button => button.textContent === "Next");
+  await act(async () => next.click());
+  await waitFor(() => view.container.textContent.includes("Second page sector"));
+  assert.equal(calls.at(-1).page, 2);
+  assert.deepEqual(calls.at(-1).selected, ["first"]);
+
+  await changeNative(view.container.querySelector('input[aria-label="Search Sector options"]'), "health");
+  await settle(330);
+  await waitFor(() => view.container.textContent.includes("Searched sector"));
+  assert.equal(calls.at(-1).search, "health");
+  assert.equal(calls.at(-1).page, 1);
+  assert.match(view.container.querySelector("output").textContent, /"first"/);
+
+  const clear = [...view.container.querySelectorAll("button")].find(button => button.textContent === "Clear Sector");
+  await act(async () => clear.click());
+  assert.equal(view.container.querySelector("output").textContent, "{}");
+  await view.cleanup();
+  client.clear();
+});
+
+test("mounted source choices show failure retry and removable unavailable selections without exposing their value", async () => {
+  let attempts = 0;
+  globalThis.fetch = async (_url, options = {}) => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(JSON.stringify({ error: "Options service unavailable" }), { status: 503 });
+    }
+    const body = JSON.parse(options.body);
+    return new Response(JSON.stringify({
+      options: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+      selectedOptions: [],
+      unavailableSelected: body.selected,
+    }), { status: 200 });
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const initial = { sector: { operator: "eq", value: ["revoked-private-value"] } };
+  const view = await mount(withAuthenticatedQueryClient(client, <SourceChoiceHarness initial={initial} />));
+  await waitFor(() => view.container.textContent.includes("Options service unavailable"));
+  assert.match(view.container.textContent, /Retry/);
+  await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Retry").click());
+  await waitFor(() => view.container.textContent.includes("no longer available"));
+  assert.doesNotMatch(
+    view.container.querySelector('[data-testid="filter-sector"]').textContent,
+    /revoked-private-value/,
+  );
+
+  const remove = view.container.querySelector('button[aria-label="Remove unavailable selection 1"]');
+  await act(async () => remove.click());
+  assert.equal(view.container.querySelector("output").textContent, "{}");
+  await view.cleanup();
+  client.clear();
+});
+
+test("mounted single source choice replaces rather than appends values", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    options: [{ value: "one", label: "One" }, { value: "two", label: "Two" }],
+    total: 2,
+    page: 1,
+    pageSize: 50,
+    selectedOptions: [],
+    unavailableSelected: [],
+  }), { status: 200 });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = await mount(withAuthenticatedQueryClient(client, <SourceChoiceHarness multiSelect={false} />));
+  await waitFor(() => view.container.querySelectorAll('input[type="radio"]').length === 2);
+  const radios = view.container.querySelectorAll('input[type="radio"]');
+  await act(async () => radios[0].click());
+  await act(async () => radios[1].click());
+  assert.match(view.container.querySelector("output").textContent, /"value":\["two"\]/);
+  assert.doesNotMatch(view.container.querySelector("output").textContent, /"one"/);
   await view.cleanup();
   client.clear();
 });

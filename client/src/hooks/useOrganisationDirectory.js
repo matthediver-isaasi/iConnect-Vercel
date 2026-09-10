@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { isDirectoryEmbedLocation } from "@/hooks/useDirectoryObjectSources";
 
@@ -78,6 +78,100 @@ export function useOrganisationDirectoryMetadata() {
     refetchOnWindowFocus: true,
     retry: false,
   });
+}
+
+export function useOrganisationDirectoryOptions({
+  fieldKey,
+  search = "",
+  page = 1,
+  pageSize = 50,
+  selected = [],
+}) {
+  const { memberInfo, authResolved } = useMemberAccess();
+  const queryClient = useQueryClient();
+  const authenticated = Boolean(
+    authResolved && memberInfo?.id && memberInfo?.tenant_id && !isDirectoryEmbedLocation()
+  );
+  const stableSelected = Array.isArray(selected) ? selected : [];
+
+  const query = useQuery({
+    queryKey: [
+      "organisation-directory-filters",
+      memberInfo?.tenant_id || null,
+      memberInfo?.id || null,
+      "options",
+      fieldKey || null,
+      search,
+      page,
+      pageSize,
+      stableSelected,
+    ],
+    enabled: Boolean(authenticated && fieldKey),
+    queryFn: async ({ signal }) => {
+      const response = await fetch("/api/organisation-directory/filters", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "options",
+          fieldKey,
+          search,
+          page,
+          pageSize,
+          selected: stableSelected,
+        }),
+      });
+      const payload = await readJson(response, "Unable to load filter options");
+      if (
+        !payload
+        || !Array.isArray(payload.options)
+        || !Array.isArray(payload.selectedOptions)
+        || !Array.isArray(payload.unavailableSelected)
+        || !Number.isInteger(payload.total)
+        || !Number.isInteger(payload.page)
+        || !Number.isInteger(payload.pageSize)
+      ) {
+        throw new Error("Invalid directory filter options response");
+      }
+      return payload;
+    },
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey;
+      const sameAuthorizationScope = (
+        previousKey?.[1] === (memberInfo?.tenant_id || null)
+        && previousKey?.[2] === (memberInfo?.id || null)
+        && previousKey?.[4] === (fieldKey || null)
+      );
+      return sameAuthorizationScope ? previousData : undefined;
+    },
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!query.isError || ![400, 403, 409].includes(query.error?.status)) return;
+    queryClient.invalidateQueries({
+      queryKey: [
+        "organisation-directory-filters",
+        memberInfo?.tenant_id || null,
+        memberInfo?.id || null,
+        "metadata",
+      ],
+    });
+  }, [
+    query.isError,
+    query.error,
+    queryClient,
+    memberInfo?.tenant_id,
+    memberInfo?.id,
+  ]);
+
+  return query;
 }
 
 export function useOrganisationDirectoryResults(request, enabled = true) {

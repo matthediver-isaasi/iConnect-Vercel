@@ -15,7 +15,7 @@ const relationshipId = '30000000-0000-4000-8000-000000000001';
 const objectKey =
   `object-field:${relationshipId}:target:${objectId}:${objectFieldId}`;
 
-function database(seed = {}, failTable = null) {
+function database(seed = {}, failTable = null, schema = {}, onExecute = null) {
   const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [
     name, structuredClone(rows),
   ]));
@@ -26,8 +26,9 @@ function database(seed = {}, failTable = null) {
       this.orders = [];
       this.window = null;
       this.maximum = null;
+      this.selected = '*';
     }
-    select() { return this; }
+    select(columns = '*') { this.selected = columns; return this; }
     eq(key, value) { this.filters.push((row) => row[key] === value); return this; }
     gt(key, value) { this.filters.push((row) => row[key] > value); return this; }
     is(key, value) {
@@ -64,8 +65,19 @@ function database(seed = {}, failTable = null) {
     limit(value) { this.maximum = value; return this; }
     range(from, to) { this.window = [from, to]; return this; }
     execute() {
+      onExecute?.({ table: this.table, tables });
       if (this.table === failTable) {
         return { data: null, error: { message: `forced ${this.table} failure` } };
+      }
+      if (schema[this.table] && this.selected !== '*') {
+        const requested = String(this.selected).split(',').map((column) => column.trim());
+        const missing = requested.find((column) => !schema[this.table].has(column));
+        if (missing) {
+          return {
+            data: null,
+            error: { code: '42703', message: `column ${missing} does not exist` },
+          };
+        }
       }
       let rows = (tables[this.table] || []).filter((row) =>
         this.filters.every((filter) => filter(row)));
@@ -309,14 +321,14 @@ test('saved exclusions/status/type policies retain the requester own-organizatio
   assert.deepEqual(result.organizations.map(({ id }) => id), ['eligible', 'own']);
 });
 
-test('Data Studio filtering reads all active links/records beyond 25 and rejects stale, archived, foreign, and denied sources', async () => {
+test('Data Studio filtering reads over 500 active links/records and rejects stale, archived, foreign, and denied sources', async () => {
   const object = objectSeed();
   const organizations = [
     { id: 'org-linked', tenant_id: tenantId, name: 'Linked' },
     { id: 'org-stale', tenant_id: tenantId, name: 'Stale' },
   ];
-  const records = Array.from({ length: 30 }, (_, index) => ({
-    id: `record-${String(index).padStart(2, '0')}`,
+  const records = Array.from({ length: 505 }, (_, index) => ({
+    id: `record-${String(index).padStart(3, '0')}`,
     tenant_id: tenantId,
     custom_object_id: objectId,
     archived_at: null,
@@ -329,7 +341,8 @@ test('Data Studio filtering reads all active links/records beyond 25 and rejects
     id: 'record-foreign', tenant_id: otherTenantId, custom_object_id: objectId,
     archived_at: null, data: { title: 'Foreign', value: 'forged-target' },
   });
-  const edges = records.map((record) => ({
+  const edges = records.map((record, index) => ({
+    id: `edge-${String(index).padStart(3, '0')}`,
     tenant_id: record.id === 'record-foreign' ? otherTenantId : tenantId,
     relationship_definition_id: relationshipId,
     source_record_id: record.id,
@@ -337,12 +350,14 @@ test('Data Studio filtering reads all active links/records beyond 25 and rejects
     archived_at: null,
   }));
   edges.push({
+    id: 'edge-archived',
     tenant_id: tenantId,
     relationship_definition_id: relationshipId,
-    source_record_id: 'record-29',
+    source_record_id: 'record-504',
     target_record_id: 'org-stale',
     archived_at: '2026-01-01',
   }, {
+    id: 'edge-stale',
     tenant_id: tenantId,
     relationship_definition_id: relationshipId,
     source_record_id: 'record-does-not-exist',
@@ -363,15 +378,15 @@ test('Data Studio filtering reads all active links/records beyond 25 and rejects
   });
   const { service: directory } = service(seed);
   const result = await directory.search(request({
-    [objectKey]: { operator: 'eq', value: 'value-29' },
+    [objectKey]: { operator: 'eq', value: 'value-504' },
   }));
   assert.equal(result.total, 1);
   assert.equal(result.organizations[0].id, 'org-linked');
   assert.equal(JSON.stringify(result).includes('forged-target'), false);
   assert.equal(JSON.stringify(result).includes('data'), false);
-  assert.equal((await directory.search(request({
+  await assert.rejects(() => directory.search(request({
     [objectKey]: { operator: 'eq', value: 'forged-target' },
-  }))).total, 0);
+  })), (error) => error.status === 400 && /unavailable/.test(error.message));
 
   const denied = structuredClone(seed);
   denied.custom_object_field_role_permission = [{
@@ -431,14 +446,20 @@ test('member names are role-limited while safe counts include only directory-vis
     ],
   }));
   const allowed = await directory.search(request({
-    org_members_list: { operator: 'contains', value: 'Alice' },
+    org_members_list: { operator: 'eq', value: 'Alice Allowed' },
   }));
   assert.equal(allowed.total, 1);
   assert.equal(allowed.organizations[0].member_count, 2);
-  const privateName = await directory.search(request({
-    org_members_list: { operator: 'contains', value: 'Secret' },
-  }));
-  assert.equal(privateName.total, 0);
+  await assert.rejects(() => directory.search(request({
+    org_members_list: { operator: 'eq', value: 'Secret Person' },
+  })), (error) => error.status === 400 && /unavailable/.test(error.message));
+  await assert.rejects(() => directory.search(request({
+    org_members_list: { operator: 'eq', value: ['Alice Allowed', 'Another'] },
+  })), (error) => error.status === 400 && /only one/.test(error.message));
+  await assert.rejects(() => directory.options({
+    fieldKey: 'org_members_list',
+    selected: ['Alice Allowed', 'Another'],
+  }), (error) => error.status === 400 && /only one/.test(error.message));
 });
 
 test('file sources expose only presence semantics and configured choices reject arbitrary values/keys', async () => {
@@ -567,4 +588,240 @@ test('database failures reject rather than returning partial result sets', async
     context: { tenantId, roleId },
   });
   await assert.rejects(() => directory.search(request()), /Organisation inventory/);
+});
+
+test('directory projections use real selected columns and preserve undefined-column diagnostics', async () => {
+  const domains = customField('domains-field', 'verified_domains', {
+    field_type: 'list',
+    is_filterable: false,
+  });
+  const inactiveDomains = customField('inactive-domains-field', 'verified_domains', {
+    field_type: 'list',
+    is_filterable: false,
+    is_active: false,
+  });
+  const seed = baseSeed({
+    organization: [{
+      id: 'org-1', tenant_id: tenantId, name: 'One', logo_url: 'one.png',
+    }],
+    preference_field: [domains, inactiveDomains],
+    organization_preference_value: [
+      {
+        id: 'value-1',
+        organization_id: 'org-1',
+        field_id: domains.id,
+        value: ['one.example'],
+      },
+      {
+        id: 'value-2',
+        organization_id: 'org-1',
+        field_id: inactiveDomains.id,
+        value: ['inactive.example'],
+      },
+    ],
+  });
+  const realSchema = {
+    organization: new Set(['id', 'name', 'logo_url']),
+    organization_preference_value: new Set(['id', 'organization_id', 'field_id', 'value']),
+  };
+  const db = database(seed, null, realSchema);
+  const directory = createOrganisationDirectoryFilters({
+    db,
+    context: { tenantId, roleId },
+  });
+  const result = await directory.search(request());
+  assert.equal(result.organizations[0].domain, 'one.example');
+  assert.equal(JSON.stringify(result).includes('inactive.example'), false);
+
+  const missingSelectedColumn = database(seed, null, {
+    ...realSchema,
+    organization: new Set(['id', 'name']),
+  });
+  const failing = createOrganisationDirectoryFilters({
+    db: missingSelectedColumn,
+    context: { tenantId, roleId },
+  });
+  await assert.rejects(
+    () => failing.search(request()),
+    (error) => error.diagnosticCode === 'DIRECTORY_QUERY_FAILED'
+      && error.diagnosticContext === 'organization_inventory'
+      && error.dbCode === '42703'
+      && !error.message.includes('logo_url'),
+  );
+});
+
+test('source-choice options use the complete eligible population and exact canonical selections', async () => {
+  const source = customField('source', 'Source', { field_type: 'list' });
+  const organizations = Array.from({ length: 505 }, (_, index) => ({
+    id: `org-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    name: `Org ${index}`,
+  }));
+  const values = organizations.map((organization, index) => ({
+    organization_id: organization.id,
+    field_id: source.id,
+    value: index === 504
+      ? ['Zulu', false, 0, '', 'Zulu', null, 'null', { ignored: true },
+        { value: 'Wrapped' }, [[' Nested ']]]
+      : [`Value ${String(index).padStart(3, '0')}`],
+  }));
+  const { service: directory } = service(baseSeed({
+    organization: organizations,
+    preference_field: [source],
+    organization_preference_value: values,
+  }));
+  const metadata = await directory.metadata();
+  const field = metadata.fields.find(({ key }) => key === 'custom:source');
+  assert.equal(field.control, 'source-choice');
+  assert.equal(field.multi_select, true);
+  assert.deepEqual(field.options, []);
+
+  const result = await directory.options({
+    fieldKey: 'custom:source',
+    search: 'zU',
+    page: 1,
+    pageSize: 50,
+    selected: ['Value 503', 'Zulu', 'false', '0'],
+  });
+  assert.deepEqual(result.options, [{ value: 'Zulu', label: 'Zulu' }]);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.selectedOptions.map(({ value }) => value), ['0', 'false', 'Value 503', 'Zulu']);
+  assert.deepEqual(result.unavailableSelected, []);
+  const canonical = await directory.options({
+    fieldKey: 'custom:source',
+    search: '',
+    page: 1,
+    pageSize: 100,
+    selected: ['Wrapped', 'Nested'],
+  });
+  assert.equal(canonical.total, 509);
+  assert.deepEqual(canonical.selectedOptions.map(({ value }) => value), ['Nested', 'Wrapped']);
+  assert.ok(canonical.options.some(({ value }) => value === '0'));
+  assert.ok(canonical.options.some(({ value }) => value === 'false'));
+  assert.ok(!canonical.options.some(({ value }) => value === '[object Object]' || value === 'null' || value === ''));
+
+  assert.equal((await directory.search(request({
+    'custom:source': { operator: 'eq', value: ['Zulu', 'Value 001'] },
+  }))).total, 2);
+  const stale = await directory.options({
+    fieldKey: 'custom:source',
+    selected: ['zulu'],
+  });
+  assert.deepEqual(stale.selectedOptions, []);
+  assert.deepEqual(stale.unavailableSelected, ['zulu']);
+  await assert.rejects(() => directory.search(request({
+    'custom:source': { operator: 'eq', value: 'zulu' },
+  })), (error) => error.status === 400);
+  await assert.rejects(() => directory.search(request({
+    'custom:source': { operator: 'eq', value: [{ value: 'Zulu' }] },
+  })), (error) => error.status === 400);
+});
+
+test('authority revocation during paginated reads fails closed for results and options', async () => {
+  const object = objectSeed();
+  const objectData = baseSeed({
+    ...object,
+    preference_field: object.preference_field,
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'One' }],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: 'One', value: 'Allowed' },
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1', tenant_id: tenantId, relationship_definition_id: relationshipId,
+      source_record_id: 'record-1', target_record_id: 'org-1', archived_at: null,
+    }],
+    system_settings: [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_filterable_back_fields',
+      setting_value: JSON.stringify({ [objectKey]: true }),
+    }],
+  });
+  let revoked = false;
+  const revokedDb = database(objectData, null, {}, ({ table, tables }) => {
+    if (table === 'custom_object_relationship' && !revoked) {
+      revoked = true;
+      tables.custom_object_role_permission[0].can_view_records = false;
+    }
+  });
+  const revokedDirectory = createOrganisationDirectoryFilters({
+    db: revokedDb, context: { tenantId, roleId },
+  });
+  await assert.rejects(
+    () => revokedDirectory.search(request({
+      [objectKey]: { operator: 'eq', value: 'Allowed' },
+    })),
+    (error) => error.status === 409 && /authority changed/.test(error.message),
+  );
+
+  const source = customField('source-race', 'Source race', { field_type: 'list' });
+  const settingData = baseSeed({
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'One' }],
+    preference_field: [source],
+    organization_preference_value: [{
+      id: 'value-1', organization_id: 'org-1', field_id: source.id, value: ['Visible'],
+    }],
+    system_settings: [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_filterable_back_fields',
+      setting_value: JSON.stringify({ 'custom:source-race': true }),
+    }],
+  });
+  let disabled = false;
+  const disabledDb = database(settingData, null, {}, ({ table, tables }) => {
+    if (table === 'organization_preference_value' && !disabled) {
+      disabled = true;
+      tables.system_settings[0].setting_value = JSON.stringify({
+        'custom:source-race': false,
+      });
+    }
+  });
+  const disabledDirectory = createOrganisationDirectoryFilters({
+    db: disabledDb, context: { tenantId, roleId },
+  });
+  await assert.rejects(
+    () => disabledDirectory.options({
+      fieldKey: 'custom:source-race',
+      selected: ['Visible'],
+    }),
+    (error) => error.status === 409 && /authority changed/.test(error.message),
+  );
+});
+
+test('shared related records remain complete across more than 500 organization edges', async () => {
+  const object = objectSeed();
+  const organizations = Array.from({ length: 505 }, (_, index) => ({
+    id: `shared-org-${String(index).padStart(3, '0')}`,
+    tenant_id: tenantId,
+    name: `Shared ${index}`,
+  }));
+  const seed = baseSeed({
+    ...object,
+    preference_field: object.preference_field,
+    organization: organizations,
+    custom_object_record: [{
+      id: 'shared-record', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: 'Shared', value: 'Shared value' },
+    }],
+    custom_object_relationship: organizations.map((organization, index) => ({
+      id: `shared-edge-${String(index).padStart(3, '0')}`,
+      tenant_id: tenantId,
+      relationship_definition_id: relationshipId,
+      source_record_id: 'shared-record',
+      target_record_id: organization.id,
+      archived_at: null,
+    })),
+    system_settings: [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_filterable_back_fields',
+      setting_value: JSON.stringify({ [objectKey]: true }),
+    }],
+  });
+  const { service: directory } = service(seed);
+  const options = await directory.options({ fieldKey: objectKey });
+  assert.deepEqual(options.options, [{ value: 'Shared value', label: 'Shared value' }]);
+  const result = await directory.search(request({
+    [objectKey]: { operator: 'eq', value: 'Shared value' },
+  }));
+  assert.equal(result.total, 505);
 });
