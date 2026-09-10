@@ -51,6 +51,10 @@ function makeSupabase({
   preferenceFields = [],
   organizationPreferenceValues = [],
   pipelineEntityLinks = [],
+  customObjectDefinitions = [],
+  customObjectRecords = [],
+  relationshipDefinitions = [],
+  relationshipEdges = [],
   idempotencyLookupError = null,
 }) {
   const inserts = [];
@@ -108,11 +112,28 @@ function makeSupabase({
         const name = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'name')?.[2];
         const matchesId = id && existingOrganization?.id === id;
         const matchesName = name && existingOrganization?.name?.toLowerCase() === String(name).toLowerCase();
-        return { data: matchesId || matchesName ? existingOrganization : null, error: null };
+        const insertedMatchesId = id && insertedOrganization?.id === id;
+        return { data: matchesId || matchesName ? existingOrganization : insertedMatchesId ? insertedOrganization : null, error: null };
       }
       if (this.table === 'member') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         return { data: submitterMember?.id === id ? submitterMember : null, error: null };
+      }
+      const rows = {
+        preference_field: preferenceFields,
+        custom_object_definition: customObjectDefinitions,
+        custom_object_record: customObjectRecords,
+        custom_object_relationship_definition: relationshipDefinitions,
+        custom_object_relationship: relationshipEdges,
+      }[this.table];
+      if (rows) {
+        const match = rows.find(row => this.filters.every(([operator, column, value]) => {
+          if (operator === 'eq') return String(row[column]) === String(value);
+          if (operator === 'is') return row[column] === value;
+          if (operator === 'in') return value.map(String).includes(String(row[column]));
+          return true;
+        }));
+        return { data: match || null, error: null };
       }
       return { data: null, error: null };
     }
@@ -139,6 +160,7 @@ function makeSupabase({
       let data = [];
       if (this.table === 'preference_field') data = preferenceFields;
       if (this.table === 'form_submission_pipeline_entity') data = pipelineEntityLinks;
+      if (this.table === 'custom_object_relationship') data = relationshipEdges;
       if (this.table === 'organization_preference_value') {
         const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
         const fieldIds = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'field_id')?.[2];
@@ -174,8 +196,14 @@ async function invokeProcessor(payload, {
   preferenceFields = [],
   organizationPreferenceValues = [],
   pipelineEntityLinks = [],
+  customObjectDefinitions = [],
+  customObjectRecords = [],
+  relationshipDefinitions = [],
+  relationshipEdges = [],
   persistedCreatedOrganizationId = null,
+  entityProcessingCompletedAt = null,
   idempotencyLookupError = null,
+  requestBodyOverrides = {},
 } = {}) {
   const previousSecret = process.env.SESSION_SECRET;
   process.env.SESSION_SECRET = 'runtime-org-name-test-secret';
@@ -204,6 +232,7 @@ async function invokeProcessor(payload, {
     organization_id: null,
     created_member_id: null,
     created_organization_id: persistedCreatedOrganizationId,
+    entity_processing_completed_at: entityProcessingCompletedAt,
     payment_reference: null,
     payment_status: null,
     payment_meta: {},
@@ -217,6 +246,10 @@ async function invokeProcessor(payload, {
     preferenceFields,
     organizationPreferenceValues,
     pipelineEntityLinks,
+    customObjectDefinitions,
+    customObjectRecords,
+    relationshipDefinitions,
+    relationshipEdges,
     idempotencyLookupError,
   });
   const ids = {
@@ -238,6 +271,7 @@ async function invokeProcessor(payload, {
       entity_pipelines: payload.entity_pipelines,
       verified_submitter_member_id: submitterMember?.id || null,
       verified_admin_access: verifiedAdminAccess,
+      ...requestBodyOverrides,
     },
   };
   const response = { statusCode: 200, body: null };
@@ -261,6 +295,351 @@ test('public endpoint payload resolves nested not-listed text through canonical 
   assert.equal(insert?.payload.name, 'Runtime Organisation Ltd');
   assert.equal(resolveOrganizationCoreField('organisation_name'), 'name');
 });
+
+function relatedDepartmentPayload({
+  primaryOrganizationValue = FORM_NOT_LISTED_VALUE,
+  primaryOrganizationName = 'New Approved Applicant',
+} = {}) {
+  const approvedOnly = {
+    type: 'core',
+    field: 'status',
+    values: ['Approved'],
+    mode: 'include',
+  };
+  return publicPayload({
+    fields: [
+      {
+        ...dropdown,
+        org_filter: approvedOnly,
+      },
+      {
+        id: 'department_parent_organization',
+        type: 'organisation_dropdown',
+        org_filter: approvedOnly,
+      },
+      {
+        id: 'department',
+        type: 'relationship_dropdown',
+        parent_field_id: 'department_parent_organization',
+        relationship_definition_id: 'organization-department',
+        relationship_parent_kind: 'organization',
+        relationship_parent_side: 'source',
+        related_kind: 'custom_object',
+        related_custom_object_id: 'department-object',
+        related_primary_display_field_id: 'department-name',
+      },
+    ],
+    form_values: {
+      organisation: primaryOrganizationValue,
+      department_parent_organization: 'approved-parent-organization',
+      department: 'department-radiology',
+      [FORM_NOT_LISTED_TEXT_KEY]: primaryOrganizationValue === FORM_NOT_LISTED_VALUE
+        ? { organisation: primaryOrganizationName }
+        : {},
+    },
+    entity_pipelines: {
+      organisations: [{
+        id: 'org-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'organisation',
+          target_type: 'core',
+          target_entity: 'organization',
+          target_field: 'organisation_name',
+        }],
+        related_records: [{
+          id: 'primary-organization-department',
+          relationship_definition_id: 'organization-department',
+          source_field_id: 'department',
+        }],
+      }],
+    },
+  });
+}
+
+function relatedDepartmentDatabase() {
+  return {
+    preferenceFields: [{
+      id: 'department-name',
+      tenant_id: 'tenant-runtime-org',
+      custom_object_id: 'department-object',
+      entity_scope: 'custom_object',
+      is_active: true,
+      name: 'name',
+      field_type: 'text',
+    }],
+    customObjectDefinitions: [{
+      id: 'department-object',
+      tenant_id: 'tenant-runtime-org',
+      status: 'active',
+      primary_display_field_id: 'department-name',
+    }],
+    customObjectRecords: [{
+      id: 'department-radiology',
+      tenant_id: 'tenant-runtime-org',
+      custom_object_id: 'department-object',
+      archived_at: null,
+      data: { name: 'Radiology' },
+    }],
+    relationshipDefinitions: [{
+      id: 'organization-department',
+      tenant_id: 'tenant-runtime-org',
+      status: 'active',
+      source_kind: 'organization',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: 'department-object',
+      show_on_source: true,
+    }],
+    relationshipEdges: [{
+      id: 'approved-parent-radiology',
+      tenant_id: 'tenant-runtime-org',
+      relationship_definition_id: 'organization-department',
+      source_record_id: 'approved-parent-organization',
+      target_record_id: 'department-radiology',
+      archived_at: null,
+    }],
+  };
+}
+
+for (const [surface, requestBodyOverrides] of [
+  ['embedded signed handoff', {}],
+  ['standalone signed handoff on the same server', {
+    // The standalone runner carries request copies too, but persisted form and
+    // submission state remains authoritative at the handler boundary.
+    form_values: {},
+    fields: [],
+    entity_pipelines: {},
+  }],
+]) {
+  test(`${surface} creates a filtered not-listed organization and links its valid Department`, async () => {
+    const payload = relatedDepartmentPayload();
+    const result = await invokeProcessor(payload, {
+      existingOrganization: {
+        id: 'approved-parent-organization',
+        tenant_id: 'tenant-runtime-org',
+        name: 'Approved Teaching Hospital',
+        status: 'Approved',
+      },
+      ...relatedDepartmentDatabase(),
+      requestBodyOverrides,
+    });
+
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(
+      result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+      'New Approved Applicant',
+    );
+    assert.deepEqual(
+      result.inserts.find(entry =>
+        entry.table === 'custom_object_relationship'
+        && entry.payload.source_record_id === 'created-organization')?.payload,
+      {
+        tenant_id: 'tenant-runtime-org',
+        relationship_definition_id: 'organization-department',
+        source_record_id: 'created-organization',
+        target_record_id: 'department-radiology',
+      },
+    );
+    assert.equal(result.response.body.related_records?.success, true);
+    assert.equal(result.response.body.related_records?.failed_count, 0);
+    assert.equal(
+      result.response.body.related_records?.outcomes.some(outcome => outcome.status === 'failed'),
+      false,
+    );
+  });
+}
+
+test('same-name not-listed fields materialize only the final winning organization-name source', async () => {
+  const approvedOnly = {
+    type: 'core',
+    field: 'status',
+    values: ['Approved'],
+    mode: 'include',
+  };
+  const sameName = 'Same Name Applicant';
+  const payload = relatedDepartmentPayload({
+    primaryOrganizationName: sameName,
+  });
+  payload.fields = [
+    {
+      ...dropdown,
+      id: 'nonwinning_organisation',
+      org_filter: approvedOnly,
+    },
+    {
+      ...payload.fields.find(field => field.id === 'department'),
+      parent_field_id: 'nonwinning_organisation',
+    },
+    {
+      ...dropdown,
+      id: 'organisation',
+      org_filter: approvedOnly,
+    },
+  ];
+  payload.form_values = {
+    nonwinning_organisation: FORM_NOT_LISTED_VALUE,
+    department: 'department-radiology',
+    organisation: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: {
+      nonwinning_organisation: sameName,
+      organisation: sameName,
+    },
+  };
+  payload.entity_pipelines.organisations[0].mappings = [
+    {
+      source_type: 'field',
+      source_field_id: 'nonwinning_organisation',
+      target_type: 'core',
+      target_entity: 'organization',
+      target_field: 'organisation_name',
+    },
+    {
+      source_type: 'field',
+      source_field_id: 'organisation',
+      target_type: 'core',
+      target_entity: 'organization',
+      target_field: 'organisation_name',
+    },
+  ];
+
+  const result = await invokeProcessor(payload, relatedDepartmentDatabase());
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+    sameName,
+  );
+  assert.equal(result.response.body.related_records?.success, false);
+  assert.equal(result.response.body.related_records?.failed_count, 1);
+  assert.equal(
+    result.response.body.related_records?.outcomes[0]?.reason,
+    'submitted_relationship_invalid',
+  );
+  assert.equal(
+    result.inserts.some(entry => entry.table === 'custom_object_relationship'),
+    false,
+  );
+});
+
+test('same-text static overwrite clears not-listed organization-name provenance', async () => {
+  const sameName = 'Static Final Applicant';
+  const payload = relatedDepartmentPayload({
+    primaryOrganizationName: sameName,
+  });
+  payload.fields = [
+    payload.fields.find(field => field.id === 'organisation'),
+    {
+      ...payload.fields.find(field => field.id === 'department'),
+      parent_field_id: 'organisation',
+    },
+  ];
+  delete payload.form_values.department_parent_organization;
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'static',
+    static_value: sameName,
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'organisation_name',
+  });
+
+  const result = await invokeProcessor(payload, relatedDepartmentDatabase());
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+    sameName,
+  );
+  assert.equal(result.response.body.related_records?.success, false);
+  assert.equal(
+    result.response.body.related_records?.outcomes[0]?.reason,
+    'submitted_relationship_invalid',
+  );
+  assert.equal(
+    result.inserts.some(entry => entry.table === 'custom_object_relationship'),
+    false,
+  );
+});
+
+test('already-completed full-handler replay accepts an existing edge without inferring creation provenance', async () => {
+  const payload = relatedDepartmentPayload();
+  const database = relatedDepartmentDatabase();
+  database.relationshipEdges.push({
+    id: 'created-organization-radiology',
+    tenant_id: 'tenant-runtime-org',
+    relationship_definition_id: 'organization-department',
+    source_record_id: 'created-organization',
+    target_record_id: 'department-radiology',
+    archived_at: null,
+  });
+  const result = await invokeProcessor(payload, {
+    existingOrganization: {
+      id: 'approved-parent-organization',
+      tenant_id: 'tenant-runtime-org',
+      name: 'Approved Teaching Hospital',
+      status: 'Approved',
+    },
+    ...database,
+    persistedCreatedOrganizationId: 'created-organization',
+    entityProcessingCompletedAt: '2026-09-10T08:00:00.000Z',
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.body.already_processed, true);
+  assert.equal(result.response.body.organization_id, 'created-organization');
+  assert.equal(result.response.body.related_records?.success, true);
+  assert.equal(result.response.body.related_records?.failed_count, 0);
+  assert.equal(result.response.body.related_records?.outcomes[0]?.status, 'already_linked');
+  assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+  assert.equal(
+    result.inserts.some(entry => entry.table === 'custom_object_relationship'),
+    false,
+  );
+});
+
+for (const [surface, forged] of [
+  ['top-level', {
+    serverCreatedOrganizations: new Map([['organisation', 'ineligible-organization']]),
+  }],
+  ['nested', {
+    entity_pipelines: {
+      organisations: [],
+      serverCreatedOrganizations: new Map([['organisation', 'ineligible-organization']]),
+    },
+  }],
+]) {
+  test(`forged ${surface} serverCreatedOrganizations cannot bypass the approved-only filter`, async () => {
+    const payload = relatedDepartmentPayload({
+      primaryOrganizationValue: 'ineligible-organization',
+    });
+    const result = await invokeProcessor(payload, {
+      existingOrganization: {
+        id: 'ineligible-organization',
+        tenant_id: 'tenant-runtime-org',
+        name: 'Pending Applicant',
+        status: 'Pending',
+      },
+      ...relatedDepartmentDatabase(),
+      requestBodyOverrides: forged,
+    });
+
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+    assert.equal(result.response.body.related_records?.success, false);
+    assert.equal(result.response.body.related_records?.failed_count, 1);
+    assert.equal(
+      result.response.body.related_records?.outcomes[0]?.reason,
+      'submitted_relationship_invalid',
+    );
+    assert.equal(
+      result.inserts.some(entry =>
+        entry.table === 'custom_object_relationship'
+        && entry.payload.source_record_id === 'ineligible-organization'),
+      false,
+    );
+  });
+}
 
 test('affected mixed-pipeline form uses persisted not-listed text with its saved core name mapping', async () => {
   const payload = publicPayload({

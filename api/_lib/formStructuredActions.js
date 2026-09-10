@@ -810,6 +810,7 @@ export async function processPrimaryPipelineRelatedRecords({
   submission,
   memberId = null,
   organizationId = null,
+  serverCreatedOrganizations,
 }) {
   let configured;
   try {
@@ -825,6 +826,8 @@ export async function processPrimaryPipelineRelatedRecords({
     };
   }
   if (configured.length === 0) return null;
+  // Rules must see the respondent's original Not-listed choice. Resolve the
+  // server-created identity only at the relationship reference boundary.
   const answers = submission?.submission_data || {};
   const outcomes = [];
   let visibilityOptions;
@@ -850,6 +853,7 @@ export async function processPrimaryPipelineRelatedRecords({
       submissionData: answers,
       hiddenFieldIds: hidden,
       visibilityOptions,
+      serverCreatedOrganizations,
     });
   } catch (error) {
     return {

@@ -997,6 +997,205 @@ test('submission validation enforces conditional organisation rules and saved el
   );
 });
 
+test('server-created organisations bypass eligibility only for the exact trusted field and ID', async () => {
+  const configuredForm = form({
+    fields: [
+      { id: 'country', type: 'dropdown', options: ['GB'] },
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        options: [],
+        not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+        org_filter: { type: 'core', field: 'is_active', values: ['true'] },
+        conditional_filters: {
+          version: 1,
+          rules: [{
+            id: 'approved-gb',
+            source_field_id: 'country',
+            operator: 'equals',
+            value: 'GB',
+            is_fallback: false,
+            allowed_values: [],
+            org_filter: { type: 'core', field: 'status', values: ['approved'] },
+          }],
+        },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      organization: [
+        {
+          id: 'new-org', tenant_id: tenantId, is_active: false, status: 'suspended',
+        },
+        {
+          id: 'other-org', tenant_id: tenantId, is_active: false, status: 'suspended',
+        },
+        {
+          id: 'foreign-org', tenant_id: 'tenant-2', is_active: false, status: 'suspended',
+        },
+      ],
+    }),
+  });
+
+  await service.validateSubmission({
+    form: configuredForm,
+    submissionData: { country: 'GB', org: 'new-org' },
+    serverCreatedOrganizations: new Map([['org', 'new-org']]),
+  });
+
+  for (const [submissionData, serverCreatedOrganizations] of [
+    [
+      { country: 'GB', org: 'new-org' },
+      new Map([['wrong-field', 'new-org']]),
+    ],
+    [
+      { country: 'GB', org: 'new-org' },
+      new Map([['org', 'wrong-org']]),
+    ],
+    [
+      { country: 'GB', org: 'new-org' },
+      JSON.parse(JSON.stringify({ org: 'new-org' })),
+    ],
+    [
+      { country: 'GB', org: 'other-org' },
+      new Map([['org', 'new-org']]),
+    ],
+    [
+      { country: 'GB', org: 'foreign-org' },
+      new Map([['org', 'foreign-org']]),
+    ],
+    [
+      { country: 'GB', org: 'missing-org' },
+      new Map([['org', 'missing-org']]),
+    ],
+  ]) {
+    await assert.rejects(
+      service.validateSubmission({
+        form: configuredForm,
+        submissionData,
+        serverCreatedOrganizations,
+      }),
+      error => error instanceof FormRelationshipError && error.status === 400,
+    );
+  }
+});
+
+test('a Department under a trusted server-created organisation still requires valid persisted relationship state', async () => {
+  const configuredForm = form({
+    fields: [
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        options: [],
+        not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+        org_filter: { type: 'core', field: 'is_active', values: ['true'] },
+      },
+      form().fields[1],
+    ],
+  });
+  const validDefinition = definition();
+  const validEdge = {
+    id: 'edge-1',
+    tenant_id: tenantId,
+    relationship_definition_id: 'definition-1',
+    source_record_id: 'new-org',
+    target_record_id: 'department-1',
+    archived_at: null,
+  };
+  const validDepartment = {
+    id: 'department-1',
+    tenant_id: tenantId,
+    custom_object_id: 'object-1',
+    archived_at: null,
+    data: { department_name: 'Operations' },
+  };
+  const baseSeed = {
+    organization: [{
+      id: 'new-org',
+      tenant_id: tenantId,
+      is_active: false,
+    }],
+    custom_object_relationship_definition: [validDefinition],
+    custom_object_definition: [{
+      id: 'object-1',
+      tenant_id: tenantId,
+      status: 'active',
+      primary_display_field_id: 'name-field',
+    }],
+    preference_field: [{
+      id: 'name-field',
+      tenant_id: tenantId,
+      custom_object_id: 'object-1',
+      entity_scope: 'custom_object',
+      is_active: true,
+      name: 'department_name',
+      field_type: 'text',
+    }],
+    custom_object_relationship: [validEdge],
+    custom_object_record: [validDepartment],
+  };
+  const validate = (seed = baseSeed) => createFormRelationshipService({
+    tenantId,
+    db: mockDb(seed),
+  }).validateSubmission({
+    form: configuredForm,
+    submissionData: { org: 'new-org', department: 'department-1' },
+    serverCreatedOrganizations: new Map([['org', 'new-org']]),
+  });
+
+  await validate();
+
+  for (const seed of [
+    {
+      ...baseSeed,
+      custom_object_relationship_definition: [{ ...validDefinition, status: 'draft' }],
+    },
+    {
+      ...baseSeed,
+      custom_object_relationship_definition: [{
+        ...validDefinition,
+        target_custom_object_id: 'different-object',
+      }],
+    },
+  ]) {
+    await assert.rejects(
+      validate(seed),
+      error => error instanceof FormRelationshipError && error.status === 409,
+    );
+  }
+
+  for (const seed of [
+    {
+      ...baseSeed,
+      custom_object_relationship: [{ ...validEdge, archived_at: '2025-01-01T00:00:00Z' }],
+    },
+    {
+      ...baseSeed,
+      custom_object_relationship: [],
+    },
+    {
+      ...baseSeed,
+      custom_object_record: [{ ...validDepartment, archived_at: '2025-01-01T00:00:00Z' }],
+    },
+    {
+      ...baseSeed,
+      custom_object_record: [{ ...validDepartment, tenant_id: 'tenant-2' }],
+    },
+    {
+      ...baseSeed,
+      custom_object_record: [{ ...validDepartment, custom_object_id: 'different-object' }],
+    },
+  ]) {
+    await assert.rejects(
+      validate(seed),
+      error => error instanceof FormRelationshipError
+        && error.status === 400 && /Invalid relationship selection/.test(error.message),
+    );
+  }
+});
+
 test('submission validation rejects excluded organisation IDs and organisation field values', async () => {
   const savedForm = form({
     fields: [

@@ -129,11 +129,21 @@ export function createFormRelationshipService({ db, tenantId }) {
     if (kind === 'custom_object') q = q.eq('custom_object_id', objectId).is('archived_at', null);
     const { data, error } = await q.maybeSingle(); throwDb(error); return data;
   }
-  async function verified({ form, fieldId, parentRecordId, rootForm, containerFieldId }) {
+  // Internal call context only: JSON request/answer objects cannot supply a Map.
+  // Bind the exception to a field as well as an ID, never to all tenant records.
+  const isServerCreatedOrganization = (context, field, id) =>
+    context instanceof Map && field?.type === 'organisation_dropdown'
+    && hasEnabledFormNotListedChoice(field) && context.get(field.id) === id;
+  const resolveOrganizationReference = (context, field, value) => {
+    if (!isFormNotListedValue(value) || !(context instanceof Map)) return value;
+    const id = context.get(field?.id);
+    return id && isServerCreatedOrganization(context, field, id) ? id : value;
+  };
+  async function verified({ form, fieldId, parentRecordId, rootForm, containerFieldId, serverCreatedOrganizations }) {
     const saved = savedRelationshipField(form, fieldId, { rootForm, containerFieldId });
     const parentRow = await loadEndpoint(saved.parent.kind, parentRecordId, saved.parent.custom_object_id);
     if (!parentRow) throw new FormRelationshipError(404, 'Relationship parent not found');
-    if (saved.parent.kind === 'organization') { try { const ok = await isOrganizationEligibleForField({ db, tenantId, organization: parentRow, field: saved.parentField }); if (!ok) throw new FormRelationshipError(400, 'Organization is not eligible for this field'); } catch (e) { if (e instanceof FormRelationshipError) throw e; throwDb(e); } }
+    if (saved.parent.kind === 'organization' && !isServerCreatedOrganization(serverCreatedOrganizations, saved.parentField, parentRecordId)) { try { const ok = await isOrganizationEligibleForField({ db, tenantId, organization: parentRow, field: saved.parentField }); if (!ok) throw new FormRelationshipError(400, 'Organization is not eligible for this field'); } catch (e) { if (e instanceof FormRelationshipError) throw e; throwDb(e); } }
     const { data: definition, error } = await db.from('custom_object_relationship_definition').select('*').eq('tenant_id', tenantId).eq('id', saved.relationshipDefinitionId).eq('status', 'active').maybeSingle(); throwDb(error);
     const ps = saved.parent.side; const matches = ['source', 'target'].filter(side => {
       const p = endpoint(definition, side); const r = endpoint(definition, side === 'source' ? 'target' : 'source');
@@ -152,7 +162,7 @@ export function createFormRelationshipService({ db, tenantId }) {
     const options = rows.map(row => ({ id: row.id, label: state.saved.related.kind === 'organization' ? row.name || row.id : state.saved.related.kind === 'organization_group' ? row.name || row.id : resolveCustomObjectDisplayValue({ objectDefinition: state.relatedObject, record: row, fields: [state.primaryField] }) })).sort((a, b) => String(a.label).localeCompare(String(b.label)) || String(a.id).localeCompare(String(b.id)));
     const p = pagination(query); return { data: options.slice((p.page - 1) * p.pageSize, p.page * p.pageSize), total: options.length, page: p.page, pageSize: p.pageSize };
   }
-  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText, hiddenFieldIds, visibilityOptions = {} }) {
+  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText, hiddenFieldIds, visibilityOptions = {}, serverCreatedOrganizations }) {
     const authoritativeForm = rootForm || form;
     const hidden = hiddenFieldIds || computeHiddenFieldIds(
       authoritativeForm,
@@ -187,13 +197,18 @@ export function createFormRelationshipService({ db, tenantId }) {
       }
     }
     for (const field of fields.filter(x => x?.type === 'organisation_dropdown')) {
-      const id = fieldValue(submissionData, field);
+      const id = resolveOrganizationReference(
+        containerFieldId ? undefined : serverCreatedOrganizations,
+        field,
+        fieldValue(submissionData, field),
+      );
       if (id == null || id === '' || isFormNotListedValue(id)) continue;
       if (typeof id !== 'string' && typeof id !== 'number') throw new FormRelationshipError(400, 'Invalid organization selection');
       const key = `organization:${id}`;
       let organization = cache.get(key);
       if (organization === undefined) { const result = await db.from('organization').select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle(); throwDb(result.error); organization = result.data || null; cache.set(key, organization); }
       if (!organization) throw new FormRelationshipError(400, 'Invalid organization selection');
+      if (!containerFieldId && isServerCreatedOrganization(serverCreatedOrganizations, field, id)) continue;
       const resolution = resolveConditionalFilter(field, submissionData, fields);
       try {
         const eligible = await isOrganizationEligibleForField({ db, tenantId, organization, field });
@@ -231,7 +246,11 @@ export function createFormRelationshipService({ db, tenantId }) {
       const parentData = saved.parentScope === 'form' && containerFieldId
         ? (rootSubmissionData || submissionData)
         : submissionData;
-      const parentRecordId = fieldValue(parentData, saved.parentField);
+      const parentRecordId = resolveOrganizationReference(
+        containerFieldId ? undefined : serverCreatedOrganizations,
+        saved.parentField,
+        fieldValue(parentData, saved.parentField),
+      );
       if (!parentRecordId || isFormNotListedValue(parentRecordId)) {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
@@ -241,6 +260,7 @@ export function createFormRelationshipService({ db, tenantId }) {
         parentRecordId,
         rootForm: rootForm || form,
         containerFieldId,
+        serverCreatedOrganizations: containerFieldId ? undefined : serverCreatedOrganizations,
       });
       for (const recordId of recordIds) {
         const key = [

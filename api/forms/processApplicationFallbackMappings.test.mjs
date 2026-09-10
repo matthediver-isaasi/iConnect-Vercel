@@ -57,8 +57,8 @@ test('all organisation dropdown mapping modes share not-listed name resolution',
   assert.match(source, /const resolveOrgDropdownMapping = \(sourceFieldId, targetField\)/);
   const resolutionCalls = source.match(/resolveOrgDropdownMapping\(/g) || [];
   assert.equal(resolutionCalls.length, 4, 'modern, legacy fallback, array pipeline, and legacy object pipeline mappings must resolve identically');
-  assert.match(source, /if \(resolved\?\.organizationName\) \{\s*orgData\.name = resolved\.organizationName/);
-  assert.match(source, /if \(resolved\?\.organizationName\) \{\s*dataObj\.name = resolved\.organizationName/);
+  assert.match(source, /if \(resolved\?\.organizationName\) \{\s*assignOrganizationCore\(orgData, 'name', resolved\.organizationName,/);
+  assert.match(source, /if \(resolved\?\.organizationName\) \{\s*assignOrganizationCore\(dataObj, 'name', resolved\.organizationName,/);
   assert.match(source, /else if \(resolved\?\.organizationId && !dropdownSelectedOrgId\)/);
   assert.match(source, /if \(!pipelineEntry\.mappings && pipelineEntry\.field_mappings\)[\s\S]*resolveOrgDropdownMapping\(fieldId, dbKey\)[\s\S]*used_not_listed_name/);
   assert.match(source, /if \(!orgData\.name\) \{[\s\S]*code: 'MISSING_ORG_NAME'/);

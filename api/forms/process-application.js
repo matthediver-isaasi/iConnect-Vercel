@@ -1367,14 +1367,23 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       const f = fieldsById.get(sourceFieldId);
       return !!f && f.type === 'organisation_dropdown';
     };
+    let notListedOrganizationSource = null;
+    const serverCreatedOrganizations = new Map();
+    const assignOrganizationCore = (target, key, value, sourceFieldId = null) => {
+      if (target === orgData && key === 'name') {
+        notListedOrganizationSource = sourceFieldId;
+      }
+      target[key] = value;
+    };
     const resolveOrgDropdownMapping = (sourceFieldId, targetField) => {
       const field = fieldsById.get(sourceFieldId);
-      return resolveOrganizationDropdownAssignment({
+      const resolved = resolveOrganizationDropdownAssignment({
         field,
         targetField,
         value: form_values[sourceFieldId],
         submissionData: form_values,
       });
+      return resolved;
     };
     // Captures the organisation id selected via an organisation_dropdown form
     // field, when that field was mapped to an organisation core column. We
@@ -1576,7 +1585,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (target_type === 'core') {
           if (value === '__clear__') {
             const targetData = target_entity === 'organization' ? orgData : memberData;
-            targetData[target_field] = null;
+            assignOrganizationCore(targetData, target_field, null);
             continue;
           }
           if (target_entity === 'member') {
@@ -1605,7 +1614,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (isOrgDropdownSourceField(source_field_id)) {
               const resolved = resolveOrgDropdownMapping(source_field_id, target_field);
               if (resolved?.organizationName) {
-                orgData.name = resolved.organizationName;
+                assignOrganizationCore(orgData, 'name', resolved.organizationName, source_field_id);
               } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = resolved.organizationId;
               }
@@ -1618,7 +1627,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
               console.warn('[AppProcessor] Skipped protected ledger-backed org field mapping:', target_field);
               continue;
             }
-            orgData[target_field] = coerceCoreFieldValue('organization', target_field, value);
+            assignOrganizationCore(orgData, target_field, coerceCoreFieldValue('organization', target_field, value));
           }
         } else if (target_type === 'custom') {
           const prefField = prefFieldMap.get(target_field);
@@ -1677,13 +1686,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (field.type === 'organisation_dropdown') {
               const resolved = resolveOrgDropdownMapping(field.id, fieldName);
               if (resolved?.organizationName) {
-                orgData.name = resolved.organizationName;
+                assignOrganizationCore(orgData, 'name', resolved.organizationName, field.id);
               } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = resolved.organizationId;
               }
               console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
             } else {
-              orgData[fieldName] = coerceCoreFieldValue('organization', fieldName, value);
+              assignOrganizationCore(orgData, fieldName, coerceCoreFieldValue('organization', fieldName, value));
             }
           }
         }
@@ -1918,7 +1927,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           if (value === '__clear__') {
             if (mapping.target_type === 'core') {
               const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
-              dataObj[dbKey] = null;
+              assignOrganizationCore(dataObj, dbKey, null);
             } else if (mapping.target_type === 'custom') {
               customFieldsMap.delete(mapping.target_field);
               if (customFieldsToClear) customFieldsToClear.add(mapping.target_field);
@@ -1942,7 +1951,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (targetEntity === 'organization' && isOrgDropdownSourceField(mapping.source_field_id)) {
               const resolved = resolveOrgDropdownMapping(mapping.source_field_id, dbKey);
               if (resolved?.organizationName) {
-                dataObj.name = resolved.organizationName;
+                assignOrganizationCore(dataObj, 'name', resolved.organizationName, mapping.source_field_id);
               } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = resolved.organizationId;
               }
@@ -1961,7 +1970,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (hasAssignableValue(dbKey, value)) {
               // Coerce boolean fields for member entities; for org address-like
               // text columns, normalise object/array values to a multi-line string.
-              dataObj[dbKey] = coerceCoreFieldValue(targetEntity, dbKey, value);
+              assignOrganizationCore(dataObj, dbKey, coerceCoreFieldValue(targetEntity, dbKey, value));
             }
           } else if (mapping.target_type === 'custom') {
             // Custom field. Distinguish "absent" (source key not in
@@ -2021,13 +2030,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           });
           
           if (fieldId === '__clear__') {
-            dataObj[dbKey] = null;
+            assignOrganizationCore(dataObj, dbKey, null);
           } else {
             const val = form_values[fieldId];
             if (targetEntity === 'organization' && isOrgDropdownSourceField(fieldId)) {
               const resolved = resolveOrgDropdownMapping(fieldId, dbKey);
               if (resolved?.organizationName) {
-                dataObj.name = resolved.organizationName;
+                assignOrganizationCore(dataObj, 'name', resolved.organizationName, fieldId);
               } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = resolved.organizationId;
               }
@@ -2038,7 +2047,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (hasAssignableValue(dbKey, val)) {
               // Coerce boolean fields for member entities; coerce address-like
               // values for org entities so object payloads land cleanly in text columns.
-              dataObj[dbKey] = coerceCoreFieldValue(targetEntity, dbKey, val);
+              assignOrganizationCore(dataObj, dbKey, coerceCoreFieldValue(targetEntity, dbKey, val));
             }
           }
         }
@@ -2447,6 +2456,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
           createdOrganizationId = newOrg.id;
           legacyCreatedRecordIds.organization.add(String(newOrg.id));
+          if (notListedOrganizationSource
+              && !hiddenSubmissionFieldIds.has(notListedOrganizationSource)) {
+            serverCreatedOrganizations.set(notListedOrganizationSource, newOrg.id);
+          }
           newlyCreatedOrgData = newOrg; // Track for workflow trigger after custom fields are saved
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
           }
@@ -4031,6 +4044,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       submission: persistedSubmission,
       memberId: primaryMemberId,
       organizationId: primaryOrganizationId,
+      serverCreatedOrganizations,
     });
     for (const outcome of relatedRecords?.outcomes || []) {
       addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });

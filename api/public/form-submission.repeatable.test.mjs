@@ -472,6 +472,117 @@ test('real public endpoint hands off the affected anonymous listed-organization 
   assert.equal(capturedProcessingBodies[0].verified_submitter_member_id, null);
 });
 
+test('embed and standalone browser provenance cannot bypass saved organization eligibility', async (t) => {
+  const pendingOrganizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const missingOrganizationId = '95310450-4ddc-4ffc-86ef-5e28f017dc7f';
+  const crossTenantOrganizationId = '41652bd5-c04a-4a58-b267-5ea0f8ddd82d';
+  const surfaces = [
+    {
+      name: 'embed',
+      referer: 'https://student-join.test/embed/form/student-join',
+    },
+    {
+      name: 'standalone form view',
+      referer: 'https://student-join.test/form/student-join',
+    },
+  ];
+  const rejectionCases = [
+    {
+      name: 'pending organization excluded by the approved saved filter',
+      organizationId: pendingOrganizationId,
+      organization: {
+        id: pendingOrganizationId,
+        tenant_id: 'tenant-student-join',
+        name: 'Pending University',
+        status: 'pending',
+      },
+    },
+    {
+      name: 'missing organization',
+      organizationId: missingOrganizationId,
+      organization: null,
+    },
+    {
+      name: 'cross-tenant organization',
+      organizationId: crossTenantOrganizationId,
+      organization: {
+        id: crossTenantOrganizationId,
+        tenant_id: 'another-tenant',
+        name: 'Another Tenant University',
+        status: 'approved',
+      },
+    },
+  ];
+
+  for (const surface of surfaces) {
+    for (const provenanceLocation of ['top-level', 'nested']) {
+      for (const rejectionCase of rejectionCases) {
+        await t.test(
+          `${surface.name}: ${provenanceLocation} provenance rejects ${rejectionCase.name}`,
+          async () => {
+            const form = affectedFormFixture();
+            form.fields.find(field => field.id === LIVE_ORGANISATION_FIELD_ID).org_filter = {
+              type: 'core',
+              field: 'status',
+              values: ['approved'],
+            };
+            const db = makePublicSubmissionBoundaryDb(form, {
+              organization: rejectionCase.organization,
+            });
+            const processingHandoffs = [];
+            const submissionData = {
+              student_email: 'student@example.test',
+              student_first_name: 'Test',
+              student_last_name: 'Student',
+              [LIVE_ORGANISATION_FIELD_ID]: rejectionCase.organizationId,
+            };
+            const forgedProvenance = {
+              [LIVE_ORGANISATION_FIELD_ID]: rejectionCase.organizationId,
+            };
+            const body = {
+              form_id: form.id,
+              form_name: form.name,
+              submission_data: submissionData,
+            };
+            if (provenanceLocation === 'top-level') {
+              body.serverCreatedOrganizations = forgedProvenance;
+            } else {
+              submissionData.serverCreatedOrganizations = forgedProvenance;
+            }
+            const { response, res } = makeResponseRecorder();
+
+            await handler({
+              method: 'POST',
+              headers: {
+                host: 'student-join.test',
+                referer: surface.referer,
+              },
+              body,
+            }, res, {
+              supabase: db.client,
+              tenantData: {
+                id: form.tenant_id,
+                slug: 'student-join',
+                domain: 'student-join.test',
+              },
+              internalApiBaseUrl: 'https://internal.example.test',
+              fetchImpl: async (...args) => {
+                processingHandoffs.push(args);
+                throw new Error('Invalid organization selection reached processing handoff');
+              },
+            });
+
+            assert.equal(response.statusCode, 400);
+            assert.equal(response.body.error, 'Invalid relationship selection');
+            assert.equal(db.insertedSubmissions.length, 0);
+            assert.equal(processingHandoffs.length, 0);
+          },
+        );
+      }
+    }
+  }
+});
+
 test('cached embed retries invoke the server sender with persisted tenant-scoped answers', async () => {
   const form = {
     ...affectedFormFixture(),

@@ -142,6 +142,88 @@ test('links the exact primary pipeline result and treats a retry as already link
   assert.equal(retry.outcomes[0].status, 'already_linked');
   assert.equal(edges.filter(edge => edge.relationship_definition_id === 'member-department').length, 1);
 
+  // A new organisation may not yet satisfy the picker filter. Its exact
+  // server-only creation identity is valid for this internal second pass.
+  const newOrganizationForm = {
+    ...form,
+    fields: [...form.fields.map(field => field.id === 'org' ? {
+      ...field,
+      not_listed_choice: { enabled: true, label: 'Not listed' },
+      org_filter: { type: 'core', field: 'status', values: ['approved'] },
+    } : field), {
+      id: 'other-org',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: true, label: 'Not listed' },
+    }],
+  };
+  const untrusted = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form: newOrganizationForm, submission, memberId: 'member-new-org',
+  });
+  assert.equal(untrusted.success, false);
+  assert.match(untrusted.outcomes[0].error, /Invalid organization selection/);
+  const createdContext = new Map([['org', 'org-1']]);
+  const notListedSubmission = {
+    submission_data: {
+      ...submission.submission_data,
+      org: FORM_NOT_LISTED_VALUE,
+      'other-org': FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: {
+        org: 'New organisation',
+        'other-org': 'Another valid not-listed organisation',
+      },
+    },
+  };
+  const originalAnswers = structuredClone(notListedSubmission.submission_data);
+  const created = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form: newOrganizationForm, submission: notListedSubmission,
+    memberId: 'member-new-org', serverCreatedOrganizations: createdContext,
+  });
+  assert.equal(created.success, true, JSON.stringify(created));
+  assert.equal(created.outcomes[0].status, 'linked');
+  assert.deepEqual(notListedSubmission.submission_data, originalAnswers);
+  const createdRetry = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form: newOrganizationForm, submission: notListedSubmission,
+    memberId: 'member-new-org', serverCreatedOrganizations: createdContext,
+  });
+  assert.equal(createdRetry.outcomes[0].status, 'already_linked');
+  assert.equal(edges.filter(edge => edge.source_record_id === 'member-new-org').length, 1);
+  for (const visible of [true, false]) {
+    const ruleForm = {
+      ...newOrganizationForm,
+      fields: newOrganizationForm.fields.map(field => field.id === 'department'
+        ? { ...field, starts_hidden: visible } : field),
+      visibility_rules: [{
+        conditions: [{ field_id: 'org', operator: 'equals', value: FORM_NOT_LISTED_VALUE }],
+        actions: [{
+          action_type: 'visibility',
+          field_states: { department: { visible } },
+        }],
+      }],
+    };
+    const ruleMember = `member-not-listed-rule-${visible}`;
+    const ruleResult = await processPrimaryPipelineRelatedRecords({
+      db, tenantId, form: ruleForm, submission: notListedSubmission,
+      memberId: ruleMember, serverCreatedOrganizations: createdContext,
+    });
+    assert.equal(ruleResult.success, true, JSON.stringify(ruleResult));
+    if (visible) {
+      assert.equal(ruleResult.outcomes[0].status, 'linked');
+      assert.equal(edges.filter(edge => edge.source_record_id === ruleMember).length, 1);
+    } else {
+      assert.equal(ruleResult.outcomes[0].reason, 'source_field_hidden');
+      assert.equal(edges.some(edge => edge.source_record_id === ruleMember), false);
+    }
+    assert.deepEqual(notListedSubmission.submission_data, originalAnswers);
+  }
+  const spoofed = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form: newOrganizationForm,
+    submission: { ...submission, serverCreatedOrganizations: createdContext },
+    memberId: 'member-spoofed',
+    serverCreatedOrganizations: { org: 'org-1' },
+  });
+  assert.equal(spoofed.success, false);
+  assert.equal(edges.some(edge => edge.source_record_id === 'member-spoofed'), false);
+
   const hiddenForm = {
     ...form,
     fields: form.fields.map(field => field.id === 'department' ? { ...field, starts_hidden: true } : field),
