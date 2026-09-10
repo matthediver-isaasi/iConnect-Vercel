@@ -55,6 +55,13 @@ import {
   resolveSpecificResourceShowcaseItems,
 } from '@/lib/resourceShowcaseSelection';
 import { publicClient } from '@/api/publicClient';
+import {
+  ALL_EVENT_CATEGORIES,
+  getCanvasEventCategories,
+  getCanvasEventCategoryOptions,
+  resolveCanvasEventCategory,
+  matchesCanvasEventCategory,
+} from '@/lib/canvasEventCategories';
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
@@ -515,7 +522,17 @@ function formatCurrency(amount, currency) {
 // ============================================================================
 // EVENT LIST
 // ============================================================================
-function filterAndSortEvents(events, content) {
+function useEventListCategories() {
+  const query = useQuery({
+    queryKey: ['canvas', 'public-resource-categories'],
+    queryFn: () => publicClient.listResourceCategories(),
+    staleTime: 60_000,
+  });
+  const categories = useMemo(() => getCanvasEventCategories(query.data), [query.data]);
+  return { ...query, categories };
+}
+
+function filterAndSortEvents(events, content, categories = []) {
   let list = Array.isArray(events) ? events.slice() : [];
   const now = Date.now();
   if (content.filter === 'upcoming') {
@@ -538,13 +555,9 @@ function filterAndSortEvents(events, content) {
     const tag = String(content.programTag).toLowerCase();
     list = list.filter((e) => String(e.program_tag || '').toLowerCase() === tag);
   }
-  if (content.category) {
-    const cat = String(content.category).toLowerCase();
-    list = list.filter((e) => {
-      const fields = [e.category, e.event_category, e.event_type].filter(Boolean).map((v) => String(v).toLowerCase());
-      const tags = Array.isArray(e.tags) ? e.tags.map((t) => String(t).toLowerCase()) : [];
-      return fields.includes(cat) || tags.includes(cat);
-    });
+  const selectedCategory = resolveCanvasEventCategory(content.category, categories);
+  if (selectedCategory) {
+    list = list.filter((e) => matchesCanvasEventCategory(e, selectedCategory, categories));
   }
   list.sort((a, b) => {
     const ta = a.start_date ? new Date(a.start_date).getTime() : 0;
@@ -557,6 +570,7 @@ function filterAndSortEvents(events, content) {
 
 function EventListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
+  const { categories } = useEventListCategories();
   const cols = columnsForBreakpoint(c, breakpoint);
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
@@ -566,7 +580,7 @@ function EventListRender({ block, breakpoint, asEditor }) {
     staleTime: 60_000,
   });
 
-  const items = useMemo(() => filterAndSortEvents(data, c), [data, c]);
+  const items = useMemo(() => filterAndSortEvents(data, c, categories), [data, c, categories]);
 
   const isPreview = isEditorPreviewBreakpoint(breakpoint);
   const gridCss = !isPreview
@@ -628,6 +642,9 @@ function EventListRender({ block, breakpoint, asEditor }) {
 function EventListInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const { categories, isLoading, isError } = useEventListCategories();
+  const selectedCategory = resolveCanvasEventCategory(c.category, categories);
+  const categoryOptions = useMemo(() => getCanvasEventCategoryOptions(categories), [categories]);
   return (
     <>
       <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-event-list-title" />
@@ -659,7 +676,21 @@ function EventListInspector({ block, update }) {
       <TextField label="Date to (YYYY-MM-DD)" value={c.dateTo} onChange={(v) => set({ dateTo: v })} testId="input-event-list-date-to" />
       <ToggleField label="Featured only" value={c.featuredOnly} onChange={(v) => set({ featuredOnly: v })} testId="toggle-event-list-featured" />
       <TextField label="Program tag" value={c.programTag} onChange={(v) => set({ programTag: v })} testId="input-event-list-program-tag" />
-      <TextField label="Category" value={c.category} onChange={(v) => set({ category: v })} testId="input-event-list-category" hint="Matches event category / type or tag." />
+      <SelectField
+        label="Category"
+        value={selectedCategory || ALL_EVENT_CATEGORIES}
+        onChange={(v) => set({ category: v === ALL_EVENT_CATEGORIES ? '' : v })}
+        options={categoryOptions}
+        testId="select-event-list-category"
+        hint={isLoading ? 'Loading event categories…' : 'Matches the event’s configured category value.'}
+        warning={isError
+          ? 'Could not refresh event categories. The saved selection is retained; filtering uses available definitions.'
+          : !isLoading && c.category && !selectedCategory
+            ? 'The saved category is no longer available. Showing all categories until you choose another.'
+            : !isLoading && categories.length === 0
+              ? 'No public Event categories are available. Showing all categories.'
+              : undefined}
+      />
       <SelectField
         label="Sort"
         value={c.sortBy || 'start-asc'}
