@@ -5,6 +5,8 @@ server/public
 vite.config.ts.*
 *.tar.gz
 tmp/exports/
+test-results/
+playwright-report/
 
 exports/
 attached_assets/Direct_debit_payers_to_import_31.08.26_1788197290796.csv
