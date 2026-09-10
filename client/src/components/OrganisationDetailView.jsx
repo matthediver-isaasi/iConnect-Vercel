@@ -106,7 +106,7 @@ import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import { OrganisationCommercial } from "@/components/sales/SalesReportingWorkspace";
-import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { RelatedRecordsDefinitionState, RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
   collectRelationshipRecordIdsFromSubmissions,
@@ -348,6 +348,22 @@ export default function OrganisationDetailView({
   } = useWorkflowConfirmation();
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
+  useEffect(() => {
+    if (isNew || !organization?.id) {
+      if (activeTab.startsWith('relationship-')) setActiveTab('overview');
+      return;
+    }
+    if (
+      !activeTab.startsWith('relationship-')
+      || relatedRecords.data == null
+      || relatedRecords.isFetching
+      || relatedRecords.error
+    ) return;
+    const selectedPanelExists = relatedRecords.panels.some(({ definition, side }) =>
+      relationshipTabValue(definition, side) === activeTab
+    );
+    if (!selectedPanelExists) setActiveTab('overview');
+  }, [isNew, organization?.id, activeTab, relatedRecords.data, relatedRecords.error, relatedRecords.isFetching, relatedRecords.panels]);
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [isCreatingMember, setIsCreatingMember] = useState(false);
@@ -415,9 +431,11 @@ export default function OrganisationDetailView({
     mergeLayoutWithCustomFields(
       layoutConfig,
       orgCustomFields,
-      relatedRecords.isSuccess ? relatedRecords.panels : null
+      isNew || !organization?.id
+        ? []
+        : relatedRecords.data != null ? relatedRecords.panels : null
     )
-  ), [layoutConfig, orgCustomFields, relatedRecords.isSuccess, relatedRecords.panels]);
+  ), [layoutConfig, orgCustomFields, isNew, organization?.id, relatedRecords.data, relatedRecords.panels]);
 
   const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({
     queryKey: ['org-detail-members', organization?.id],
@@ -1631,10 +1649,18 @@ export default function OrganisationDetailView({
       const isFieldLocked = isCardLocked || lockedFields.has(field.id);
       
       if (field.type === 'relationship') {
+        if (isNew || !organization?.id) return null;
         const panel = relatedRecords.panels.find(({ definition, side }) =>
           String(definition.id) === String(field.definitionId) && side === field.side
         );
-        if (!panel) return null;
+        if (!panel) {
+          if (relatedRecords.data != null) return null;
+          return (
+            <div key={field.id} className="md:col-span-full" data-testid={`organisation-layout-${field.id}`}>
+              <RelatedRecordsDefinitionState query={relatedRecords} />
+            </div>
+          );
+        }
         return (
           <div key={field.id} className="md:col-span-full" data-testid={`organisation-layout-${field.id}`}>
             <RelatedRecordsPanel
@@ -1644,6 +1670,7 @@ export default function OrganisationDetailView({
               side={panel.side}
               showHeading={false}
               embedded
+              loadingOverlay
               displayMode={field.displayMode}
             />
           </div>
@@ -1854,7 +1881,7 @@ export default function OrganisationDetailView({
         </div>
         
         {!isNew && (
-          <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setDeleteSubmissionId(null); setDeleteConfirmStep(0); }} className="px-6">
+          <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setDeleteSubmissionId(null); setDeleteConfirmStep(0); }} className="max-w-full overflow-x-auto px-6">
             <TabsList className="bg-transparent border-b-0">
               <TabsTrigger value="overview" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-overview">
                 Overview
@@ -1884,7 +1911,7 @@ export default function OrganisationDetailView({
               </TabsTrigger>
               {relatedRecords.panels.map(({ definition, side, count }) => (
                 <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid={`tab-relationship-${definition.id}-${side}`}>
-                  {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+                  {labelForSide(definition, side)}{!relatedRecords.isFetching && count != null ? ` (${count})` : ""}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -1928,9 +1955,18 @@ export default function OrganisationDetailView({
               definition={definition}
               side={side}
               showHeading={false}
+              loadingOverlay
             />
           )
         ))}
+        {!isNew && organization?.id && activeTab.startsWith('relationship-')
+          && !relatedRecords.panels.some(({ definition, side }) =>
+            relationshipTabValue(definition, side) === activeTab)
+          && (relatedRecords.data == null || relatedRecords.isFetching || relatedRecords.error) && (
+          <div data-relationship-discovery>
+            <RelatedRecordsDefinitionState query={relatedRecords} />
+          </div>
+        )}
         {(activeTab === 'overview' || isNew) && (
           <div className={isNew ? "max-w-4xl mx-auto space-y-6" : "grid grid-cols-1 lg:grid-cols-3 gap-6"}>
             <div className={isNew ? "space-y-6" : "lg:col-span-2 space-y-6"}>

@@ -64,7 +64,7 @@ import { ChevronsUpDown } from "lucide-react";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { normalizeMemberCategorySelections } from '@/lib/memberResourceCategories';
 import { shouldShowMemberMembershipTab } from '@/lib/memberMembershipVisibility';
-import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { RelatedRecordsDefinitionState, RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
   fetchAdminMemberCommunicationPreferences,
@@ -233,6 +233,21 @@ export default function MemberDetail() {
     const routeTab = memberTabFromSearch(searchParams);
     setActiveTab((current) => current === routeTab ? current : routeTab);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (
+      !activeTab.startsWith('relationship-')
+      || relatedRecords.data == null
+      || relatedRecords.isFetching
+      || relatedRecords.error
+    ) return;
+    const selectedPanelExists = relatedRecords.panels.some(({ definition, side }) =>
+      relationshipTabValue(definition, side) === activeTab
+    );
+    if (selectedPanelExists) return;
+    setActiveTab('overview');
+    setSearchParams(searchForMemberTab(searchParams, 'overview'), { replace: true });
+  }, [activeTab, relatedRecords.data, relatedRecords.error, relatedRecords.isFetching, relatedRecords.panels, searchParams, setSearchParams]);
 
   // Delete member state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -467,9 +482,9 @@ export default function MemberDetail() {
     mergeLayoutWithCustomFields(
       layoutConfig,
       memberCustomFields,
-      relatedRecords.isSuccess ? relatedRecords.panels : null
+      relatedRecords.data != null ? relatedRecords.panels : null
     ),
-    [layoutConfig, memberCustomFields, relatedRecords.isSuccess, relatedRecords.panels]
+    [layoutConfig, memberCustomFields, relatedRecords.data, relatedRecords.panels]
   );
 
   const toggleSection = (cardId) => {
@@ -1432,7 +1447,14 @@ export default function MemberDetail() {
         const panel = relatedRecords.panels.find(({ definition, side }) =>
           String(definition.id) === String(field.definitionId) && side === field.side
         );
-        if (!panel) return null;
+        if (!panel) {
+          if (relatedRecords.data != null) return null;
+          return (
+            <div key={field.id} className="md:col-span-full" data-testid={`member-layout-${field.id}`}>
+              <RelatedRecordsDefinitionState query={relatedRecords} />
+            </div>
+          );
+        }
         return (
           <div key={field.id} className="md:col-span-full" data-testid={`member-layout-${field.id}`}>
             <RelatedRecordsPanel
@@ -1442,6 +1464,7 @@ export default function MemberDetail() {
               side={panel.side}
               showHeading={false}
               embedded
+              loadingOverlay
               displayMode={field.displayMode}
             />
           </div>
@@ -1632,6 +1655,7 @@ export default function MemberDetail() {
         const next = searchForMemberTab(searchParams, tab);
         setSearchParams(next, { replace: true });
       }}>
+        <div className="max-w-full overflow-x-auto">
         <TabsList className="mb-6">
           <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
             <User className="w-4 h-4" />
@@ -1677,10 +1701,11 @@ export default function MemberDetail() {
           )}
           {relatedRecords.panels.map(({ definition, side, count }) => (
             <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="gap-1" data-testid={`tab-relationship-${definition.id}-${side}`}>
-              {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+              {labelForSide(definition, side)}{!relatedRecords.isFetching && count != null ? ` (${count})` : ""}
             </TabsTrigger>
           ))}
         </TabsList>
+        </div>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
@@ -2794,9 +2819,17 @@ export default function MemberDetail() {
           )}
           {relatedRecords.panels.map(({ definition, side }) => (
             <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="space-y-6">
-              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} />
+              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} loadingOverlay />
             </TabsContent>
           ))}
+          {activeTab.startsWith('relationship-')
+            && !relatedRecords.panels.some(({ definition, side }) =>
+              relationshipTabValue(definition, side) === activeTab)
+            && (relatedRecords.data == null || relatedRecords.isFetching || relatedRecords.error) && (
+            <div className="space-y-6" data-relationship-discovery>
+              <RelatedRecordsDefinitionState query={relatedRecords} />
+            </div>
+          )}
       </Tabs>
 
       {/* Delete Note Confirmation Dialog */}

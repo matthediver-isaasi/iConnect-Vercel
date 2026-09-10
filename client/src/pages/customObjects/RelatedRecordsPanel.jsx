@@ -31,6 +31,7 @@ import {
 } from "./relationshipColumnHelpers.mjs";
 import { useRelationshipTablePreferences } from "@/hooks/useRelationshipTablePreferences";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
+import { RelatedRecordsLoadingSurface } from "./RelatedRecordsLoadingSurface";
 
 const normalizeContext = ({ context, objectId, recordId }) =>
   context || { kind: "custom_object", objectId, recordId };
@@ -74,6 +75,8 @@ export function useRelatedRecordDefinitions({
   const resolved = normalizeContext({ context, objectId, recordId });
   const query = useQuery({
     queryKey: ["related-record-definitions", resolved.kind, resolved.objectId, resolved.recordId, includeArchived],
+    // Never inherit a global keep-previous-data policy across record identities.
+    placeholderData: undefined,
     queryFn: () => resolved.kind === "custom_object"
       ? loadRelationshipDefinitions(
           resolved.objectId,
@@ -89,6 +92,19 @@ export function useRelatedRecordDefinitions({
     [query.data, resolved.kind, resolved.objectId, includeArchived],
   );
   return { ...query, panels, context: resolved };
+}
+
+export function RelatedRecordsDefinitionState({ query }) {
+  const loading = query.isPending || query.isFetching;
+  return (
+    <Card className="min-w-0 overflow-hidden border-slate-200 shadow-none">
+      <RelatedRecordsLoadingSurface active={loading}>
+        {loading ? <div aria-hidden="true" className="space-y-4 p-5"><div className="h-5 w-32 rounded bg-slate-100" /><div className="h-12 rounded bg-slate-100" /></div>
+          : query.error ? <div role="alert" className="p-5 text-sm text-rose-700">Records could not be loaded. <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
+            : null}
+      </RelatedRecordsLoadingSurface>
+    </Card>
+  );
 }
 
 function EntityPicker({ context, definition, editSide, onPick, disabled }) {
@@ -163,6 +179,7 @@ function RelationshipPanel({
   includeArchived = false,
   embedded = false,
   displayMode = "columns",
+  loadingOverlay = false,
 }) {
   const location = useLocation();
   const linkState = relationshipLinkState(location);
@@ -175,6 +192,9 @@ function RelationshipPanel({
   const queryKey = ["record-relationships", context.kind, context.objectId, context.recordId, definition.id, editSide];
   const query = useQuery({
     queryKey: [...queryKey, page, sortField, sortDir],
+    placeholderData: loadingOverlay
+      ? (previous, previousQuery) => queryKey.every((part, index) => part === previousQuery?.queryKey[index]) ? previous : undefined
+      : undefined,
     queryFn: () => relationshipRequest(routes.edges({
       page,
       pageSize: 10,
@@ -182,6 +202,7 @@ function RelationshipPanel({
       ...(includeArchived ? { includeArchived: "true" } : {}),
     })),
   });
+  const loading = loadingOverlay && (query.isPending || query.isFetching);
   const edges = query.data?.data || [];
   const previewColumns = compactPreviewColumns(
     definition,
@@ -426,15 +447,16 @@ function RelationshipPanel({
       : "—"
     : relationshipScalarDisplayValue(value);
   return (
-    <Card className={embedded ? "overflow-hidden border-slate-200 shadow-none" : "overflow-hidden"}>
+    <Card className={embedded ? "min-w-0 overflow-hidden border-slate-200 shadow-none" : "min-w-0 overflow-hidden"}>
+      <RelatedRecordsLoadingSurface enabled={loadingOverlay} active={loading}>
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-5 py-4">
-          <div><div className="flex items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3><Badge variant="outline">{total}</Badge>{definition.status === "archived" && <Badge variant="outline">Archived definition</Badge>}</div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship{includeArchived ? " history" : ""}</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3>{(!loadingOverlay || (!loading && !query.error)) && <Badge variant="outline">{total}</Badge>}{definition.status === "archived" && <Badge variant="outline">Archived definition</Badge>}</div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship{includeArchived ? " history" : ""}</p></div>
           {editable && <div className="flex gap-2"><EntityPicker context={context} definition={definition} editSide={editSide} disabled={constrained || create.isPending} onPick={(entity) => create.mutate(entity)} />{contextualCreate && <ContextualRecordCreateDialog originContext={context} originRecord={record} originDefinition={definition} originSide={editSide} targetObject={oppositeObject.data} disabled={constrained} />}</div>}
         </div>
         {constrained && editable && <div className="border-b bg-amber-50 px-5 py-2 text-xs text-amber-800">This side has reached its configured relationship limit.</div>}
-        {query.isLoading ? <div className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100" />)}</div>
-          : query.error ? <div className="p-5 text-sm text-rose-700"><CircleAlert className="mr-2 inline h-4 w-4" />{query.error.message} <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
+        {(query.isLoading || (loading && !edges.length)) ? <div aria-hidden="true" className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />)}</div>
+          : query.error && !loading ? <div role="alert" className="p-5 text-sm text-rose-700"><CircleAlert className="mr-2 inline h-4 w-4" />{query.error.message} <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
             : !edges.length ? <div className="p-7 text-center text-sm text-slate-500">No {labelForSide(definition, editSide).toLowerCase()} linked yet.</div>
               : <div className={resolvedDisplayMode === "columns" ? "overflow-x-auto" : ""}>{resolvedDisplayMode === "columns" && <>
                 <div className="flex justify-end border-b px-3 py-2">
@@ -525,11 +547,12 @@ function RelationshipPanel({
                })}</div>}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>
+      </RelatedRecordsLoadingSurface>
     </Card>
   );
 }
 
-export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false, displayMode = "columns" }) {
+export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false, displayMode = "columns", loadingOverlay = false }) {
   const resolved = normalizeContext({ context, objectId, recordId });
   const includeArchived = resolved.kind === "custom_object"
     && Boolean(record?.archived_at || object?.status === "archived");
@@ -542,8 +565,9 @@ export function RelatedRecordsPanel({ context, objectId, recordId, object, recor
   const capabilities = record?.capabilities || object?.capabilities || object?.permissions;
   const explicitPermission = capabilities?.edit_records ?? capabilities?.can_edit_records;
   const canEditRecord = explicitPermission ?? (resolved.kind === "custom_object" ? true : undefined);
+  if (loadingOverlay && !definition && (definitionsQuery.isPending || definitionsQuery.error)) return <RelatedRecordsDefinitionState query={definitionsQuery} />;
   if (!definition && definitionsQuery.isLoading) return <div className="mt-6 space-y-3"><div className="h-6 w-44 animate-pulse rounded bg-slate-200" /><div className="h-36 animate-pulse rounded-lg bg-slate-100" /></div>;
   if (!definition && definitionsQuery.error) return <Card className="mt-6 border-rose-200"><CardContent className="flex gap-3 p-5 text-sm text-rose-700"><CircleAlert className="h-5 w-5 shrink-0" />Relationship panels could not be loaded. {definitionsQuery.error.message}</CardContent></Card>;
   if (!panels.length) return null;
-  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} displayMode={displayMode} />)}</div></section>;
+  return <section className={`min-w-0 ${showHeading ? "mt-8 border-t pt-7" : ""}`}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid min-w-0 gap-4" : "grid min-w-0 gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${resolved.kind}-${resolved.objectId}-${resolved.recordId}-${includeArchived}-${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} displayMode={displayMode} loadingOverlay={loadingOverlay} />)}</div></section>;
 }

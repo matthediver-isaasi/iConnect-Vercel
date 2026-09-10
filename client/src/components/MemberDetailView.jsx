@@ -96,7 +96,7 @@ import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
 import { normalizeMemberCategorySelections } from "@/lib/memberResourceCategories";
 import { shouldShowMemberMembershipTab } from "@/lib/memberMembershipVisibility";
-import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { RelatedRecordsDefinitionState, RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
   fetchAdminMemberCommunicationPreferences,
@@ -247,6 +247,22 @@ export default function MemberDetailView({
   // unambiguous: pre-select it and lock the field.
   const isOrgLocked = isNew && !!defaultOrganizationId;
   const [activeTab, setActiveTab] = useState('overview');
+  useEffect(() => {
+    if (isNew || !member?.id) {
+      if (activeTab.startsWith('relationship-')) setActiveTab('overview');
+      return;
+    }
+    if (
+      !activeTab.startsWith('relationship-')
+      || relatedRecords.data == null
+      || relatedRecords.isFetching
+      || relatedRecords.error
+    ) return;
+    const selectedPanelExists = relatedRecords.panels.some(({ definition, side }) =>
+      relationshipTabValue(definition, side) === activeTab
+    );
+    if (!selectedPanelExists) setActiveTab('overview');
+  }, [isNew, member?.id, activeTab, relatedRecords.data, relatedRecords.error, relatedRecords.isFetching, relatedRecords.panels]);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -1150,6 +1166,7 @@ export default function MemberDetailView({
 
       <main className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="max-w-full overflow-x-auto">
           <TabsList className="mb-6">
             <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
               <User className="w-4 h-4" />
@@ -1187,12 +1204,16 @@ export default function MemberDetailView({
             )}
             {relatedRecords.panels.map(({ definition, side, count }) => (
               <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="gap-1" data-testid={`tab-relationship-${definition.id}-${side}`}>
-                {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+                {labelForSide(definition, side)}{!relatedRecords.isFetching && count != null ? ` (${count})` : ""}
               </TabsTrigger>
             ))}
           </TabsList>
+          </div>
 
           <TabsContent value="overview" className="space-y-6">
+            {!isNew && member?.id && relatedRecords.data == null && (
+              <RelatedRecordsDefinitionState query={relatedRecords} />
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
@@ -2673,9 +2694,17 @@ export default function MemberDetailView({
           )}
           {relatedRecords.panels.map(({ definition, side }) => (
             <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="space-y-6">
-              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} />
+              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} loadingOverlay />
             </TabsContent>
           ))}
+          {!isNew && member?.id && activeTab.startsWith('relationship-')
+            && !relatedRecords.panels.some(({ definition, side }) =>
+              relationshipTabValue(definition, side) === activeTab)
+            && (relatedRecords.data == null || relatedRecords.isFetching || relatedRecords.error) && (
+            <div className="space-y-6" data-relationship-discovery>
+              <RelatedRecordsDefinitionState query={relatedRecords} />
+            </div>
+          )}
         </Tabs>
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>
