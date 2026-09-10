@@ -1,0 +1,304 @@
+# Replit Task – Produce iConnect Functionality Reports
+
+## Objective
+
+A tenant has asked us to provide documentation covering the current functionality within iConnect in three areas:
+
+1. Dashboard and Reporting Widgets.
+2. CRM, including searching and exporting data.
+3. Due Diligence, including filtering and managing data.
+
+This task is **documentation only**.
+
+Do not make any changes to the application, database, UI, workflows or functionality.
+
+Your task is to inspect the existing iConnect codebase and produce a clear, management/user-level functionality report describing what the platform currently supports.
+
+The documentation needs to be sufficiently detailed that it can be supplied directly to a tenant to explain how these parts of iConnect operate.
+
+---
+
+# Report 1 – Dashboard and Reporting Widgets
+
+Review the existing dashboard and reporting functionality throughout iConnect.
+
+Produce a document explaining:
+
+* What dashboards currently exist.
+* What dashboard widgets are currently available.
+* What information each widget can display.
+* Where dashboard information is sourced from.
+* Whether widgets are configurable and, if so, what can be configured.
+* Any filtering available within dashboard/reporting widgets.
+* Date or period filtering available.
+* Chart, table, KPI or statistical reporting options.
+* Whether users can drill into the underlying data.
+* Whether widgets differ according to role, permissions or tenant configuration.
+* How dashboard layouts can be configured, if applicable.
+* Any ability to add, remove, move or resize widgets.
+* Any export functionality associated with dashboard/reporting information.
+* Any reporting functionality available elsewhere in iConnect that is relevant to the dashboard/reporting capability.
+
+Where functionality is conditional upon configuration or permissions, explain this.
+
+The report should describe **current functionality**, not functionality that could theoretically be added.
+
+---
+
+# Report 2 – CRM Search, Filtering and Data Export
+
+Review the current CRM functionality, particularly functionality relating to Organisations, Contacts/Members and any associated CRM records.
+
+Produce a document explaining the current user experience and capabilities for:
+
+## Searching
+
+Document:
+
+* Where CRM searches can be performed.
+* What records can be searched.
+* Which fields are searchable.
+* Whether the search is free-text, field-specific or both.
+* Whether partial matches are supported.
+* Whether search operates across Organisations, Members/Contacts or other related records.
+* How search results are presented.
+
+## Filtering
+
+Document all filtering currently available within the CRM.
+
+For each major CRM listing, identify:
+
+* Available filters.
+* Fields which can be filtered.
+* Filter types.
+* Whether multiple filters can be combined.
+* Date filters.
+* Status filters.
+* Organisation/member relationship filters.
+* Custom field filtering where available.
+* Any saved-filter or saved-view functionality.
+
+Do not simply state that a screen "supports filtering". Document what the user can actually filter by.
+
+## Data Display and Management
+
+Document:
+
+* What information is available within CRM list/table views.
+* Sorting capabilities.
+* Pagination.
+* Column selection/configuration if available.
+* Access to Organisation and Member records.
+* CRM-specific data and activity/history functionality.
+* Any bulk data-management tools currently available.
+
+## Exporting
+
+Fully document current export functionality, including:
+
+* Screens from which exports can be initiated.
+* Data that can be exported.
+* CSV, Excel or other supported formats.
+* Whether exports respect current searches or filters.
+* Whether selected records can be exported.
+* Whether users can choose which fields are included.
+* Whether custom fields are included.
+* How related Organisation/Member data is handled.
+* Any permissions governing exporting.
+* Any practical limitations on exports.
+
+The report should explain this from the perspective of a tenant administrator using iConnect.
+
+---
+
+# Report 3 – Due Diligence Module
+
+Inspect the complete current Due Diligence module and produce a detailed functionality report.
+
+This should cover both the user-facing functionality and the administrative management capabilities.
+
+## Due Diligence Records
+
+Explain:
+
+* What a Due Diligence record represents within iConnect.
+* What it can be associated with, such as an Organisation.
+* How records are created.
+* The principal information held against a record.
+* Statuses and workflow stages currently supported.
+* Any risk, review, approval, expiry or renewal information.
+
+Use the actual implementation and terminology found within the application.
+
+Do not invent generic Due Diligence functionality.
+
+## Searching and Filtering
+
+Document all current ways in which Due Diligence data can be searched and filtered.
+
+Include:
+
+* Keyword search.
+* Organisation filtering.
+* Status filtering.
+* Date filtering.
+* Owner/reviewer filtering.
+* Risk filtering.
+* Type/category filtering.
+* Expiry or renewal filtering.
+* Custom fields where applicable.
+* Any other filtering present in the current implementation.
+
+Where multiple filters can be combined, explain how this works.
+
+## Managing Due Diligence Data
+
+Explain what an authorised user can currently do with Due Diligence records, including where applicable:
+
+* View records.
+* Create records.
+* Edit records.
+* Change status.
+* Assign responsibility.
+* Review information.
+* Approve/reject information.
+* Record dates.
+* Manage expiry/renewal.
+* Add notes.
+* Upload/manage documents.
+* Access the associated Organisation.
+* Delete/archive records.
+* Perform bulk actions.
+
+Only include functionality which actually exists.
+
+## Reporting and Export
+
+Document any:
+
+* Due Diligence reporting.
+* Dashboard widgets.
+* Summary statistics.
+* Status counts.
+* Expiry reporting.
+* Filtered views.
+* CSV/Excel exports.
+* Other data extraction functionality.
+
+---
+
+# Codebase Investigation
+
+Do not rely solely on visible menu labels or individual React components.
+
+Trace enough of the implementation to determine how functionality actually behaves.
+
+Review as appropriate:
+
+* Routes.
+* React components.
+* Hooks.
+* Supabase queries.
+* Database tables/views.
+* RPC/functions.
+* Permissions.
+* Tenant configuration.
+* Custom-field handling.
+* Export utilities.
+* Reporting/chart components.
+* Search/filter components.
+
+Where a UI appears to support something but the underlying implementation shows limitations, document the actual behaviour.
+
+---
+
+# Permissions and Tenant Configuration
+
+For all three reports, identify where functionality is affected by:
+
+* User permissions.
+* Admin status.
+* Tenant configuration.
+* Feature toggles.
+* Module enablement.
+* Record-level access.
+
+Do not expose technical security information that would be inappropriate for a tenant-facing document, but explain relevant user-level restrictions.
+
+---
+
+# Required Output Style
+
+Produce **three separate Markdown documents**:
+
+1. `dashboard-reporting-functionality.md`
+2. `crm-search-export-functionality.md`
+3. `due-diligence-functionality.md`
+
+The documents are intended ultimately to be supplied to a tenant, so write them in clear professional language.
+
+Avoid unnecessary implementation terminology such as:
+
+* React component names.
+* Database column names.
+* Supabase table names.
+* Internal route names.
+* Function names.
+
+These can be used during the investigation but should not normally appear in the final tenant-facing documents.
+
+Structure each document with:
+
+* Overview.
+* Available functionality.
+* Searching/filtering where relevant.
+* Managing information.
+* Reporting/exporting where relevant.
+* Permissions/configuration considerations.
+* Known limitations.
+
+---
+
+# Known Limitations Section
+
+This is important.
+
+At the end of each document include a section titled:
+
+## Current Limitations
+
+Identify functionality that a tenant might reasonably expect within that area but which the investigation confirms is **not currently supported**.
+
+For example, only if confirmed by the codebase:
+
+* A report cannot be exported.
+* Filters cannot be saved.
+* Only certain fields can be searched.
+* Dashboard widgets cannot be configured.
+* Due Diligence records cannot be bulk updated.
+
+Do not turn this into a development proposal.
+
+Simply state factually what the present functionality does and does not support.
+
+---
+
+# Important Constraint
+
+**Do not implement anything.**
+
+Do not:
+
+* Modify code.
+* Add functionality.
+* Create database migrations.
+* Alter permissions.
+* Add filters.
+* Improve exports.
+* Refactor components.
+* Fix perceived shortcomings.
+
+This is an **audit and documentation exercise only**.
+
+The deliverable is an accurate description of the functionality that exists in the current iConnect codebase so that we can respond to the tenant's request and subsequently decide whether any additional development is required.
