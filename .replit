@@ -50,6 +50,10 @@ args = "custom-object-crm-live"
 task = "workflow.run"
 args = "stripe-address-mappings"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "monthly-membership-activation"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -99,6 +103,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node --test shared/formStripeAddressMappings.test.mjs api/_lib/formStripeAddress*.test.mjs api/_lib/formEntityCreationProvenance.test.mjs api/_lib/stripeInvoiceAddress.test.mjs api/_lib/formEntityPipelines.test.mjs api/_lib/formMonthlyCard*.test.mjs api/_lib/stripeMonthlyCard.test.mjs api/forms/processApplication*.test.mjs supabase/migrations/20261017_form_stripe_address_mapping_processing.test.mjs && npx tsx --test client/src/lib/formPaymentReturn.test.mjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "monthly-membership-activation"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --test api/_lib/formEntityPipelines.test.mjs api/_lib/formMonthlyCardCheckout.test.mjs api/_lib/formMonthlyCardFinalize.test.mjs api/_lib/formMonthlyDirectDebitCheckout.test.mjs api/_lib/formMonthlyDirectDebitFinalize.test.mjs api/_lib/stripeMonthlyCard.test.mjs api/_lib/gocardlessWebhookProcessor.test.mjs api/_lib/gocardlessDirectDebit.test.mjs api/_lib/membershipInstalmentInvoicing.test.mjs api/_lib/monthlyMembershipRecovery.test.mjs api/membership/monthly-recovery.test.mjs api/cron/reconcile-gocardless.test.mjs api/cron/reconcile-stripe-card-plans.test.mjs client/src/components/membership/MonthlyMembershipRecoveryCard.test.mjs"
 
 [workflows.workflow.metadata]
 isValidation = true

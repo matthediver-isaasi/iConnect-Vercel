@@ -11,7 +11,7 @@ export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000;
 export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, form_type, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, application_level, field_mappings, structured_actions, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations';
 
 async function readState(db, id) {
-  const { data, error } = await db.from('form_submission').select('payment_status,payment_meta')
+  const { data, error } = await db.from('form_submission').select('payment_status,payment_meta,processing_notes')
     .eq('id', id).maybeSingle();
   if (error) return { state: null, meta: {}, paymentStatus: null, error };
   if (!data) return {
@@ -25,6 +25,7 @@ async function readState(db, id) {
     state: meta.monthly_dd_state || null,
     meta,
     paymentStatus: data.payment_status,
+    processingNotes: data.processing_notes || null,
     error: null,
   };
 }
@@ -42,14 +43,19 @@ async function lease(db, id, meta, stale = null) {
 }
 
 async function stamp(db, id, token, done, detail = null) {
-  const { state, meta, error: stateError } = await readState(db, id);
+  const {
+    state, meta, processingNotes, error: stateError,
+  } = await readState(db, id);
   if (stateError) return false;
   if (state?.owner_token !== token) return false;
   const next = { ...meta };
   if (done) next.monthly_dd_state = { status: 'done', done_at: new Date().toISOString() };
   else delete next.monthly_dd_state;
   const { data, error } = await db.from('form_submission').update({
-    payment_meta: next, ...(detail ? { processing_notes: detail } : {}),
+    payment_meta: next,
+    ...(detail ? {
+      processing_notes: [processingNotes, detail].filter(Boolean).join('\n'),
+    } : {}),
   }).eq('id', id).filter('payment_meta->monthly_dd_state->>owner_token', 'eq', token).select('id');
   return !error && (Array.isArray(data) ? data.length > 0 : !!data);
 }
@@ -156,10 +162,26 @@ export async function finalizeFormMonthlyDirectDebit({ db, agreement, billingReq
   }, Math.max(30_000, Math.floor(FINALIZE_CLAIM_TTL_MS / 3)));
   leaseHeartbeat.unref?.();
   try {
-    const result = await runFormEntityPipelines({ supabase: db, submission, form: formResult.data, baseUrl });
+    const result = await runFormEntityPipelines({
+      supabase: db,
+      submission,
+      form: formResult.data,
+      baseUrl,
+      completionDescription: 'Payment setup completed',
+    });
     memberId = result.memberId || memberId;
+    if (result.failed || result.partial) {
+      await stamp(db, submissionId, token, false);
+      return {
+        handled: false,
+        retryable: true,
+        detail: result.detail || 'application processing incomplete',
+      };
+    }
   } catch (error) {
     console.error('[formMonthlyDirectDebitFinalize] Pipeline error:', error?.message);
+    await stamp(db, submissionId, token, false);
+    return { handled: false, retryable: true, detail: 'application processing errored' };
   } finally {
     clearInterval(leaseHeartbeat);
   }
@@ -191,7 +213,9 @@ export async function finalizeFormMonthlyDirectDebit({ db, agreement, billingReq
   });
   if (!claim.ok) {
     if (claim.conflict) {
-      const { state, meta, error: conflictReadError } = await readState(db, submissionId);
+      const {
+        state, meta, processingNotes, error: conflictReadError,
+      } = await readState(db, submissionId);
       if (conflictReadError || state?.owner_token !== token) {
         return {
           handled: false,
@@ -203,7 +227,7 @@ export async function finalizeFormMonthlyDirectDebit({ db, agreement, billingReq
         detail: claim.detail, detected_at: new Date().toISOString() };
       const { data: conflictSaved, error: conflictSaveError } = await db.from('form_submission').update({
         payment_meta: { ...meta, monthly_dd_state: conflictState },
-        processing_notes: claim.detail,
+        processing_notes: [processingNotes, claim.detail].filter(Boolean).join('\n'),
       }).eq('id', submissionId).filter('payment_meta->monthly_dd_state->>owner_token', 'eq', token).select('id');
       if (conflictSaveError || !(Array.isArray(conflictSaved) ? conflictSaved.length : conflictSaved)) {
         return {

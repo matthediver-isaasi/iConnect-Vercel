@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import { canTransition, applyStatusTransition, STATUS } from './gocardlessState.js';
 import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction } from './gocardlessWebhookProcessor.js';
@@ -28,6 +29,14 @@ for (const action of ['failed', 'cancelled', 'charged_back', 'late_failure_settl
     assert.equal(isCatchUpTerminalFailureAction(action), true);
   });
 }
+
+test('GoCardless reconciliation replays fulfilled and payment lifecycle processors', async () => {
+  const source = await readFile(new URL('../cron/reconcile-gocardless.js', import.meta.url), 'utf8');
+  assert.match(source, /if\s*\(\s*\['active',\s*'reinstated'\]\.includes\(mandate\?\.status\)\s*\)/);
+  assert.match(source, /processGocardlessEvent\s*\(\s*\{\s*[\s\S]*resource_type:\s*'billing_requests'/);
+  assert.match(source, /processGocardlessEvent\s*\(\s*\{\s*[\s\S]*resource_type:\s*'payments'/);
+  assert.match(source, /reconcile:payment:/);
+});
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory supabase-shaped fake
@@ -278,6 +287,65 @@ test('duplicate delivery of the same event is a no-op (idempotent)', async () =>
   assert.equal(db.tables.membership_payment_status_history.length, 1);
   assert.equal(db.tables.gocardless_customers.length, 1);
   assert.equal(db.tables.gocardless_mandates.length, 1);
+});
+
+test('fulfilled retry repairs provider IDs even when agreement status is already mandate_pending', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-repair',
+      tenant_id: TENANT,
+      status: STATUS.MANDATE_PENDING,
+      gocardless_billing_request_id: 'BRQ-repair',
+      gocardless_mandate_id: null,
+      gocardless_customer_id: null,
+    }],
+    membership_payment_status_history: [],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+  });
+
+  const out = await processGocardlessEvent({
+    id: 'EV_BR_REPAIR',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-repair',
+      mandate_request_mandate: 'MD-repair',
+      customer: 'CU-repair',
+    },
+  }, { db, gc: gcStub() });
+
+  assert.equal(out.handled, true);
+  assert.equal(db.tables.membership_billing_agreements[0].gocardless_mandate_id, 'MD-repair');
+  assert.equal(db.tables.membership_billing_agreements[0].gocardless_customer_id, 'CU-repair');
+  assert.equal(db.tables.membership_payment_status_history.length, 0);
+});
+
+test('fulfilled retry rejects a conflicting immutable mandate identity', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-conflict',
+      tenant_id: TENANT,
+      status: STATUS.MANDATE_PENDING,
+      gocardless_billing_request_id: 'BRQ-conflict',
+      gocardless_mandate_id: 'MD-original',
+    }],
+    membership_payment_status_history: [],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+  });
+
+  await assert.rejects(processGocardlessEvent({
+    id: 'EV_BR_CONFLICT',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-conflict',
+      mandate_request_mandate: 'MD-other',
+      customer: 'CU-conflict',
+    },
+  }, { db, gc: gcStub() }), /does not match existing agreement mandate/);
+  assert.equal(db.tables.membership_billing_agreements[0].gocardless_mandate_id, 'MD-original');
 });
 
 test('fulfilled replay for a superseded consent agreement is ignored', async () => {
@@ -844,6 +912,49 @@ test('a confirmed provider retry moves the same payment mirror from failed to co
 
   assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
   assert.equal(db.tables.membership_payment_plans[0].status, STATUS.ACTIVE);
+});
+
+test('sparse confirmed replay preserves payment provider identity and paid_out status', async () => {
+  const plan = {
+    id: 'plan-sparse',
+    tenant_id: TENANT,
+    billing_agreement_id: 'agr-sparse',
+    status: STATUS.ACTIVE,
+    gocardless_subscription_id: 'SB-sparse',
+    retry_count: 0,
+  };
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-sparse',
+      tenant_id: TENANT,
+      status: STATUS.ACTIVE,
+    }],
+    membership_payment_plans: [plan],
+    gocardless_payments: [{
+      id: 'payment-sparse',
+      tenant_id: TENANT,
+      plan_id: 'plan-sparse',
+      gocardless_payment_id: 'PM-sparse',
+      gocardless_subscription_id: 'SB-sparse',
+      gocardless_mandate_id: 'MD-sparse',
+      status: 'paid_out',
+      membership_payment_plans: plan,
+    }],
+    membership_payment_status_history: [],
+  });
+
+  await processGocardlessEvent({
+    id: 'EV_PM_SPARSE_REPLAY',
+    resource_type: 'payments',
+    action: 'confirmed',
+    links: { payment: 'PM-sparse' },
+  }, { db, gc: gcStub() });
+
+  const payment = db.tables.gocardless_payments[0];
+  assert.equal(payment.plan_id, 'plan-sparse');
+  assert.equal(payment.gocardless_subscription_id, 'SB-sparse');
+  assert.equal(payment.gocardless_mandate_id, 'MD-sparse');
+  assert.equal(payment.status, 'paid_out');
 });
 
 test('confirmed first billing-request payment completes a one-instalment plan', async () => {

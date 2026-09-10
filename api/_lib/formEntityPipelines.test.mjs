@@ -184,6 +184,53 @@ test('paid processing preserves a structured-action partial result for reconcili
   }
 });
 
+test('HTTP and invalid-JSON responses have an explicit failed contract without erasing useful notes', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'form-pipeline-failure-test-secret';
+  const submission = {
+    id: 'sub-failure',
+    tenant_id: 'tenant-1',
+    submission_data: {},
+    payment_meta: {},
+    processing_notes: 'Manual review: surname needs confirmation.',
+  };
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => 'unavailable' });
+    const httpDb = makeSupabaseSpy();
+    const http = await runFormEntityPipelines({
+      supabase: httpDb,
+      submission,
+      form: FORM_WITH_PIPELINES,
+      completionDescription: 'Payment setup completed',
+    });
+    assert.equal(http.ran, false);
+    assert.equal(http.failed, true);
+    assert.match(http.detail, /HTTP 503/);
+    assert.match(httpDb.updates[0].values.processing_notes, /Manual review/);
+    assert.match(httpDb.updates[0].values.processing_notes, /Payment setup completed/);
+
+    globalThis.fetch = async () => ({ ok: true, json: async () => { throw new SyntaxError('bad JSON'); } });
+    const invalidJson = await runFormEntityPipelines({
+      supabase: makeSupabaseSpy(),
+      submission,
+      form: FORM_WITH_PIPELINES,
+      completionDescription: 'Payment setup completed',
+    });
+    assert.equal(invalidJson.ran, true);
+    assert.equal(invalidJson.failed, true);
+    assert.match(invalidJson.detail, /no valid JSON/);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('public and embedded submissions surface incomplete structured actions without deleting retry state', () => {
   const source = read('../public/form-submission.js');
   const incompleteStart = source.indexOf("if (result.structured_actions?.success === false)");

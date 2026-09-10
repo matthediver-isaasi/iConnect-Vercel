@@ -24,7 +24,6 @@ import {
   processStripeCardPlanEvent,
   CARD_PLAN_KIND,
   cardPlanNeedsSettlement,
-  settleCardPlanCompletion,
 } from '../_lib/stripeMonthlyCard.js';
 import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
@@ -34,6 +33,7 @@ import { executePostGraceCollection, accrueFailedMonthlyPeriod } from '../_lib/m
 
 const CHECKOUT_PENDING_STALE_HOURS = 6;
 const PLAN_STALE_DAYS = 2;
+const FIRST_PAYMENT_PENDING_STALE_MINUTES = 10;
 const MAX_ROWS_PER_GROUP = 100;
 
 function agoIso(ms) {
@@ -73,7 +73,11 @@ async function withModeTolerance(clients, fn) {
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    console.error('[cron/reconcile-stripe-card-plans] CRON_SECRET is not configured');
+    return res.status(503).json({ error: 'Cron authentication is not configured' });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
     console.log('[cron/reconcile-stripe-card-plans] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -382,81 +386,111 @@ async function reconcileStaleCheckouts(results) {
 }
 
 // Groups 2+3 — stale plans: replay missed paid invoices; repair remote cancels.
-async function reconcileStalePlans(results) {
-  const { data: rows, error } = await supabase
+export async function reconcileStalePlans(results, {
+  db = supabase,
+  pendingBudget = MAX_ROWS_PER_GROUP,
+  establishedBudget = MAX_ROWS_PER_GROUP,
+  getClients = async (tenantId) => stripeClients(await credsFor(tenantId)),
+  tolerateModes = withModeTolerance,
+  replay = replayEvent,
+  transition = (args) => applyStatusTransition(args, { db }),
+  flag = async (table, id, reason) => {
+    const { error } = await db.from(table)
+      .update({ needs_attention: true, attention_reason: reason, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(`flag ${table}#${id} failed: ${error.message}`);
+  },
+} = {}) {
+  // A completed Checkout with no webhook endpoint must not wait the general
+  // two-day drift window for its first paid invoice. Keep established plans on
+  // the lower-frequency window, while checking first-payment-pending plans
+  // after a short ordering/Checkout replay grace period.
+  const commonPlanQuery = () => db
     .from('membership_payment_plans')
     .select('*')
     .eq('provider', 'stripe')
-    .not('stripe_subscription_id', 'is', null)
-    .in('status', [STATUS.FIRST_PAYMENT_PENDING, STATUS.ACTIVE, STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
+    .not('stripe_subscription_id', 'is', null);
+  const [{ data: pendingRows, error: pendingError }, { data: establishedRows, error: establishedError }] = await Promise.all([
+    commonPlanQuery()
+      .eq('status', STATUS.FIRST_PAYMENT_PENDING)
+      .lt('updated_at', agoIso(FIRST_PAYMENT_PENDING_STALE_MINUTES * 60_000))
+      .order('updated_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(pendingBudget),
+    commonPlanQuery()
+      .in('status', [STATUS.ACTIVE, STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
     .lt('updated_at', agoIso(PLAN_STALE_DAYS * 86_400_000))
     .order('updated_at', { ascending: true })
-    .limit(MAX_ROWS_PER_GROUP);
-  if (error) throw new Error(`load stale card plans failed: ${error.message}`);
+      .order('id', { ascending: true })
+      .limit(establishedBudget),
+  ]);
+  if (pendingError) throw new Error(`load first-payment-pending card plans failed: ${pendingError.message}`);
+  if (establishedError) throw new Error(`load stale established card plans failed: ${establishedError.message}`);
+  // Each group owns its budget. A large backlog of old established no-ops can
+  // therefore never consume the first-payment safety-net capacity.
+  const rows = [...(pendingRows || []), ...(establishedRows || [])];
 
   for (const plan of rows || []) {
     try {
-      const creds = await credsFor(plan.tenant_id);
-      const clients = stripeClients(creds);
+      const clients = await getClients(plan.tenant_id);
       if (clients.length === 0) { results.skipped++; continue; }
 
-      // Interrupted completion: all instalments counted but settlement never
-      // finished (history unpaid / subscription still active). Repair BEFORE
-      // invoice replay — those invoices are already recorded as paid, so
-      // replay alone would dedupe them and never settle.
-      if (cardPlanNeedsSettlement(plan)) {
-        const { data: agreement, error: agErr } = await supabase
-          .from('membership_billing_agreements')
-          .select('*')
-          .eq('id', plan.billing_agreement_id)
-          .maybeSingle();
-        if (agErr) throw new Error(`load agreement for settlement repair failed: ${agErr.message}`);
-        if (agreement) {
-          const settled = await settleCardPlanCompletion({
-            // Pass ALL mode clients: conclusion is only confirmed if the
-            // subscription is cancelled/missing in EVERY mode (mode-flip safe).
-            plan, agreement, stripe: clients, eventId: `reconcile-settle-${plan.id}`,
-          });
-          results.repaired++;
-          results.details.push({ plan: plan.id, repaired: `resumed interrupted completion settlement (workflow=${settled.workflowFired})` });
-          continue;
-        }
-      }
-
-      const { client, result: sub } = await withModeTolerance(clients, (c) =>
+      const { client, result: sub } = await tolerateModes(clients, (c) =>
         c.subscriptions.retrieve(plan.stripe_subscription_id));
       if (!sub) {
-        await flagAttention('membership_payment_plans', plan.id,
+        await flag('membership_payment_plans', plan.id,
           `Stripe subscription ${plan.stripe_subscription_id} not found in either mode`);
         results.flagged++;
         continue;
       }
 
-      // Replay any paid invoices we missed (dedupe via metadata.paid_invoice_ids
-      // inside the processor keeps this exactly-once).
-      const paidIds = Array.isArray(plan.metadata?.paid_invoice_ids) ? plan.metadata.paid_invoice_ids : [];
+      // Replay paid invoices through the shared processor; its durable invoice
+      // ID dedupe keeps instalment advancement exactly-once.
       const invoices = await client.invoices.list({ subscription: plan.stripe_subscription_id, status: 'paid', limit: 100 });
       let replayed = 0;
       for (const inv of invoices?.data || []) {
-        if (paidIds.includes(inv.id)) continue;
-        const outcome = await replayEvent(plan.tenant_id, {
+        if (inv.status !== 'paid' && inv.paid !== true) continue;
+        // Replay counted invoices too (finite plans are bounded to 12). The
+        // shared processor dedupes the counter/provider side effects but
+        // retries per-instalment accounting and activation that may have
+        // failed immediately after an early counter commit.
+        const outcome = await replay(plan.tenant_id, {
           id: `reconcile-invoice-${inv.id}`,
           type: 'invoice.paid',
-          data: { object: { ...inv, subscription: plan.stripe_subscription_id } },
+          // Preserve the invoice exactly as returned. Modern Stripe invoices
+          // carry the subscription under parent.subscription_details; forging
+          // a legacy subscription field could mask an identity mismatch.
+          data: { object: inv },
         }, client);
         if (outcome.handled) replayed++;
       }
-      if (replayed > 0) {
+      // Never bypass the shared processor when the counted final invoice
+      // cannot be found: direct settlement would silently skip activation and
+      // a missing per-instalment accounting row. Keep the plan resumable and
+      // visibly fail for operator review instead.
+      if (cardPlanNeedsSettlement(plan) && replayed === 0) {
+        throw new Error(`recorded final paid invoice ${plan.last_payment_id || '(unknown)'} was not returned by Stripe`);
+      }
+
+      // Replay may have terminalized the plan. Reload before interpreting the
+      // provider's canceled status so completion is never regressed to
+      // payment_plan_cancelled.
+      const { data: latestPlan, error: latestError } = await db
+        .from('membership_payment_plans')
+        .select('*')
+        .eq('id', plan.id)
+        .maybeSingle();
+      if (latestError) throw new Error(`reload reconciled card plan failed: ${latestError.message}`);
+      if (latestPlan?.completed_at || latestPlan?.status === STATUS.EXPIRED) {
         results.repaired++;
-        results.details.push({ plan: plan.id, repaired: `replayed ${replayed} missed paid invoice(s)` });
+        results.details.push({ plan: plan.id, repaired: `replayed ${replayed} paid invoice obligation(s); plan completed` });
         continue;
       }
 
-      // No missed payments; repair remote cancellation drift. A subscription
-      // we cancelled ourselves at completion moves the plan out of the
-      // statuses selected above, so a cancel seen here is a true drift.
+      // A handled duplicate is still "replayed", but must not swallow remote
+      // cancellation repair for an established non-terminal plan.
       if (sub.status === 'canceled') {
-        const outcome = await applyStatusTransition({
+        const outcome = await transition({
           entityType: 'payment_plan',
           entityId: plan.id,
           toStatus: STATUS.PAYMENT_PLAN_CANCELLED,
@@ -465,12 +499,30 @@ async function reconcileStalePlans(results) {
         });
         if (outcome.applied) results.repaired++;
         else results.skipped++;
+      } else if (replayed > 0) {
+        results.repaired++;
+        results.details.push({ plan: plan.id, repaired: `replayed ${replayed} paid invoice obligation(s)` });
       } else {
         results.skipped++;
       }
     } catch (err) {
       results.errors++;
       results.details.push({ plan: plan.id, error: err.message });
+    } finally {
+      // Rotate every examined row, including skips/failures, so the oldest
+      // unchanged row cannot monopolise a bounded batch forever. The original
+      // updated_at guard makes this a CAS touch: concurrent webhook/recovery
+      // writes win and are never overwritten.
+      if (plan.updated_at) {
+        const { error: touchError } = await db.from('membership_payment_plans')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', plan.id)
+          .eq('updated_at', plan.updated_at);
+        if (touchError) {
+          results.errors++;
+          results.details.push({ plan: plan.id, error: `rotate reconciliation row failed: ${touchError.message}` });
+        }
+      }
     }
   }
 }

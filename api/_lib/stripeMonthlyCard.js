@@ -242,7 +242,7 @@ export function stripeInvoiceFailedDuePeriod(invoice) {
   // Invoice-level period_start is only meaningful for a known recurring
   // subscription invoice when expanded line data was unavailable.
   const recurring = ['subscription_cycle', 'subscription_create', 'subscription_update']
-    .includes(invoice?.billing_reason) || !!invoice?.subscription;
+    .includes(invoice?.billing_reason) || !!stripeInvoiceSubscriptionId(invoice);
   const epoch = recurring ? Number(invoice?.period_start) : NaN;
   return Number.isFinite(epoch) && epoch > 0
     ? new Date(epoch * 1000).toISOString().slice(0, 10) : null;
@@ -1268,6 +1268,48 @@ export async function invoiceBelongsToCardPlan(object, subscriptionId, { getStri
   }
 }
 
+/** Stripe moved Invoice.subscription to parent.subscription_details.subscription
+ * in newer API versions. Accept both shapes without rewriting provider data. */
+export function stripeInvoiceSubscriptionId(invoice) {
+  const value = invoice?.parent?.subscription_details?.subscription
+    ?? invoice?.subscription_details?.subscription
+    ?? invoice?.subscription
+    ?? null;
+  return typeof value === 'string' ? value : value?.id || null;
+}
+
+function validateCardInvoiceIdentityAndEconomics({ invoice, plan, agreement, hasCatchUpItem }) {
+  const metadata = invoice?.parent?.subscription_details?.metadata
+    || invoice?.subscription_details?.metadata
+    || {};
+  const expectedCurrency = String(plan?.currency || agreement?.metadata?.card?.currency || '').toLowerCase();
+  const actualCurrency = String(invoice?.currency || '').toLowerCase();
+  if (expectedCurrency && actualCurrency && actualCurrency !== expectedCurrency) {
+    throw new Error(`Stripe invoice currency mismatch (expected ${expectedCurrency}, got ${actualCurrency})`);
+  }
+  if (metadata.kind && metadata.kind !== CARD_PLAN_KIND) {
+    throw new Error('Stripe invoice subscription kind mismatch');
+  }
+  if (metadata.tenant_id && String(metadata.tenant_id) !== String(plan.tenant_id)) {
+    throw new Error('Stripe invoice tenant identity mismatch');
+  }
+  if (metadata.agreement_id && String(metadata.agreement_id) !== String(agreement.id)) {
+    throw new Error('Stripe invoice agreement identity mismatch');
+  }
+  // Zero-value subscription invoices are acknowledged below without any
+  // instalment/accounting work. Validate their identity, not an instalment
+  // amount that they intentionally do not collect.
+  if (!hasCatchUpItem && Number(invoice?.amount_paid) === 0
+      && Number(invoice?.amount_due) === 0) return;
+  // Catch-up invoices have separately validated immutable combined economics.
+  // An ordinary instalment must cash-settle exactly the snapshotted plan amount.
+  const expectedAmount = Number(plan?.amount_minor);
+  if (!hasCatchUpItem && Number.isInteger(expectedAmount) && expectedAmount > 0
+      && Number(invoice?.amount_paid) !== expectedAmount) {
+    throw new Error(`Stripe invoice amount mismatch (expected ${expectedAmount}, got ${invoice?.amount_paid})`);
+  }
+}
+
 /**
  * Process one Stripe event for the monthly-card membership plans.
  * Returns { handled: boolean, detail: string }. Throws on hard failures
@@ -1411,16 +1453,45 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }, { db });
     const fresh = await findCardAgreementById(db, agreement.id);
     const activation = await activateMembershipForCardAgreement(fresh || agreement, { trigger: 'checkout_complete', db });
+    // invoice.paid is not ordered after checkout.session.completed. If it
+    // arrived first, its durable event may already have been attempted. Repair
+    // that ordering window immediately from Stripe's authoritative latest
+    // invoice instead of leaving a paid plan first_payment_pending until cron.
+    let initialInvoiceRef = object.invoice || object.subscription?.latest_invoice || null;
+    if (!initialInvoiceRef) {
+      const subscriptionId = typeof object.subscription === 'string'
+        ? object.subscription : object.subscription?.id;
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        initialInvoiceRef = subscription?.latest_invoice || null;
+      }
+    }
+    let initialInvoice = typeof initialInvoiceRef === 'object' ? initialInvoiceRef : null;
+    const initialInvoiceId = typeof initialInvoiceRef === 'string'
+      ? initialInvoiceRef : initialInvoiceRef?.id;
+    if (initialInvoiceId && (!initialInvoice || initialInvoice.amount_paid == null || !initialInvoice.status)) {
+      initialInvoice = await stripe.invoices.retrieve(initialInvoiceId);
+    }
+    let invoiceDetail = '';
+    if (initialInvoice?.id && (initialInvoice.status === 'paid' || initialInvoice.paid === true)) {
+      const replay = await processStripeCardPlanEvent({
+        id: `${event.id}:initial-invoice:${initialInvoice.id}`,
+        type: 'invoice.paid',
+        data: { object: initialInvoice },
+      }, deps);
+      if (!replay.handled) {
+        throw new Error(`paid initial invoice could not be applied: ${replay.detail}`);
+      }
+      invoiceDetail = `; initial invoice: ${replay.detail}`;
+    }
     return {
       handled: true,
-      detail: `checkout completed: ${boundary.detail}; ${ensured.detail}; activation: ${activation.detail}`,
+      detail: `checkout completed: ${boundary.detail}; ${ensured.detail}; activation: ${activation.detail}${invoiceDetail}`,
     };
   }
 
   if (type === 'invoice.paid' || type === 'invoice.payment_succeeded') {
-    const subscriptionId = typeof object.subscription === 'string'
-      ? object.subscription
-      : (object.subscription?.id || object.parent?.subscription_details?.subscription || null);
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
     let plan = await findCardPlanBySubscription(db, subscriptionId);
     if (!plan) {
@@ -1477,6 +1548,12 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     const hasCatchUpItem = !!catchUpIntent && invoiceLines.some((line) =>
       line.id === catchUpIntent.provider_reference || line.invoice_item === catchUpIntent.provider_reference
       || line.metadata?.catch_up_intent_key === catchUpIntent.intent_key);
+    validateCardInvoiceIdentityAndEconomics({
+      invoice: object,
+      plan,
+      agreement,
+      hasCatchUpItem,
+    });
 
     // Zero-amount invoices (proration artefacts) don't advance instalments.
     if (Number(object.amount_paid) === 0 && Number(object.amount_due) === 0) {
@@ -1532,16 +1609,21 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     const periodsSettled = Number(arrearsSettlement?.settled_count) || 0;
     let decision = cardPlanCompletionDecision({ plan, invoiceId: object.id, periodsSettled });
     if (decision.duplicate) {
-      // Resumable completion: the counter committed on a previous attempt but
-      // settlement failed afterwards — retry settlement, don't exit silently.
-      if (cardPlanNeedsSettlement(plan)) {
-        await progressCardPlanAfterPaidInvoice({
-          plan,
-          agreement,
-          instalmentsPaid: plan.instalments_paid,
-          eventId: event.id,
-          db,
+      // The counter is committed before activation/progress. Re-run those
+      // idempotent obligations for every non-terminal counted invoice, not
+      // only the final one: a split after an early instalment must not strand
+      // the agreement/history in first_payment_pending. Per-instalment posting
+      // was likewise retried above before this dedupe branch.
+      if (!plan.completed_at && plan.status !== STATUS.EXPIRED) {
+        const activation = await progressCardPlanAfterPaidInvoice({
+          plan, agreement, instalmentsPaid: plan.instalments_paid, eventId: event.id, db,
         });
+        if (!cardPlanNeedsSettlement(plan)) {
+          return {
+            handled: true,
+            detail: `invoice ${object.id} already counted; payment obligations resumed; activation: ${activation.detail}`,
+          };
+        }
         const stripe = getStripe ? await getStripe() : null;
         const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
         return { handled: true, detail: `invoice ${object.id} already counted; settlement resumed (workflow=${settled.workflowFired})` };
@@ -1571,14 +1653,16 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       // invoice-id dedupe then guarantees no second instalment advancement.
       decision = cardPlanCompletionDecision({ plan, invoiceId: object.id });
       if (decision.duplicate) {
-        if (cardPlanNeedsSettlement(plan)) {
-          await progressCardPlanAfterPaidInvoice({
-            plan,
-            agreement,
-            instalmentsPaid: plan.instalments_paid,
-            eventId: event.id,
-            db,
+        if (!plan.completed_at && plan.status !== STATUS.EXPIRED) {
+          const activation = await progressCardPlanAfterPaidInvoice({
+            plan, agreement, instalmentsPaid: plan.instalments_paid, eventId: event.id, db,
           });
+          if (!cardPlanNeedsSettlement(plan)) {
+            return {
+              handled: true,
+              detail: `invoice ${object.id} already counted (race); payment obligations resumed; activation: ${activation.detail}`,
+            };
+          }
           const stripe = getStripe ? await getStripe() : null;
           const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
           return { handled: true, detail: `invoice ${object.id} already counted (race); settlement resumed (workflow=${settled.workflowFired})` };
@@ -1612,8 +1696,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   }
 
   if (type === 'invoice.voided' || type === 'invoice.marked_uncollectible') {
-    const subscriptionId = typeof object.subscription === 'string'
-      ? object.subscription : (object.subscription?.id || object.parent?.subscription_details?.subscription || null);
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'terminal invoice has no subscription' };
     const plan = await findCardPlanBySubscription(db, subscriptionId);
     if (!plan) return { handled: false, detail: 'terminal invoice has no local plan' };
@@ -1637,9 +1720,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   }
 
   if (type === 'invoice.payment_failed') {
-    const subscriptionId = typeof object.subscription === 'string'
-      ? object.subscription
-      : (object.subscription?.id || object.parent?.subscription_details?.subscription || null);
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
     const plan = await findCardPlanBySubscription(db, subscriptionId);
     if (!plan) {

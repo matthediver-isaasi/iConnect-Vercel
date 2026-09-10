@@ -44,6 +44,7 @@ const {
   settleCardPlanCompletion,
   stripeInvoiceFailedDuePeriod,
   validateStripeCatchUpInvoiceEconomics,
+  stripeInvoiceSubscriptionId,
 } = await import('./stripeMonthlyCard.js');
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,11 @@ test('Stripe invoice period_start fallback requires no expanded lines and recurr
     subscription: 'sub_1', billing_reason: 'subscription_cycle', period_start: 1735689600, lines: { data: [] },
   }), '2025-01-01');
   assert.equal(stripeInvoiceFailedDuePeriod({ period_start: 1735689600, lines: { data: [] } }), null);
+  assert.equal(stripeInvoiceFailedDuePeriod({
+    parent: { subscription_details: { subscription: 'sub_modern' } },
+    period_start: 1735689600,
+    lines: { data: [] },
+  }), '2025-01-01');
 });
 
 const economicIntent = {
@@ -107,13 +113,16 @@ for (const [name, mutate, pattern] of [
   });
 }
 
-function processorEconomicsDb(mutations) {
+function processorEconomicsDb(mutations, { perInstalment = false } = {}) {
   const plan = {
     id: 'plan-econ', tenant_id: 'tenant-econ', provider: 'stripe',
     stripe_subscription_id: 'sub-econ', billing_agreement_id: 'agreement-econ',
     amount_minor: 1200, instalments_total: 12, instalments_paid: 1, metadata: {},
   };
-  const agreement = { id: 'agreement-econ', tenant_id: 'tenant-econ', metadata: { card: {} } };
+  const agreement = {
+    id: 'agreement-econ', tenant_id: 'tenant-econ',
+    metadata: { card: perInstalment ? { kind: 'monthly_card', invoicing_mode: 'per_instalment' } : {} },
+  };
   const intent = {
     id: 'intent-econ', tenant_id: 'tenant-econ', plan_id: 'plan-econ',
     intent_key: 'catch-1', provider_reference: 'ii-arrears',
@@ -155,6 +164,49 @@ for (const [name, mutate] of [
     assert.deepEqual(mutations, []);
   });
 }
+
+test('zero-value subscription invoices are ignored without instalment or accounting mutations', async () => {
+  const mutations = [];
+  let accountingCalls = 0;
+  let providerCalls = 0;
+  const db = processorEconomicsDb(mutations, { perInstalment: true });
+  const invoice = {
+    id: 'in-zero-proration', status: 'paid', amount_paid: 0, amount_due: 0,
+    currency: 'gbp', billing_reason: 'subscription_update',
+    parent: { subscription_details: {
+      subscription: 'sub-econ',
+      metadata: { tenant_id: 'tenant-econ', agreement_id: 'agreement-econ', kind: 'monthly_card' },
+    } },
+    lines: { data: [] },
+  };
+  const deps = {
+    db,
+    postInstalmentInvoice: async () => { accountingCalls++; },
+    getStripe: async () => { providerCalls++; return {}; },
+  };
+  for (const type of ['invoice.paid', 'invoice.payment_succeeded']) {
+    const result = await processStripeCardPlanEvent({
+      id: `evt-zero-${type}`, type, data: { object: invoice },
+    }, deps);
+    assert.equal(result.handled, true);
+    assert.equal(result.detail, 'zero-amount invoice ignored');
+  }
+  assert.deepEqual(mutations, []);
+  assert.equal(accountingCalls, 0);
+  assert.equal(providerCalls, 0);
+  await assert.rejects(processStripeCardPlanEvent({
+    id: 'evt-zero-wrong-tenant', type: 'invoice.paid',
+    data: { object: {
+      ...invoice,
+      parent: { subscription_details: {
+        ...invoice.parent.subscription_details,
+        metadata: { ...invoice.parent.subscription_details.metadata, tenant_id: 'other-tenant' },
+      } },
+    } },
+  }, deps), /tenant identity mismatch/);
+  assert.deepEqual(mutations, []);
+  assert.equal(accountingCalls, 0);
+});
 
 const flatSim = (overrides = {}, configOverrides = {}) => ({
   success: true,
@@ -741,6 +793,7 @@ function settlementHarness({
   planStatus = 'active',
   agreementStatus = 'active',
   activationRule = 'first_payment',
+  invoicingMode = 'annual',
   formSubmissionId = null,
   claimWins = true,     // claim lease CAS: does this handler win the lease?
   renewWins = true,     // renew lease CAS (inside delivery reservation)
@@ -766,7 +819,11 @@ function settlementHarness({
     status: agreementStatus,
     member_id: 'm1',
     metadata: {
-      card: { kind: CARD_PLAN_KIND, activation_rule: activationRule },
+      card: {
+        kind: CARD_PLAN_KIND,
+        activation_rule: activationRule,
+        invoicing_mode: invoicingMode,
+      },
       ...(formSubmissionId ? { form_submission_id: formSubmissionId } : {}),
     },
   };
@@ -841,6 +898,68 @@ const invoicePaidEvent = {
   type: 'invoice.paid',
   data: { object: { id: 'in_final', subscription: 'sub_1', amount_paid: 1000, amount_due: 1000 } },
 };
+
+test('counted non-final invoice replay resumes activation and retries per-instalment posting idempotently', async () => {
+  const { updates, db } = settlementHarness({
+    instalmentsTotal: 3,
+    instalmentsPaid: 1,
+    planStatus: 'first_payment_pending',
+    agreementStatus: 'first_payment_pending',
+    activationRule: 'first_payment',
+    invoicingMode: 'per_instalment',
+    planMetadata: { paid_invoice_ids: ['in_first'] },
+    historyRows: [{
+      id: 'h1',
+      billing_agreement_id: 'a1',
+      member_id: 'm1',
+      status: 'pending_payment_setup',
+      payment_status: 'unpaid',
+    }],
+  });
+  const event = {
+    id: 'evt_first_replay',
+    type: 'invoice.paid',
+    data: {
+      object: {
+        id: 'in_first',
+        subscription: 'sub_1',
+        status: 'paid',
+        amount_paid: 1000,
+        amount_due: 1000,
+        currency: 'gbp',
+      },
+    },
+  };
+  const posted = new Set();
+  let postingAttempts = 0;
+  let postingCreates = 0;
+  const postInstalmentInvoice = async ({ stripeInvoiceId }) => {
+    postingAttempts += 1;
+    if (!posted.has(stripeInvoiceId)) {
+      posted.add(stripeInvoiceId);
+      postingCreates += 1;
+    }
+    return { status: 'posted' };
+  };
+
+  const first = await processStripeCardPlanEvent(event, { db, postInstalmentInvoice });
+  const second = await processStripeCardPlanEvent(
+    { ...event, id: 'evt_first_replay_again' },
+    { db, postInstalmentInvoice },
+  );
+
+  assert.match(first.detail, /payment obligations resumed/);
+  assert.match(second.detail, /payment obligations resumed/);
+  assert.equal(postingAttempts, 2, 'each replay retries the accounting obligation');
+  assert.equal(postingCreates, 1, 'provider helper idempotency prevents a second accounting invoice');
+  assert.ok(updates.some((u) =>
+    u.table === 'membership_billing_agreements' && u.payload.status === 'active'));
+  assert.ok(updates.some((u) =>
+    u.table === 'member_membership_history' && u.payload.status === 'active'));
+  assert.ok(!updates.some((u) =>
+    u.table === 'membership_payment_plans' && Object.hasOwn(u.payload, 'instalments_paid')),
+  'a counted invoice replay must not increment instalments again');
+});
 
 function stripeStub({ cancelFails = false, retrievedStatus = 'active' } = {}) {
   const calls = { cancel: 0, retrieve: 0 };
@@ -1215,6 +1334,113 @@ test('invoice.paid before checkout: OUR unmatched invoice is retryable, foreign 
   const foreign = await processStripeCardPlanEvent(foreignEvent, { db: emptyDb, getStripe: async () => null });
   assert.equal(foreign.handled, false);
   assert.ok(!foreign.retryable, 'foreign subscriptions are skipped, not retried');
+});
+
+test('modern Stripe invoice parent resolves subscription and remains retryable before plan creation', async () => {
+  const emptyDb = {
+    from() {
+      const chain = {
+        select() { return chain; }, eq() { return chain; },
+        maybeSingle: async () => ({ data: null, error: null }),
+      };
+      return chain;
+    },
+  };
+  const invoice = {
+    id: 'in_modern',
+    status: 'paid',
+    paid: true,
+    amount_paid: 508,
+    currency: 'gbp',
+    parent: {
+      subscription_details: {
+        subscription: 'sub_modern',
+        metadata: { kind: CARD_PLAN_KIND, tenant_id: 'tenant-1' },
+      },
+    },
+  };
+  assert.equal(stripeInvoiceSubscriptionId(invoice), 'sub_modern');
+  const outcome = await processStripeCardPlanEvent({
+    id: 'evt_modern_early',
+    type: 'invoice.paid',
+    data: { object: invoice },
+  }, { db: emptyDb, getStripe: async () => null });
+  assert.equal(outcome.handled, false);
+  assert.equal(outcome.retryable, true);
+  assert.match(outcome.detail, /awaiting checkout event/);
+});
+
+test('modern paid invoice rejects amount, currency, and tenant mismatches before plan mutation', async () => {
+  const mutations = [];
+  const plan = {
+    id: 'plan-modern',
+    tenant_id: 'tenant-1',
+    provider: 'stripe',
+    stripe_subscription_id: 'sub_modern',
+    billing_agreement_id: 'agreement-1',
+    amount_minor: 508,
+    currency: 'GBP',
+    instalments_total: 12,
+    instalments_paid: 0,
+    metadata: { paid_invoice_ids: [] },
+  };
+  const agreement = {
+    id: 'agreement-1',
+    tenant_id: 'tenant-1',
+    metadata: { card: { currency: 'GBP' } },
+  };
+  const db = {
+    from(table) {
+      const chain = {
+        select() { return chain; }, eq() { return chain; }, or() { return chain; }, order() { return chain; },
+        update() { mutations.push(table); return chain; },
+        maybeSingle: async () => ({
+          data: table === 'membership_payment_plans' ? plan
+            : table === 'membership_billing_agreements' ? agreement : null,
+          error: null,
+        }),
+        then(resolve) { return Promise.resolve({ data: [], error: null }).then(resolve); },
+      };
+      return chain;
+    },
+  };
+  const base = {
+    id: 'in_modern',
+    status: 'paid',
+    paid: true,
+    amount_paid: 508,
+    amount_due: 508,
+    currency: 'gbp',
+    parent: {
+      subscription_details: {
+        subscription: 'sub_modern',
+        metadata: {
+          kind: CARD_PLAN_KIND,
+          tenant_id: 'tenant-1',
+          agreement_id: 'agreement-1',
+        },
+      },
+    },
+  };
+  for (const [patch, pattern] of [
+    [{ amount_paid: 509 }, /amount mismatch/],
+    [{ currency: 'usd' }, /currency mismatch/],
+    [{
+      parent: {
+        subscription_details: {
+          ...base.parent.subscription_details,
+          metadata: { ...base.parent.subscription_details.metadata, tenant_id: 'tenant-other' },
+        },
+      },
+    }, /tenant identity mismatch/],
+  ]) {
+    await assert.rejects(processStripeCardPlanEvent({
+      id: `evt_${pattern.source}`,
+      type: 'invoice.paid',
+      data: { object: { ...base, ...patch } },
+    }, { db }), pattern);
+  }
+  assert.deepEqual(mutations, []);
 });
 
 test('processStripeCardPlanEvent: duplicate invoice on an already-settled plan stays a no-op', async () => {
@@ -1614,6 +1840,198 @@ test('checkout boundary failure performs zero local initialization writes and re
   assert.deepEqual(db.inserts, []);
 });
 
+function statefulCheckoutDb(agreement) {
+  const state = {
+    membership_billing_agreements: [{ ...agreement }],
+    membership_payment_plans: [],
+    member_membership_history: [{
+      id: 'history-checkout',
+      tenant_id: agreement.tenant_id,
+      member_id: agreement.member_id,
+      billing_agreement_id: agreement.id,
+      status: 'pending_payment_setup',
+      payment_status: 'unpaid',
+    }],
+    membership_payment_status_history: [],
+    membership_monthly_collection_intent: [],
+  };
+  let planInsertCount = 0;
+  const db = {
+    state,
+    get planInsertCount() { return planInsertCount; },
+    from(table) {
+      const filters = [];
+      let updatePayload = null;
+      let insertPayload = null;
+      const rows = () => state[table] || [];
+      const matches = (row) => filters.every(({ kind, key, value }) => {
+        if (kind === 'eq') return row?.[key] === value;
+        if (kind === 'neq') return row?.[key] !== value;
+        if (kind === 'is') return value === null ? row?.[key] == null : row?.[key] === value;
+        return true;
+      });
+      const execute = () => {
+        if (insertPayload != null) {
+          const values = Array.isArray(insertPayload) ? insertPayload : [insertPayload];
+          const inserted = values.map((value) => ({
+            ...(table === 'membership_payment_plans' ? { id: `plan-${planInsertCount + 1}` } : {}),
+            ...value,
+          }));
+          if (!state[table]) state[table] = [];
+          state[table].push(...inserted);
+          if (table === 'membership_payment_plans') planInsertCount += inserted.length;
+          return { data: inserted, error: null };
+        }
+        const matched = rows().filter(matches);
+        if (updatePayload) {
+          matched.forEach((row) => Object.assign(row, updatePayload));
+        }
+        return { data: matched, error: null };
+      };
+      const chain = {
+        select() { return chain; },
+        eq(key, value) { filters.push({ kind: 'eq', key, value }); return chain; },
+        neq(key, value) { filters.push({ kind: 'neq', key, value }); return chain; },
+        is(key, value) { filters.push({ kind: 'is', key, value }); return chain; },
+        filter() { return chain; },
+        or() { return chain; },
+        order() { return chain; },
+        update(payload) { updatePayload = payload; return chain; },
+        insert(payload) { insertPayload = payload; return chain; },
+        async maybeSingle() {
+          const result = execute();
+          return { data: result.data[0] || null, error: result.error };
+        },
+        async single() {
+          const result = execute();
+          return { data: result.data[0] || null, error: result.error };
+        },
+        then(resolve, reject) { return Promise.resolve(execute()).then(resolve, reject); },
+      };
+      return chain;
+    },
+  };
+  return db;
+}
+
+test('checkout processor retries failed latest-invoice retrieval and applies one plan/instalment/accounting invoice', async () => {
+  const agreement = {
+    id: 'agreement-checkout-replay',
+    tenant_id: 'tenant-checkout',
+    member_id: 'member-checkout',
+    provider: 'stripe',
+    status: 'payment_setup_required',
+    metadata: {
+      card: {
+        kind: CARD_PLAN_KIND,
+        monthly_amount_minor: 508,
+        currency: 'GBP',
+        instalment_count: 3,
+        membership_year: '2026/2027',
+        activation_rule: 'first_payment',
+        invoicing_mode: 'per_instalment',
+      },
+      stripe_billing_address: { country: 'GB' },
+    },
+  };
+  const db = statefulCheckoutDb(agreement);
+  const baseStripe = finiteScheduleStripe({
+    instalmentCount: 3,
+    subscriptionId: 'sub_checkout_replay',
+    agreementId: agreement.id,
+  });
+  const baseRetrieve = baseStripe.subscriptions.retrieve;
+  let subscriptionRetrievals = 0;
+  let failLatestOnce = true;
+  baseStripe.subscriptions.retrieve = async (...args) => {
+    subscriptionRetrievals += 1;
+    // First retrieval establishes/verifies the finite boundary. The following
+    // retrieval is the checkout safety-net lookup for latest_invoice.
+    if (subscriptionRetrievals > 1 && failLatestOnce) {
+      failLatestOnce = false;
+      throw new Error('transient latest invoice retrieval failure');
+    }
+    return {
+      ...(await baseRetrieve(...args)),
+      latest_invoice: subscriptionRetrievals > 1 ? 'in_checkout_paid' : null,
+    };
+  };
+  const invoice = {
+    id: 'in_checkout_paid',
+    status: 'paid',
+    amount_paid: 508,
+    amount_due: 508,
+    currency: 'gbp',
+    parent: {
+      subscription_details: {
+        subscription: 'sub_checkout_replay',
+        metadata: {
+          kind: CARD_PLAN_KIND,
+          tenant_id: agreement.tenant_id,
+          agreement_id: agreement.id,
+        },
+      },
+    },
+  };
+  baseStripe.invoices = { retrieve: async () => invoice };
+  const posted = new Set();
+  let postingAttempts = 0;
+  let postingCreates = 0;
+  const postInstalmentInvoice = async ({ stripeInvoiceId }) => {
+    postingAttempts += 1;
+    if (!posted.has(stripeInvoiceId)) {
+      posted.add(stripeInvoiceId);
+      postingCreates += 1;
+    }
+    return { status: 'posted' };
+  };
+  const event = {
+    id: 'evt_checkout_replay',
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        id: 'cs_checkout_replay',
+        mode: 'subscription',
+        subscription: 'sub_checkout_replay',
+        customer: 'cus_checkout_replay',
+        metadata: { kind: CARD_PLAN_KIND, agreement_id: agreement.id },
+      },
+    },
+  };
+  const deps = {
+    db,
+    getStripe: async () => baseStripe,
+    postInstalmentInvoice,
+  };
+
+  await assert.rejects(
+    processStripeCardPlanEvent(event, deps),
+    /transient latest invoice retrieval failure/,
+  );
+  assert.equal(db.planInsertCount, 1, 'plan creation committed before the transient lookup failure');
+  assert.equal(db.state.membership_payment_plans[0].instalments_paid, 0);
+
+  const recovered = await processStripeCardPlanEvent(
+    { ...event, id: 'evt_checkout_replay_retry' },
+    deps,
+  );
+  const replayedAgain = await processStripeCardPlanEvent(
+    { ...event, id: 'evt_checkout_replay_retry_again' },
+    deps,
+  );
+  assert.match(recovered.detail, /initial invoice: instalment 1\/3 paid/);
+  assert.match(replayedAgain.detail, /initial invoice: invoice in_checkout_paid already counted/);
+  assert.equal(db.planInsertCount, 1);
+  assert.equal(db.state.membership_payment_plans.length, 1);
+  assert.equal(db.state.membership_payment_plans[0].instalments_paid, 1);
+  assert.deepEqual(db.state.membership_payment_plans[0].metadata.paid_invoice_ids, ['in_checkout_paid']);
+  assert.equal(postingAttempts, 2);
+  assert.equal(postingCreates, 1);
+  assert.equal(db.state.membership_billing_agreements[0].status, 'active');
+  assert.equal(db.state.member_membership_history[0].status, 'active');
+  assert.equal(db.state.member_membership_history[0].payment_status, 'partial');
+});
+
 // ---------------------------------------------------------------------------
 // Reconcile cron wiring (api/cron/reconcile-stripe-card-plans.js)
 //
@@ -1693,6 +2111,7 @@ test('checkout completion establishes the Stripe boundary before local finalizat
   assert.ok(boundaryIdx < planCreateIdx, 'boundary precedes plan creation');
   assert.ok(boundaryIdx < activationIdx, 'boundary precedes agreement activation');
 });
+
 // Just the RPC body, so assertions cannot accidentally match unrelated SQL.
 const releaseRpcSql = migrationSource.slice(
   migrationSource.indexOf('CREATE OR REPLACE FUNCTION release_expired_form_monthly_card_checkout'),

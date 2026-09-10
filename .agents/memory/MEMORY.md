@@ -156,3 +156,4 @@
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
 - [Pending detail queries](query-pending-lifecycle.md) — disabled queries stay pending; discovery needs a valid identity, and temporary tab content needs valid accessible labels.
 - [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
+- [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.

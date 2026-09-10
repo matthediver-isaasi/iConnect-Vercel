@@ -243,6 +243,43 @@ async function markInitialPaymentFinalized({ agreementId, paymentId, db }) {
   return { ...agreement, metadata };
 }
 
+function assertAgreementProviderIdentity({ agreement, mandateId = null, customerId = null }) {
+  if (mandateId && agreement.gocardless_mandate_id
+    && agreement.gocardless_mandate_id !== mandateId) {
+    throw new Error('billing request mandate does not match existing agreement mandate');
+  }
+  if (customerId && agreement.gocardless_customer_id
+    && agreement.gocardless_customer_id !== customerId) {
+    throw new Error('billing request customer does not match existing agreement customer');
+  }
+}
+
+async function persistAgreementProviderIdentity({
+  agreement,
+  mandateId = null,
+  customerId = null,
+  metadata,
+  db,
+}) {
+  assertAgreementProviderIdentity({ agreement, mandateId, customerId });
+  const update = {
+    ...(mandateId ? { gocardless_mandate_id: mandateId } : {}),
+    ...(customerId ? { gocardless_customer_id: customerId } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
+  if (Object.keys(update).length === 0) return agreement;
+  update.updated_at = new Date().toISOString();
+  const { data, error } = await db
+    .from('membership_billing_agreements')
+    .update(update)
+    .eq('id', agreement.id)
+    .eq('tenant_id', agreement.tenant_id)
+    .select('*');
+  if (error) throw new Error(`attach billing request provider identity failed: ${error.message}`);
+  if (!data?.[0]) throw new Error('attach billing request provider identity matched no tenant-owned agreement');
+  return data[0];
+}
+
 async function findAgreementByMandate(db, mandateId) {
   const { data, error } = await db
     .from('membership_billing_agreements')
@@ -371,6 +408,9 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
         },
       };
     }
+    // Reject a provider-identity conflict before writing any mirrors. A
+    // billing request is immutable consent and must never be rebound.
+    assertAgreementProviderIdentity({ agreement, mandateId, customerId });
 
     if (customerId) {
       await checkedUpsert(db, 'gocardless_customers', {
@@ -418,6 +458,16 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
       }, 'gocardless_payment_id');
     }
 
+    // Provider IDs belong to this immutable consent. Validate and persist
+    // them separately from status so a no-change/regression-safe transition
+    // cannot discard identity repair.
+    agreement = await persistAgreementProviderIdentity({
+      agreement,
+      mandateId,
+      customerId,
+      metadata: extraUpdate.metadata,
+      db,
+    });
     const result = await applyStatusTransition({
       entityType: 'billing_agreement',
       entityId: agreement.id,
@@ -425,15 +475,7 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
       reason: 'billing request fulfilled',
       source: 'webhook',
       eventId: event.id,
-      extraUpdate,
     }, { db });
-    if (!result.applied && extraUpdate.metadata) {
-      const { error: metadataErr } = await db
-        .from('membership_billing_agreements')
-        .update({ metadata: extraUpdate.metadata, updated_at: new Date().toISOString() })
-        .eq('id', agreement.id);
-      if (metadataErr) throw new Error(`attach initial billing request payment failed: ${metadataErr.message}`);
-    }
     agreement = await findAgreementById(db, agreement.id) || {
       ...agreement,
       ...extraUpdate,
@@ -1048,13 +1090,32 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     tenantId = agreementMandate?.tenant_id || null;
   }
   if (tenantId && mappedStatus) {
+    const { data: existingMirror, error: existingMirrorError } = await db
+      .from('gocardless_payments')
+      .select('*')
+      .eq('gocardless_payment_id', paymentId)
+      .maybeSingle();
+    if (existingMirrorError) {
+      throw new Error(`load payment mirror identity failed: ${existingMirrorError.message}`);
+    }
+    const identityPairs = [
+      ['tenant_id', tenantId],
+      ['plan_id', plan?.id || null],
+      ['gocardless_subscription_id', subscriptionId],
+      ['gocardless_mandate_id', links.mandate || null],
+    ];
+    for (const [field, incoming] of identityPairs) {
+      if (incoming && existingMirror?.[field] && existingMirror[field] !== incoming) {
+        throw new Error(`payment ${paymentId} ${field} identity mismatch`);
+      }
+    }
     const mirror = {
       tenant_id: tenantId,
-      plan_id: plan?.id || null,
+      plan_id: plan?.id || existingMirror?.plan_id || null,
       gocardless_payment_id: paymentId,
-      gocardless_subscription_id: subscriptionId,
-      gocardless_mandate_id: links.mandate || null,
-      status: mappedStatus,
+      gocardless_subscription_id: subscriptionId || existingMirror?.gocardless_subscription_id || null,
+      gocardless_mandate_id: links.mandate || existingMirror?.gocardless_mandate_id || null,
+      status: paymentStatusOnFulfillment(existingMirror?.status, mappedStatus),
       updated_at: new Date().toISOString(),
     };
     if (action === 'confirmed') mirror.confirmed_at = new Date().toISOString();

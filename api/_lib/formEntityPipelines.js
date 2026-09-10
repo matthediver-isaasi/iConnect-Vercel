@@ -9,15 +9,70 @@
 // entity creation matches/updates existing records, so a retry after a
 // transient failure resolves the ids rather than duplicating entities.
 //
-// Never throws; a failure is logged on the submission's processing_notes
-// for admin follow-up (the payment has been taken — the row must never be
-// rolled back).
+// Never throws. Callers must inspect `failed` / `partial`; `ran` only says that
+// the HTTP endpoint was reached successfully and is not a success indicator.
 import { buildFormProcessingHeaders } from './formProcessingAuth.js';
 import { getInternalApiBaseUrl } from './publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from './formEntityActionMode.js';
 
-export async function runFormEntityPipelines({ supabase, submission, form, baseUrl: _legacyBaseUrl }) {
-  const result = { ran: false, memberId: null, organizationId: null, partial: false, structuredActions: null, relatedRecords: null };
+const GENERATED_FAILURE_NOTE = /^(?:Payment succeeded|Payment setup completed) but application processing (?:was skipped \(no base URL\)|failed \(HTTP \d+\)|errored|returned no valid JSON|was incomplete|could not save resolved entities)\. Re-run processing from the submissions list\.$/;
+
+function processingFailureNote(completionDescription, detail) {
+  return `${completionDescription} but application processing ${detail}. Re-run processing from the submissions list.`;
+}
+
+function withoutGeneratedFailureNotes(notes) {
+  if (typeof notes !== 'string') return notes ?? null;
+  const kept = notes.split('\n').filter(line => !GENERATED_FAILURE_NOTE.test(line.trim()));
+  return kept.join('\n').trim() || null;
+}
+
+async function updateNotesCas(supabase, submission, nextNotes) {
+  const previous = submission.processing_notes ?? null;
+  if (previous === nextNotes) return true;
+  let query = supabase.from('form_submission').update({ processing_notes: nextNotes }).eq('id', submission.id);
+  query = previous === null
+    ? query.filter('processing_notes', 'is', null)
+    : query.eq('processing_notes', previous);
+  const { error } = await query;
+  if (!error) submission.processing_notes = nextNotes;
+  return !error;
+}
+
+async function recordFailure(supabase, submission, note) {
+  const previous = submission.processing_notes;
+  const lines = typeof previous === 'string' ? previous.split('\n') : [];
+  const next = lines.some(line => line.trim() === note) ? previous : [...lines.filter(Boolean), note].join('\n');
+  try {
+    await updateNotesCas(supabase, submission, next);
+  } catch { /* best effort */ }
+}
+
+async function clearGeneratedFailure(supabase, submission) {
+  const next = withoutGeneratedFailureNotes(submission.processing_notes);
+  if (next === submission.processing_notes) return;
+  try {
+    await updateNotesCas(supabase, submission, next);
+  } catch { /* best effort; never clobber a concurrently-written note */ }
+}
+
+export async function runFormEntityPipelines({
+  supabase,
+  submission,
+  form,
+  baseUrl: _legacyBaseUrl,
+  completionDescription = 'Payment succeeded',
+}) {
+  const result = {
+    ran: false,
+    failed: false,
+    detail: null,
+    memberId: null,
+    organizationId: null,
+    partial: false,
+    structuredActions: null,
+    relatedRecords: null,
+  };
   const hasEntityPipelines = hasPersistedFormEntityActions(form);
   if (!hasEntityPipelines) return result;
   // Security boundary: callers also use baseUrl for user-facing links, and
@@ -29,11 +84,9 @@ export async function runFormEntityPipelines({ supabase, submission, form, baseU
     // don't run means the member/org record is never created and membership
     // finalization loops on awaiting_entity forever. Leave a visible trail.
     console.error('[formEntityPipelines] Application processing skipped for paid submission', submission?.id, '- no base URL available');
-    try {
-      await supabase.from('form_submission').update({
-        processing_notes: 'Payment succeeded but application processing was skipped (no base URL). Re-run processing from the submissions list.',
-      }).eq('id', submission.id);
-    } catch { /* best effort */ }
+    result.failed = true;
+    result.detail = 'application processing was skipped (no base URL)';
+    await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'was skipped (no base URL)'));
     return result;
   }
 
@@ -76,6 +129,9 @@ export async function runFormEntityPipelines({ supabase, submission, form, baseU
         result.structuredActions = body.structured_actions || null;
         result.relatedRecords = body.related_records || null;
         result.partial = body.structured_actions?.success === false || body.related_records?.success === false;
+        if (body.success === false && !result.partial) result.failed = true;
+        if (result.partial) result.detail = 'application processing has pending or failed actions';
+        else if (result.failed) result.detail = 'application processing reported failure';
         const resolvedOrgId = body.organization_id || body.created_organization_id;
         const resolvedMemberId = body.created_member_id || body.member_id;
         result.organizationId = resolvedOrgId || null;
@@ -84,23 +140,38 @@ export async function runFormEntityPipelines({ supabase, submission, form, baseU
         if (resolvedOrgId && !submission.organization_id) updates.organization_id = resolvedOrgId;
         if (resolvedMemberId) updates.created_member_id = resolvedMemberId;
         if (Object.keys(updates).length > 0) {
-          await supabase.from('form_submission').update(updates).eq('id', submission.id);
+          const { error } = await supabase.from('form_submission').update(updates).eq('id', submission.id);
+          if (error) {
+            result.failed = true;
+            result.detail = `resolved entity persistence failed: ${error.message}`;
+          }
         }
-      } catch { /* no JSON body — fine */ }
+        if (!result.failed && !result.partial) {
+          await clearGeneratedFailure(supabase, submission);
+        } else {
+          await recordFailure(
+            supabase,
+            submission,
+            processingFailureNote(completionDescription, result.partial ? 'was incomplete' : 'errored'),
+          );
+        }
+      } catch (err) {
+        result.failed = true;
+        result.detail = `application processing returned no valid JSON${err?.message ? `: ${err.message}` : ''}`;
+        await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'returned no valid JSON'));
+      }
     } else {
       const errText = await pipelineResponse.text().catch(() => '');
       console.error('[formEntityPipelines] Pipeline processing failed for paid submission', submission.id, pipelineResponse.status, errText.slice(0, 500));
-      await supabase.from('form_submission').update({
-        processing_notes: `Payment succeeded but application processing failed (HTTP ${pipelineResponse.status}). Re-run processing from the submissions list.`,
-      }).eq('id', submission.id);
+      result.failed = true;
+      result.detail = `application processing failed (HTTP ${pipelineResponse.status})`;
+      await recordFailure(supabase, submission, processingFailureNote(completionDescription, `failed (HTTP ${pipelineResponse.status})`));
     }
   } catch (err) {
     console.error('[formEntityPipelines] Pipeline processing error for paid submission', submission.id, err);
-    try {
-      await supabase.from('form_submission').update({
-        processing_notes: 'Payment succeeded but application processing errored. Re-run processing from the submissions list.',
-      }).eq('id', submission.id);
-    } catch { /* best effort */ }
+    result.failed = true;
+    result.detail = `application processing errored${err?.message ? `: ${err.message}` : ''}`;
+    await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'errored'));
   }
   return result;
 }

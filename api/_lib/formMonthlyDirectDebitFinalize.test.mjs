@@ -14,10 +14,16 @@ const agreement = {
   metadata: { form_submission_id: 's1', dd: { kind: 'monthly_direct_debit', membership_year: '2026/27', plan_total: 120 } },
 };
 const form = { id: 'f1', tenant_id: 't1', fields: [], entity_pipelines: { members: [], organisations: [] } };
-function fake(sub, rpcResult = { ok: true, history_id: 'h1' }) {
-  const tables = { form_submission: [structuredClone(sub)], form: [form] };
+function fake(sub, rpcResult = { ok: true, history_id: 'h1' }, formRow = form) {
+  const tables = { form_submission: [structuredClone(sub)], form: [structuredClone(formRow)] };
+  let rpcCalls = 0;
+  const readPath = (row, path) => path.split(/->>?/).reduce(
+    (value, part) => value?.[part],
+    row,
+  );
   return {
     tables,
+    get rpcCalls() { return rpcCalls; },
     from(table) {
       const filters = [];
       let payload;
@@ -26,12 +32,27 @@ function fake(sub, rpcResult = { ok: true, history_id: 'h1' }) {
         filter: (k, op, v) => { filters.push([k, op, v]); return q; },
         maybeSingle: async () => {
           const row = tables[table]?.[0];
-          if (payload && row && filters.every(([k, op, v]) => op === 'eq' ? row[k] === v : true)) Object.assign(row, payload);
+          const matches = filters.every((filter) => {
+            if (filter.length === 2) return readPath(row, filter[0]) === filter[1];
+            const [key, op, value] = filter;
+            const actual = readPath(row, key);
+            if (op === 'eq') return String(actual) === String(value);
+            if (op === 'is' && value === null) return actual == null;
+            return true;
+          });
+          if (payload && row && matches) Object.assign(row, payload);
+          if (!payload && row && !matches) return { data: null, error: null };
           return { data: row ? structuredClone(row) : null, error: null };
         },
+        then: (resolve, reject) => q.maybeSingle()
+          .then(({ data, error }) => ({ data: data ? [data] : [], error }))
+          .then(resolve, reject),
       }; return q;
     },
-    rpc: async () => ({ data: rpcResult, error: null }),
+    rpc: async () => {
+      rpcCalls += 1;
+      return { data: rpcResult, error: null };
+    },
   };
 }
 function submission(overrides = {}) {
@@ -63,6 +84,51 @@ test('access proof and provider/tenant association fail closed', async () => {
   assert.equal(access.code, 'FORM_ACCESS_NOT_AUTHORIZED');
   const wrong = await finalizeFormMonthlyDirectDebit({ db: fake(submission()), agreement: { ...agreement, provider: 'stripe' } });
   assert.equal(wrong.code, 'INVALID_AGREEMENT');
+});
+
+test('pipeline HTTP failure with a persisted member retries and binds membership only once', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'monthly-dd-pipeline-retry-secret';
+  const db = fake(
+    submission({ processing_notes: 'Keep this operator note.' }),
+    { ok: true, history_id: 'h1' },
+    { ...form, entity_pipelines: { members: [{ id: 'primary' }], organisations: [] } },
+  );
+  let processingCalls = 0;
+  globalThis.fetch = async () => {
+    processingCalls += 1;
+    if (processingCalls === 1) {
+      return { ok: false, status: 502, text: async () => 'temporary failure' };
+    }
+    return { ok: true, json: async () => ({ success: true, created_member_id: 'm1' }) };
+  };
+  try {
+    const failed = await finalizeFormMonthlyDirectDebit({ db, agreement });
+    assert.equal(failed.retryable, true);
+    assert.equal(db.rpcCalls, 0);
+    assert.equal(db.tables.form_submission[0].payment_meta.monthly_dd_state, undefined);
+    assert.match(db.tables.form_submission[0].processing_notes, /^Keep this operator note\./);
+    assert.match(db.tables.form_submission[0].processing_notes, /Payment setup completed/);
+
+    const retried = await finalizeFormMonthlyDirectDebit({ db, agreement });
+    assert.equal(retried.handled, true);
+    assert.equal(db.rpcCalls, 1);
+    assert.equal(db.tables.form_submission[0].processing_notes, 'Keep this operator note.');
+
+    const done = await finalizeFormMonthlyDirectDebit({ db, agreement });
+    assert.equal(done.alreadyFinalized, true);
+    assert.equal(processingCalls, 2);
+    assert.equal(db.rpcCalls, 1);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test('source contract keeps mandate-only finalizer free of subscription creation', () => {

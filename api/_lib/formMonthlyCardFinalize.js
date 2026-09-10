@@ -95,14 +95,19 @@ async function markFormSubmissionSetupComplete(db, submissionId) {
 async function readClaimState(db, submissionId) {
   const { data, error } = await db
     .from('form_submission')
-    .select('payment_status, payment_meta')
+    .select('payment_status, payment_meta, processing_notes')
     .eq('id', submissionId)
     .maybeSingle();
   if (error || !data) return { state: null, meta: {} };
   const meta = (data.payment_meta && typeof data.payment_meta === 'object') ? data.payment_meta : {};
   const state = (meta.monthly_card_state && typeof meta.monthly_card_state === 'object')
     ? meta.monthly_card_state : null;
-  return { state, meta, paymentStatus: data.payment_status };
+  return {
+    state,
+    meta,
+    paymentStatus: data.payment_status,
+    processingNotes: data.processing_notes || null,
+  };
 }
 
 /**
@@ -200,7 +205,7 @@ async function writeConflictState(db, submissionId, {
   detail,
   memberId,
 }) {
-  const { state, meta } = await readClaimState(db, submissionId);
+  const { state, meta, processingNotes } = await readClaimState(db, submissionId);
   if (!ownerToken || state?.status !== 'processing' || state.owner_token !== ownerToken) {
     return false;
   }
@@ -215,7 +220,10 @@ async function writeConflictState(db, submissionId, {
     .from('form_submission')
     .update({
       payment_meta: { ...meta, monthly_card_state: conflictState },
-      processing_notes: `${conflictState.detail}. The Stripe subscription will be cancelled and any successful payment refunded automatically.`,
+      processing_notes: [
+        processingNotes,
+        `${conflictState.detail}. The Stripe subscription will be cancelled and any successful payment refunded automatically.`,
+      ].filter(Boolean).join('\n'),
     })
     .eq('id', submissionId)
     .eq('payment_meta', JSON.stringify(meta))
@@ -418,10 +426,25 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
       submission: currentRow,
       form,
       baseUrl,
+      completionDescription: 'Payment setup completed',
     });
     pipelineMemberId = pipelineResult.memberId || null;
+    if (pipelineResult.failed || pipelineResult.partial) {
+      await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+      return {
+        handled: false,
+        retryable: true,
+        detail: pipelineResult.detail || `application processing incomplete for form_submission ${formSubmissionId}`,
+      };
+    }
   } catch (err) {
     console.error('[formMonthlyCardFinalize] Pipeline error for submission', formSubmissionId, err?.message);
+    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+    return {
+      handled: false,
+      retryable: true,
+      detail: `application processing errored for form_submission ${formSubmissionId}`,
+    };
   } finally {
     clearInterval(leaseHeartbeat);
   }

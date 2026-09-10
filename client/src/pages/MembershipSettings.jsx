@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+import MonthlyMembershipRecoveryCard from "@/components/membership/MonthlyMembershipRecoveryCard";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -460,6 +461,8 @@ export default function MembershipSettings() {
       </Card>
 
       <DirectDebitPlansAdminCard />
+
+      <MonthlyMembershipRecoveryCard />
 
       <div className="flex justify-end">
         <Button

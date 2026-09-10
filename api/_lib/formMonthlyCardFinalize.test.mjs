@@ -519,6 +519,67 @@ function assertLeaseReleased(db, submissionId = 'sub1') {
   );
 }
 
+test('pipeline HTTP failure after member persistence releases the lease and a retry finalizes once', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'monthly-card-pipeline-retry-secret';
+  const pipelineForm = {
+    ...FORM,
+    entity_pipelines: { members: [{ id: 'primary-member' }], organisations: [] },
+  };
+  const db = makeSupabase({
+    tables: {
+      form_submission: [makeSub({
+        created_member_id: 'mem1',
+        processing_notes: 'Manual review note must remain.',
+      })],
+      form: [pipelineForm],
+      membership_billing_agreements: [AGREEMENT],
+      member_membership_history: [],
+    },
+    uniqueIndex: { member_membership_history: ['billing_agreement_id'] },
+  });
+  let processingCalls = 0;
+  globalThis.fetch = async () => {
+    processingCalls += 1;
+    if (processingCalls === 1) {
+      return { ok: false, status: 503, text: async () => 'temporary outage' };
+    }
+    return {
+      ok: true,
+      json: async () => ({ success: true, created_member_id: 'mem1' }),
+    };
+  };
+  try {
+    const failed = await run(db);
+    assert.equal(failed.retryable, true);
+    assert.equal(db.tables.member_membership_history.length, 0);
+    assertLeaseReleased(db);
+    assert.match(db._readRow('form_submission', 'sub1').processing_notes, /^Manual review note must remain\./);
+    assert.match(db._readRow('form_submission', 'sub1').processing_notes, /Payment setup completed/);
+
+    const retried = await run(db);
+    assert.equal(retried.handled, true);
+    assert.equal(processingCalls, 2);
+    assert.equal(db.tables.member_membership_history.length, 1);
+    assert.equal(db.tables.membership_billing_agreements[0].member_id, 'mem1');
+    assert.equal(db._readRow('form_submission', 'sub1').processing_notes, 'Manual review note must remain.');
+
+    const done = await run(db);
+    assert.equal(done.alreadyFinalized, true);
+    assert.equal(processingCalls, 2);
+    assert.equal(db.tables.member_membership_history.length, 1);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 // ===========================================================================
 // Tests: no-op / early returns
 // ===========================================================================
