@@ -536,6 +536,41 @@ test('organisation directory presentation validates explicit fields and Organisa
   ).ok, false);
 });
 
+test('initial view validation defers relationship inventory checks for a full editor payload', () => {
+  const published = field({ id: 'field-published' });
+  const configuration = {
+    views: {
+      organisation_directory: {
+        enabled: true,
+        relationships: [{ relationship_id: 'relationship-direct', direction: 'target' }],
+        field_ids: [published.id],
+      },
+      list: { field_ids: [published.id] },
+      detail: {
+        version: 2,
+        schema_field_ids: [published.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 1,
+          fields: [{
+            id: `field:${published.id}`,
+            type: 'field',
+            field_id: published.id,
+            columnIndex: 0,
+          }],
+        }],
+        visibility_rules: { version: 1, rules: [] },
+      },
+    },
+  };
+
+  assert.equal(validateCustomObjectViewConfiguration(configuration, [published]).ok, true);
+  const invalidField = structuredClone(configuration);
+  invalidField.views.organisation_directory.field_ids = ['archived'];
+  assert.equal(validateCustomObjectViewConfiguration(invalidField, [published]).ok, false);
+});
+
 test('organisation directory reconciliation prunes stale selections without mutating other presentation', () => {
   const published = field({ id: 'field-published' });
   const direct = {

@@ -481,7 +481,8 @@ export function validateCustomObjectViewConfiguration(configuration = {}, fields
       // The relationship-aware portion is validated by the service once it has
       // loaded the complete object-scoped relationship inventory.
       errors.push(...validateCustomObjectPresentationConfiguration(configuration, fields).errors
-        .filter((error) => !error.includes('unavailable relationship side')));
+        .filter((error) => !error.includes('unavailable relationship side')
+          && !error.includes('unavailable Organisation relationship')));
     } else if (!isPlainObject(views.detail) || !Array.isArray(views.detail.sections)) errors.push('views.detail.sections must be an array');
     else views.detail.sections.forEach((section, index) => {
       if (!isPlainObject(section)) errors.push(`views.detail.sections[${index}] must be an object`);

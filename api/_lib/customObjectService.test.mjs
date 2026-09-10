@@ -1332,10 +1332,19 @@ test('object updates persist valid organisation directory consent and reject for
     source_custom_object_id: objectId,
     target_kind: 'organization',
   };
+  const unavailableDefinitions = [
+    { ...direct, id: 'relationship-archived', status: 'archived' },
+    { ...direct, id: 'relationship-cross-tenant', tenant_id: 'another-tenant' },
+    {
+      ...direct,
+      id: 'relationship-wrong-object',
+      source_custom_object_id: '44444444-4444-4444-8444-444444444444',
+    },
+  ];
   const db = mockDb({
     custom_object_definition: [object()],
     preference_field: [published],
-    custom_object_relationship_definition: [direct],
+    custom_object_relationship_definition: [direct, ...unavailableDefinitions],
   });
   const service = createCustomObjectService({
     db,
@@ -1351,25 +1360,44 @@ test('object updates persist valid organisation directory consent and reject for
         relationships: [{ relationship_id: direct.id, direction: 'target' }],
         field_ids: [published.id],
       },
+      list: { field_ids: [published.id] },
+      detail: {
+        version: 2,
+        schema_field_ids: [published.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 1,
+          fields: [{
+            id: `field:${published.id}`,
+            type: 'field',
+            field_id: published.id,
+            columnIndex: 0,
+          }],
+        }],
+        visibility_rules: { version: 1, rules: [] },
+      },
     },
   };
   const updated = await service.updateObject(objectId, { configuration });
   assert.deepEqual(updated.configuration, configuration);
-  await assert.rejects(
-    () => service.updateObject(objectId, {
-      configuration: {
-        views: {
-          organisation_directory: {
-            enabled: true,
-            relationships: [{ relationship_id: direct.id, direction: 'source' }],
-            field_ids: [published.id],
-          },
-        },
-      },
-    }),
-    (error) => error.status === 400
-      && error.details.some((detail) => detail.includes('unavailable Organisation relationship')),
-  );
+  const unavailableSelections = [
+    { relationship_id: direct.id, direction: 'source' },
+    { relationship_id: 'relationship-missing', direction: 'target' },
+    ...unavailableDefinitions.map((definition) => ({
+      relationship_id: definition.id,
+      direction: 'target',
+    })),
+  ];
+  for (const selection of unavailableSelections) {
+    const forged = structuredClone(configuration);
+    forged.views.organisation_directory.relationships = [selection];
+    await assert.rejects(
+      () => service.updateObject(objectId, { configuration: forged }),
+      (error) => error.status === 400
+        && error.details.some((detail) => detail.includes('unavailable Organisation relationship')),
+    );
+  }
 });
 
 test('object reads prune stale organisation directory references without clobbering stored configuration', async () => {
