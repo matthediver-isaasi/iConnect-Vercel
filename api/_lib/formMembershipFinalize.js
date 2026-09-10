@@ -65,6 +65,13 @@
 import { getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { stripeInvoiceAddressFromSnapshot } from './stripeInvoiceAddress.js';
+import {
+  accountingProviderContext,
+  accountingProviderContextsEqual,
+  MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS,
+  mergeFormMembershipProgress,
+  settleFormStripeInvoice,
+} from './formStripeInvoiceSettlement.js';
 
 // A workflow claim older than this is considered orphaned (crash between
 // claim and dispatch) and may be re-claimed by the cron sweep.
@@ -73,6 +80,12 @@ export const WORKFLOW_CLAIM_TTL_MS = 15 * 60 * 1000;
 // After this many entity-resolution retries an admin note is escalated
 // onto the submission (retries continue — never terminal).
 export const MAX_ENTITY_ATTEMPTS = 8;
+
+export function isDefinitiveInvoiceCreateRejection(error) {
+  const statusCode = Number(error?.statusCode || error?.status || error?.response?.status);
+  return statusCode >= 400 && statusCode < 500
+    && ![408, 409, 429].includes(statusCode);
+}
 
 export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null }) {
   const meta = (submission?.payment_meta && typeof submission.payment_meta === 'object')
@@ -114,28 +127,25 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
   const noteFailure = async (reason) => {
     console.error(`[formMembershipFinalize] ${reason} (submission ${submission.id})`);
     try {
-      await supabase.from('form_submission').update({
+      const { error } = await supabase.from('form_submission').update({
         processing_notes: `Payment succeeded but the membership could not be created automatically: ${reason}. Please create it manually — do NOT ask the applicant to pay again.`,
-      }).eq('id', submission.id);
-    } catch { /* best effort */ }
+      }).eq('id', submission.id).eq('tenant_id', tenantId);
+      if (error) console.error('[formMembershipFinalize] Failed to persist processing note:', error.message);
+    } catch (error) {
+      console.error('[formMembershipFinalize] Failed to persist processing note:', error?.message);
+    }
   };
 
   // Durable progress stamp. Terminal states stop the cron retry sweep;
   // 'created' with pending invoice/workflow states keeps it retrying.
   const stampResult = async (result) => {
-    try {
-      const { data: fresh } = await supabase
-        .from('form_submission')
-        .select('payment_meta')
-        .eq('id', submission.id)
-        .maybeSingle();
-      const freshMeta = (fresh?.payment_meta && typeof fresh.payment_meta === 'object') ? fresh.payment_meta : meta;
-      const prev = (freshMeta.membership_result && typeof freshMeta.membership_result === 'object')
-        ? freshMeta.membership_result : {};
-      await supabase.from('form_submission').update({
-        payment_meta: { ...freshMeta, membership_result: { ...prev, ...result, updated_at: new Date().toISOString() } },
-      }).eq('id', submission.id);
-    } catch { /* best effort */ }
+    const persisted = await mergeFormMembershipProgress(supabase, {
+      tenantId,
+      submissionId: submission.id,
+      patch: result,
+    });
+    if (!persisted.updated) throw new Error(`membership progress was not persisted (${persisted.code})`);
+    return persisted.result;
   };
 
   // Durable atomic workflow-dispatch claim. The UPDATE is conditional on
@@ -144,37 +154,20 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
   // exactly one sees an affected row and dispatches.
   const claimWorkflow = async (expectedState, expectedClaimedAt) => {
     try {
-      const { data: fresh } = await supabase
-        .from('form_submission')
-        .select('payment_meta')
-        .eq('id', submission.id)
-        .maybeSingle();
-      const freshMeta = (fresh?.payment_meta && typeof fresh.payment_meta === 'object') ? fresh.payment_meta : meta;
-      const prev = (freshMeta.membership_result && typeof freshMeta.membership_result === 'object')
-        ? freshMeta.membership_result : {};
-      const currentState = prev.workflow_state || 'pending';
-      if (currentState !== expectedState) return { claimed: false, currentState };
       const claimedAt = new Date().toISOString();
-      let query = supabase
-        .from('form_submission')
-        .update({
-          payment_meta: {
-            ...freshMeta,
-            membership_result: { ...prev, workflow_state: 'claimed', workflow_claimed_at: claimedAt },
-          },
-        })
-        .eq('id', submission.id)
-        .filter('payment_meta->membership_result->>workflow_state', 'eq', expectedState);
-      if (expectedState === 'claimed') {
-        // Stale re-claim: must also match the exact stale timestamp so two
-        // sweepers cannot both re-claim the same orphaned claim.
-        query = expectedClaimedAt
-          ? query.filter('payment_meta->membership_result->>workflow_claimed_at', 'eq', expectedClaimedAt)
-          : query.filter('payment_meta->membership_result->>workflow_claimed_at', 'is', null);
-      }
-      const { data: updated, error } = await query.select('id');
-      if (error) return { claimed: false, currentState };
-      return { claimed: (updated || []).length > 0, currentState: 'claimed' };
+      const expected = { workflow_state: expectedState };
+      if (expectedState === 'claimed') expected.workflow_claimed_at = expectedClaimedAt || null;
+      const claimed = await mergeFormMembershipProgress(supabase, {
+        tenantId,
+        submissionId: submission.id,
+        expected,
+        patch: { workflow_state: 'claimed', workflow_claimed_at: claimedAt },
+      });
+      return {
+        claimed: claimed.updated,
+        currentState: claimed.updated ? 'claimed' : (claimed.result?.workflow_state || expectedState),
+        claimedAt: claimed.updated ? claimedAt : null,
+      };
     } catch {
       return { claimed: false, currentState: expectedState };
     }
@@ -187,12 +180,26 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     let workflowState = states.workflow_state || 'pending';
     let invoiceResult = null;
     let accountingSyncError = null;
+    let settlementResult = null;
 
     // Invoice already on the row (e.g. crash after invoice update but
     // before the stamp flip)?
-    if (invoiceState === 'pending' && (historyRow.accounting_invoice_id || historyRow.xero_invoice_id)) {
+    if (['pending', 'retry', 'processing'].includes(invoiceState)
+        && (historyRow.accounting_invoice_id || historyRow.xero_invoice_id)) {
       invoiceState = 'done';
-      await stampResult({ invoice_state: 'done', invoice_number: historyRow.accounting_invoice_number || historyRow.xero_invoice_number || null });
+      const expected = { invoice_state: states.invoice_state || 'pending' };
+      if (states.invoice_state === 'processing') expected.invoice_claimed_at = states.invoice_claimed_at || null;
+      const recoveredLink = await mergeFormMembershipProgress(supabase, {
+        tenantId,
+        submissionId: submission.id,
+        expected,
+        patch: {
+          invoice_state: 'done',
+          invoice_number: historyRow.accounting_invoice_number || historyRow.xero_invoice_number || null,
+          ...(isStripe ? { settlement_state: states.settlement_state === 'blocked' ? 'blocked' : 'pending' } : {}),
+        },
+      });
+      if (!recoveredLink.updated) throw new Error('linked invoice progress changed concurrently');
     }
     // Prior attempt flagged failed on the row → leave to admin retry surface.
     if (invoiceState === 'pending' && historyRow.accounting_sync_status === 'failed') {
@@ -200,7 +207,70 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       await stampResult({ invoice_state: 'failed' });
     }
 
-    if (invoiceState === 'pending') {
+    let invoiceClaimedAt = null;
+    let invoiceProvider = null;
+    let pinnedProviderContext = states.provider_context || null;
+    let invoiceAttempts = Number(states.invoice_attempts || 0);
+    if (invoiceState === 'pending' || invoiceState === 'retry') {
+      const expected = { invoice_state: invoiceState };
+      invoiceClaimedAt = new Date().toISOString();
+      invoiceAttempts += 1;
+      try {
+        const { getAccountingProvider, getAccountingProviderByName } = await import('./accountingProvider.js');
+        invoiceProvider = states.accounting_provider
+          ? getAccountingProviderByName(states.accounting_provider)
+          : await getAccountingProvider(tenantId);
+        if (isStripe) {
+          const tokenSummary = await invoiceProvider.getRawAccessToken(tenantId);
+          const currentContext = accountingProviderContext(invoiceProvider.name, tokenSummary);
+          if (!currentContext) throw new Error('Could not pin the accounting provider company context');
+          if (pinnedProviderContext
+              && !accountingProviderContextsEqual(currentContext, pinnedProviderContext)) {
+            throw new Error('Connected accounting company no longer matches the pinned invoice context');
+          }
+          pinnedProviderContext = pinnedProviderContext || currentContext;
+        }
+        const claim = await mergeFormMembershipProgress(supabase, {
+          tenantId,
+          submissionId: submission.id,
+          expected,
+          patch: {
+            invoice_state: 'processing',
+            invoice_claimed_at: invoiceClaimedAt,
+            invoice_created_after: states.invoice_created_after || invoiceClaimedAt,
+            invoice_attempts: invoiceAttempts,
+            accounting_provider: invoiceProvider.name,
+            ...(isStripe ? { provider_context: pinnedProviderContext } : {}),
+          },
+        });
+        if (claim.updated) invoiceState = 'processing';
+      } catch (providerPrepError) {
+        accountingSyncError = String(providerPrepError?.message || providerPrepError);
+        invoiceState = invoiceAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
+        const prepFailure = await mergeFormMembershipProgress(supabase, {
+          tenantId,
+          submissionId: submission.id,
+          expected,
+          patch: {
+            invoice_state: invoiceState,
+            invoice_attempts: invoiceAttempts,
+            accounting_error: accountingSyncError.slice(0, 500),
+          },
+        });
+        if (!prepFailure.updated) console.error('[formMembershipFinalize] Provider preparation failure CAS lost');
+        const { error: prepFlagError } = await supabase.from(historyTable).update({
+          accounting_sync_status: 'failed',
+          accounting_sync_error: accountingSyncError.slice(0, 1000),
+        }).eq('id', historyRow.id).eq('tenant_id', tenantId);
+        if (prepFlagError) console.error('[formMembershipFinalize] Failed to persist provider preparation error:', prepFlagError.message);
+        const { error: prepNoteError } = await supabase.from('form_submission').update({
+          processing_notes: `Payment succeeded and the membership was created, but accounting provider preparation failed: ${accountingSyncError.slice(0, 1000)}. Do not charge the applicant again.`,
+        }).eq('id', submission.id).eq('tenant_id', tenantId);
+        if (prepNoteError) console.error('[formMembershipFinalize] Failed to persist provider preparation note:', prepNoteError.message);
+      }
+    }
+
+    if (invoiceState === 'processing' && invoiceClaimedAt) {
       try {
         const config = await getConfigByIdDirect(tenantId, quote.config_id);
         let invoiceName;
@@ -230,8 +300,8 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             : await resolveInvoiceAddress(supabase, config, historyRow.organization_id, 'organization');
         }
 
-        const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('./accountingProvider.js');
-        const provider = await getAccountingProvider(tenantId);
+        const { buildInvoiceColumnUpdate } = await import('./accountingProvider.js');
+        const provider = invoiceProvider;
         invoiceResult = await provider.createMembershipInvoice({
           appTenantId: tenantId,
           organizationName: invoiceName,
@@ -244,24 +314,53 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           reference: `Membership ${quote.membership_year}`,
           vatRate: quote.tax_type || null,
           nominalCode: quote.nominal_code || null,
-          markAsPaid: true,
+          markAsPaid: !isStripe,
+          deferStripeSettlement: isStripe,
+          idempotencyKey: `form-membership-invoice:${tenantId}:${submission.id}:${historyRow.id}`,
+          ...(isStripe ? { expectedProviderContext: pinnedProviderContext } : {}),
           ...(isStripe && paymentRef ? { stripePaymentIntentId: paymentRef } : {}),
           invoiceDescription: quote.invoice_description || null,
         });
         if (invoiceResult?.invoice_id) {
-          await supabase
+          const resultProviderContext = invoiceResult.providerContext
+            || invoiceResult.raw?.provider_context
+            || null;
+          if (isStripe && !accountingProviderContextsEqual(resultProviderContext, pinnedProviderContext)) {
+            throw new Error('Accounting invoice was returned from an unexpected provider company context');
+          }
+          const { data: linked, error: linkError } = await supabase
             .from(historyTable)
             .update(buildInvoiceColumnUpdate(invoiceResult))
             .eq('id', historyRow.id)
-            .eq('tenant_id', tenantId);
+            .eq('tenant_id', tenantId)
+            .select('id')
+            .maybeSingle();
+          if (linkError || !linked) {
+            throw new Error(`persist accounting invoice linkage failed: ${linkError?.message || 'row not updated'}`);
+          }
+          Object.assign(historyRow, buildInvoiceColumnUpdate(invoiceResult));
+        } else {
+          throw new Error('accounting provider did not return an invoice id');
         }
         invoiceState = 'done';
-        await stampResult({ invoice_state: 'done', invoice_number: invoiceResult?.invoice_number || null });
+        const linkedProgress = await mergeFormMembershipProgress(supabase, {
+          tenantId,
+          submissionId: submission.id,
+          expected: { invoice_state: 'processing', invoice_claimed_at: invoiceClaimedAt },
+          patch: {
+            invoice_state: 'done',
+            invoice_number: invoiceResult?.invoice_number || null,
+            accounting_provider: invoiceResult?.provider || provider.name,
+            provider_context: resultProviderContext,
+            ...(isStripe ? { settlement_state: 'pending' } : {}),
+          },
+        });
+        if (!linkedProgress.updated) throw new Error('invoice progress changed before linkage could be recorded');
       } catch (invoiceErr) {
         accountingSyncError = invoiceErr?.message || String(invoiceErr) || 'Unknown accounting provider error';
         console.error(`[formMembershipFinalize] Accounting invoice failed for submission ${submission.id}:`, invoiceErr);
         try {
-          await supabase
+          const { error: flagError } = await supabase
             .from(historyTable)
             .update({
               accounting_sync_status: 'failed',
@@ -269,12 +368,98 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             })
             .eq('id', historyRow.id)
             .eq('tenant_id', tenantId);
+          if (flagError) throw flagError;
         } catch (flagErr) {
           console.error('[formMembershipFinalize] Failed to flag accounting_sync_status:', flagErr.message);
         }
-        // Terminal for the cron (admin retries via accounting sync surface).
-        invoiceState = 'failed';
-        await stampResult({ invoice_state: 'failed', accounting_error: accountingSyncError.slice(0, 500) });
+        const { error: noteError } = await supabase.from('form_submission').update({
+          processing_notes: `Payment succeeded and the membership was created, but the accounting invoice step failed: ${accountingSyncError.slice(0, 1000)}. Do not charge the applicant again; retry the accounting sync.`,
+        }).eq('id', submission.id).eq('tenant_id', tenantId);
+        if (noteError) {
+          console.error('[formMembershipFinalize] Failed to persist accounting invoice processing note:', noteError.message);
+        }
+        const definitiveRejection = isDefinitiveInvoiceCreateRejection(invoiceErr);
+        invoiceState = definitiveRejection
+          ? (invoiceAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry')
+          : 'processing';
+        const failedProgress = await mergeFormMembershipProgress(supabase, {
+          tenantId,
+          submissionId: submission.id,
+          expected: { invoice_state: 'processing', invoice_claimed_at: invoiceClaimedAt },
+          patch: {
+            invoice_state: invoiceState,
+            accounting_error: accountingSyncError.slice(0, 500),
+          },
+        });
+        if (!failedProgress.updated) {
+          throw new Error(`invoice failure progress was not persisted (${failedProgress.code})`);
+        }
+      }
+    }
+
+    // New Stripe form invoices are authorised/created first, linked durably,
+    // then settled. Legacy completed rows have no settlement_state and are
+    // intentionally repair-only: the sweep must never silently post them.
+    const staleInvoiceCreation = isStripe && invoiceState === 'processing'
+      && states.invoice_claimed_at
+      && (Date.now() - new Date(states.invoice_claimed_at).getTime()) > WORKFLOW_CLAIM_TTL_MS;
+    if (staleInvoiceCreation) {
+      try {
+        settlementResult = await settleFormStripeInvoice({
+          supabase,
+          submissionId: submission.id,
+          tenantId,
+          dryRun: false,
+        });
+        if (settlementResult?.invoice_id) invoiceState = 'done';
+        if (settlementResult?.settlement_state !== 'done') {
+          throw new Error(settlementResult?.error || 'recovered invoice settlement did not complete');
+        }
+      } catch (recoveryErr) {
+        console.error(`[formMembershipFinalize] Ambiguous invoice recovery failed for submission ${submission.id}:`, recoveryErr);
+        const recoveryError = String(recoveryErr?.message || recoveryErr).slice(0, 1000);
+        const { error: flagError } = await supabase.from(historyTable).update({
+          accounting_sync_status: 'failed',
+          accounting_sync_error: recoveryError,
+        }).eq('id', historyRow.id).eq('tenant_id', tenantId);
+        if (flagError) console.error('[formMembershipFinalize] Failed to persist invoice recovery error:', flagError.message);
+        const { error: noteError } = await supabase.from('form_submission').update({
+          processing_notes: `Payment succeeded and the membership was created, but the accounting invoice creation outcome needs review: ${recoveryError}. Do not create another invoice or charge the applicant again until provider discovery is resolved.`,
+        }).eq('id', submission.id).eq('tenant_id', tenantId);
+        if (noteError) console.error('[formMembershipFinalize] Failed to persist invoice recovery note:', noteError.message);
+      }
+    }
+    if (isStripe && invoiceState === 'done' && !settlementResult
+        && Object.prototype.hasOwnProperty.call(states, 'settlement_state')
+        && states.settlement_state !== 'done'
+        && states.settlement_state !== 'blocked') {
+      try {
+        settlementResult = await settleFormStripeInvoice({
+          supabase,
+          submissionId: submission.id,
+          tenantId,
+          dryRun: false,
+        });
+        if (settlementResult?.settlement_state !== 'done') {
+          throw new Error(settlementResult?.error
+            || `provider returned ${settlementResult?.settlement_state || 'retry'}`);
+        }
+      } catch (settlementErr) {
+        console.error(`[formMembershipFinalize] Stripe invoice settlement failed for submission ${submission.id}:`, settlementErr);
+        const settlementError = String(settlementErr?.message || settlementErr).slice(0, 1000);
+        const { error: flagError } = await supabase.from(historyTable).update({
+          accounting_sync_status: 'failed',
+          accounting_sync_error: settlementError,
+        }).eq('id', historyRow.id).eq('tenant_id', tenantId);
+        if (flagError) {
+          console.error('[formMembershipFinalize] Failed to persist Stripe settlement error:', flagError.message);
+        }
+        const { error: noteError } = await supabase.from('form_submission').update({
+          processing_notes: `Payment succeeded and the membership was created, but accounting invoice settlement did not complete: ${settlementError}. Do not charge the applicant again; retry or repair the accounting settlement.`,
+        }).eq('id', submission.id).eq('tenant_id', tenantId);
+        if (noteError) {
+          console.error('[formMembershipFinalize] Failed to persist Stripe settlement processing note:', noteError.message);
+        }
       }
     }
 
@@ -300,11 +485,25 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             source: 'form_membership_action',
           });
           workflowState = 'done';
-          await stampResult({ workflow_state: 'done' });
+          const completed = await mergeFormMembershipProgress(supabase, {
+            tenantId,
+            submissionId: submission.id,
+            expected: { workflow_state: 'claimed', workflow_claimed_at: claim.claimedAt },
+            patch: { workflow_state: 'done' },
+          });
+          if (!completed.updated) throw new Error('workflow completion claim changed concurrently');
         } catch (wfErr) {
           console.error(`[formMembershipFinalize] Membership-paid workflow dispatch failed for submission ${submission.id} (will retry):`, wfErr.message);
           // Known-failed dispatch: release the claim so the cron retries.
-          await stampResult({ workflow_state: 'pending', workflow_claimed_at: null });
+          const released = await mergeFormMembershipProgress(supabase, {
+            tenantId,
+            submissionId: submission.id,
+            expected: { workflow_state: 'claimed', workflow_claimed_at: claim.claimedAt },
+            patch: { workflow_state: 'pending', workflow_claimed_at: null },
+          });
+          if (!released.updated) {
+            console.error('[formMembershipFinalize] Workflow failure claim changed before release');
+          }
           workflowState = 'pending';
         }
       } else {
@@ -332,6 +531,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       invoiceState,
       workflowState,
       invoiceNumber: invoiceResult?.invoice_number || null,
+      settlementState: settlementResult?.settlement_state || states.settlement_state || null,
     };
   };
 
@@ -340,7 +540,10 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     const prior = meta.membership_result;
     if (prior?.status === 'created' && prior.history_id) {
       const workflowIncomplete = prior.workflow_state === 'pending' || prior.workflow_state === 'claimed';
-      if (prior.invoice_state !== 'pending' && !workflowIncomplete) {
+      const settlementIncomplete = Object.prototype.hasOwnProperty.call(prior, 'settlement_state')
+        && ['pending', 'retry', 'processing'].includes(prior.settlement_state);
+      const invoiceIncomplete = ['pending', 'retry', 'processing'].includes(prior.invoice_state);
+      if (!invoiceIncomplete && !workflowIncomplete && !settlementIncomplete) {
         return { created: false, alreadyProcessed: true, historyId: prior.history_id };
       }
       const { data: historyRow } = await supabase
@@ -384,9 +587,14 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         table: historyTable,
         entity_id: row[historyIdCol],
         invoice_state: 'pending',
+        ...(isStripe ? { settlement_state: 'waiting_invoice', payment_state: 'pending', annotation_state: 'pending' } : {}),
         workflow_state: 'pending',
       });
-      return await runSideEffects(row, { invoice_state: 'pending', workflow_state: 'pending' }, { newlyCreated: false });
+      return await runSideEffects(row, {
+        invoice_state: 'pending',
+        ...(isStripe ? { settlement_state: 'waiting_invoice', payment_state: 'pending', annotation_state: 'pending' } : {}),
+        workflow_state: 'pending',
+      }, { newlyCreated: false });
     };
 
     if (isStripe && paymentRef) {
@@ -484,10 +692,15 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       table: historyTable,
       entity_id: entityId,
       invoice_state: 'pending',
+      ...(isStripe ? { settlement_state: 'waiting_invoice', payment_state: 'pending', annotation_state: 'pending' } : {}),
       workflow_state: 'pending',
     });
 
-    return await runSideEffects(insertedRow, { invoice_state: 'pending', workflow_state: 'pending' }, { newlyCreated: true });
+    return await runSideEffects(insertedRow, {
+      invoice_state: 'pending',
+      ...(isStripe ? { settlement_state: 'waiting_invoice', payment_state: 'pending', annotation_state: 'pending' } : {}),
+      workflow_state: 'pending',
+    }, { newlyCreated: true });
   } catch (err) {
     // Transient/unexpected: no terminal stamp → retried by the cron sweep.
     await noteFailure(err?.message || 'unexpected error');

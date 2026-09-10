@@ -28,6 +28,10 @@ import {
   FINALIZE_CLAIM_TTL_MS as DD_FINALIZE_CLAIM_TTL_MS,
 } from './formMonthlyDirectDebitFinalize.js';
 import { processGocardlessEvent } from './gocardlessWebhookProcessor.js';
+import {
+  FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS,
+  formMembershipQuoteAmountMinor,
+} from './formStripeInvoiceSettlement.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -206,9 +210,20 @@ export async function reconcileFormPayments(supabase, {
         const pi = found.paymentIntent;
         const metadataMatches = pi.metadata?.type === 'form_payment'
           && pi.metadata?.form_submission_id === String(row.id)
+          && pi.metadata?.form_id === String(row.form_id)
           && pi.metadata?.tenant_id === String(row.tenant_id);
-        if (!metadataMatches && row.payment_reference !== pi.id) continue;
+        if (!metadataMatches || row.payment_reference !== pi.id) continue;
         if (pi.status === 'succeeded') {
+          if (row.payment_meta?.membership?.quote) {
+            const immutableQuote = row.payment_meta.membership.quote;
+            const expectedCurrency = String(immutableQuote.currency || row.payment_currency || '').toLowerCase();
+            const expectedMinor = formMembershipQuoteAmountMinor(immutableQuote);
+            const receivedMinor = Number(pi.amount_received ?? pi.amount);
+            if (!expectedCurrency || pi.currency !== expectedCurrency
+                || !Number.isFinite(expectedMinor) || receivedMinor !== expectedMinor) {
+              throw new Error('Stripe PaymentIntent amount/currency does not match the immutable membership quote');
+            }
+          }
           if (row.payment_meta?.membership && !row.payment_meta?.stripe_billing_address) {
             const billingAddress = await capturePaymentIntentBillingAddress({
               stripe: found.stripe,
@@ -331,6 +346,11 @@ export async function reconcileFormPayments(supabase, {
       .or([
         'payment_meta->membership_result.is.null',
         'payment_meta->membership_result->>invoice_state.eq.pending',
+        'payment_meta->membership_result->>invoice_state.eq.retry',
+        `and(payment_meta->membership_result->>invoice_state.eq.processing,payment_meta->membership_result->>invoice_claimed_at.lt.${new Date(now - WORKFLOW_CLAIM_TTL_MS).toISOString()})`,
+        'payment_meta->membership_result->>settlement_state.eq.pending',
+        'payment_meta->membership_result->>settlement_state.eq.retry',
+        `and(payment_meta->membership_result->>settlement_state.eq.processing,payment_meta->membership_result->>settlement_claimed_at.lt.${new Date(now - FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS).toISOString()})`,
         'payment_meta->membership_result->>workflow_state.eq.pending',
         'payment_meta->membership_result->>status.eq.awaiting_entity',
         `and(payment_meta->membership_result->>workflow_state.eq.claimed,payment_meta->membership_result->>workflow_claimed_at.lt.${new Date(now - WORKFLOW_CLAIM_TTL_MS).toISOString()})`,

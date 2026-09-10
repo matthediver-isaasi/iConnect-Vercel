@@ -1,20 +1,33 @@
 import { supabase } from './database.js';
 import { getXeroCredentials } from './xeroCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 
 export function buildXeroMembershipReference(reference) {
   return resolveMembershipInvoiceReference(reference);
 }
 
+const validStripePaymentIntentId = (value) => /^pi_[A-Za-z0-9]+$/.test(String(value || ''));
+const containsExactStripePaymentIntent = (value, paymentIntentId) => {
+  const escaped = String(paymentIntentId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:$|[^A-Za-z0-9])`).test(String(value || ''));
+};
+
 async function safeXeroJson(response, context) {
   const contentType = response.headers.get('content-type') || '';
   if (!response.ok) {
     if (contentType.includes('application/json')) {
-      const errorData = await response.json();
-      throw new Error(`[Xero ${context}] HTTP ${response.status}: ${JSON.stringify(errorData).substring(0, 500)}`);
+      const errorData = await response.json().catch(() => null);
+      const error = new Error(`[Xero ${context}] HTTP ${response.status}: ${JSON.stringify(errorData).substring(0, 500)}`);
+      error.status = response.status;
+      error.statusCode = response.status;
+      throw error;
     }
     const text = await response.text();
-    throw new Error(`[Xero ${context}] HTTP ${response.status} (non-JSON response): ${text.substring(0, 300)}`);
+    const error = new Error(`[Xero ${context}] HTTP ${response.status} (non-JSON response): ${text.substring(0, 300)}`);
+    error.status = response.status;
+    error.statusCode = response.status;
+    throw error;
   }
   if (!contentType.includes('application/json')) {
     const text = await response.text();
@@ -367,19 +380,40 @@ export async function createXeroSalesInvoice(appTenantId, invoice, dependencies 
     status: verified.Status, createdAt: verified.DateString || null };
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, idempotencyKey, paymentIdempotencyKey }) {
-  if (!supabase) throw new Error('Supabase not configured');
+export async function createXeroMembershipInvoice({
+  appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
+  tierLabel, finalCost, currency, reference, vatRate, markAsPaid,
+  deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
+  extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount,
+  idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
+}, dependencies = {}) {
+  const database = dependencies.supabase || supabase;
+  if (!database) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (deferStripeSettlement && (!stripePaymentIntentId || !idempotencyKey)) {
+    throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+  }
 
-  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
-  const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, {
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const contactResolver = dependencies.findOrCreateXeroContact || findOrCreateXeroContact;
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const expectedTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const contactId = await contactResolver(accessToken, xeroTenantId, {
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
   });
 
-  const { data: membershipLedgerSetting } = await supabase
+  const { data: membershipLedgerSetting } = await database
     .from('system_settings')
     .select('setting_value')
     .eq('setting_key', 'membership_nominal_ledger')
@@ -388,7 +422,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   let xeroAccountCode = membershipLedgerSetting?.setting_value;
   if (!xeroAccountCode) {
-    const { data: accountCodeSetting } = await supabase
+    const { data: accountCodeSetting } = await database
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'xero_sales_account_code')
@@ -402,7 +436,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     xeroAccountCode = String(nominalCode).trim();
   }
 
-  const { data: invoiceStatusSetting } = await supabase
+  const { data: invoiceStatusSetting } = await database
     .from('system_settings')
     .select('setting_value')
     .eq('setting_key', 'xero_invoice_status')
@@ -410,7 +444,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     .maybeSingle();
 
   const configuredInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
-  const xeroInvoiceStatus = markAsPaid ? 'AUTHORISED' : configuredInvoiceStatus;
+  const xeroInvoiceStatus = (markAsPaid || deferStripeSettlement) ? 'AUTHORISED' : configuredInvoiceStatus;
 
   let taxType = null;
   let taxLabel = null;
@@ -427,7 +461,11 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   const firstLine = invoiceDescription
     ? invoiceDescription.replace(/\{year\}/gi, membershipYear)
     : `Membership subscription for ${membershipYear}`;
-  const description = `${firstLine}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}`;
+  const description = `${firstLine}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}${
+    deferStripeSettlement && stripePaymentIntentId
+      ? `\nForm membership Stripe PaymentIntent: ${stripePaymentIntentId}`
+      : ''
+  }`;
 
   const lineItem = {
     Description: description,
@@ -477,7 +515,11 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   // response for a repeated Idempotency-Key instead of creating a second
   // invoice, so a crash between create and our local linkage write cannot
   // duplicate on retry.
-  if (idempotencyKey) createHeaders['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
+  if (idempotencyKey) {
+    createHeaders['Idempotency-Key'] = deferStripeSettlement
+      ? accountingOperationIdentity(idempotencyKey, 'inv', 128)
+      : String(idempotencyKey).slice(0, 128);
+  }
   const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
     method: 'POST',
     headers: createHeaders,
@@ -496,8 +538,47 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   let paymentRecorded = false;
   let paymentId = null;
+  let annotationRecorded = false;
 
-  if (markAsPaid && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
+  if (deferStripeSettlement && stripePaymentIntentId && invoice.InvoiceID) {
+    const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
+    try {
+      const historyUrl = `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoice.InvoiceID)}/History`;
+      const historyResponse = await fetch(historyUrl, {
+        signal: AbortSignal.timeout(20000),
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Accept': 'application/json',
+        },
+      });
+      const historyData = await safeXeroJson(historyResponse, 'invoice-history-retrieve');
+      annotationRecorded = (historyData?.HistoryRecords || []).some((record) =>
+        containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+      if (!annotationRecorded) {
+        const annotationResponse = await fetch(historyUrl, {
+          method: 'PUT',
+          signal: AbortSignal.timeout(20000),
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(idempotencyKey ? {
+              'Idempotency-Key': accountingOperationIdentity(idempotencyKey, 'trace', 128),
+            } : {}),
+          },
+          body: JSON.stringify({ HistoryRecords: [{ Details: trace }] }),
+        });
+        await safeXeroJson(annotationResponse, 'invoice-history-create');
+        annotationRecorded = true;
+      }
+    } catch (annotationError) {
+      console.error(`[Xero] Invoice created but Stripe trace annotation failed: ${annotationError.message}`);
+    }
+  }
+
+  if (markAsPaid && !deferStripeSettlement && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
     try {
       // Task #3633: callers may name a dedicated bank-account setting (e.g.
       // the GoCardless one for DD instalment invoices); fall back to the
@@ -507,7 +588,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
       // surface recoverably instead.
       let stripeBankAccountCode = null;
       if (bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code') {
-        const { data: dedicated } = await supabase
+        const { data: dedicated } = await database
           .from('system_settings')
           .select('setting_value')
           .eq('setting_key', bankAccountSettingKey)
@@ -518,7 +599,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
       const strictDedicated = strictBankAccount === true
         && bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code';
       if (!stripeBankAccountCode && !strictDedicated) {
-        const { data: stripeBankCodeSetting } = await supabase
+        const { data: stripeBankCodeSetting } = await database
           .from('system_settings')
           .select('setting_value')
           .eq('setting_key', 'xero_stripe_bank_account_code')
@@ -614,8 +695,10 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     total: invoice.Total,
     status: paymentRecorded ? 'PAID' : invoice.Status,
     payment_recorded: paymentRecorded,
+    annotation_recorded: annotationRecorded,
     payment_id: paymentId,
-    online_invoice_url: onlineInvoiceUrl
+    online_invoice_url: onlineInvoiceUrl,
+    provider_context: { xero_tenant_id: xeroTenantId },
   };
 }
 
@@ -963,6 +1046,292 @@ export async function applyStripePaymentToXeroInvoice({
     payment_recorded: paymentRecorded,
     payment_id: paymentId,
     online_invoice_url: onlineInvoiceUrl,
+  };
+}
+
+const settlementMoney = (value, label) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0
+      || Math.abs(number * 100 - Math.round(number * 100)) > 1e-7) {
+    throw new Error(`${label} must be a positive major-unit amount with at most two decimals`);
+  }
+  return Math.round(number * 100) / 100;
+};
+
+/**
+ * Safely settles a verified Stripe PaymentIntent against an existing Xero
+ * invoice. Annotation and payment are deliberately independent operations:
+ * the invoice history remains useful even when the clearing account is not
+ * configured, while retries inspect provider state before attempting a write.
+ */
+export async function settleFormStripeXeroInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, invoiceId, stripePaymentIntentId, amount, currency, paidAt,
+    dryRun = false, annotationOnly = false, expectedAccount = null, operationKey,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (!/^[A-Z]{3}$/.test(String(currency || '').toUpperCase())) throw new Error('currency is required');
+  const paymentOperationId = accountingOperationIdentity(operationKey, 'pay', 128);
+  const annotationOperationId = accountingOperationIdentity(operationKey, 'note', 128);
+  const payAmount = settlementMoney(amount, 'amount');
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const rawFetch = dependencies.fetch || fetch;
+  const fetcher = (url, init = {}) => rawFetch(url, {
+    ...init,
+    signal: init.signal || AbortSignal.timeout(20000),
+  });
+  const database = dependencies.supabase || supabase;
+  if (!database) throw new Error('Supabase not configured');
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const expectedProviderContext = args?.expectedProviderContext;
+  const expectedXeroTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedXeroTenant && String(expectedXeroTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const headers = {
+    Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId,
+    Accept: 'application/json',
+  };
+  const readInvoice = async () => {
+    const response = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}`,
+      { headers },
+    );
+    const data = await safeXeroJson(response, 'form-settlement-invoice-retrieve');
+    const value = data?.Invoices?.[0];
+    if (!value?.InvoiceID) throw new Error(`Xero invoice ${invoiceId} not found`);
+    return value;
+  };
+  let invoice = await readInvoice();
+  const invoiceTotal = settlementMoney(invoice.Total, 'Xero invoice total');
+  const invoiceCurrency = String(invoice.CurrencyCode || '').toUpperCase();
+  if (invoiceTotal !== payAmount) {
+    throw new Error(`Stripe amount ${payAmount.toFixed(2)} does not match Xero invoice total ${invoiceTotal.toFixed(2)}`);
+  }
+  if (invoiceCurrency !== String(currency).toUpperCase()) {
+    throw new Error(`Stripe currency ${String(currency).toUpperCase()} does not match Xero invoice currency ${invoiceCurrency || '(missing)'}`);
+  }
+
+  const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
+  const paymentMatches = (value) =>
+    containsExactStripePaymentIntent(value?.Reference, stripePaymentIntentId)
+    && value?.Amount != null
+    && settlementMoney(value.Amount, 'Xero payment amount') === payAmount;
+  let matchingPayment = (invoice.Payments || []).find(paymentMatches) || null;
+  if (invoice.AmountDue == null) throw new Error('Xero invoice returned no balance');
+  let balance = Math.round(Number(invoice.AmountDue) * 100) / 100;
+  if (!Number.isFinite(balance) || balance < 0) throw new Error('Xero invoice returned an invalid balance');
+
+  let annotationRecorded = false;
+  let annotationError = null;
+  try {
+    const historyResponse = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+      { headers },
+    );
+    const historyData = await safeXeroJson(historyResponse, 'form-settlement-history-retrieve');
+    annotationRecorded = (historyData?.HistoryRecords || []).some((record) =>
+      containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+    if (!annotationRecorded && !dryRun) {
+      const createResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+        {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': annotationOperationId },
+          body: JSON.stringify({ HistoryRecords: [{ Details: trace }] }),
+        },
+      );
+      await safeXeroJson(createResponse, 'form-settlement-history-create');
+      annotationRecorded = true;
+    }
+  } catch (error) {
+    annotationError = error.message;
+    try {
+      const verifyResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+        { headers },
+      );
+      const verifyData = await safeXeroJson(verifyResponse, 'form-settlement-history-verify');
+      annotationRecorded = (verifyData?.HistoryRecords || []).some((record) =>
+        containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+      if (annotationRecorded) annotationError = null;
+    } catch {
+      // Preserve the original actionable annotation error.
+    }
+  }
+
+  let account = null;
+  let settlementError = null;
+  let settlementState = 'retry';
+  if (annotationOnly) {
+    if (matchingPayment && balance === 0) {
+      settlementState = annotationRecorded ? 'done' : 'retry';
+    } else if (balance !== invoiceTotal) {
+      settlementState = 'blocked';
+      settlementError = 'Annotation recorded, but invoice is partially or manually settled';
+    } else {
+      settlementState = 'retry';
+      settlementError = 'Annotation-only operation completed; Stripe settlement remains pending';
+    }
+  } else if (matchingPayment && balance === 0) {
+    settlementState = annotationRecorded ? 'done' : 'retry';
+  } else if (balance !== invoiceTotal) {
+    settlementState = 'blocked';
+    settlementError = matchingPayment
+      ? 'The Stripe-linked payment does not fully settle the invoice'
+      : 'Invoice has a partial or manual payment; refusing to create an excess payment';
+  } else if (!['AUTHORISED', 'PAID'].includes(invoice.Status)) {
+    settlementState = 'blocked';
+    settlementError = `Xero invoice status ${invoice.Status || '(missing)'} cannot accept payment`;
+  } else {
+    const { data: setting, error: settingError } = await database
+      .from('system_settings').select('setting_value')
+      .eq('setting_key', 'xero_stripe_bank_account_code')
+      .eq('tenant_id', appTenantId).maybeSingle();
+    if (settingError) throw new Error(`Failed to read Xero Stripe clearing-account configuration: ${settingError.message}`);
+    const configuredCode = setting?.setting_value ? String(setting.setting_value) : null;
+    if (!configuredCode) {
+      settlementState = 'blocked';
+      settlementError = 'Xero Stripe clearing account is not configured (xero_stripe_bank_account_code)';
+    } else if (expectedAccount != null && String(expectedAccount) !== configuredCode) {
+      settlementState = 'blocked';
+      settlementError = `Configured Xero Stripe clearing account does not match explicitly confirmed account ${expectedAccount}`;
+      account = configuredCode;
+    } else {
+      const accountResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Accounts?where=${encodeURIComponent(`Code=="${configuredCode.replace(/"/g, '\\"')}"`)}`,
+        { headers },
+      );
+      const accountData = await safeXeroJson(accountResponse, 'form-settlement-account-retrieve');
+      const bankAccount = (accountData?.Accounts || []).find((item) => String(item.Code) === configuredCode);
+      account = configuredCode;
+      if (!bankAccount?.AccountID || bankAccount.Status === 'ARCHIVED' || bankAccount.Type !== 'BANK') {
+        settlementState = 'blocked';
+        settlementError = `Configured Xero Stripe clearing account ${configuredCode} is not an active bank account`;
+      } else if (dryRun) {
+        settlementState = 'retry';
+        settlementError = 'Dry run: payment and/or annotation still need to be recorded';
+      } else {
+        try {
+          const response = await fetcher('https://api.xero.com/api.xro/2.0/Payments', {
+            method: 'PUT',
+            headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': paymentOperationId },
+            body: JSON.stringify({ Payments: [{
+              Invoice: { InvoiceID: invoiceId },
+              Account: { AccountID: bankAccount.AccountID },
+              Date: new Date(paidAt || Date.now()).toISOString().split('T')[0],
+              Amount: payAmount,
+              Reference: trace,
+            }] }),
+          });
+          await safeXeroJson(response, 'form-settlement-payment-create');
+        } catch (error) {
+          settlementError = error.message;
+        }
+        // A read-after-write also resolves timeout/ambiguous response cases.
+        invoice = await readInvoice();
+        if (invoice.AmountDue == null) throw new Error('Xero invoice returned no balance');
+        balance = Math.round(Number(invoice.AmountDue) * 100) / 100;
+        matchingPayment = (invoice.Payments || []).find(paymentMatches) || null;
+        if (matchingPayment && balance === 0) {
+          settlementState = annotationRecorded ? 'done' : 'retry';
+          settlementError = null;
+        } else {
+          settlementState = 'retry';
+          settlementError ||= 'Xero did not confirm the Stripe-linked payment';
+        }
+      }
+    }
+  }
+  if (dryRun && settlementState === 'retry' && !settlementError) {
+    settlementError = 'Dry run: invoice annotation still needs to be recorded';
+  }
+  const errors = [settlementError, annotationError && `Invoice annotation: ${annotationError}`].filter(Boolean);
+  return {
+    payment_recorded: !!matchingPayment && balance === 0,
+    annotation_recorded: annotationRecorded,
+    settlement_state: settlementState,
+    error: errors.join('; ') || null,
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber || null,
+    balance,
+    account,
+    provider_context: { xero_tenant_id: xeroTenantId },
+  };
+}
+
+/**
+ * Bounded recovery lookup for the create-success/local-linkage-failed window.
+ * Deferred membership invoices carry the exact PI in a line description, so
+ * this read-only scan can recover only a unique, explicitly marked invoice.
+ */
+export async function findFormStripeXeroInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, stripePaymentIntentId, createdAfter, expectedProviderContext = null,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  const after = new Date(createdAfter);
+  if (!createdAfter || Number.isNaN(after.getTime())) throw new Error('createdAfter must be a valid date');
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const rawFetch = dependencies.fetch || fetch;
+  const fetcher = (url, init = {}) => rawFetch(url, {
+    ...init, signal: init.signal || AbortSignal.timeout(20000),
+  });
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const expectedTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const headers = {
+    Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId,
+    Accept: 'application/json',
+  };
+  const dateFloor = `${after.getUTCFullYear()},${after.getUTCMonth() + 1},${after.getUTCDate()}`;
+  const matches = [];
+  const pageSize = 100;
+  for (let page = 1; page <= 100; page += 1) {
+    const where = `Type=="ACCREC"&&Date>=DateTime(${dateFloor})`;
+    const response = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices?page=${page}&where=${encodeURIComponent(where)}`,
+      { headers },
+    );
+    const data = await safeXeroJson(response, 'form-invoice-discovery');
+    const batch = data?.Invoices || [];
+    for (const invoice of batch) {
+      const marked = (invoice.LineItems || []).some((line) =>
+        String(line?.Description || '').includes('Form membership Stripe PaymentIntent:')
+        && containsExactStripePaymentIntent(line?.Description, stripePaymentIntentId));
+      if (marked) matches.push(invoice);
+    }
+    if (batch.length < pageSize) break;
+    if (page === 100) {
+      throw new Error('Xero invoice discovery exceeded the safe 10,000-invoice inspection limit');
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(`Multiple Xero membership invoices carry PaymentIntent ${stripePaymentIntentId}; refusing ambiguous recovery`);
+  }
+  const invoice = matches[0];
+  if (!invoice) return null;
+  if (invoice.AmountDue == null) throw new Error('Xero discovered invoice returned no balance');
+  return {
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber || null,
+    total: Number(invoice.Total),
+    balance: Number(invoice.AmountDue),
+    currency: invoice.CurrencyCode || null,
+    provider_context: { xero_tenant_id: xeroTenantId },
   };
 }
 

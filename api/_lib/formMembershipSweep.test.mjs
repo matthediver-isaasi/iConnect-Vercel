@@ -43,22 +43,47 @@ test('workflow dispatch is claim-before-fire with CAS filters', () => {
   const claimAt = finalizeSrc.indexOf('const claimWorkflow');
   assert.ok(claimAt > -1);
   const claim = finalizeSrc.slice(claimAt, finalizeSrc.indexOf('// ── Side-effect runner', claimAt));
-  // CAS: conditional update filtered on the current state, verified via
-  // affected rows.
-  assert.match(claim, /\.filter\('payment_meta->membership_result->>workflow_state', 'eq', expectedState\)/);
-  assert.match(claim, /workflow_claimed_at', 'eq', expectedClaimedAt/);
-  assert.match(claim, /\.select\('id'\)/);
+  // CAS is performed by the advisory-locked merge RPC, matching both state
+  // and stale claim timestamp without replacing unrelated payment metadata.
+  assert.match(claim, /mergeFormMembershipProgress/);
+  assert.match(claim, /workflow_state: expectedState/);
+  assert.match(claim, /expected\.workflow_claimed_at = expectedClaimedAt/);
   // Fire only after a successful claim; stamp 'done' after dispatch; a
   // known-failed dispatch releases the claim.
   const wfAt = finalizeSrc.indexOf('if (claim.claimed)');
   assert.ok(wfAt > -1);
   const wf = finalizeSrc.slice(wfAt, wfAt + 1600);
   assert.ok(wf.indexOf('fireWorkflowForPaidRow') < wf.indexOf("workflow_state: 'done'"));
+  assert.match(wf, /workflow_claimed_at: claim\.claimedAt/);
   assert.match(wf, /workflow_state: 'pending', workflow_claimed_at: null/);
 });
 
 test('resume path treats claimed workflow state as incomplete', () => {
   assert.match(finalizeSrc, /prior\.workflow_state === 'pending' \|\| prior\.workflow_state === 'claimed'/);
+});
+
+test('ambiguous invoice creation crashes are not automatically replayed', () => {
+  // The durable CAS changes pending -> processing before the provider call.
+  // A crash after provider acceptance but before linkage is ambiguous once a
+  // provider idempotency-key retention window expires, so processing is only
+  // recovered by bounded read-only exact-PI discovery, never by create replay.
+  assert.match(finalizeSrc, /idempotencyKey: `form-membership-invoice:/);
+  assert.match(finalizeSrc, /if \(invoiceState === 'pending' \|\| invoiceState === 'retry'\)/);
+  assert.ok(sweep.includes('invoice_state.eq.processing'));
+  assert.match(finalizeSrc, /staleInvoiceCreation/);
+  assert.match(finalizeSrc, /provider_context: pinnedProviderContext/);
+  assert.match(finalizeSrc, /invoice_claimed_at: invoiceClaimedAt/);
+  assert.match(finalizeSrc, /expectedProviderContext: pinnedProviderContext/);
+  assert.match(finalizeSrc, /settlement_state: 'waiting_invoice'/);
+});
+
+test('settlement exceptions persist accounting and submission diagnostics without changing paid status', () => {
+  const settlementAt = finalizeSrc.indexOf('// New Stripe form invoices are authorised/created first');
+  const block = finalizeSrc.slice(settlementAt, settlementAt + 3600);
+  assert.match(block, /accounting_sync_status: 'failed'/);
+  assert.match(block, /accounting_sync_error: settlementError/);
+  assert.match(block, /processing_notes: `Payment succeeded and the membership was created/);
+  assert.ok(!block.includes('payment_status:'), 'failure diagnostics must not undo the paid submission');
 });
 
 test('sweep retries unresolved-entity submissions indefinitely, re-running the pipeline', () => {

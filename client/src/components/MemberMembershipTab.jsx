@@ -32,6 +32,7 @@ import {
   Eye, Download, PauseCircle
 } from "lucide-react";
 import { toast } from "sonner";
+import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -1357,6 +1358,13 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
                     const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
                     const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
+                    const canInspectSettlement = !!invoiceId
+                      && record.payment_method === 'stripe'
+                      && record.payment_status === 'paid'
+                      && !record.billing_agreement_id
+                      && record.payment_method !== 'stripe_monthly_card'
+                      && record.interval_unit !== 'monthly'
+                      && record.payment_frequency !== 'monthly';
                     return (
                       <tr key={record.id} className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">{record.membership_year}</td>
@@ -1418,7 +1426,25 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               </Button>
                             </div>
                           ) : invoiceId ? (
-                            <div className="flex items-center justify-center gap-1">
+                            <div className="flex flex-col items-center gap-1">
+                              {(record.accounting_sync_status || record.accounting_sync_error) && (
+                                <div className="max-w-56 text-center">
+                                  {record.accounting_sync_status && (
+                                    <Badge
+                                      variant={record.accounting_sync_status === 'failed' ? 'destructive' : 'outline'}
+                                      data-testid={`badge-accounting-sync-${record.id}`}
+                                    >
+                                      Accounting: {record.accounting_sync_status}
+                                    </Badge>
+                                  )}
+                                  {record.accounting_sync_error && (
+                                    <p className="mt-1 text-xs text-destructive break-words" data-testid={`text-accounting-sync-error-${record.id}`}>
+                                      {record.accounting_sync_error}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-center justify-center gap-1">
                               {loadingInvoiceRecordId === record.id ? (
                                 <Loader2
                                   className="w-4 h-4 animate-spin text-muted-foreground"
@@ -1459,6 +1485,14 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                     )}
                                   </Button>
                                 </>
+                              )}
+                              </div>
+                              {canInspectSettlement && (
+                                <FormInvoiceSettlementControl
+                                  recordId={record.id}
+                                  table="member_membership_history"
+                                  onSettled={() => queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] })}
+                                />
                               )}
                             </div>
                           ) : (

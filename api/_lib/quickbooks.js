@@ -1,10 +1,17 @@
 import { supabase } from './database.js';
 import { getQuickBooksCredentials, getIntuitEndpoints } from './quickbooksCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 
 export function buildQuickBooksMembershipCustomerMemo(reference) {
   return { value: resolveMembershipInvoiceReference(reference) };
 }
+
+const validStripePaymentIntentId = (value) => /^pi_[A-Za-z0-9]+$/.test(String(value || ''));
+const containsExactStripePaymentIntent = (value, paymentIntentId) => {
+  const escaped = String(paymentIntentId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:$|[^A-Za-z0-9])`).test(String(value || ''));
+};
 
 // ---------------------------------------------------------------------------
 // HTTP helpers + error normalization
@@ -30,10 +37,16 @@ async function safeJson(response, context) {
       const errorData = await response.json().catch(() => null);
       const fault = normalizeQboFault(errorData);
       const detail = fault || JSON.stringify(errorData).substring(0, 500);
-      throw new Error(`[QBO ${context}] HTTP ${response.status}: ${detail}`);
+      const error = new Error(`[QBO ${context}] HTTP ${response.status}: ${detail}`);
+      error.status = response.status;
+      error.statusCode = response.status;
+      throw error;
     }
     const text = await response.text();
-    throw new Error(`[QBO ${context}] HTTP ${response.status}: ${text.substring(0, 300)}`);
+    const error = new Error(`[QBO ${context}] HTTP ${response.status}: ${text.substring(0, 300)}`);
+    error.status = response.status;
+    error.statusCode = response.status;
+    throw error;
   }
   if (!contentType.includes('application/json')) {
     const text = await response.text();
@@ -293,14 +306,28 @@ function parseAddressLinesQbo(addressText) {
 // Customer resolution
 // ---------------------------------------------------------------------------
 
-export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo) {
+export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, connection = null) {
   const info =
     typeof contactInfo === 'string'
       ? { name: contactInfo, email: null, address: null }
       : contactInfo;
   if (!info?.name) throw new Error('Customer name is required');
 
-  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const resolvedConnection = connection?.accessToken
+    ? connection
+    : await getValidQuickBooksAccessToken(appTenantId);
+  const { accessToken, realmId, environment } = resolvedConnection;
+  const expectedProviderContext = connection?.expectedProviderContext;
+  const expectedRealm = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.quickbooks_realm_id;
+  if (expectedRealm && String(expectedRealm) !== String(realmId)) {
+    throw new Error('Connected QuickBooks company does not match the invoice provider context');
+  }
+  if (expectedProviderContext?.environment
+      && String(expectedProviderContext.environment) !== String(environment)) {
+    throw new Error('Connected QuickBooks environment does not match the invoice provider context');
+  }
   const { apiBaseUrl } = getIntuitEndpoints(environment);
   const base = companyBase(apiBaseUrl, realmId);
 
@@ -528,6 +555,7 @@ export async function createQuickBooksMembershipInvoice({
   reference,
   vatRate,
   markAsPaid,
+  deferStripeSettlement = false,
   stripePaymentIntentId,
   invoiceDescription,
   extraLineItems,
@@ -536,18 +564,42 @@ export async function createQuickBooksMembershipInvoice({
   strictBankAccount,
   idempotencyKey,
   paymentIdempotencyKey,
-}) {
+  expectedProviderContext = null,
+}, dependencies = {}) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (deferStripeSettlement && (!stripePaymentIntentId || !idempotencyKey)) {
+    throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+  }
 
-  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
+  const customerResolver = dependencies.findOrCreateQuickBooksCustomer || findOrCreateQuickBooksCustomer;
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const expectedRealm = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.quickbooks_realm_id;
+  if (expectedRealm && String(expectedRealm) !== String(realmId)) {
+    throw new Error('Connected QuickBooks company does not match the invoice provider context');
+  }
+  if (expectedProviderContext?.environment
+      && String(expectedProviderContext.environment) !== String(environment)) {
+    throw new Error('Connected QuickBooks environment does not match the invoice provider context');
+  }
   const { apiBaseUrl } = getIntuitEndpoints(environment);
   const base = companyBase(apiBaseUrl, realmId);
 
-  const customerId = await findOrCreateQuickBooksCustomer(appTenantId, {
+  const customerId = await customerResolver(appTenantId, {
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
+  }, {
+    accessToken,
+    realmId,
+    environment,
+    expectedProviderContext,
   });
 
   const itemId = await resolveMembershipItemId(appTenantId);
@@ -695,6 +747,9 @@ export async function createQuickBooksMembershipInvoice({
     // TaxExcluded matches what the band stores.
     GlobalTaxCalculation: 'TaxExcluded',
   };
+  if (deferStripeSettlement && stripePaymentIntentId) {
+    invoicePayload.PrivateNote = `Form membership Stripe PaymentIntent: ${stripePaymentIntentId}`;
+  }
   if (currency) invoicePayload.CurrencyRef = { value: currency };
 
   console.log(
@@ -705,7 +760,9 @@ export async function createQuickBooksMembershipInvoice({
   // response for a repeated requestid instead of creating a second invoice,
   // so a crash between create and our local linkage write cannot duplicate.
   const requestIdParam = idempotencyKey
-    ? `&requestid=${encodeURIComponent(String(idempotencyKey).slice(0, 50))}`
+    ? `&requestid=${encodeURIComponent(deferStripeSettlement
+      ? accountingOperationIdentity(idempotencyKey, 'inv', 50)
+      : String(idempotencyKey).slice(0, 50))}`
     : '';
   const url = `${base}/invoice?minorversion=${MINOR_VERSION}${requestIdParam}`;
   const invoiceResp = await qboFetch('invoice-create', accessToken, 'POST', url, invoicePayload);
@@ -717,7 +774,7 @@ export async function createQuickBooksMembershipInvoice({
 
   let paymentRecorded = false;
   let paymentId = null;
-  if (markAsPaid) {
+  if (markAsPaid && !deferStripeSettlement) {
     try {
       const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey || null, { strict: strictBankAccount === true });
       if (bankAccountId) {
@@ -785,8 +842,10 @@ export async function createQuickBooksMembershipInvoice({
     total: invoice.TotalAmt,
     status: paymentRecorded ? 'PAID' : 'AUTHORISED',
     payment_recorded: paymentRecorded,
+    annotation_recorded: !!(deferStripeSettlement && stripePaymentIntentId),
     payment_id: paymentId,
     online_invoice_url: onlineInvoiceUrl,
+    provider_context: { quickbooks_realm_id: realmId, environment },
   };
 }
 
@@ -879,6 +938,332 @@ export async function applyStripePaymentToQuickBooksInvoice({
     payment_recorded: paymentRecorded,
     payment_id: paymentId,
     online_invoice_url: null,
+  };
+}
+
+const qboSettlementMoney = (value, label) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0
+      || Math.abs(number * 100 - Math.round(number * 100)) > 1e-7) {
+    throw new Error(`${label} must be a positive major-unit amount with at most two decimals`);
+  }
+  return Math.round(number * 100) / 100;
+};
+
+// Intuit requestid is limited to 50 provider-safe characters. Keep readable
+// operation keys where possible and deterministically compact longer keys.
+export function quickBooksSettlementRequestId(operationKey, suffix) {
+  return quickBooksRequestId(accountingOperationIdentity(operationKey, suffix, 50));
+}
+
+/**
+ * Existing-invoice Stripe settlement for form invoices. It never chooses an
+ * account, overwrites a PO/customer memo, or assumes a zero balance was caused
+ * by Stripe. Provider state is inspected before and after every payment write.
+ */
+export async function settleFormStripeQuickBooksInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, invoiceId, stripePaymentIntentId, amount, currency, paidAt,
+    dryRun = false, annotationOnly = false, expectedAccount = null, operationKey,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (!/^[A-Z]{3}$/.test(String(currency || '').toUpperCase())) throw new Error('currency is required');
+  const paymentRequestId = quickBooksSettlementRequestId(operationKey, 'pay');
+  const annotationRequestId = quickBooksSettlementRequestId(operationKey, 'note');
+  const payAmount = qboSettlementMoney(amount, 'amount');
+  const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
+  const rawFetch = dependencies.fetch || fetch;
+  const fetcher = (url, init = {}) => rawFetch(url, {
+    ...init,
+    signal: init.signal || AbortSignal.timeout(20000),
+  });
+  const database = dependencies.supabase || supabase;
+  if (!database) throw new Error('Supabase not configured');
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const expectedProviderContext = args?.expectedProviderContext;
+  const expectedRealm = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.quickbooks_realm_id;
+  if (expectedRealm && String(expectedRealm) !== String(realmId)) {
+    throw new Error('Connected QuickBooks company does not match the invoice provider context');
+  }
+  if (expectedProviderContext?.environment
+      && String(expectedProviderContext.environment) !== String(environment)) {
+    throw new Error('Connected QuickBooks environment does not match the invoice provider context');
+  }
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const base = companyBase(apiBaseUrl, realmId);
+  const headers = qboHeaders(accessToken);
+  const readInvoice = async () => {
+    const response = await fetcher(
+      `${base}/invoice/${encodeURIComponent(invoiceId)}?minorversion=${MINOR_VERSION}`,
+      { headers },
+    );
+    const data = await safeJson(response, 'form-settlement-invoice-retrieve');
+    if (!data?.Invoice?.Id) throw new Error(`QBO invoice ${invoiceId} not found`);
+    return data.Invoice;
+  };
+  const queryPayments = async (customerId) => {
+    const escaped = String(customerId).replace(/'/g, "\\'");
+    const payments = [];
+    const pageSize = 1000;
+    for (let page = 0; page < 10; page += 1) {
+      const start = page * pageSize + 1;
+      const query = `SELECT * FROM Payment WHERE CustomerRef = '${escaped}' STARTPOSITION ${start} MAXRESULTS ${pageSize}`;
+      const response = await fetcher(
+        `${base}/query?minorversion=${MINOR_VERSION}&query=${encodeURIComponent(query)}`,
+        { headers: qboHeaders(accessToken, { 'Content-Type': 'application/text' }) },
+      );
+      const data = await safeJson(response, 'form-settlement-payment-query');
+      const batch = data?.QueryResponse?.Payment || [];
+      payments.push(...batch);
+      if (batch.length < pageSize) return payments;
+    }
+    throw new Error('QuickBooks payment history exceeds the safe inspection limit; refusing settlement');
+  };
+
+  let invoice = await readInvoice();
+  const invoiceTotal = qboSettlementMoney(invoice.TotalAmt, 'QuickBooks invoice total');
+  if (invoice.Balance == null) throw new Error('QuickBooks invoice returned no balance');
+  let balance = Math.round(Number(invoice.Balance) * 100) / 100;
+  if (!Number.isFinite(balance) || balance < 0) throw new Error('QuickBooks invoice returned an invalid balance');
+  const invoiceCurrency = String(invoice.CurrencyRef?.value || '').toUpperCase();
+  if (invoiceTotal !== payAmount) {
+    throw new Error(`Stripe amount ${payAmount.toFixed(2)} does not match QuickBooks invoice total ${invoiceTotal.toFixed(2)}`);
+  }
+  if (invoiceCurrency !== String(currency).toUpperCase()) {
+    throw new Error(`Stripe currency ${String(currency).toUpperCase()} does not match QuickBooks invoice currency ${invoiceCurrency || '(missing)'}`);
+  }
+  const customerId = invoice.CustomerRef?.value;
+  if (!customerId) throw new Error(`QBO invoice ${invoiceId} has no CustomerRef`);
+  const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
+  const paymentMatches = (payment) => {
+    if (!containsExactStripePaymentIntent(payment?.PrivateNote, stripePaymentIntentId)) return false;
+    const linked = (payment.Line || []).find((line) =>
+      (line.LinkedTxn || []).some((txn) => String(txn.TxnId) === String(invoiceId)
+        && txn.TxnType === 'Invoice'));
+    return !!linked && qboSettlementMoney(linked.Amount, 'QuickBooks linked payment amount') === payAmount;
+  };
+  let matchingPayment = (await queryPayments(customerId)).find(paymentMatches) || null;
+
+  let annotationRecorded = containsExactStripePaymentIntent(invoice.PrivateNote, stripePaymentIntentId);
+  let annotationError = null;
+  if (!annotationRecorded && !dryRun) {
+    try {
+      const existingNote = String(invoice.PrivateNote || '');
+      const note = existingNote ? `${existingNote}\n${trace}` : trace;
+      if (note.length > 4000) {
+        throw new Error('QuickBooks PrivateNote cannot fit the Stripe PaymentIntent without overwriting existing content');
+      }
+      const response = await fetcher(
+        `${base}/invoice?minorversion=${MINOR_VERSION}&requestid=${encodeURIComponent(annotationRequestId)}`,
+        {
+          method: 'POST',
+          headers: qboHeaders(accessToken, { 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            Id: invoice.Id, SyncToken: invoice.SyncToken, sparse: true, PrivateNote: note,
+          }),
+        },
+      );
+      const data = await safeJson(response, 'form-settlement-invoice-annotate');
+      annotationRecorded = containsExactStripePaymentIntent(data?.Invoice?.PrivateNote || note, stripePaymentIntentId);
+      invoice = data?.Invoice?.Id ? data.Invoice : invoice;
+    } catch (error) {
+      annotationError = error.message;
+      try {
+        invoice = await readInvoice();
+        annotationRecorded = containsExactStripePaymentIntent(invoice.PrivateNote, stripePaymentIntentId);
+        if (annotationRecorded) annotationError = null;
+      } catch {
+        // Preserve the original actionable annotation error.
+      }
+    }
+  }
+
+  let account = null;
+  let settlementError = null;
+  let settlementState = 'retry';
+  if (annotationOnly) {
+    if (matchingPayment && balance === 0) {
+      settlementState = annotationRecorded ? 'done' : 'retry';
+    } else if (balance !== invoiceTotal) {
+      settlementState = 'blocked';
+      settlementError = 'Annotation recorded, but invoice is partially or manually settled';
+    } else {
+      settlementState = 'retry';
+      settlementError = 'Annotation-only operation completed; Stripe settlement remains pending';
+    }
+  } else if (matchingPayment && balance === 0) {
+    settlementState = annotationRecorded ? 'done' : 'retry';
+  } else if (balance !== invoiceTotal) {
+    settlementState = 'blocked';
+    settlementError = matchingPayment
+      ? 'The Stripe-linked payment does not fully settle the invoice'
+      : 'Invoice has a partial or manual payment; refusing to create an excess payment';
+  } else {
+    const { data: primary, error: primaryError } = await database.from('system_settings')
+      .select('setting_value').eq('setting_key', 'quickbooks_stripe_bank_account_id')
+      .eq('tenant_id', appTenantId).maybeSingle();
+    if (primaryError) throw new Error(`Failed to read QuickBooks Stripe clearing-account configuration: ${primaryError.message}`);
+    let configuredId = primary?.setting_value ? String(primary.setting_value) : null;
+    if (!configuredId) {
+      const { data: fallback, error: fallbackError } = await database.from('system_settings')
+        .select('setting_value').eq('setting_key', 'accounting_stripe_bank_account_id')
+        .eq('tenant_id', appTenantId).maybeSingle();
+      if (fallbackError) throw new Error(`Failed to read QuickBooks Stripe clearing-account configuration: ${fallbackError.message}`);
+      configuredId = fallback?.setting_value ? String(fallback.setting_value) : null;
+    }
+    if (!configuredId) {
+      settlementState = 'blocked';
+      settlementError = 'QuickBooks Stripe clearing account is not configured (quickbooks_stripe_bank_account_id)';
+    } else if (expectedAccount != null && String(expectedAccount) !== configuredId) {
+      account = configuredId;
+      settlementState = 'blocked';
+      settlementError = `Configured QuickBooks Stripe clearing account does not match explicitly confirmed account ${expectedAccount}`;
+    } else {
+      account = configuredId;
+      const accountResponse = await fetcher(
+        `${base}/account/${encodeURIComponent(configuredId)}?minorversion=${MINOR_VERSION}`,
+        { headers },
+      );
+      const accountData = await safeJson(accountResponse, 'form-settlement-account-retrieve');
+      const bankAccount = accountData?.Account;
+      if (!bankAccount?.Id || bankAccount.Active === false
+          || !['Bank', 'Other Current Asset'].includes(bankAccount.AccountType)) {
+        settlementState = 'blocked';
+        settlementError = `Configured QuickBooks Stripe clearing account ${configuredId} is not active or deposit-capable`;
+      } else if (dryRun) {
+        settlementState = 'retry';
+        settlementError = 'Dry run: payment and/or annotation still need to be recorded';
+      } else {
+        try {
+          const response = await fetcher(
+            `${base}/payment?minorversion=${MINOR_VERSION}&requestid=${encodeURIComponent(paymentRequestId)}`,
+            {
+              method: 'POST',
+              headers: qboHeaders(accessToken, { 'Content-Type': 'application/json' }),
+              body: JSON.stringify({
+                CustomerRef: { value: String(customerId) },
+                TotalAmt: payAmount,
+                TxnDate: new Date(paidAt || Date.now()).toISOString().split('T')[0],
+                DepositToAccountRef: { value: configuredId },
+                PaymentRefNum: `Stripe: ${stripePaymentIntentId}`.slice(0, 21),
+                PrivateNote: trace,
+                CurrencyRef: { value: invoiceCurrency },
+                Line: [{ Amount: payAmount, LinkedTxn: [{ TxnId: invoice.Id, TxnType: 'Invoice' }] }],
+              }),
+            },
+          );
+          await safeJson(response, 'form-settlement-payment-create');
+        } catch (error) {
+          settlementError = error.message;
+        }
+        // Resolve provider timeouts and requestid replays from authoritative state.
+        invoice = await readInvoice();
+        if (invoice.Balance == null) throw new Error('QuickBooks invoice returned no balance');
+        balance = Math.round(Number(invoice.Balance) * 100) / 100;
+        matchingPayment = (await queryPayments(customerId)).find(paymentMatches) || matchingPayment;
+        if (matchingPayment && balance === 0) {
+          settlementState = annotationRecorded ? 'done' : 'retry';
+          settlementError = null;
+        } else {
+          settlementState = 'retry';
+          settlementError ||= 'QuickBooks did not confirm the Stripe-linked payment';
+        }
+      }
+    }
+  }
+  if (dryRun && settlementState === 'retry' && !settlementError) {
+    settlementError = 'Dry run: invoice annotation still needs to be recorded';
+  }
+  const errors = [settlementError, annotationError && `Invoice annotation: ${annotationError}`].filter(Boolean);
+  return {
+    payment_recorded: !!matchingPayment && balance === 0,
+    annotation_recorded: annotationRecorded,
+    settlement_state: settlementState,
+    error: errors.join('; ') || null,
+    invoice_id: invoice.Id,
+    invoice_number: invoice.DocNumber || null,
+    balance,
+    account,
+    provider_context: { quickbooks_realm_id: realmId, environment },
+  };
+}
+
+/**
+ * Read-only, bounded recovery lookup for deferred membership invoice creation.
+ * Only an exact PrivateNote PI marker is eligible; duplicates and scan caps
+ * fail closed rather than guessing which invoice to link.
+ */
+export async function findFormStripeQuickBooksInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, stripePaymentIntentId, createdAfter, expectedProviderContext = null,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  const after = new Date(createdAfter);
+  if (!createdAfter || Number.isNaN(after.getTime())) throw new Error('createdAfter must be a valid date');
+  const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
+  const rawFetch = dependencies.fetch || fetch;
+  const fetcher = (url, init = {}) => rawFetch(url, {
+    ...init, signal: init.signal || AbortSignal.timeout(20000),
+  });
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const expectedRealm = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.quickbooks_realm_id;
+  if (expectedRealm && String(expectedRealm) !== String(realmId)) {
+    throw new Error('Connected QuickBooks company does not match the invoice provider context');
+  }
+  if (expectedProviderContext?.environment
+      && String(expectedProviderContext.environment) !== String(environment)) {
+    throw new Error('Connected QuickBooks environment does not match the invoice provider context');
+  }
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const base = companyBase(apiBaseUrl, realmId);
+  const matches = [];
+  const pageSize = 1000;
+  for (let page = 0; page < 10; page += 1) {
+    const start = page * pageSize + 1;
+    const query = `SELECT * FROM Invoice WHERE MetaData.CreateTime >= '${after.toISOString()}' STARTPOSITION ${start} MAXRESULTS ${pageSize}`;
+    const response = await fetcher(
+      `${base}/query?minorversion=${MINOR_VERSION}&query=${encodeURIComponent(query)}`,
+      { headers: qboHeaders(accessToken, { 'Content-Type': 'application/text' }) },
+    );
+    const data = await safeJson(response, 'form-invoice-discovery');
+    const batch = data?.QueryResponse?.Invoice || [];
+    for (const invoice of batch) {
+      const created = new Date(invoice.MetaData?.CreateTime || 0);
+      if (created >= after
+          && String(invoice.PrivateNote || '').includes('Form membership Stripe PaymentIntent:')
+          && containsExactStripePaymentIntent(invoice.PrivateNote, stripePaymentIntentId)) {
+        matches.push(invoice);
+      }
+    }
+    if (batch.length < pageSize) break;
+    if (page === 9) {
+      throw new Error('QuickBooks invoice discovery exceeded the safe 10,000-invoice inspection limit');
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(`Multiple QuickBooks membership invoices carry PaymentIntent ${stripePaymentIntentId}; refusing ambiguous recovery`);
+  }
+  const invoice = matches[0];
+  if (!invoice) return null;
+  if (invoice.Balance == null) throw new Error('QuickBooks discovered invoice returned no balance');
+  return {
+    invoice_id: invoice.Id,
+    invoice_number: invoice.DocNumber || null,
+    total: Number(invoice.TotalAmt),
+    balance: Number(invoice.Balance),
+    currency: invoice.CurrencyRef?.value || null,
+    provider_context: { quickbooks_realm_id: realmId, environment },
   };
 }
 

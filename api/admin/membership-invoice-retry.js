@@ -8,8 +8,9 @@
 // kicks reconcileMembershipInvoicePayment so payment_status flips to
 // 'paid' immediately if the invoice was minted as paid.
 
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
+import formInvoiceSettlementHandler from './form-invoice-settlement.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { reconcileMembershipInvoicePayment } from '../_lib/membershipPaymentReconciliation.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
@@ -53,6 +54,54 @@ export default async function handler(req, res) {
   }
   if (!row) return res.status(404).json({ error: 'Record not found' });
   if (row.tenant_id !== appTenantId) return res.status(403).json({ error: 'Cross-tenant access denied' });
+
+  // One-off Stripe memberships created by a paid form must be repaired from
+  // their immutable form quote/payment evidence. The generic path below
+  // re-simulates current pricing and rebuilds contact/address details, so it
+  // must never handle these rows.
+  let formSubmission = null;
+  if (typeof row.stripe_payment_intent_id === 'string'
+      && row.stripe_payment_intent_id.startsWith('pi_')) {
+    const { data, error: formLookupError } = await supabase
+      .from('form_submission')
+      .select('id,payment_meta')
+      .eq('tenant_id', appTenantId)
+      .eq('payment_provider', 'stripe')
+      .eq('payment_status', 'paid')
+      .eq('payment_reference', row.stripe_payment_intent_id)
+      .filter('payment_meta->membership_result->>history_id', 'eq', recordId)
+      .maybeSingle();
+    if (formLookupError) {
+      console.error('[admin/membership-invoice-retry] form origin lookup failed:', formLookupError);
+      return res.status(503).json({
+        error: 'Could not verify whether this Stripe membership originated from a paid form. No invoice was created; please retry.',
+        retryable: true,
+      });
+    }
+    formSubmission = data;
+  }
+
+  if (formSubmission) {
+    if (tenantContext.roleId
+        && !(await hasFeatureAccess(tenantContext.roleId, 'commerce.monthly-finance-report'))) {
+      return res.status(403).json({ error: 'Accounting recovery requires finance permission' });
+    }
+    if (row.accounting_invoice_id || row.xero_invoice_id) {
+      req.body = {
+        ...(req.body || {}),
+        recordId,
+        table,
+        submissionId: formSubmission.id,
+      };
+      return formInvoiceSettlementHandler(req, res);
+    }
+    return res.status(409).json({
+      error: 'This paid Stripe membership originated from a form and has no linked accounting invoice. Generic invoice retry is disabled because it would recalculate the original form purchase. Resume paid-form membership finalization instead.',
+      retryable: true,
+      recovery: 'form_membership_finalize',
+      submissionId: formSubmission.id,
+    });
+  }
 
   // If the row already has an invoice id, the retry is a no-op — direct
   // the caller to the regular "Check now" reconcile endpoint instead.

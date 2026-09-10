@@ -362,6 +362,9 @@ function makeXeroProvider() {
         invoiceId: result.invoice_id,
         invoiceNumber: result.invoice_number,
         onlineInvoiceUrl: result.online_invoice_url || null,
+        payment_recorded: result.payment_recorded === true,
+        annotation_recorded: result.annotation_recorded === true,
+        providerContext: result.provider_context || null,
         raw: result,
         // legacy aliases for callers that still read them directly
         invoice_id: result.invoice_id,
@@ -383,6 +386,14 @@ function makeXeroProvider() {
         invoice_number: result.invoice_number,
         online_invoice_url: result.online_invoice_url || null,
       };
+    },
+
+    async settleFormStripeInvoice(args) {
+      return xero.settleFormStripeXeroInvoice(normalizeInvoiceIdArgs(args));
+    },
+
+    async findFormStripeInvoice(args) {
+      return xero.findFormStripeXeroInvoice(args);
     },
 
     async createCreditNote(args) {
@@ -465,6 +476,9 @@ function makeQuickBooksProvider() {
         invoiceId: result.invoice_id,
         invoiceNumber: result.invoice_number,
         onlineInvoiceUrl: result.online_invoice_url || null,
+        payment_recorded: result.payment_recorded === true,
+        annotation_recorded: result.annotation_recorded === true,
+        providerContext: result.provider_context || null,
         raw: result,
         invoice_id: result.invoice_id,
         invoice_number: result.invoice_number,
@@ -485,6 +499,14 @@ function makeQuickBooksProvider() {
         invoice_number: result.invoice_number,
         online_invoice_url: result.online_invoice_url || null,
       };
+    },
+
+    async settleFormStripeInvoice(args) {
+      return qbo.settleFormStripeQuickBooksInvoice(normalizeInvoiceIdArgs(args));
+    },
+
+    async findFormStripeInvoice(args) {
+      return qbo.findFormStripeQuickBooksInvoice(args);
     },
 
     async createCreditNote(args) {
@@ -555,6 +577,8 @@ function makeNoneProvider() {
     async resolveOrCreateContact()     { throw notConnected('resolveOrCreateContact'); },
     async createMembershipInvoice()    { throw notConnected('createMembershipInvoice'); },
     async applyStripePaymentToInvoice(){ throw notConnected('applyStripePaymentToInvoice'); },
+    async settleFormStripeInvoice()   { throw notConnected('settleFormStripeInvoice'); },
+    async findFormStripeInvoice()     { throw notConnected('findFormStripeInvoice'); },
     async createCreditNote()           { throw notConnected('createCreditNote'); },
     async emailCreditNote()            { throw notConnected('emailCreditNote'); },
     async pushPurchaseOrder()          { throw notConnected('pushPurchaseOrder'); },
