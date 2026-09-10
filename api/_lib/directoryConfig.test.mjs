@@ -5,9 +5,18 @@ import {
   isVisibleInDirectory,
   enrichField,
   sortFieldsForDirectory,
+  publicDirectoryBackOrder,
 } from './directoryConfig.js';
 
 const DIR = 'dir-1';
+
+test('public directory orders omit Data Studio identities without changing legacy order', () => {
+  const order = ['org_member_count', 'object-field:relationship:source:object:field', 'custom:field', 'org_members_list'];
+  assert.deepEqual(publicDirectoryBackOrder(order), ['org_member_count', 'custom:field', 'org_members_list']);
+  assert.equal(order.length, 4);
+  assert.equal(publicDirectoryBackOrder(null), null);
+  assert.deepEqual(publicDirectoryBackOrder([]), []);
+});
 
 test('parseDirVis: legacy array form', () => {
   const parsed = parseDirVis({ directory_visibility: JSON.stringify(['main', DIR]) });

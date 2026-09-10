@@ -54,7 +54,7 @@ export default function BackFieldOrderList({ order, items, onChange, droppableId
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {item.isCustom && (
-            <Badge variant="secondary" className="text-xs">Custom field</Badge>
+            <Badge variant="secondary" className="text-xs">{item.isObjectField ? 'Data Studio field' : 'Custom field'}</Badge>
           )}
           {item.hidden && (
             <Badge variant="outline" className="text-xs text-slate-400 border-slate-300">Hidden</Badge>

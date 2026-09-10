@@ -570,6 +570,7 @@ export function createCustomObjectService({
       definitions || await fields(objectId),
       await presentationRelationships(objectId),
       objectId,
+      tenantId,
     );
     if (!validation.ok) {
       throw new CustomObjectHttpError(400, 'Invalid CRM presentation configuration', validation.errors);
@@ -577,7 +578,10 @@ export function createCustomObjectService({
   }
 
   async function reconcilePresentation(definition) {
-    if (definition.configuration?.views?.detail?.version === undefined) return definition;
+    if (
+      definition.configuration?.views?.detail?.version === undefined
+      && definition.configuration?.views?.organisation_directory === undefined
+    ) return definition;
     let [definitions, relationships] = await Promise.all([
       fields(definition.id),
       presentationRelationships(definition.id),
@@ -604,7 +608,7 @@ export function createCustomObjectService({
     return {
       ...definition,
       configuration: reconcileCustomObjectPresentationConfiguration(
-        definition.configuration, definitions, relationships, definition.id,
+        definition.configuration, definitions, relationships, definition.id, tenantId,
       ),
     };
   }

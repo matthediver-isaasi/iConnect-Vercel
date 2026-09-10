@@ -9,6 +9,14 @@ test('public directory select fetches the back-order override columns', () => {
   assert.ok(PUBLIC_DIRECTORY_SELECT.includes('show_members_on_card_back'));
 });
 
+test('public payload excludes Data Studio fields even when saved in a public directory order', () => {
+  const payload = buildPublicDirectoryPayload({
+    id: 'dir-1', entity_type: 'organization',
+    back_field_order: ['org_member_count', 'object-field:relationship:target:object:field', 'custom:f1'],
+  });
+  assert.deepEqual(payload.back_field_order, ['org_member_count', 'custom:f1']);
+});
+
 test('public payload exposes a saved back_field_order override', () => {
   const payload = buildPublicDirectoryPayload({
     id: 'd1', slug: 'devs', name: 'Devs', entity_type: 'member',

@@ -87,6 +87,7 @@ function getAllowedTypesLabel(allowedTypes) {
 export default function CustomFieldFileUpload({ 
   fieldId,
   formId,
+  customObjectId,
   value, 
   onChange, 
   allowedTypes = [], 
@@ -133,18 +134,29 @@ export default function CustomFieldFileUpload({
     setIsUploading(true);
     
     try {
-      const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
+      const isCustomObjectUpload = Boolean(customObjectId);
+      const signedUrlResponse = await fetch(
+        isCustomObjectUpload
+          ? '/api/storage/custom-object-upload-url'
+          : '/api/storage/signed-upload-url',
+        {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
+        body: JSON.stringify(isCustomObjectUpload ? {
+          customObjectId,
+          fieldId,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        } : {
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type,
           type: 'form-submission',
           isPrivate: !publicAccess,
           formId: formId
-        })
+        }),
       });
       
       if (!signedUrlResponse.ok) {
@@ -170,7 +182,7 @@ export default function CustomFieldFileUpload({
         file_name: file.name,
         file_size: file.size,
         mime_type: file.type,
-        is_private: !publicAccess,
+        is_private: isCustomObjectUpload ? true : !publicAccess,
         uploaded_at: new Date().toISOString()
       };
       

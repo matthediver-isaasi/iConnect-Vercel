@@ -18,6 +18,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { getDirectoryFilterOptions, isFieldInDirectory, CORE_FIELDS, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder, enrichFieldForDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
+import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
 
 const ENTITY_TYPES = [
   { value: 'member', label: 'Member', icon: User },
@@ -64,6 +66,13 @@ export default function DynamicDirectoryManagementPage() {
   // Per-directory core-field visibility overrides: { key: { front?, back? } }.
   // Absent key/side = inherit the tenant-global directory settings.
   const [coreFieldVisibility, setCoreFieldVisibility] = useState(null);
+  const objectSourcesQuery = useDirectoryObjectSources({
+    directoryId: editingDirectory?.id || "main",
+    settings: true,
+    enabled: accessChecked && isDialogOpen && entityType === "organization",
+  });
+  const objectSources = entityType === "organization" && !objectSourcesQuery.isError
+    ? (objectSourcesQuery.data?.sources || []) : [];
 
   useEffect(() => {
     if (isAccessReady) {
@@ -226,6 +235,7 @@ export default function DynamicDirectoryManagementPage() {
     tenantOrder: backOrderTenantOrder,
     defaultOrder: backOrderDefaultOrder,
     customFields: backOrderLegacyFields,
+    objectSources,
   });
   const dialogBackOrderItems = (() => {
     const items = {};
@@ -236,6 +246,9 @@ export default function DynamicDirectoryManagementPage() {
     }
     for (const f of backOrderLegacyFields) {
       items[`custom:${f.id}`] = { label: f._displayLabel || f.label, isCustom: true };
+    }
+    for (const source of objectSources) {
+      items[source.key] = { label: source.label, isCustom: true, isObjectField: true };
     }
     return items;
   })();
@@ -896,7 +909,7 @@ export default function DynamicDirectoryManagementPage() {
                 <Switch
                   id="overrideBackOrder"
                   checked={!!backFieldOrder}
-                  disabled={!editingDirectory}
+                  disabled={!editingDirectory || (entityType === "organization" && (objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching))}
                   onCheckedChange={(checked) => {
                     setBackFieldOrder(checked ? resolvedDialogBackOrder : null);
                   }}
@@ -910,6 +923,7 @@ export default function DynamicDirectoryManagementPage() {
               )}
               {editingDirectory && (
                 <>
+                  {entityType === "organization" && <DirectoryObjectSourcesGuidance query={objectSourcesQuery} />}
                   <p className="text-xs text-slate-500">
                     Use the per-field dropdowns to show or hide core fields on this directory only.
                     "Inherit" follows the global directory settings. Hidden fields keep their slot in the order.
@@ -919,7 +933,7 @@ export default function DynamicDirectoryManagementPage() {
                     items={dialogBackOrderItems}
                     droppableId="dialog-back-order"
                     onChange={setBackFieldOrder}
-                    disabled={!backFieldOrder}
+                    disabled={!backFieldOrder || (entityType === "organization" && (objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching))}
                     renderControls={renderCoreVisibilityControls}
                   />
                   {backFieldOrder && (

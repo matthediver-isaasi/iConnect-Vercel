@@ -79,11 +79,19 @@ import {
   objectPresentation,
   sharedListFields,
 } from "./customObjects/recordHelpers";
-import { relationshipPanels } from "./customObjects/relationshipHelpers";
+import {
+  definitionList,
+  relationshipPanels,
+} from "./customObjects/relationshipHelpers";
 import {
   loadCustomObjectFields,
   loadRelationshipDefinitions,
 } from "./customObjects/relationshipApi";
+import {
+  eligibleOrganisationDirectoryRelationships,
+  organisationDirectoryPresentation,
+  organisationDirectoryRelationshipKey,
+} from "./customObjects/organisationDirectoryPresentation";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
   { key: "Database", Icon: Database },
@@ -496,6 +504,18 @@ function Detail() {
   const { objectId } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const tabFromHash = () => {
+    const value = window.location.hash.replace(/^#/, "");
+    return ["overview", "records", "fields", "relationships", "reports", "permissions", "presentation", "audit"].includes(value)
+      ? value
+      : "overview";
+  };
+  const [selectedTab, setSelectedTab] = useState(tabFromHash);
+  useEffect(() => {
+    const selectLinkedTab = () => setSelectedTab(tabFromHash());
+    window.addEventListener("hashchange", selectLinkedTab);
+    return () => window.removeEventListener("hashchange", selectLinkedTab);
+  }, []);
   const { isFeatureExcluded } = useMemberAccess();
   const canManage = !isFeatureExcluded("data.custom-objects.manage-data-model");
   const objectQuery = useQuery({
@@ -527,6 +547,8 @@ function Detail() {
   );
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: listKey });
+    qc.invalidateQueries({ queryKey: ["directory-object-sources"] });
+    qc.invalidateQueries({ queryKey: ["directory-object-source-values"] });
   };
   const archive = useMutation({
     mutationFn: () =>
@@ -624,7 +646,14 @@ function Detail() {
             </Button>
           )}
         </header>
-        <Tabs defaultValue="overview" className="mt-6">
+        <Tabs
+          value={selectedTab}
+          onValueChange={(value) => {
+            setSelectedTab(value);
+            window.history.replaceState(null, "", `#${value}`);
+          }}
+          className="mt-6"
+        >
           <TabsList className="bg-white">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="records">Records</TabsTrigger>
@@ -688,7 +717,7 @@ function Detail() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="relationships" className="mt-5">
+          <TabsContent value="relationships" id="relationships" className="mt-5">
             <RelationshipDefinitions
               objectId={objectId}
               object={object}
@@ -703,7 +732,7 @@ function Detail() {
               canManage={canManage && object.status !== "archived"}
             />
           </TabsContent>
-          <TabsContent value="permissions" className="mt-5">
+          <TabsContent value="permissions" id="permissions" className="mt-5">
             <CustomObjectPermissionsEditor
               objectId={objectId}
               canManage={canManage}
@@ -715,6 +744,7 @@ function Detail() {
               object={object}
               fields={fields}
               relationshipPanels={availableRelationshipPanels}
+              relationships={definitionList(relationshipsQuery.data)}
               canManage={canManage && object.status !== "archived"}
               onSaved={invalidate}
             />
@@ -748,17 +778,131 @@ function OrderedFieldPicker({ fields, value, onChange, disabled }) {
   })}</div>;
 }
 
-function PresentationEditor({ object, fields, relationshipPanels: panels = [], canManage, onSaved }) {
+function OrganisationDirectoryPresentationEditor({
+  object,
+  fields,
+  relationships,
+  value,
+  onChange,
+  disabled,
+}) {
+  const eligible = eligibleOrganisationDirectoryRelationships(relationships, object.id);
+  const selectedRelationships = new Set(
+    value.relationships.map(organisationDirectoryRelationshipKey),
+  );
+  const selectedFields = new Set(value.field_ids.map(String));
+  const updateRelationship = (selection, checked) => {
+    const key = organisationDirectoryRelationshipKey(selection);
+    onChange({
+      ...value,
+      relationships: checked
+        ? [...value.relationships, {
+            relationship_id: selection.relationship_id,
+            direction: selection.direction,
+          }]
+        : value.relationships.filter(
+            (item) => organisationDirectoryRelationshipKey(item) !== key,
+          ),
+    });
+  };
+  return (
+    <section className="space-y-4 rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold">Organisation directories</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Publication is separate from Data Studio access. Read permissions let
+            roles work with records; they do not consent to directory publication.{" "}
+            <a
+              className="font-medium text-blue-700 hover:underline"
+              href={`/CustomObjectsAdmin/${object.id}#permissions`}
+            >
+              Review object permissions
+            </a>
+            .
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="organisation-directory-enabled">Allow in organisation directories</Label>
+          <Switch
+            id="organisation-directory-enabled"
+            checked={value.enabled}
+            disabled={disabled || eligible.length === 0}
+            onCheckedChange={(enabled) => onChange({ ...value, enabled })}
+          />
+        </div>
+      </div>
+      {eligible.length === 0 ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          This object has no active direct relationship with Organisations.{" "}
+          <a className="font-medium underline" href={`/CustomObjectsAdmin/${object.id}#relationships`}>
+            Create or activate an Organisation relationship
+          </a>{" "}
+          before allowing directory publication.
+        </div>
+      ) : (
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-sm font-medium">Organisation relationships</p>
+            <div className="space-y-2 rounded-md border p-3">
+              {eligible.map((selection) => {
+                const key = organisationDirectoryRelationshipKey(selection);
+                return (
+                  <label key={key} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      disabled={disabled || !value.enabled}
+                      checked={selectedRelationships.has(key)}
+                      onCheckedChange={(checked) => updateRelationship(selection, checked === true)}
+                    />
+                    <span>{selection.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">Published fields</p>
+            <div className="space-y-2 rounded-md border p-3">
+              {fields.map((field) => (
+                <label key={field.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    disabled={disabled || !value.enabled}
+                    checked={selectedFields.has(String(field.id))}
+                    onCheckedChange={(checked) => onChange({
+                      ...value,
+                      field_ids: checked
+                        ? [...value.field_ids, String(field.id)]
+                        : value.field_ids.filter((id) => String(id) !== String(field.id)),
+                    })}
+                  />
+                  <span>{field.label}</span>
+                </label>
+              ))}
+              {!fields.length && <p className="text-sm text-slate-500">Add an active field to publish selected information.</p>}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Nothing is selected automatically. Choose only fields intended for directory visitors.
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PresentationEditor({ object, fields, relationshipPanels: panels = [], relationships = [], canManage, onSaved }) {
   const active = fields.filter((field) => field.is_active !== false);
   const presentation = objectPresentation(object);
   const [list, setList] = useState(() => sharedListFields(object, fields).map((field) => String(field.id)));
   const [layout, setLayout] = useState(() => customObjectDetailLayout(object, fields, panels));
   const [rules, setRules] = useState(() => presentation.detail?.visibility_rules?.rules || []);
+  const [directory, setDirectory] = useState(() => organisationDirectoryPresentation(presentation));
   const [layoutOpen, setLayoutOpen] = useState(false);
   useEffect(() => {
     setList(sharedListFields(object, fields).map((field) => String(field.id)));
     setLayout(customObjectDetailLayout(object, fields, panels));
     setRules(objectPresentation(object).detail?.visibility_rules?.rules || []);
+    setDirectory(organisationDirectoryPresentation(objectPresentation(object)));
   }, [object, fields, panels]);
   const save = useMutation({
     mutationFn: ({ nextLayout = layout, nextRules = rules } = {}) => api(`/api/custom-objects/${object.id}`, {
@@ -768,6 +912,7 @@ function PresentationEditor({ object, fields, relationshipPanels: panels = [], c
           ...(object.configuration || {}),
           views: {
             ...presentation,
+            organisation_directory: directory,
             list: { ...(presentation.list || {}), field_ids: list },
             detail: {
               ...(presentation.detail || {}),
@@ -801,6 +946,7 @@ function PresentationEditor({ object, fields, relationshipPanels: panels = [], c
   ];
   return <><Card><CardHeader><CardTitle className="text-lg">Shared record presentation</CardTitle><CardDescription>Configure default list columns, responsive record cards, relationships, and conditional visibility.</CardDescription></CardHeader><CardContent className="space-y-6">
     <section><h3 className="mb-2 text-sm font-semibold">Default list columns</h3><OrderedFieldPicker fields={active} value={list} onChange={setList} disabled={!canManage} /></section>
+    <OrganisationDirectoryPresentationEditor object={object} fields={active} relationships={relationships} value={directory} onChange={setDirectory} disabled={!canManage} />
     <section className="rounded-lg border p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Record page cards</h3><p className="mt-1 text-xs text-slate-500">{layout.cards.length} cards · drag fields and relationship sides into up to three columns.</p></div><Button type="button" variant="outline" disabled={!canManage} onClick={() => setLayoutOpen(true)}>Edit layout</Button></div></section>
     <section className="space-y-3">
       <div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">Conditional visibility</h3><p className="mt-1 text-xs text-slate-500">Hide a card or field when a record value matches.</p></div><Button type="button" size="sm" variant="outline" disabled={!canManage || !active.length || !targets.length} onClick={addRule}>Add rule</Button></div>

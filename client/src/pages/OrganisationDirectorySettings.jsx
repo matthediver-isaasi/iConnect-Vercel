@@ -14,6 +14,8 @@ import { createPageUrl } from "@/utils";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder } from "@/utils/directorySettings";
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
+import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
 
 export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -34,6 +36,8 @@ export default function OrganisationDirectorySettingsPage() {
   const [viewMembersRoleIds, setViewMembersRoleIds] = useState([]);
   const [backFieldOrder, setBackFieldOrder] = useState([]);
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
+  const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
+  const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -496,6 +500,7 @@ export default function OrganisationDirectorySettingsPage() {
     tenantOrder: backFieldOrder,
     defaultOrder: ORG_BACK_DEFAULT_ORDER,
     customFields: activeOrgFields,
+    objectSources,
   });
   const backOrderItems = useMemo(() => {
     const items = {};
@@ -505,8 +510,11 @@ export default function OrganisationDirectorySettingsPage() {
     for (const f of activeOrgFields) {
       items[`custom:${f.id}`] = { label: f.label, isCustom: true };
     }
+    for (const source of objectSources) {
+      items[source.key] = { label: source.label, isCustom: true, isObjectField: true };
+    }
     return items;
-  }, [activeOrgFields]);
+  }, [activeOrgFields, objectSources]);
 
   const filteredOrganizations = organizations.filter((org) =>
   org.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -913,11 +921,13 @@ export default function OrganisationDirectorySettingsPage() {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
+            <DirectoryObjectSourcesGuidance query={objectSourcesQuery} />
             <BackFieldOrderList
               order={resolvedBackOrder}
               items={backOrderItems}
               droppableId="org-back-order"
               onChange={setBackFieldOrder}
+              disabled={objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
             />
             <div className="pt-4 border-t">
               <Button

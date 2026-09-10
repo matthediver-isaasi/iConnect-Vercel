@@ -7,6 +7,7 @@ import {
   fetchOrgDisplaySettings,
   applyCoreFieldVisibility,
   isOrgCoreItemVisible,
+  publicDirectoryBackOrder,
 } from '../_lib/directoryConfig.js';
 
 // Columns fetched for the public directory row. Must include
@@ -24,7 +25,7 @@ export function buildPublicDirectoryPayload(directory) {
     slug: directory.slug,
     name: directory.name,
     entity_type: directory.entity_type,
-    back_field_order: Array.isArray(directory.back_field_order) ? directory.back_field_order : null,
+    back_field_order: publicDirectoryBackOrder(directory.back_field_order),
     show_members_on_card_back: directory.show_members_on_card_back !== false,
     core_field_visibility: (directory.core_field_visibility && typeof directory.core_field_visibility === 'object' && !Array.isArray(directory.core_field_visibility))
       ? directory.core_field_visibility
@@ -237,6 +238,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     website_url: o.website_url || null,
   }));
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  displaySettings.backFieldOrder = publicDirectoryBackOrder(displaySettings.backFieldOrder);
   // Per-directory override for the member-count core item (detail popup /
   // card back); falls back to the tenant-global org directory setting.
   displaySettings.showMemberCount = isOrgCoreItemVisible(

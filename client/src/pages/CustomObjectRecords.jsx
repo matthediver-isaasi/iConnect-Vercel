@@ -1389,6 +1389,8 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "permissions"] });
+      qc.invalidateQueries({ queryKey: ["directory-object-sources"] });
+      qc.invalidateQueries({ queryKey: ["directory-object-source-values"] });
       toast.success("Record permissions updated");
     },
     onError: (error) => toast.error(error.message),
@@ -1450,7 +1452,12 @@ export function CustomObjectFieldPermissionsEditor({ objectId, canManage, archiv
     mutationFn: ({ fieldId, roleId, access }) => request(`/api/custom-objects/${objectId}/field-permissions`, {
       method: "PUT", body: JSON.stringify({ field_id: fieldId, role_id: roleId, access_level: access === "write" ? "edit" : access }),
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "field-permissions"] }); toast.success("Field permission updated"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "field-permissions"] });
+      qc.invalidateQueries({ queryKey: ["directory-object-sources"] });
+      qc.invalidateQueries({ queryKey: ["directory-object-source-values"] });
+      toast.success("Field permission updated");
+    },
     onError: (error) => toast.error(error.message),
   });
   if (schema.isLoading || permissions.isLoading || rolesQuery.isLoading) return <Card><CardContent className="grid h-28 place-items-center"><Loader2 className="h-5 w-5 animate-spin" /></CardContent></Card>;

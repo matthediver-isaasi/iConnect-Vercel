@@ -167,6 +167,59 @@ test('edit-mode file controls resolve distinct secure preview and download URLs'
   delete globalThis.fetch;
 });
 
+test('custom-object uploads round-trip through the field-bound private endpoint', async () => {
+  const requests = [];
+  let changedValue = null;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (url === '/api/storage/custom-object-upload-url') {
+      return {
+        ok: true,
+        async json() {
+          return {
+            signedUrl: 'https://storage.example.test/signed-upload',
+            fileUrl: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fcustom-object-files%2Fobject%2Ffield%2Fid-report.pdf&redirect=true',
+            path: 'tenant/custom-object-files/object/field/id-report.pdf',
+            bucket: 'private-uploads',
+          };
+        },
+      };
+    }
+    return { ok: true, async json() { return {}; } };
+  };
+  const view = await mountUpload('', {
+    fieldId: 'field',
+    customObjectId: 'object',
+    publicAccess: true,
+    allowedTypes: ['pdf'],
+    onChange: (value) => { changedValue = value; },
+  });
+  const input = view.container.querySelector('[data-testid="input-file-field"]');
+  const file = new window.File(['report'], 'report.pdf', { type: 'application/pdf' });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+
+  assert.equal(requests[0].url, '/api/storage/custom-object-upload-url');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    customObjectId: 'object',
+    fieldId: 'field',
+    fileName: 'report.pdf',
+    fileSize: file.size,
+    mimeType: 'application/pdf',
+  });
+  assert.equal(requests[1].url, 'https://storage.example.test/signed-upload');
+  const stored = JSON.parse(changedValue);
+  assert.equal(stored.storage_path, 'tenant/custom-object-files/object/field/id-report.pdf');
+  assert.equal(stored.bucket, 'private-uploads');
+  assert.equal(stored.is_private, true);
+  assert.equal(stored.file_name, 'report.pdf');
+  await view.cleanup();
+  delete globalThis.fetch;
+});
+
 test('custom-object list formatting never exposes serialized file metadata', () => {
   const value = JSON.stringify({
     file_url: 'https://files.example.test/id-123',

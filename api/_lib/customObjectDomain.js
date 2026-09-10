@@ -92,6 +92,112 @@ function configuredFieldIds(value, label, errors) {
   return value;
 }
 
+const defaultOrganisationDirectoryPresentation = () => ({
+  enabled: false,
+  relationships: [],
+  field_ids: [],
+});
+
+function organisationDirectoryRelationshipAvailable(
+  relationship,
+  direction,
+  objectId,
+  tenantId = null,
+) {
+  if (!relationship || relationship.status !== 'active' || relationship.archived_at
+    || !['source', 'target'].includes(direction)
+    || relationship[`${direction}_kind`] !== 'organization'
+    || (tenantId && relationship.tenant_id !== tenantId)) return false;
+  const objectSide = direction === 'source' ? 'target' : 'source';
+  return relationship[`${objectSide}_kind`] === 'custom_object'
+    && (!objectId || String(relationship[`${objectSide}_custom_object_id`]) === String(objectId));
+}
+
+export function validateOrganisationDirectoryPresentation(
+  value,
+  fields = [],
+  relationships = [],
+  objectId = null,
+  tenantId = null,
+) {
+  const errors = [];
+  if (value === undefined) return { ok: true, errors };
+  if (!isPlainObject(value)) {
+    return { ok: false, errors: ['presentation.organisation_directory must be an object'] };
+  }
+  if (typeof value.enabled !== 'boolean') {
+    errors.push('presentation.organisation_directory.enabled must be a boolean');
+  }
+  const fieldIds = configuredFieldIds(
+    value.field_ids,
+    'presentation.organisation_directory.field_ids',
+    errors,
+  );
+  const activeFieldIds = new Set((fields || [])
+    .filter((item) => getCustomObjectFieldMetadata(item).active)
+    .map((item) => String(item.id)));
+  for (const id of fieldIds) {
+    if (!activeFieldIds.has(String(id))) {
+      errors.push('presentation.organisation_directory.field_ids includes an unknown or archived field');
+    }
+  }
+  if (!Array.isArray(value.relationships)) {
+    errors.push('presentation.organisation_directory.relationships must be an array');
+  } else {
+    const relationshipsById = new Map((relationships || [])
+      .map((item) => [String(item.id), item]));
+    const seen = new Set();
+    value.relationships.forEach((selection, index) => {
+      const label = `presentation.organisation_directory.relationships[${index}]`;
+      const relationshipId = selection?.relationship_id;
+      const direction = selection?.direction;
+      const key = `${relationshipId}:${direction}`;
+      if (!isPlainObject(selection) || typeof relationshipId !== 'string' || !relationshipId
+        || !['source', 'target'].includes(direction)) {
+        errors.push(`${label} must contain a relationship_id and an Organisation direction`);
+      } else if (!organisationDirectoryRelationshipAvailable(
+        relationshipsById.get(relationshipId), direction, objectId, tenantId,
+      )) {
+        errors.push(`${label} references an unavailable Organisation relationship`);
+      }
+      if (seen.has(key)) errors.push(`${label} is duplicated`);
+      seen.add(key);
+    });
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function reconcileOrganisationDirectoryPresentation(
+  value,
+  fields = [],
+  relationships = [],
+  objectId = null,
+  tenantId = null,
+) {
+  if (!isPlainObject(value)) return defaultOrganisationDirectoryPresentation();
+  const activeFieldIds = new Set((fields || [])
+    .filter((item) => getCustomObjectFieldMetadata(item).active)
+    .map((item) => String(item.id)));
+  const relationshipsById = new Map((relationships || [])
+    .map((item) => [String(item.id), item]));
+  const seen = new Set();
+  return {
+    enabled: value.enabled === true,
+    relationships: (Array.isArray(value.relationships) ? value.relationships : []).filter((selection) => {
+      const relationshipId = String(selection?.relationship_id || '');
+      const direction = selection?.direction;
+      const key = `${relationshipId}:${direction}`;
+      if (seen.has(key) || !organisationDirectoryRelationshipAvailable(
+        relationshipsById.get(relationshipId), direction, objectId, tenantId,
+      )) return false;
+      seen.add(key);
+      return true;
+    }).map(({ relationship_id, direction }) => ({ relationship_id, direction })),
+    field_ids: [...new Set((Array.isArray(value.field_ids) ? value.field_ids : [])
+      .map(String).filter((id) => activeFieldIds.has(id)))],
+  };
+}
+
 function presentationFieldId(element) {
   return element?.field_id ?? element?.fieldId ?? null;
 }
@@ -172,11 +278,18 @@ export function validateCustomObjectPresentationConfiguration(
   fields = [],
   relationships = [],
   objectId = null,
+  tenantId = null,
 ) {
   const errors = [];
   if (!isPlainObject(configuration)) return { ok: false, errors: ['Object configuration must be an object'] };
   const detail = configuration.views?.detail;
-  if (detail === undefined || detail.version === undefined) return { ok: true, errors };
+  const directory = configuration.views?.organisation_directory;
+  errors.push(...validateOrganisationDirectoryPresentation(
+    directory, fields, relationships, objectId, tenantId,
+  ).errors);
+  if (detail === undefined || detail.version === undefined) {
+    return { ok: errors.length === 0, errors };
+  }
   if (detail.version !== CUSTOM_OBJECT_PRESENTATION_VERSION) {
     return { ok: false, errors: [`views.detail.version must be ${CUSTOM_OBJECT_PRESENTATION_VERSION}`] };
   }
@@ -261,8 +374,14 @@ export function reconcileCustomObjectPresentationConfiguration(
   fields = [],
   relationships = [],
   objectId = null,
+  tenantId = null,
 ) {
   const output = isPlainObject(configuration) ? structuredClone(configuration) : {};
+  if (output.views?.organisation_directory !== undefined) {
+    output.views.organisation_directory = reconcileOrganisationDirectoryPresentation(
+      output.views.organisation_directory, fields, relationships, objectId, tenantId,
+    );
+  }
   const detail = output.views?.detail;
   if (!isPlainObject(detail) || detail.version !== CUSTOM_OBJECT_PRESENTATION_VERSION
     || !Array.isArray(detail.cards)) return output;
@@ -529,7 +648,7 @@ export function getCustomObjectFieldMetadata(field) {
     label: field?.label || field?.name || '',
     type: field?.field_type || '',
     required: field?.is_required === true,
-    active: field?.is_active !== false,
+    active: field?.is_active !== false && !field?.archived_at,
     options,
     minSelections: Number.isInteger(field?.min_selections) ? field.min_selections : null,
     maxSelections: Number.isInteger(field?.max_selections) ? field.max_selections : null,

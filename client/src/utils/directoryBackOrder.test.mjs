@@ -80,6 +80,37 @@ test('directory override wins over tenant order', () => {
   }
 });
 
+test('object sources retain individual interleaved positions and unknown sources are dropped', () => {
+  const objectSources = [
+    { key: 'object-field:rel-a:source:object-a:field-a' },
+    { key: 'object-field:rel-b:target:object-b:field-b' },
+  ];
+  for (const resolve of [resolveBackFieldOrder, srvResolve]) {
+    const out = resolve({
+      directoryOrder: [
+        objectSources[1].key,
+        'org_member_count',
+        'object-field:removed:source:removed:removed',
+        'custom:f1',
+        objectSources[0].key,
+        'org_members_list',
+      ],
+      tenantOrder: null,
+      defaultOrder: ORG_BACK_DEFAULT_ORDER,
+      customFields,
+      objectSources,
+    });
+    assert.deepEqual(out.slice(0, 5), [
+      objectSources[1].key,
+      'org_member_count',
+      'custom:f1',
+      objectSources[0].key,
+      'org_members_list',
+    ]);
+    assert.ok(!out.some(key => key.includes('removed')));
+  }
+});
+
 test('empty/garbage saved lists treated as unset', () => {
   for (const resolve of [resolveBackFieldOrder, srvResolve]) {
     const out = resolve({

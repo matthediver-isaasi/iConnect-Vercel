@@ -1322,6 +1322,90 @@ test('object reads safely reconcile versioned CRM presentation against current f
   assert.equal(db.tables.custom_object_definition[0].configuration.views.detail.cards[0].fields.length, 2);
 });
 
+test('object updates persist valid organisation directory consent and reject forged selections', async () => {
+  const published = field({ id: 'field-published', name: 'published', is_required: false });
+  const direct = {
+    id: 'relationship-direct',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'organization',
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [published],
+    custom_object_relationship_definition: [direct],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+    canViewSchema: true,
+  });
+  const configuration = {
+    retained: { value: true },
+    views: {
+      organisation_directory: {
+        enabled: true,
+        relationships: [{ relationship_id: direct.id, direction: 'target' }],
+        field_ids: [published.id],
+      },
+    },
+  };
+  const updated = await service.updateObject(objectId, { configuration });
+  assert.deepEqual(updated.configuration, configuration);
+  await assert.rejects(
+    () => service.updateObject(objectId, {
+      configuration: {
+        views: {
+          organisation_directory: {
+            enabled: true,
+            relationships: [{ relationship_id: direct.id, direction: 'source' }],
+            field_ids: [published.id],
+          },
+        },
+      },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.includes('unavailable Organisation relationship')),
+  );
+});
+
+test('object reads prune stale organisation directory references without clobbering stored configuration', async () => {
+  const published = field({ id: 'field-published', name: 'published', is_required: false });
+  const storedConfiguration = {
+    retained: { value: true },
+    views: {
+      organisation_directory: {
+        enabled: true,
+        relationships: [{ relationship_id: 'removed', direction: 'target' }],
+        field_ids: [published.id, 'archived-field'],
+      },
+    },
+  };
+  const db = mockDb({
+    custom_object_definition: [object({ configuration: storedConfiguration })],
+    preference_field: [published],
+    custom_object_relationship_definition: [],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).getObject(objectId);
+  assert.deepEqual(result.configuration.views.organisation_directory, {
+    enabled: true,
+    relationships: [],
+    field_ids: [published.id],
+  });
+  assert.deepEqual(result.configuration.retained, { value: true });
+  assert.equal(
+    db.tables.custom_object_definition[0].configuration.views.organisation_directory.field_ids.length,
+    2,
+  );
+});
+
 test('record-reader object metadata prunes denied fields and stale dependent rules', async () => {
   const visible = field({ id: 'field-visible', name: 'title', is_required: false });
   const denied = field({ id: 'field-denied', name: 'secret', is_required: false });

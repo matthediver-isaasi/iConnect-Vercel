@@ -16,6 +16,8 @@ import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
+import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus } from "@/components/directory/DirectoryObjectSourceField";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -48,6 +50,10 @@ export default function OrganisationDirectoryPage() {
   // State for organization profile modal
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [customFieldFilters, setCustomFieldFilters] = useState({});
+  const objectSourceQuery = useDirectoryObjectSources();
+  const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
+    ? []
+    : (objectSourceQuery.data?.sources || []);
 
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['organizations'],
@@ -880,6 +886,7 @@ export default function OrganisationDirectoryPage() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            <DirectoryObjectSourcesStatus query={objectSourceQuery} />
             {(() => {
               // Unified reverse-card ordering (tenant default → hardcoded
               // default). Visibility settings still gate what renders.
@@ -889,6 +896,7 @@ export default function OrganisationDirectoryPage() {
                 tenantOrder: displaySettings?.backFieldOrder,
                 defaultOrder: ORG_BACK_DEFAULT_ORDER,
                 customFields: orderedOrgFields,
+                objectSources,
               });
               const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
 
@@ -1062,6 +1070,17 @@ export default function OrganisationDirectoryPage() {
                   const field = fieldById.get(key.slice(7));
                   if (!field || field._visBack === false) continue;
                   pendingCustoms.push(field);
+                } else if (key.startsWith('object-field:')) {
+                  const source = objectSources.find(item => item.key === key);
+                  if (!source) continue;
+                  flushCustoms();
+                  sections.push(
+                    <DirectoryObjectSourceField
+                      key={key}
+                      source={source}
+                      organizationId={selectedOrg?.id}
+                    />
+                  );
                 }
               }
               flushCustoms();

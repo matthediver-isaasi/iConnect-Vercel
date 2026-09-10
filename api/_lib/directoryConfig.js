@@ -180,11 +180,14 @@ export const ORG_BACK_DEFAULT_ORDER = [
  * tenant default → hardcoded default. Mirrors
  * client/src/utils/directorySettings.js resolveBackFieldOrder — keep in sync.
  */
-export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrder, customFields }) {
+export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrder, customFields, objectSources = [] }) {
   const coreSet = new Set(defaultOrder.filter((k) => k !== CUSTOM_FIELDS_SLOT));
   const customKeys = (customFields || []).map((f) => `custom:${f.id}`);
+  // Sources are authorized metadata, not preference fields. Ordering never grants access.
+  const objectKeys = objectSources.map(source => source.key).filter(key => typeof key === 'string' && key.startsWith('object-field:'));
+  const objectSet = new Set(objectKeys);
   const customSet = new Set(customKeys);
-  const isKnown = (k) => typeof k === 'string' && (coreSet.has(k) || customSet.has(k));
+  const isKnown = (k) => typeof k === 'string' && (coreSet.has(k) || customSet.has(k) || objectSet.has(k));
 
   const pickSaved = (list) => (Array.isArray(list) && list.some(isKnown)) ? list : null;
   const saved = pickSaved(directoryOrder) || pickSaved(tenantOrder);
@@ -201,11 +204,18 @@ export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrde
   for (const k of defaultOrder) {
     if (k === CUSTOM_FIELDS_SLOT) {
       for (const ck of customKeys) push(ck);
+      for (const key of objectKeys) push(key);
     } else {
       push(k);
     }
   }
   return result;
+}
+
+/** The Data Studio opt-in is not a public publication grant, even for source IDs. */
+export function publicDirectoryBackOrder(order) {
+  if (!Array.isArray(order)) return null;
+  return order.filter(key => typeof key !== 'string' || !key.startsWith('object-field:'));
 }
 
 // --- back-of-card custom-fields section label --------------------------------

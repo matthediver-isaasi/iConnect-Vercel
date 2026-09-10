@@ -10,6 +10,7 @@ import {
   fetchOrgDisplaySettings,
   applyCoreFieldVisibility,
   isOrgCoreItemVisible,
+  publicDirectoryBackOrder,
 } from '../_lib/directoryConfig.js';
 
 /**
@@ -59,6 +60,7 @@ export default async function handler(req, res) {
     if (!directory) {
       return res.status(404).json({ error: 'Directory not found' });
     }
+    directory.back_field_order = publicDirectoryBackOrder(directory.back_field_order);
 
     const dirId = directory.id;
 
@@ -122,6 +124,7 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
 
 async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField }) {
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  displaySettings.backFieldOrder = publicDirectoryBackOrder(displaySettings.backFieldOrder);
   displaySettings.showMemberCount = isOrgCoreItemVisible(
     directory.core_field_visibility, 'org_member_count', displaySettings.showMemberCount
   );

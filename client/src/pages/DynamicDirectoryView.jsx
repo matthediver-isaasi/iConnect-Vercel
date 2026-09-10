@@ -23,6 +23,8 @@ import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirector
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus } from "@/components/directory/DirectoryObjectSourceField";
 
 export default function DynamicDirectoryView() {
   const { slug, organizationId: scopedOrganizationId } = useParams();
@@ -83,6 +85,13 @@ export default function DynamicDirectoryView() {
     ? (publicConfig?.notFound ? null : (publicConfig?.directory || null))
     : authDirectory;
   const isLoadingDirectory = isGuest ? isLoadingPublicConfig : isLoadingAuthDirectory;
+  const objectSourceQuery = useDirectoryObjectSources({
+    directoryId: directory?.id,
+    enabled: Boolean(directory?.id && directory.entity_type === 'organization' && !isGuest),
+  });
+  const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
+    ? []
+    : (objectSourceQuery.data?.sources || []);
 
   const { data: authFilterField } = useQuery({
     queryKey: ['preference-field', directory?.filter_field_id],
@@ -1078,6 +1087,7 @@ export default function DynamicDirectoryView() {
               </div>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              <DirectoryObjectSourcesStatus query={objectSourceQuery} />
               {(() => {
                 // Unified reverse-card ordering: per-directory override →
                 // tenant default → hardcoded default. Existing visibility
@@ -1089,6 +1099,7 @@ export default function DynamicDirectoryView() {
                   tenantOrder: orgDisplaySettings?.backFieldOrder,
                   defaultOrder: ORG_BACK_DEFAULT_ORDER,
                   customFields: orderedOrgFields,
+                  objectSources,
                 });
                 const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
 
@@ -1214,6 +1225,17 @@ export default function DynamicDirectoryView() {
                     const field = fieldById.get(key.slice(7));
                     if (!field || field._visBack === false) continue;
                     items.push({ kind: 'custom', field });
+                  } else if (key.startsWith('object-field:')) {
+                    const source = objectSources.find(item => item.key === key);
+                    if (!source) continue;
+                    items.push({ kind: 'block', node: (
+                      <DirectoryObjectSourceField
+                        key={key}
+                        source={source}
+                        organizationId={selectedOrg?.id}
+                        directoryId={directory?.id}
+                      />
+                    ) });
                   }
                 }
 

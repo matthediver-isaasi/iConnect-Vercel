@@ -26,7 +26,7 @@ function MultiValueControl({ field, value, onChange, countries = false, disabled
 
 export function RecordFieldControl({ field, value, onChange, disabled = false }) {
   const type = field.field_type;
-  if (type === "file") return <CustomFieldFileUpload fieldId={field.id} formId={field.custom_object_id} value={normalizedFileValue(value)} onChange={onChange} allowedTypes={field.allowed_file_types} publicAccess={field.public_access} disabled={disabled} />;
+  if (type === "file") return <CustomFieldFileUpload fieldId={field.id} customObjectId={field.custom_object_id} value={normalizedFileValue(value)} onChange={onChange} allowedTypes={field.allowed_file_types} publicAccess={field.public_access} disabled={disabled} />;
   if (type === "textarea") return <Textarea disabled={disabled} minLength={field.min_length ?? undefined} maxLength={field.max_length ?? undefined} value={value ?? ""} onChange={(event) => onChange(event.target.value)} />;
   if (["picklist", "countries", "list"].includes(type)) return <MultiValueControl field={field} value={value} onChange={onChange} countries={type === "countries"} disabled={disabled} />;
   if (type === "boolean") return <div className="flex items-center gap-2"><Switch disabled={disabled} checked={value === true || value === "true"} onCheckedChange={onChange} /><span className="text-sm">{value === true || value === "true" ? "Yes" : "No"}</span></div>;

@@ -11,10 +11,12 @@ import {
   resolveCustomObjectFieldAccess,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
+  reconcileOrganisationDirectoryPresentation,
   reconcileCustomObjectPresentationConfiguration,
   validateCustomObjectFieldDefinition,
   validateCustomObjectRecordData,
   validateCustomObjectRelationshipEndpoints,
+  validateOrganisationDirectoryPresentation,
   validateCustomObjectRelationshipPreviewConfiguration,
   validateCustomObjectPresentationConfiguration,
   validateCustomObjectViewConfiguration,
@@ -496,6 +498,99 @@ test('legacy detail sections remain valid and are not rewritten by CRM reconcili
     reconcileCustomObjectPresentationConfiguration(legacy, [name], [], objectId),
     legacy,
   );
+});
+
+test('organisation directory presentation validates explicit fields and Organisation endpoint direction', () => {
+  const published = field({ id: 'field-published' });
+  const direct = {
+    id: 'relationship-direct',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'organization',
+  };
+  const value = {
+    enabled: true,
+    relationships: [{ relationship_id: direct.id, direction: 'target' }],
+    field_ids: [published.id],
+  };
+  assert.equal(validateOrganisationDirectoryPresentation(
+    value, [published], [direct], objectId, tenantId,
+  ).ok, true);
+  assert.equal(validateOrganisationDirectoryPresentation(
+    { ...value, relationships: [{ relationship_id: direct.id, direction: 'source' }] },
+    [published], [direct], objectId, tenantId,
+  ).ok, false);
+  assert.equal(validateOrganisationDirectoryPresentation(
+    value, [published], [{ ...direct, tenant_id: 'another-tenant' }], objectId, tenantId,
+  ).ok, false);
+  assert.equal(validateOrganisationDirectoryPresentation(
+    value, [published], [{ ...direct, archived_at: '2026-01-01T00:00:00.000Z' }], objectId, tenantId,
+  ).ok, false);
+  assert.equal(validateOrganisationDirectoryPresentation(
+    { ...value, field_ids: ['archived'] }, [published], [direct], objectId, tenantId,
+  ).ok, false);
+  assert.equal(validateOrganisationDirectoryPresentation(
+    value, [{ ...published, archived_at: '2026-01-01T00:00:00.000Z' }], [direct], objectId, tenantId,
+  ).ok, false);
+});
+
+test('organisation directory reconciliation prunes stale selections without mutating other presentation', () => {
+  const published = field({ id: 'field-published' });
+  const direct = {
+    id: 'relationship-direct',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'organization',
+    target_kind: 'custom_object',
+    target_custom_object_id: objectId,
+  };
+  const reconciled = reconcileOrganisationDirectoryPresentation({
+    enabled: true,
+    relationships: [
+      { relationship_id: direct.id, direction: 'source' },
+      { relationship_id: 'stale', direction: 'target' },
+    ],
+    field_ids: [published.id, 'stale'],
+  }, [published], [direct], objectId, tenantId);
+  assert.deepEqual(reconciled, {
+    enabled: true,
+    relationships: [{ relationship_id: direct.id, direction: 'source' }],
+    field_ids: [published.id],
+  });
+  assert.deepEqual(reconcileOrganisationDirectoryPresentation({
+    enabled: true,
+    relationships: [{ relationship_id: direct.id, direction: 'source' }],
+    field_ids: [published.id],
+  }, [{ ...published, archived_at: '2026-01-01T00:00:00.000Z' }],
+  [{ ...direct, archived_at: '2026-01-01T00:00:00.000Z' }], objectId, tenantId), {
+    enabled: true,
+    relationships: [],
+    field_ids: [],
+  });
+
+  const configuration = {
+    views: {
+      list: { field_ids: [published.id] },
+      organisation_directory: {
+        enabled: false,
+        relationships: [{ relationship_id: 'stale', direction: 'source' }],
+        field_ids: ['stale'],
+      },
+    },
+    unrelated: { retained: true },
+  };
+  const output = reconcileCustomObjectPresentationConfiguration(
+    configuration, [published], [direct], objectId, tenantId,
+  );
+  assert.deepEqual(output.views.organisation_directory, {
+    enabled: false,
+    relationships: [],
+    field_ids: [],
+  });
+  assert.deepEqual(output.views.list, configuration.views.list);
+  assert.deepEqual(output.unrelated, configuration.unrelated);
 });
 
 test('field access defaults preserve legacy editability and invalid rows fail closed', () => {
