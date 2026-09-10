@@ -459,7 +459,7 @@ export async function reconcileFormPayments(supabase, {
   // whose finalisation is incomplete. Selects rows where monthly_card_state is:
   //   - absent (null)        — no attempt has run yet (crash before claim)
   //   - processing + stale   — active lease expired (process crash)
-  //   - not 'done'           — any other non-terminal state
+  //   - retryable            — prior owner persisted an actionable failure
   // Rows with a fresh 'processing' lease are skipped (the active holder will
   // stamp 'done' or release on failure). Rows already at 'done' are excluded.
   // Deliberately NOT bounded by the payment lookback: like the third sweep,
@@ -474,6 +474,7 @@ export async function reconcileFormPayments(supabase, {
       .eq('payment_status', 'setup_complete')
       .or([
         'payment_meta->monthly_card_state.is.null',
+        'payment_meta->monthly_card_state->>status.eq.retryable',
         `and(payment_meta->monthly_card_state->>status.eq.processing,payment_meta->monthly_card_state->>claimed_at.lt.${staleCutoff})`,
       ].join(','))
       .order('created_date', { ascending: true })

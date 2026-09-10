@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { SS_KEY, confirmFormPayment } from "@/lib/formPaymentReturn";
+import { confirmFormPayment, savePaymentSubmissionContext } from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -73,6 +73,7 @@ export default function FormPaymentSubmit({
   const [stripeMounted, setStripeMounted] = useState(false);
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
+  const [paymentStage, setPaymentStage] = useState(null);
   // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
   const [gcDropin, setGcDropin] = useState(null);
 
@@ -145,18 +146,19 @@ export default function FormPaymentSubmit({
     setConfirming(true);
     setPaymentError(null);
     try {
-      const out = await confirmFormPayment({ submissionId, paymentIntentId });
-      if (out.status === 'pending') {
-        setPaymentError('Your Direct Debit set-up is still being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.');
-        return false;
-      }
-      if (out.status === 'error') {
-        setPaymentError(out.error);
-        return false;
-      }
-      if (out.status === 'processing') {
+      const out = await confirmFormPayment({
+        submissionId,
+        paymentIntentId,
+        provider: selectedProvider,
+      });
+      setPaymentStage(out.status);
+      if (out.status !== 'paid') {
         setPaymentCaptured(true);
-        setPaymentError(out.error);
+        setPaymentError(out.error || (
+          out.status === 'setup_complete'
+            ? 'Your recurring payment method is set up. Your first collection has not yet been confirmed and will be recorded separately.'
+            : 'Your payment is still being verified or finalized. You can safely close this page; do not pay again.'
+        ));
         return false;
       }
       onPaid?.(submissionId);
@@ -164,11 +166,12 @@ export default function FormPaymentSubmit({
     } finally {
       setConfirming(false);
     }
-  }, [onPaid]);
+  }, [onPaid, selectedProvider]);
 
   const startPayment = async (providerId) => {
     setPaymentError(null);
     setPaymentCaptured(false);
+    setPaymentStage(null);
     const payload = await buildPayload();
     if (!payload) return;
     setCreating(true);
@@ -201,7 +204,12 @@ export default function FormPaymentSubmit({
         return;
       }
       submissionIdRef.current = json.submissionId;
-      try { sessionStorage.setItem(SS_KEY, json.submissionId); } catch { /* ignore */ }
+       try {
+         savePaymentSubmissionContext({
+           submissionId: json.submissionId,
+           provider: providerId,
+         });
+       } catch { /* ignore */ }
 
       if (providerId === 'gocardless') {
         if (json.flowId) {
@@ -261,6 +269,7 @@ export default function FormPaymentSubmit({
 
   const startMonthlyCard = async () => {
     setPaymentError(null);
+       setPaymentStage(null);
     const payload = await buildPayload();
     if (!payload) return;
     setCreating(true);
@@ -272,7 +281,12 @@ export default function FormPaymentSubmit({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
       if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');
-      try { sessionStorage.setItem(SS_KEY, json.submissionId); } catch { /* ignore */ }
+       try {
+         savePaymentSubmissionContext({
+           submissionId: json.submissionId,
+           provider: 'stripe_monthly_card',
+         });
+       } catch { /* ignore */ }
       window.top.location.href = json.checkoutUrl;
     } catch (err) { setPaymentError(err.message); } finally { setCreating(false); }
   };
@@ -377,9 +391,22 @@ export default function FormPaymentSubmit({
           </div>
         </div>
       ) : paymentCaptured ? (
-        <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid={`form-payment-captured-${field?.id}`}>
+        <div
+          className="space-y-3 rounded-md border bg-muted/40 p-4"
+          data-testid={`form-payment-captured-${field?.id}`}
+          data-payment-status={paymentStage || 'accounting_pending'}
+        >
+          <p className="text-sm font-medium">
+            {paymentStage === 'setup_complete'
+              ? 'Payment setup complete'
+              : paymentStage === 'pending'
+                ? 'Payment status is being confirmed'
+                : paymentStage === 'blocked'
+                  ? 'Payment status needs attention'
+                  : 'Finishing your submission'}
+          </p>
           <p className="text-sm text-muted-foreground">
-            Your card payment was successful. We are finishing your submission; do not pay again.
+            {paymentError || 'Do not make another payment. You can safely check this submission again.'}
           </p>
           <Button
             variant="outline"
@@ -388,7 +415,7 @@ export default function FormPaymentSubmit({
             data-testid={`button-form-payment-retry-processing-${field?.id}`}
           >
             {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Retry processing
+            Check status again
           </Button>
         </div>
       ) : fallbackToNormalSubmit ? (

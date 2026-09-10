@@ -33,17 +33,14 @@ import { getStripeIntegrationCredentials } from '../_lib/stripeCredentials.js';
 import { recordSucceededMembershipPaymentIntent } from '../_lib/membershipPaymentReconciliation.js';
 import { processStripeCardPlanEvent, CARD_PLAN_KIND } from '../_lib/stripeMonthlyCard.js';
 import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
+import {
+  CARD_PLAN_EVENT_TYPES,
+  classifyStripeMembershipEventTenant,
+  selectStripeEventModeCredentials,
+} from '../_lib/stripeMembershipWebhookConfig.js';
 
 // Task #3620 — subscription/invoice events for monthly-card membership plans
 // are routed to the card-plan processor (same durable dedupe as PIs).
-const CARD_PLAN_EVENT_TYPES = new Set([
-  'checkout.session.completed',
-  'invoice.paid',
-  'invoice.payment_succeeded',
-  'invoice.payment_failed',
-  'customer.subscription.deleted',
-]);
-
 export const config = { api: { bodyParser: false } };
 
 async function readRawBody(req) {
@@ -65,9 +62,17 @@ function isMembershipPaymentIntent(pi) {
   return true;
 }
 
-export default async function handler(req, res) {
+export async function handleStripeMembershipWebhook(req, res, dependencies = {}) {
+  const db = dependencies.db ?? supabase;
+  const StripeClient = dependencies.StripeClient || Stripe;
+  const loadCredentials = dependencies.getStripeIntegrationCredentials
+    || getStripeIntegrationCredentials;
+  const classifyTenant = dependencies.classifyStripeMembershipEventTenant
+    || classifyStripeMembershipEventTenant;
+  const processCardPlan = dependencies.processStripeCardPlanEvent
+    || processStripeCardPlanEvent;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
 
   const tenantId = typeof req.query?.tenant === 'string' && req.query.tenant ? req.query.tenant : null;
   if (!tenantId) {
@@ -76,13 +81,12 @@ export default async function handler(req, res) {
 
   let creds;
   try {
-    creds = await getStripeIntegrationCredentials(tenantId);
+    creds = await loadCredentials(tenantId);
   } catch (err) {
     console.error(`[stripe-membership webhook] credential lookup failed (tenant=${tenantId}): ${err.message}`);
     return res.status(503).json({ error: 'Webhook not configured' });
   }
-  const secrets = [creds?.membership_webhook_secret, creds?.test_membership_webhook_secret].filter(Boolean);
-  if (secrets.length === 0) {
+  if (!creds?.membership_webhook_secret && !creds?.test_membership_webhook_secret) {
     console.error(`[stripe-membership webhook] no membership_webhook_secret configured for tenant ${tenantId}`);
     return res.status(503).json({ error: 'Webhook not configured' });
   }
@@ -95,25 +99,70 @@ export default async function handler(req, res) {
   }
 
   const signature = req.headers['stripe-signature'];
-  let event = null;
-  for (const secret of secrets) {
-    try {
-      event = Stripe.webhooks.constructEvent(raw, signature, secret);
-      break;
-    } catch {
-      // try the next configured secret (live vs test endpoint)
-    }
+  let unsignedEvent;
+  try {
+    unsignedEvent = JSON.parse(raw.toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'Invalid webhook payload' });
   }
-  if (!event) {
+  const modeCredentials = selectStripeEventModeCredentials(unsignedEvent, creds);
+  if (!modeCredentials) {
+    return res.status(400).json({ error: 'Webhook event mode is missing' });
+  }
+  const {
+    mode: eventMode,
+    signingSecret,
+    apiKey: modeApiKey,
+  } = modeCredentials;
+  if (!signingSecret) {
+    return res.status(503).json({ error: `Webhook not configured for ${eventMode} mode` });
+  }
+  let event;
+  try {
+    event = StripeClient.webhooks.constructEvent(raw, signature, signingSecret);
+  } catch {
     console.error(`[stripe-membership webhook] Invalid signature (tenant=${tenantId})`);
     return res.status(400).json({ error: 'Invalid webhook signature' });
+  }
+
+  // Never use the opposite-mode key. Each verified event must be bound to the
+  // API account matching its livemode before tenant ownership is evaluated.
+  let stripeForEvent = null;
+  if (modeApiKey) {
+    try {
+      stripeForEvent = new StripeClient(modeApiKey);
+    } catch {
+      return res.status(503).json({
+        error: `Stripe API key could not be used for ${eventMode} mode`,
+        status: 'pending',
+      });
+    }
+  }
+  const ownership = await classifyTenant(event, {
+    expectedTenantId: tenantId,
+    stripe: stripeForEvent,
+  });
+  if (ownership.status === 'foreign' || ownership.status === 'irrelevant') {
+    return res.status(200).json({ received: true, status: 'skipped' });
+  }
+  if (ownership.status === 'unknown') {
+    return res.status(422).json({ error: ownership.message });
+  }
+  if (ownership.status === 'unavailable') {
+    return res.status(503).json({ error: ownership.message, status: 'pending' });
+  }
+  if (!modeApiKey) {
+    return res.status(503).json({
+      error: `Stripe API key is not configured for ${eventMode} mode`,
+      status: 'pending',
+    });
   }
 
   // Durable dedupe on (provider, event_id). Duplicate deliveries are NOT
   // blindly acked: a previous delivery may have ended in a RECOVERABLE
   // state ('pending', e.g. webhook arrived before the confirm flow created
   // the history row) — Stripe's retry is our retry loop, so reprocess those.
-  const { data: inserted, error: insErr } = await supabase
+  const { data: inserted, error: insErr } = await db
     .from('payment_webhook_events')
     .upsert({
       provider: 'stripe-membership',
@@ -135,14 +184,17 @@ export default async function handler(req, res) {
 
   let rowId = inserted?.[0]?.id || null;
   if (!rowId) {
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('payment_webhook_events')
       .select('id, processing_status')
       .eq('provider', 'stripe-membership')
       .eq('event_id', event.id)
+      .eq('tenant_id', tenantId)
       .maybeSingle();
     if (!existing) {
-      return res.status(500).json({ error: 'Failed to log event' });
+      // The global provider/event id may belong to a historical row owned by
+      // another tenant. Never read, acknowledge, or mutate that row.
+      return res.status(409).json({ error: 'Webhook event ownership conflict' });
     }
     if (existing.processing_status === 'processed' || existing.processing_status === 'skipped') {
       return res.status(200).json({ received: true, status: 'duplicate' });
@@ -151,10 +203,11 @@ export default async function handler(req, res) {
   }
 
   const markEvent = async (processing_status, processing_error = null) => {
-    const { error } = await supabase
+    const { error } = await db
       .from('payment_webhook_events')
       .update({ processing_status, processing_error, processed_at: new Date().toISOString() })
-      .eq('id', rowId);
+      .eq('id', rowId)
+      .eq('tenant_id', tenantId);
     if (error) console.error(`[stripe-membership webhook] failed to mark event ${event.id}: ${error.message}`);
   };
 
@@ -167,14 +220,14 @@ export default async function handler(req, res) {
   if (CARD_PLAN_EVENT_TYPES.has(event.type)) {
     try {
       const getStripe = async () => {
-        // Mode-flip tolerance: prefer the key matching the event's livemode,
-        // regardless of the tenant's currently selected membership mode.
-        const chosen = event.livemode
-          ? (creds.secret_key || creds.test_secret_key)
-          : (creds.test_secret_key || creds.secret_key);
-        return chosen ? new Stripe(chosen) : null;
+        return stripeForEvent;
       };
-      const outcome = await processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl: baseUrlForEvent });
+      const outcome = await processCardPlan(event, {
+        db,
+        getStripe,
+        baseUrl: baseUrlForEvent,
+        expectedTenantId: tenantId,
+      });
       if (outcome.handled) {
         await markEvent('processed');
         return res.status(200).json({ received: true, status: 'processed', detail: outcome.detail });
@@ -208,12 +261,8 @@ export default async function handler(req, res) {
 
   try {
     if (pi.metadata?.source === 'form-membership-payment') {
-      const chosenKey = event.livemode
-        ? (creds.secret_key || creds.test_secret_key)
-        : (creds.test_secret_key || creds.secret_key);
-      if (!chosenKey) throw new Error('Stripe membership API key is unavailable for this event mode');
       await capturePaymentIntentBillingAddress({
-        stripe: new Stripe(chosenKey),
+        stripe: stripeForEvent,
         paymentIntent: pi,
       });
     }
@@ -250,4 +299,8 @@ export default async function handler(req, res) {
     // scripts/reconcile-membership-stripe-payment.mjs can repair.
     return res.status(500).json({ received: true, status: 'failed', error: err.message });
   }
+}
+
+export default async function handler(req, res) {
+  return handleStripeMembershipWebhook(req, res);
 }

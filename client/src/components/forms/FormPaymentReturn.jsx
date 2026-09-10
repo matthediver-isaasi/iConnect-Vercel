@@ -9,11 +9,28 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Clock, XCircle, AlertCircle, Loader2 } from 'lucide-react';
 import {
-  SS_KEY,
   parsePaymentReturn,
   stripPaymentParams,
   confirmFormPayment,
+  loadPaymentSubmissionContext,
+  savePaymentSubmissionContext,
+  clearPaymentSubmissionContext,
 } from '@/lib/formPaymentReturn';
+
+export const PAYMENT_RETURN_POLL_DELAYS_MS = [1500, 3000, 5000];
+
+function hasInitialPaymentReturn() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stored = loadPaymentSubmissionContext();
+    const decision = parsePaymentReturn(window.location.search, {
+      storedSubmissionId: stored?.submissionId || null,
+    });
+    return decision.kind !== 'none' || !!(stored && !stored.legacy);
+  } catch {
+    return parsePaymentReturn(window.location.search).kind !== 'none';
+  }
+}
 
 /**
  * Detects a payment return leg on mount, cleans the payment params off the
@@ -25,52 +42,148 @@ import {
  *  - dismiss(): return to the form (used from the cancelled/error screens)
  */
 export function useFormPaymentReturn() {
-  const [state, setState] = useState({ active: false, status: null, error: null });
-  const startedRef = useRef(false);
+  const [state, setState] = useState(() => {
+    const detected = hasInitialPaymentReturn();
+    return {
+      active: detected,
+      status: detected ? 'confirming' : null,
+      provider: null,
+      error: null,
+      canRecheck: false,
+    };
+  });
+  const contextRef = useRef(null);
+  const timerRef = useRef(null);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef(null);
+
+  const runConfirm = useCallback(async ({ manual = false } = {}) => {
+    if (inFlightRef.current) return inFlightRef.current;
+    const context = contextRef.current;
+    if (!context) return;
+    const operation = (async () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      setState((previous) => ({
+        ...previous,
+        active: true,
+        status: 'confirming',
+        error: null,
+        canRecheck: false,
+      }));
+
+      const out = await confirmFormPayment(context);
+      if (!mountedRef.current) return;
+      const provider = out.provider || null;
+      const terminal = out.status === 'paid';
+      if (terminal) {
+        try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
+        contextRef.current = null;
+      }
+      setState({
+        active: true,
+        status: out.status,
+        provider,
+        error: out.error || null,
+        canRecheck: !terminal,
+      });
+
+      const shouldPoll = !manual && out.retryable
+        && ['pending', 'finalizing', 'accounting_pending', 'blocked'].includes(out.status);
+      if (shouldPoll && context.attempt < PAYMENT_RETURN_POLL_DELAYS_MS.length) {
+        const delay = PAYMENT_RETURN_POLL_DELAYS_MS[context.attempt];
+        context.attempt += 1;
+        timerRef.current = setTimeout(() => runConfirm(), delay);
+      }
+    })();
+    inFlightRef.current = operation;
+    try {
+      return await operation;
+    } finally {
+      if (inFlightRef.current === operation) inFlightRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
+    // Effects are intentionally restartable: React StrictMode runs setup,
+    // cleanup, then setup again. The shared in-flight request is retained
+    // across that probe, while mounted/timer ownership is re-established.
+    mountedRef.current = true;
 
     let stored = null;
-    try { stored = sessionStorage.getItem(SS_KEY); } catch { /* ignore */ }
-    const decision = parsePaymentReturn(window.location.search, { storedSubmissionId: stored });
-    if (decision.kind === 'none') return;
+    try { stored = loadPaymentSubmissionContext(); } catch { /* ignore */ }
+    const decision = parsePaymentReturn(window.location.search, {
+      storedSubmissionId: stored?.submissionId || null,
+    });
+    const isReturn = decision.kind !== 'none';
+    const resumable = !isReturn && stored && !stored.legacy;
+    if (!isReturn && !resumable) return undefined;
 
     // Clean the payment params off the URL immediately — a refresh after
     // this point is an ordinary page load, never a re-confirm.
     // Preserve any #hash — Stripe's return_url is built from the full
     // current URL, so a fragment can legitimately survive the round trip.
-    const cleaned = stripPaymentParams(window.location.search);
-    window.history.replaceState({}, '', `${window.location.pathname}${cleaned}${window.location.hash || ''}`);
+    if (isReturn) {
+      const cleaned = stripPaymentParams(window.location.search);
+      window.history.replaceState({}, '', `${window.location.pathname}${cleaned}${window.location.hash || ''}`);
+    }
 
     if (decision.kind === 'cancelled') {
-      setState({ active: true, status: 'cancelled', error: null });
-      return;
+      try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
+      setState({ active: true, status: 'cancelled', provider: stored?.provider || null, error: null, canRecheck: false });
+      return undefined;
     }
     if (decision.kind === 'failed') {
-      setState({ active: true, status: 'error', error: 'Payment was not completed. Please try again.' });
-      return;
+      try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
+      setState({
+        active: true,
+        status: 'cancelled',
+        provider: stored?.provider || null,
+        error: 'Payment was not completed. Nothing has been confirmed as charged.',
+        canRecheck: false,
+      });
+      return undefined;
     }
     if (decision.kind === 'orphan') {
       // Params present but no submission id recoverable — the background
       // reconciliation still finalizes it; show the safe pending copy.
-      setState({ active: true, status: 'pending', error: null });
-      return;
+      setState({ active: true, status: 'pending', provider: null, error: null, canRecheck: false });
+      return undefined;
     }
 
-    setState({ active: true, status: 'confirming', error: null });
-    confirmFormPayment({ submissionId: decision.submissionId, paymentIntentId: decision.paymentIntentId })
-      .then((out) => {
-        if (out.status === 'paid') setState({ active: true, status: 'paid', error: null });
-        else if (out.status === 'pending') setState({ active: true, status: 'pending', error: null });
-        else if (out.status === 'processing') setState({ active: true, status: 'processing', error: out.error });
-        else setState({ active: true, status: 'error', error: out.error });
-      });
-  }, []);
+    const submissionId = resumable ? stored.submissionId : decision.submissionId;
+    if (!contextRef.current || contextRef.current.submissionId !== submissionId) {
+      contextRef.current = {
+        submissionId,
+        paymentIntentId: resumable ? null : decision.paymentIntentId,
+        provider: (resumable ? stored.provider : decision.provider) || stored?.provider || null,
+        attempt: 0,
+      };
+    }
+    if (!resumable) {
+      try {
+        savePaymentSubmissionContext({
+          submissionId: decision.submissionId,
+          provider: decision.provider,
+        });
+      } catch { /* ignore */ }
+    }
+    runConfirm();
+    return () => {
+      mountedRef.current = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [runConfirm]);
 
-  const dismiss = useCallback(() => setState({ active: false, status: null, error: null }), []);
-  return { ...state, dismiss };
+  const dismiss = useCallback(() => setState({
+    active: false,
+    status: null,
+    provider: null,
+    error: null,
+    canRecheck: false,
+  }), []);
+  const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
+  return { ...state, dismiss, recheck };
 }
 
 const SCREENS = {
@@ -84,15 +197,36 @@ const SCREENS = {
     icon: Clock,
     iconClass: 'text-blue-600',
     bubbleClass: 'bg-blue-100',
-    title: 'Direct Debit being confirmed',
-    body: 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.',
+    title: 'Checking payment status',
+    body: 'Your payment or payment set-up is still being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.',
   },
-  processing: {
+  finalizing: {
+    icon: Clock,
+    iconClass: 'text-blue-600',
+    bubbleClass: 'bg-blue-100',
+    title: 'Finishing your submission',
+    body: 'The payment provider step is complete. We are finishing the remaining submission updates automatically. Please do not pay again.',
+  },
+  accounting_pending: {
     icon: Clock,
     iconClass: 'text-blue-600',
     bubbleClass: 'bg-blue-100',
     title: 'Payment received — finishing submission',
-    body: 'Your card payment was successful. We are completing the remaining submission updates automatically. Please do not pay again.',
+    body: 'Your payment was verified. We are completing the remaining submission updates automatically. Please do not pay again.',
+  },
+  setup_complete: {
+    icon: CheckCircle2,
+    iconClass: 'text-green-600',
+    bubbleClass: 'bg-green-100',
+    title: 'Payment setup complete',
+    body: 'Your recurring payment method has been set up. Your first collection has not yet been confirmed and will be recorded separately.',
+  },
+  blocked: {
+    icon: AlertCircle,
+    iconClass: 'text-amber-600',
+    bubbleClass: 'bg-amber-100',
+    title: 'Payment status needs attention',
+    body: 'We could not finish checking this payment. Do not make another payment. You can safely check the same submission again.',
   },
   cancelled: {
     icon: XCircle,
@@ -100,12 +234,6 @@ const SCREENS = {
     bubbleClass: 'bg-slate-100',
     title: 'Payment cancelled',
     body: 'The payment was cancelled and your form was not submitted. You can return to the form and try again.',
-  },
-  error: {
-    icon: AlertCircle,
-    iconClass: 'text-amber-600',
-    bubbleClass: 'bg-amber-100',
-    title: 'Confirmation problem',
   },
   confirming: {
     icon: Loader2,
@@ -123,18 +251,37 @@ const SCREENS = {
  *  - onReturnToForm: dismiss back to the form (cancelled / error)
  *  - embedded: compact layout for the iframe page
  */
-export function FormPaymentReturnScreen({ status, error, successMessage, onReturnToForm, embedded = false }) {
+export function FormPaymentReturnScreen({
+  status,
+  provider,
+  error,
+  successMessage,
+  onReturnToForm,
+  onRecheck,
+  canRecheck = false,
+  embedded = false,
+}) {
   const def = SCREENS[status] || SCREENS.confirming;
   const Icon = def.icon;
+  const pendingBody = provider === 'gocardless'
+    ? 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
+    : provider === 'stripe_monthly_card'
+      ? 'Your monthly card set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
+      : def.body;
   const body = status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
-    : (status === 'error' || status === 'processing') && error
+    : error
       ? error
-      : def.body;
-  const showReturn = (status === 'cancelled' || status === 'error') && onReturnToForm;
+      : status === 'pending' ? pendingBody : def.body;
+  const showReturn = status === 'cancelled' && onReturnToForm;
 
   const card = (
-    <Card className={embedded ? 'w-full' : 'max-w-md w-full'} data-testid="payment-return-screen">
+    <Card
+      className={embedded ? 'w-full' : 'max-w-md w-full'}
+      data-testid="payment-return-screen"
+      data-payment-status={status || 'confirming'}
+      data-payment-provider={provider || 'unknown'}
+    >
       <CardContent className="p-10 text-center">
         <div className={`w-16 h-16 ${def.bubbleClass} rounded-full flex items-center justify-center mx-auto mb-4`}>
           <Icon className={`w-8 h-8 ${def.iconClass}`} />
@@ -144,6 +291,11 @@ export function FormPaymentReturnScreen({ status, error, successMessage, onRetur
         {showReturn && (
           <Button className="mt-6" variant="outline" onClick={onReturnToForm} data-testid="button-return-to-form">
             Return to form
+          </Button>
+        )}
+        {canRecheck && onRecheck && status !== 'confirming' && (
+          <Button className="mt-6" variant="outline" onClick={onRecheck} data-testid="button-payment-return-recheck">
+            Check status again
           </Button>
         )}
       </CardContent>

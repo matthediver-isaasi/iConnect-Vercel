@@ -2,6 +2,10 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { normalizeAutoRetryPolicy, validateAutoRetryPolicy } from '../_lib/gocardlessAutoRetry.js';
+import {
+  STRIPE_MEMBERSHIP_WEBHOOK_EVENTS,
+  buildStripeMembershipWebhookUrl,
+} from '../_lib/stripeMembershipWebhookConfig.js';
 import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
@@ -50,6 +54,10 @@ const NON_SECRET_FIELDS = [
   'stripe_mode_fundraising', 'environment', 'country',
   'auto_retry_enabled', 'auto_retry_interval_days', 'auto_retry_max_attempts',
 ];
+const STRIPE_WEBHOOK_SECRET_FIELDS = new Set([
+  'membership_webhook_secret',
+  'test_membership_webhook_secret',
+]);
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};
@@ -87,6 +95,8 @@ function maskCredentials(credentials) {
     if (unmaskedFields.includes(key)) {
       // Return these fields as-is (they're not sensitive)
       masked[key] = value;
+    } else if (STRIPE_WEBHOOK_SECRET_FIELDS.has(key) && value) {
+      masked[key] = '****';
     } else if (value && typeof value === 'string' && value.length > 8) {
       masked[key] = value.substring(0, 4) + '****' + value.substring(value.length - 4);
     } else if (value) {
@@ -103,9 +113,24 @@ function mergeCredentialUpdates(existingCredentials = {}, incomingCredentials = 
   for (const [key, value] of Object.entries(incomingCredentials || {})) {
     if (value === undefined || value === null) continue;
     if (typeof value === 'string' && value.includes('****')) continue;
+    if (STRIPE_WEBHOOK_SECRET_FIELDS.has(key) && typeof value === 'string' && value.trim() === '') continue;
     merged[key] = value;
   }
   return merged;
+}
+
+function validateStripeWebhookSecretUpdates(credentials) {
+  for (const field of STRIPE_WEBHOOK_SECRET_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(credentials || {}, field)) continue;
+    const value = credentials[field];
+    if (value === undefined || value === null || value === ''
+        || (typeof value === 'string' && value.trim() === '')
+        || (typeof value === 'string' && value.includes('****'))) continue;
+    if (typeof value !== 'string' || !value.startsWith('whsec_') || /\s/.test(value)) {
+      return `${field} must start with whsec_ and contain no whitespace`;
+    }
+  }
+  return null;
 }
 
 export default async function handler(req, res) {
@@ -179,8 +204,46 @@ export default async function handler(req, res) {
       // request host — see publicBaseUrl.js).
       const baseUrl = await getTrustedBaseUrlForTenant(req, supabase, tenantId);
       const gocardlessWebhookUrl = `${baseUrl}/api/webhooks/gocardless?tenant=${encodeURIComponent(tenantId)}`;
+      let stripeWebhookUrl = null;
+      let stripeWebhookConfigurationError = null;
+      try {
+        stripeWebhookUrl = buildStripeMembershipWebhookUrl(
+          await getTrustedBaseUrlForTenant(null, supabase, tenantId),
+          tenantId,
+        );
+      } catch {
+        stripeWebhookConfigurationError = 'A trusted production HTTPS webhook host is not configured';
+      }
+      const stripeIntegration = (integrations || []).find(
+        (item) => item.integration_type === 'stripe',
+      );
+      const stripeCredentials = stripeIntegration
+        ? decryptCredentials(stripeIntegration.credentials)
+        : {};
+      const stripeMembershipWebhook = {
+        url: stripeWebhookUrl,
+        events: [...STRIPE_MEMBERSHIP_WEBHOOK_EVENTS],
+        ...(stripeWebhookConfigurationError
+          ? { configuration_error: stripeWebhookConfigurationError }
+          : {}),
+        modes: {
+          live: {
+            secret_configured: Boolean(stripeCredentials.membership_webhook_secret),
+            api_key_configured: Boolean(stripeCredentials.secret_key),
+          },
+          test: {
+            secret_configured: Boolean(stripeCredentials.test_membership_webhook_secret),
+            api_key_configured: Boolean(stripeCredentials.test_secret_key),
+          },
+        },
+      };
 
-      res.json({ success: true, integrations: maskedIntegrations, gocardless_webhook_url: gocardlessWebhookUrl });
+      res.json({
+        success: true,
+        integrations: maskedIntegrations,
+        gocardless_webhook_url: gocardlessWebhookUrl,
+        stripe_membership_webhook: stripeMembershipWebhook,
+      });
     } catch (error) {
       console.error('[Integrations] Get error:', error);
       res.status(500).json({ error: 'Failed to fetch integrations' });
@@ -205,6 +268,12 @@ export default async function handler(req, res) {
           return res.status(503).json({ error: 'Ideal Postcodes is not configured on this platform', code: 'PLATFORM_CONFIGURATION_REQUIRED' });
         }
       }
+      if (integration_type === 'stripe' && credentials) {
+        const webhookSecretError = validateStripeWebhookSecretUpdates(credentials);
+        if (webhookSecretError) {
+          return res.status(400).json({ error: webhookSecretError });
+        }
+      }
 
       let autoRetryPolicy = null;
       if (integration_type === 'gocardless'
@@ -218,12 +287,15 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('tenant_integrations')
         .select('id, credentials')
         .eq('tenant_id', tenantId)
         .eq('integration_type', integration_type)
         .single();
+      if (existingError && existingError.code !== 'PGRST116') {
+        throw new Error('Failed to read existing integration before saving');
+      }
 
       let encryptedCreds = {};
       
@@ -386,4 +458,11 @@ export default async function handler(req, res) {
   }
 }
 
-export { decrypt, decryptCredentials, encryptCredentials, maskCredentials, mergeCredentialUpdates };
+export {
+  decrypt,
+  decryptCredentials,
+  encryptCredentials,
+  maskCredentials,
+  mergeCredentialUpdates,
+  validateStripeWebhookSecretUpdates,
+};

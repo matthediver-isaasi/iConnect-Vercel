@@ -37,13 +37,15 @@
  *     above obligations complete.
  *
  * Claim state machine (payment_meta.monthly_card_state):
- *   absent / null        → no prior attempt, or claim released after failure
+ *   absent / null        → no prior attempt
  *   { status:'processing', claimed_at: ISO } → active lease (TTL-bounded)
+ *   { status:'retryable', code, detail } → durable failed attempt, reclaimable
+ *   { status:'blocked', code, detail } → terminal operator/applicant action
  *   { status:'done' }    → all obligations complete (terminal)
  *
  * Concurrent callers:
  *   - See 'processing' with a fresh claimed_at → return { retryable: true }
- *     (the active holder will stamp 'done' or release to pending on failure).
+ *     (the active holder will stamp 'done' or a durable retry reason).
  *   - See 'processing' with a stale claimed_at (> TTL) → re-claim the lease
  *     (CAS on the exact stale timestamp) and resume.
  *   - See 'done' → { handled: true, alreadyFinalized: true }.
@@ -76,7 +78,6 @@ async function markFormSubmissionSetupComplete(db, submissionId) {
     .from('form_submission')
     .update({
       payment_status: 'setup_complete',
-      payment_paid_at: new Date().toISOString(),
     })
     .eq('id', submissionId)
     .eq('payment_status', 'pending')
@@ -110,6 +111,23 @@ async function readClaimState(db, submissionId) {
   };
 }
 
+async function writePreclaimBlockedState(db, submissionId, meta, { code, detail }) {
+  const blockedState = {
+    status: 'blocked',
+    code: code || 'MEMBERSHIP_SETUP_BLOCKED',
+    detail: String(detail || 'Membership setup is blocked').replace(/\s+/g, ' ').slice(0, 500),
+    blocked_at: new Date().toISOString(),
+  };
+  const { data, error } = await db
+    .from('form_submission')
+    .update({ payment_meta: { ...meta, monthly_card_state: blockedState } })
+    .eq('id', submissionId)
+    .eq('payment_meta', JSON.stringify(meta))
+    .select('id');
+  if (error) return false;
+  return Array.isArray(data) ? data.length > 0 : !!data;
+}
+
 /**
  * Try to write a new 'processing' lease via a CAS filter.
  *
@@ -140,7 +158,7 @@ async function writeClaim(db, submissionId, meta, { expectedCurrentStatus, stale
 
   if (expectedCurrentStatus === 'absent') {
     query = query.filter('payment_meta->monthly_card_state', 'is', null);
-  } else {
+  } else if (expectedCurrentStatus === 'stale') {
     // Stale re-claim: must match exact stale timestamp.
     query = query.filter(
       'payment_meta->monthly_card_state->>claimed_at',
@@ -163,7 +181,12 @@ async function writeClaim(db, submissionId, meta, { expectedCurrentStatus, stale
  * the next caller retries. The owner-token filter prevents an expired worker
  * from clearing or completing a lease that a newer worker has reclaimed.
  */
-async function writeClaimResult(db, submissionId, { done, ownerToken }) {
+async function writeClaimResult(db, submissionId, {
+  done,
+  ownerToken,
+  retryDetail = null,
+  retryCode = null,
+}) {
   const { state, meta } = await readClaimState(db, submissionId);
   if (!ownerToken || state?.status !== 'processing' || state.owner_token !== ownerToken) {
     return false;
@@ -174,10 +197,14 @@ async function writeClaimResult(db, submissionId, { done, ownerToken }) {
       status: 'done',
       done_at: new Date().toISOString(),
     };
+  } else if (retryDetail) {
+    nextMeta.monthly_card_state = {
+      status: 'retryable',
+      code: retryCode || 'FINALIZATION_INCOMPLETE',
+      detail: String(retryDetail).replace(/\s+/g, ' ').slice(0, 500),
+      failed_at: new Date().toISOString(),
+    };
   } else {
-    // Delete the key entirely. JSONB {"monthly_card_state": null} is JSON
-    // null, not SQL NULL, so PostgREST's `->monthly_card_state IS NULL`
-    // claim/sweep predicate would never see it as released.
     delete nextMeta.monthly_card_state;
   }
   try {
@@ -315,11 +342,20 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
     };
   }
   if (!hasFormPaymentAccessProof(submission, form)) {
+    const detail = `form_submission ${formSubmissionId} has no trusted form-access authorization`;
+    await writePreclaimBlockedState(
+      db,
+      formSubmissionId,
+      (submission.payment_meta && typeof submission.payment_meta === 'object')
+        ? submission.payment_meta : {},
+      { code: 'FORM_ACCESS_NOT_AUTHORIZED', detail },
+    );
     return {
       handled: false,
+      blocked: true,
       retryable: false,
       code: 'FORM_ACCESS_NOT_AUTHORIZED',
-      detail: `form_submission ${formSubmissionId} has no trusted form-access authorization`,
+      detail,
     };
   }
 
@@ -367,6 +403,15 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
       detail: currentState.detail || 'Membership for this year is already recorded',
     };
   }
+  if (currentState?.status === 'blocked') {
+    return {
+      handled: false,
+      blocked: true,
+      retryable: false,
+      code: currentState.code || 'MEMBERSHIP_SETUP_BLOCKED',
+      detail: currentState.detail || 'Membership setup is blocked',
+    };
+  }
 
   if (currentState?.status === 'processing') {
     const age = Date.now() - new Date(currentState.claimed_at || 0).getTime();
@@ -393,9 +438,9 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
     }
     ownerToken = reClaim.ownerToken;
   } else {
-    // No prior state — first claim.
+    // No prior state, or a durable retry outcome — claim by exact-meta CAS.
     const firstClaim = await writeClaim(db, formSubmissionId, currentMeta, {
-      expectedCurrentStatus: 'absent',
+      expectedCurrentStatus: currentState?.status === 'retryable' ? 'retryable' : 'absent',
     });
     if (!firstClaim.claimed) {
       // Lost to a concurrent first-claimer.
@@ -409,8 +454,8 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   }
 
   // ── We hold the lease — run side effects ─────────────────────────────────
-  // On any failure: release the lease (set state back to null) so the next
-  // caller retries from scratch. On success: stamp 'done'.
+  // On any failure: replace our lease with a durable retry reason so the next
+  // caller/cron can reclaim it. On success: stamp 'done'.
 
   // ── Entity pipelines ─────────────────────────────────────────────────────
   let pipelineMemberId = null;
@@ -430,16 +475,27 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
     });
     pipelineMemberId = pipelineResult.memberId || null;
     if (pipelineResult.failed || pipelineResult.partial) {
-      await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+      const retryDetail = pipelineResult.detail || `application processing incomplete for form_submission ${formSubmissionId}`;
+      await writeClaimResult(db, formSubmissionId, {
+        done: false,
+        ownerToken,
+        retryDetail,
+        retryCode: 'APPLICATION_PROCESSING_INCOMPLETE',
+      });
       return {
         handled: false,
         retryable: true,
-        detail: pipelineResult.detail || `application processing incomplete for form_submission ${formSubmissionId}`,
+        detail: retryDetail,
       };
     }
   } catch (err) {
     console.error('[formMonthlyCardFinalize] Pipeline error for submission', formSubmissionId, err?.message);
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `application processing errored for form_submission ${formSubmissionId}`,
+      retryCode: 'APPLICATION_PROCESSING_ERROR',
+    });
     return {
       handled: false,
       retryable: true,
@@ -450,6 +506,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   }
   const stillOwnsLease = await renewClaimLease(db, formSubmissionId, ownerToken);
   if (!stillOwnsLease) {
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `form_submission ${formSubmissionId} finalization lease ownership was lost`,
+      retryCode: 'FINALIZATION_LEASE_LOST',
+    });
     return {
       handled: false,
       retryable: true,
@@ -469,9 +531,13 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   }
 
   if (!memberId) {
-    // Release the lease so the next retry re-runs the pipeline.
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
-    console.warn('[formMonthlyCardFinalize] member not yet resolved for submission', formSubmissionId, '— releasing lease for retry');
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `member not yet resolved for form_submission ${formSubmissionId}`,
+      retryCode: 'MEMBER_NOT_RESOLVED',
+    });
+    console.warn('[formMonthlyCardFinalize] member not yet resolved for submission', formSubmissionId, '— persisting retry outcome');
     return {
       handled: false,
       retryable: true,
@@ -482,7 +548,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   // ── Atomically attach member + reserve/create membership-year history ────
   const snapshot = agreement.metadata?.card;
   if (!snapshot) {
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `billing agreement ${agreement.id} has no monthly-card snapshot`,
+      retryCode: 'MONTHLY_CARD_SNAPSHOT_MISSING',
+    });
     return {
       handled: false,
       retryable: true,
@@ -516,7 +587,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
       })
       .eq('id', agreement.id);
     if (conflictAgreementErr) {
-      await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+      await writeClaimResult(db, formSubmissionId, {
+        done: false,
+        ownerToken,
+        retryDetail: `membership conflict detected but compensation could not be queued: ${conflictAgreementErr.message}`,
+        retryCode: 'CONFLICT_COMPENSATION_QUEUE_FAILED',
+      });
       return {
         handled: false,
         retryable: true,
@@ -546,7 +622,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
     };
   }
   if (!claim.ok) {
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: claim.detail || 'membership-year claim failed',
+      retryCode: claim.code || 'MEMBERSHIP_CLAIM_FAILED',
+    });
     return {
       handled: false,
       retryable: true,
@@ -555,7 +636,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   }
   const historyId = claim.historyId;
   if (!historyId) {
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `membership history could not be confirmed for billing agreement ${agreement.id}`,
+      retryCode: 'MEMBERSHIP_HISTORY_NOT_CONFIRMED',
+    });
     return {
       handled: false,
       retryable: true,
@@ -586,6 +672,12 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   // ── Stamp done AFTER all obligations ─────────────────────────────────────
   const stampedDone = await writeClaimResult(db, formSubmissionId, { done: true, ownerToken });
   if (!stampedDone) {
+    await writeClaimResult(db, formSubmissionId, {
+      done: false,
+      ownerToken,
+      retryDetail: `monthly-card finalization completed but the terminal state could not be saved for ${formSubmissionId}`,
+      retryCode: 'FINALIZATION_STATE_SAVE_FAILED',
+    });
     return {
       handled: false,
       retryable: true,

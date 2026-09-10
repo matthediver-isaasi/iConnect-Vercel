@@ -492,34 +492,15 @@ function happyFake(subOverrides = {}, extra = {}) {
 const run = (db, agreement = AGREEMENT) =>
   finalizeFormMonthlyCardCheckout({ db, agreement, session: { metadata: {} }, baseUrl: '' });
 
-// A released lease is now DELETED, not stored as JSON null. Production runs
-// `delete nextMeta.monthly_card_state` so the payment_meta JSONB no longer
-// carries the key at all — this is what makes the PostgREST/SQL predicate
-// `payment_meta->monthly_card_state IS NULL` see the row as released. (A JSON
-// null value would NOT satisfy that predicate; see the direct-Postgres test at
-// the end of this file.) So the correct assertion for a released lease is KEY
-// ABSENCE: hasOwnProperty === false and the read === undefined — never a stored
-// `null`.
-function assertLeaseReleased(db, submissionId = 'sub1') {
-  const meta = db._readRow('form_submission', submissionId).payment_meta;
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(meta, 'monthly_card_state'),
-    false,
-    'released lease must DELETE the monthly_card_state key, not store JSON null',
-  );
-  assert.equal(
-    meta.monthly_card_state,
-    undefined,
-    'released lease key must read as undefined (absent), not null',
-  );
-  assert.notEqual(
-    meta.monthly_card_state,
-    null,
-    'released lease must not be stored as JSON null',
-  );
+function assertRetryState(db, code, submissionId = 'sub1') {
+  const state = db._readRow('form_submission', submissionId).payment_meta.monthly_card_state;
+  assert.equal(state.status, 'retryable');
+  assert.equal(state.code, code);
+  assert.ok(state.detail);
+  assert.ok(state.failed_at);
 }
 
-test('pipeline HTTP failure after member persistence releases the lease and a retry finalizes once', async () => {
+test('pipeline HTTP failure persists an owner-CAS retry reason and a retry finalizes once', async () => {
   const previousAppUrl = process.env.APP_URL;
   const previousSessionSecret = process.env.SESSION_SECRET;
   const previousFetch = globalThis.fetch;
@@ -536,6 +517,13 @@ test('pipeline HTTP failure after member persistence releases the lease and a re
         processing_notes: 'Manual review note must remain.',
       })],
       form: [pipelineForm],
+      member: [{ id: 'mem1', tenant_id: 'ten1' }],
+      form_submission_entity: [{
+        id: 'link1',
+        submission_id: 'sub1',
+        entity_type: 'member',
+        entity_id: 'mem1',
+      }],
       membership_billing_agreements: [AGREEMENT],
       member_membership_history: [],
     },
@@ -556,13 +544,19 @@ test('pipeline HTTP failure after member persistence releases the lease and a re
     const failed = await run(db);
     assert.equal(failed.retryable, true);
     assert.equal(db.tables.member_membership_history.length, 0);
-    assertLeaseReleased(db);
+    const retryState = db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state;
+    assert.equal(retryState.status, 'retryable');
+    assert.equal(retryState.code, 'APPLICATION_PROCESSING_INCOMPLETE');
+    assert.match(retryState.detail, /Payment setup completed|application processing/i);
+    assert.ok(retryState.failed_at);
     assert.match(db._readRow('form_submission', 'sub1').processing_notes, /^Manual review note must remain\./);
     assert.match(db._readRow('form_submission', 'sub1').processing_notes, /Payment setup completed/);
 
     const retried = await run(db);
     assert.equal(retried.handled, true);
     assert.equal(processingCalls, 2);
+    assert.equal(db.tables.member.length, 1, 'the already-committed intended member must not be duplicated');
+    assert.equal(db.tables.form_submission_entity.length, 1, 'the committed pipeline link must not be duplicated');
     assert.equal(db.tables.member_membership_history.length, 1);
     assert.equal(db.tables.membership_billing_agreements[0].member_id, 'mem1');
     assert.equal(db._readRow('form_submission', 'sub1').processing_notes, 'Manual review note must remain.');
@@ -620,12 +614,33 @@ test('submission with wrong status (paid = annual path) → not handled', async 
   assert.equal(result.retryable, undefined);
 });
 
+test('restricted form without payment-start proof persists a blocked outcome', async () => {
+  const db = makeSupabase({
+    tables: {
+      form_submission: [makeSub({ created_member_id: 'mem1' })],
+      form: [{ ...FORM, access_policy: { mode: 'authenticated' } }],
+      membership_billing_agreements: [AGREEMENT],
+      member_membership_history: [],
+    },
+  });
+  const result = await run(db);
+  assert.equal(result.handled, false);
+  assert.equal(result.blocked, true);
+  assert.equal(result.retryable, false);
+  assert.equal(result.code, 'FORM_ACCESS_NOT_AUTHORIZED');
+  const state = db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state;
+  assert.equal(state.status, 'blocked');
+  assert.equal(state.code, 'FORM_ACCESS_NOT_AUTHORIZED');
+  assert.match(state.detail, /authorization/);
+});
+
 test('pending submission is CAS-promoted to setup_complete then finalized', async () => {
   const db = happyFake({ payment_status: 'pending' });
   const result = await run(db);
   assert.equal(result.handled, true);
   const row = db._readRow('form_submission', 'sub1');
   assert.equal(row.payment_status, 'setup_complete');
+  assert.equal(row.payment_paid_at, undefined, 'setup completion must not be recorded as payment');
   assert.equal(row.payment_meta.monthly_card_state.status, 'done');
 });
 
@@ -703,14 +718,13 @@ test('stale processing lease is reclaimed (new owner_token) and completes', asyn
 // Tests: pipeline unresolved member → release + retry
 // ===========================================================================
 
-test('unresolved member removes the lease key so a later call can retry', async () => {
+test('unresolved member persists why a later call must retry', async () => {
   const db = happyFake({ created_member_id: null }); // no member ever resolves
   const result = await run(db);
   assert.equal(result.handled, false);
   assert.equal(result.retryable, true);
   assert.match(result.detail, /member not yet resolved/);
-  // Lease released (key deleted, not left as processing or stored null), no history.
-  assertLeaseReleased(db);
+  assertRetryState(db, 'MEMBER_NOT_RESOLVED');
   assert.equal((db.tables.member_membership_history || []).length, 0);
 });
 
@@ -806,7 +820,7 @@ test('RPC idempotent adoption path drives to done without a second history row',
   assert.equal((db.tables.member_membership_history || []).length, 0);
 });
 
-test('RPC transport error → retryable, lease key removed, no side effects', async () => {
+test('RPC transport error → durable retry reason, no side effects', async () => {
   const db = happyFake({}, {
     rpc: { error: { message: 'deadlock detected' } },
   });
@@ -814,13 +828,12 @@ test('RPC transport error → retryable, lease key removed, no side effects', as
   assert.equal(result.handled, false);
   assert.equal(result.retryable, true);
   assert.match(result.detail, /membership-year claim failed/);
-  // Lease released (key deleted) so a later call retries; nothing attached, nothing inserted.
-  assertLeaseReleased(db);
+  assertRetryState(db, 'MEMBERSHIP_CLAIM_FAILED');
   assert.equal(db._readRow('membership_billing_agreements', 'ag1').member_id, null);
   assert.equal((db.tables.member_membership_history || []).length, 0);
 });
 
-test('RPC non-conflict failure (e.g. INVALID_AGREEMENT) → retryable, lease released', async () => {
+test('RPC non-conflict failure (e.g. INVALID_AGREEMENT) → durable retry reason', async () => {
   const db = happyFake({}, {
     rpc: { result: { ok: false, conflict: false, code: 'INVALID_AGREEMENT', detail: 'The billing agreement does not match this form submission' } },
   });
@@ -828,7 +841,7 @@ test('RPC non-conflict failure (e.g. INVALID_AGREEMENT) → retryable, lease rel
   assert.equal(result.handled, false);
   assert.equal(result.retryable, true);
   assert.equal(result.conflict, undefined);
-  assertLeaseReleased(db);
+  assertRetryState(db, 'INVALID_AGREEMENT');
   assert.equal((db.tables.member_membership_history || []).length, 0);
 });
 
@@ -843,7 +856,7 @@ test('RPC attaches the member atomically as part of a successful claim', async (
   assert.equal(db.tables.member_membership_history[0].billing_agreement_id, 'ag1');
 });
 
-test('missing snapshot on agreement → retryable, lease released', async () => {
+test('missing snapshot on agreement → durable retry reason', async () => {
   const db = happyFake();
   const agreementNoSnapshot = { ...AGREEMENT, metadata: { form_submission_id: 'sub1' } };
   db.tables.membership_billing_agreements[0] = { ...agreementNoSnapshot };
@@ -852,7 +865,7 @@ test('missing snapshot on agreement → retryable, lease released', async () => 
   });
   assert.equal(result.retryable, true);
   assert.match(result.detail, /no monthly-card snapshot/);
-  assertLeaseReleased(db);
+  assertRetryState(db, 'MONTHLY_CARD_SNAPSHOT_MISSING');
 });
 
 // ===========================================================================
@@ -1293,12 +1306,13 @@ test('src: reconcile cron resolves per-tenant baseUrl and passes it to replayEve
 // Source-contract: fourth sweep in formPaymentReconciliation.js
 // ===========================================================================
 
-test('src: fourth sweep selects absent-state AND stale-processing rows', () => {
+test('src: fourth sweep selects absent, durable-retry, and stale-processing rows', () => {
   const reconSrc = src('./formPaymentReconciliation.js');
   assert.match(reconSrc, /Fourth sweep.*Task #3680/s);
   assert.match(reconSrc, /payment_provider.*stripe_monthly_card/);
   assert.match(reconSrc, /payment_status.*setup_complete/);
   assert.match(reconSrc, /monthly_card_state\.is\.null/);
+  assert.match(reconSrc, /monthly_card_state->>status\.eq\.retryable/);
   assert.match(reconSrc, /monthly_card_state->>status\.eq\.processing/);
   assert.match(reconSrc, /monthly_card_state->>claimed_at\.lt\./);
   assert.match(reconSrc, /FINALIZE_CLAIM_TTL_MS/);

@@ -455,32 +455,35 @@ function defaultDeps(deps) {
   return { db: deps.db || supabase, getStripe: deps.getStripe || null };
 }
 
-async function findCardAgreementById(db, agreementId) {
-  const { data, error } = await db
+async function findCardAgreementById(db, agreementId, expectedTenantId = null) {
+  let query = db
     .from('membership_billing_agreements')
     .select('*')
-    .eq('id', agreementId)
-    .maybeSingle();
+    .eq('id', agreementId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw new Error(`load agreement failed: ${error.message}`);
   return data || null;
 }
 
-async function findCardAgreementByCheckoutSession(db, sessionId) {
-  const { data, error } = await db
+async function findCardAgreementByCheckoutSession(db, sessionId, expectedTenantId = null) {
+  let query = db
     .from('membership_billing_agreements')
     .select('*')
-    .eq('stripe_checkout_session_id', sessionId)
-    .maybeSingle();
+    .eq('stripe_checkout_session_id', sessionId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw new Error(`load agreement by checkout session failed: ${error.message}`);
   return data || null;
 }
 
-async function findCardPlanBySubscription(db, subscriptionId) {
-  const { data, error } = await db
+async function findCardPlanBySubscription(db, subscriptionId, expectedTenantId = null) {
+  let query = db
     .from('membership_payment_plans')
     .select('*')
-    .eq('stripe_subscription_id', subscriptionId)
-    .maybeSingle();
+    .eq('stripe_subscription_id', subscriptionId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw new Error(`load plan by stripe subscription failed: ${error.message}`);
   return data || null;
 }
@@ -1052,10 +1055,11 @@ export async function ensureCardPlanForCheckout({ agreement, session, db: dbArg 
       stripe_customer_id: customerId || agreement.stripe_customer_id || null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', agreement.id);
+    .eq('id', agreement.id)
+    .eq('tenant_id', agreement.tenant_id);
   if (agreeUpErr) throw new Error(`attach stripe ids to agreement failed: ${agreeUpErr.message}`);
 
-  const existing = await findCardPlanBySubscription(db, subscriptionId);
+  const existing = await findCardPlanBySubscription(db, subscriptionId, agreement.tenant_id);
   if (existing) return { created: false, plan: existing, detail: 'plan already exists' };
 
   const idempotencyKey = `card-sub:${agreement.id}:${snapshot.membership_year || 'year'}`;
@@ -1085,12 +1089,13 @@ export async function ensureCardPlanForCheckout({ agreement, session, db: dbArg 
     .single();
   if (insErr) {
     if (insErr.code === '23505') {
-      const raced = await findCardPlanBySubscription(db, subscriptionId);
+      const raced = await findCardPlanBySubscription(db, subscriptionId, agreement.tenant_id);
       if (raced) return { created: false, plan: raced, detail: 'plan created concurrently' };
       const { data: byKey } = await db
         .from('membership_payment_plans')
         .select('*')
         .eq('idempotency_key', idempotencyKey)
+        .eq('tenant_id', agreement.tenant_id)
         .maybeSingle();
       if (byKey) return { created: false, plan: byKey, detail: 'plan created concurrently (idempotency key)' };
     }
@@ -1251,18 +1256,23 @@ export async function compensateFormMonthlyCardConflict({
  * invoice events (invoice.paid delivered before checkout.session.completed)
  * pending/retryable instead of terminally skipped.
  */
-export async function invoiceBelongsToCardPlan(object, subscriptionId, { getStripe } = {}) {
+export async function invoiceBelongsToCardPlan(
+  object,
+  subscriptionId,
+  { getStripe, expectedTenantId = null } = {},
+) {
   const payloadKind = object?.subscription_details?.metadata?.kind
     || object?.parent?.subscription_details?.metadata?.kind
     || object?.lines?.data?.[0]?.metadata?.kind
     || null;
-  if (payloadKind) return payloadKind === CARD_PLAN_KIND;
+  if (payloadKind && !expectedTenantId) return payloadKind === CARD_PLAN_KIND;
   if (typeof getStripe !== 'function') return false;
   try {
     const stripe = await getStripe();
     if (!stripe) return false;
     const sub = await stripe.subscriptions.retrieve(subscriptionId);
-    return sub?.metadata?.kind === CARD_PLAN_KIND;
+    return sub?.metadata?.kind === CARD_PLAN_KIND
+      && (!expectedTenantId || String(sub?.metadata?.tenant_id) === String(expectedTenantId));
   } catch {
     return false;
   }
@@ -1319,6 +1329,7 @@ function validateCardInvoiceIdentityAndEconomics({ invoice, plan, agreement, has
  */
 export async function processStripeCardPlanEvent(event, deps = {}) {
   const { db, getStripe } = defaultDeps(deps);
+  const expectedTenantId = deps.expectedTenantId || null;
   const baseUrl = deps.baseUrl || '';
   const type = event.type;
   const object = event.data?.object || {};
@@ -1327,9 +1338,9 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     if (object.mode !== 'subscription' || object.metadata?.kind !== CARD_PLAN_KIND) {
       return { handled: false, detail: 'not a membership monthly-card checkout session' };
     }
-    let agreement = await findCardAgreementByCheckoutSession(db, object.id);
+    let agreement = await findCardAgreementByCheckoutSession(db, object.id, expectedTenantId);
     if (!agreement && object.metadata?.agreement_id) {
-      agreement = await findCardAgreementById(db, object.metadata.agreement_id);
+      agreement = await findCardAgreementById(db, object.metadata.agreement_id, expectedTenantId);
     }
     if (!agreement) return { handled: false, detail: `no agreement for checkout session ${object.id}` };
     // Task #3680: if this checkout was initiated from a form submission
@@ -1432,13 +1443,14 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
         // rather than losing the paid subscription's member/history link.
         return {
           handled: false,
+          blocked: formResult.blocked === true || formResult.retryable === false,
           retryable: formResult.retryable !== false,
           code: formResult.code,
           detail: `form checkout not yet finalizable: ${formResult.detail}`,
         };
       }
       // Re-load the agreement in case member_id was just attached.
-      const refreshed = await findCardAgreementById(db, agreement.id);
+      const refreshed = await findCardAgreementById(db, agreement.id, expectedTenantId);
       if (refreshed) agreement = refreshed;
     }
 
@@ -1451,7 +1463,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       source: 'webhook',
       eventId: event.id,
     }, { db });
-    const fresh = await findCardAgreementById(db, agreement.id);
+    const fresh = await findCardAgreementById(db, agreement.id, expectedTenantId);
     const activation = await activateMembershipForCardAgreement(fresh || agreement, { trigger: 'checkout_complete', db });
     // invoice.paid is not ordered after checkout.session.completed. If it
     // arrived first, its durable event may already have been attempted. Repair
@@ -1479,8 +1491,12 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
         type: 'invoice.paid',
         data: { object: initialInvoice },
       }, deps);
-      if (!replay.handled) {
-        throw new Error(`paid initial invoice could not be applied: ${replay.detail}`);
+      if (!replay.handled || replay.retryable || replay.blocked) {
+        return {
+          ...replay,
+          handled: false,
+          detail: `paid initial invoice could not be applied: ${replay.detail}`,
+        };
       }
       invoiceDetail = `; initial invoice: ${replay.detail}`;
     }
@@ -1493,13 +1509,16 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   if (type === 'invoice.paid' || type === 'invoice.payment_succeeded') {
     const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
-    let plan = await findCardPlanBySubscription(db, subscriptionId);
+    let plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
     if (!plan) {
       // Stripe does not order invoice.paid after checkout.session.completed.
       // If this invoice belongs to OUR subscription kind but the local plan
       // hasn't been created yet, flag it retryable so the webhook keeps the
       // event pending (Stripe redelivers) instead of terminally skipping it.
-      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, { getStripe });
+      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, {
+        getStripe,
+        expectedTenantId,
+      });
       return {
         handled: false,
         retryable: ours,
@@ -1507,7 +1526,8 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       };
     }
     if (plan.provider !== 'stripe') return { handled: false, detail: 'plan is not a stripe plan' };
-    const agreement = plan.billing_agreement_id ? await findCardAgreementById(db, plan.billing_agreement_id) : null;
+    const agreement = plan.billing_agreement_id
+      ? await findCardAgreementById(db, plan.billing_agreement_id, expectedTenantId) : null;
     if (!agreement) return { handled: false, detail: 'plan has no billing agreement' };
     const invoiceLines = object.lines?.data || [];
     const intentKeys = [...new Set(invoiceLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))].sort();
@@ -1647,7 +1667,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       if (casErr) throw new Error(`advance instalments failed: ${casErr.message}`);
       if (updated?.length) { plan = updated[0]; break; }
       // Lost the race — refetch and re-decide (may now be a duplicate).
-      plan = await findCardPlanBySubscription(db, subscriptionId);
+      plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
       if (!plan) return { handled: false, detail: 'plan disappeared during instalment advance' };
       // A concurrent winner may have allocated the ledger periods already;
       // invoice-id dedupe then guarantees no second instalment advancement.
@@ -1698,7 +1718,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   if (type === 'invoice.voided' || type === 'invoice.marked_uncollectible') {
     const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'terminal invoice has no subscription' };
-    const plan = await findCardPlanBySubscription(db, subscriptionId);
+    const plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
     if (!plan) return { handled: false, detail: 'terminal invoice has no local plan' };
     const refs = [...new Set((object.lines?.data || []).flatMap((line) => [
       line.metadata?.catch_up_intent_key, line.id, line.invoice_item,
@@ -1722,16 +1742,20 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   if (type === 'invoice.payment_failed') {
     const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
-    const plan = await findCardPlanBySubscription(db, subscriptionId);
+    const plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
     if (!plan) {
-      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, { getStripe });
+      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, {
+        getStripe,
+        expectedTenantId,
+      });
       return {
         handled: false,
         retryable: ours,
         detail: `no local card plan for subscription ${subscriptionId}${ours ? ' (ours — awaiting checkout event)' : ''}`,
       };
     }
-    const agreement = plan.billing_agreement_id ? await findCardAgreementById(db, plan.billing_agreement_id) : null;
+    const agreement = plan.billing_agreement_id
+      ? await findCardAgreementById(db, plan.billing_agreement_id, expectedTenantId) : null;
     const failedLines = object.lines?.data || [];
     const failedKeys = [...new Set(failedLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))];
     const failedRefs = [...new Set(failedLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))];
@@ -1774,7 +1798,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
   }
 
   if (type === 'customer.subscription.deleted') {
-    const plan = await findCardPlanBySubscription(db, object.id);
+    const plan = await findCardPlanBySubscription(db, object.id, expectedTenantId);
     if (!plan) return { handled: false, detail: `no local card plan for subscription ${object.id}` };
     if (plan.completed_at || plan.status === STATUS.EXPIRED) {
       return { handled: true, detail: 'subscription concluded after plan completion — no-op' };

@@ -90,6 +90,10 @@ import {
   retryPersistedStripeAddressMappings,
 } from '../_lib/formStripeAddressMappingProcessing.js';
 import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
+import {
+  monthlyConfirmLifecycle,
+  verifiedStripeMonthlyCollection,
+} from '../_lib/formMonthlyConfirmLifecycle.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
 const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
@@ -1804,34 +1808,36 @@ async function handleConfirm(req, res, supabase, tenantData) {
         baseUrl,
       });
       if (outcome.conflict) {
-        return res.status(409).json({
-          success: false,
-          error: outcome.detail || 'Membership for this year is already recorded.',
-          code: outcome.code || 'MEMBERSHIP_YEAR_CONFLICT',
+        return res.status(409).json(monthlyConfirmLifecycle({
+          provider: 'gocardless',
+          stage: 'blocked',
           submissionId: row.id,
-        });
+          detail: outcome.detail || 'Membership for this year is already recorded.',
+          code: outcome.code || 'MEMBERSHIP_YEAR_CONFLICT',
+        }));
       }
       if (outcome.blocked) {
-        return res.status(409).json({
-          success: false,
-          error: outcome.detail || 'The Direct Debit membership could not be finalized.',
-          code: outcome.code || 'MEMBERSHIP_SETUP_BLOCKED',
+        return res.status(409).json(monthlyConfirmLifecycle({
+          provider: 'gocardless',
+          stage: 'blocked',
           submissionId: row.id,
-        });
+          detail: outcome.detail || 'The Direct Debit membership could not be finalized.',
+          code: outcome.code || 'MEMBERSHIP_SETUP_BLOCKED',
+        }));
       }
       if (!outcome.handled || outcome.retryable) {
-        return res.status(200).json({
-          success: false,
-          pending: true,
+        return res.status(200).json(monthlyConfirmLifecycle({
+          provider: 'gocardless',
+          stage: 'finalizing',
           submissionId: row.id,
-          status: 'finalizing',
-        });
+          detail: outcome.detail,
+        }));
       }
-      return res.status(200).json({
-        success: true,
+      return res.status(200).json(monthlyConfirmLifecycle({
+        provider: 'gocardless',
+        stage: 'setup_complete',
         submissionId: row.id,
-        status: 'setup_complete',
-      });
+      }));
     }
     if (billingRequest.status === 'cancelled' || billingRequest.status === 'failed') {
       await supabase
@@ -1852,12 +1858,11 @@ async function handleConfirm(req, res, supabase, tenantData) {
         code: 'PAYMENT_FAILED',
       });
     }
-    return res.status(200).json({
-      success: false,
-      pending: true,
+    return res.status(200).json(monthlyConfirmLifecycle({
+      provider: 'gocardless',
+      stage: 'pending',
       submissionId: row.id,
-      status: billingRequest.status,
-    });
+    }));
   }
 
   if (row.payment_provider === 'stripe_monthly_card') {
@@ -1875,7 +1880,12 @@ async function handleConfirm(req, res, supabase, tenantData) {
         || !checkoutSessionId
         || (agreement.stripe_checkout_session_id
           && agreement.stripe_checkout_session_id !== checkoutSessionId)) {
-      return res.status(400).json({ error: 'Card checkout does not match this submission' });
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        code: 'PROVIDER_OWNERSHIP_MISMATCH',
+      }));
     }
     if (row.payment_status === 'pending'
         && (!agreementId || !row.payment_meta?.monthly_card?.checkout_session_id)) {
@@ -1888,56 +1898,158 @@ async function handleConfirm(req, res, supabase, tenantData) {
         );
       } catch (err) {
         console.error('[form-payment] Failed to repair monthly checkout link during confirm:', err);
-        return res.status(500).json({ error: 'Card checkout was found but could not be linked. It will be reconciled automatically.' });
+        return res.status(503).json(monthlyConfirmLifecycle({
+          provider: 'stripe',
+          stage: 'finalizing',
+          submissionId: row.id,
+        }));
       }
     }
-    const allCreds = await getStripeIntegrationCredentials(tenantData.id);
+    let allCreds;
+    try {
+      allCreds = await getStripeIntegrationCredentials(tenantData.id);
+    } catch {
+      return res.status(503).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'finalizing',
+        submissionId: row.id,
+      }));
+    }
     const keys = [...new Set([allCreds?.secret_key, allCreds?.test_secret_key].filter(Boolean))];
-    if (keys.length === 0) return res.status(400).json({ error: 'Card payment is not configured' });
+    if (keys.length === 0) {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        code: 'STRIPE_CONFIGURATION_ERROR',
+      }));
+    }
     const Stripe = (await import('stripe')).default;
     let session = null;
     let stripeForSession = null;
     for (const key of keys) {
       const stripe = new Stripe(key);
       try {
-        session = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+        session = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
+          expand: ['subscription.latest_invoice'],
+        });
         stripeForSession = stripe;
         break;
       } catch (err) {
         const missing = err?.code === 'resource_missing' || err?.statusCode === 404;
-        if (!missing) throw err;
+        if (!missing) {
+          return res.status(503).json(monthlyConfirmLifecycle({
+            provider: 'stripe',
+            stage: 'finalizing',
+            submissionId: row.id,
+          }));
+        }
       }
     }
-    if (!session) return res.status(400).json({ error: 'Card checkout could not be found' });
+    if (!session) {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        code: 'CHECKOUT_NOT_FOUND',
+      }));
+    }
+    const expectedLiveMode = agreement.environment === 'live';
+    const sessionIdentityMatches = session.mode === 'subscription'
+      && session.metadata?.kind === CARD_PLAN_KIND
+      && session.metadata?.tenant_id === String(tenantData.id)
+      && session.metadata?.agreement_id === String(agreement.id)
+      && session.metadata?.form_submission_id === String(row.id);
+    if (!sessionIdentityMatches || session.livemode !== expectedLiveMode) {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        detail: 'The verified Stripe checkout identity or mode does not match this membership submission.',
+        code: 'PROVIDER_OWNERSHIP_MISMATCH',
+      }));
+    }
+    const latestInvoice = typeof session.subscription?.latest_invoice === 'object'
+      ? session.subscription.latest_invoice
+      : null;
+    const paymentVerified = verifiedStripeMonthlyCollection({
+      session,
+      invoice: latestInvoice,
+      tenantId: tenantData.id,
+      agreementId: agreement.id,
+      submissionId: row.id,
+      environment: agreement.environment,
+    });
+
     // Checkout completion initializes the finite monthly plan. Address
     // mapping itself remains gated by the verified paid-invoice ledger in
     // processPersistedStripeAddressMappings.
-    if (session.status !== 'complete' || !session.subscription) {
-      return res.status(200).json({ success: false, pending: true, submissionId: row.id, status: session.status || 'pending' });
+    if (session.status === 'expired') {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        code: 'CHECKOUT_EXPIRED',
+      }));
     }
-    const outcome = await processStripeCardPlanEvent({
-      id: `form-confirm-${session.id}`,
-      type: 'checkout.session.completed',
-      data: { object: session },
-    }, {
-      db: supabase,
-      getStripe: async () => stripeForSession,
-      baseUrl,
-    });
+    if (session.status !== 'complete' || !session.subscription) {
+      return res.status(200).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'pending',
+        submissionId: row.id,
+        paymentVerified,
+      }));
+    }
+    let outcome;
+    try {
+      outcome = await processStripeCardPlanEvent({
+        id: `form-confirm-${session.id}`,
+        type: 'checkout.session.completed',
+        data: { object: session },
+      }, {
+        db: supabase,
+        getStripe: async () => stripeForSession,
+        baseUrl,
+      });
+    } catch {
+      return res.status(503).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'finalizing',
+        submissionId: row.id,
+        paymentVerified,
+      }));
+    }
     if (outcome.retryable) {
-      return res.status(200).json({ success: false, pending: true, submissionId: row.id, status: 'finalizing' });
+      return res.status(200).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'finalizing',
+        submissionId: row.id,
+        paymentVerified,
+        detail: outcome.detail,
+      }));
     }
     if (outcome.conflict) {
       return res.status(409).json({
-        success: false,
-        error: outcome.detail || 'Membership for this year is already recorded. The duplicate payment was reversed.',
-        code: 'MEMBERSHIP_YEAR_CONFLICT',
+        ...monthlyConfirmLifecycle({
+          provider: 'stripe',
+          stage: 'blocked',
+          submissionId: row.id,
+          paymentVerified,
+          detail: outcome.detail || 'Membership for this year is already recorded.',
+          code: outcome.code || 'MEMBERSHIP_YEAR_CONFLICT',
+        }),
         refunded: outcome.refunded === true,
-        submissionId: row.id,
       });
     }
-    if (!outcome.handled) {
-      return res.status(400).json({ error: outcome.detail || 'Monthly card set-up could not be completed' });
+    if (!outcome.handled || outcome.blocked) {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'blocked',
+        submissionId: row.id,
+        paymentVerified,
+        detail: outcome.detail || 'Monthly card set-up could not be completed.',
+        code: outcome.code,
+      }));
     }
     try {
       await retryPersistedStripeAddressMappings({
@@ -1946,14 +2058,43 @@ async function handleConfirm(req, res, supabase, tenantData) {
         tenantId: tenantData.id,
       });
     } catch (addressErr) {
+      const stage = paymentVerified ? 'accounting_pending' : 'finalizing';
       return res.status(503).json({
-        error: 'Your first card payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
-        paymentSucceeded: true,
-        retryable: true,
+        ...monthlyConfirmLifecycle({
+          provider: 'stripe',
+          stage,
+          submissionId: row.id,
+          paymentVerified,
+          detail: paymentVerified
+            ? 'Your first card payment was verified, but its billing address updates are still being completed. Please do not pay again.'
+            : 'Your card setup completed, but its billing address updates are still being completed.',
+        }),
         code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
+        retryable: true,
       });
     }
-    return res.status(200).json({ success: true, submissionId: row.id, status: 'setup_complete' });
+    let accountingPending = false;
+    if (paymentVerified && agreement.metadata?.card?.invoicing_mode === 'per_instalment') {
+      const { data: accountingRow, error: accountingError } = await supabase
+        .from('membership_instalment_invoices')
+        .select('accounting_sync_status')
+        .eq('tenant_id', tenantData.id)
+        .eq('billing_agreement_id', agreement.id)
+        .eq('external_payment_id', latestInvoice.id)
+        .maybeSingle();
+      accountingPending = !!accountingError
+        || !accountingRow
+        || accountingRow.accounting_sync_status !== 'posted';
+    }
+    const stage = accountingPending
+      ? 'accounting_pending'
+      : (paymentVerified ? 'paid' : 'setup_complete');
+    return res.status(200).json(monthlyConfirmLifecycle({
+      provider: 'stripe',
+      stage,
+      submissionId: row.id,
+      paymentVerified,
+    }));
   }
 
   if (row.payment_provider === 'stripe') {

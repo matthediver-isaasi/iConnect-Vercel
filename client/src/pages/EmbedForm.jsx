@@ -213,10 +213,10 @@ export default function EmbedFormPage() {
   // their authenticated refetch is still in flight.
   const authRequiredAnonymous = (!!form?.require_authentication || formAccess.anonymous) && !authMember && !authMemberLoading;
   useEffect(() => {
-    if (authRequiredAnonymous && !isFramed) {
+    if (!paymentReturn.active && authRequiredAnonymous && !isFramed) {
       window.location.replace(loginHref);
     }
-  }, [authRequiredAnonymous, isFramed, loginHref]);
+  }, [authRequiredAnonymous, isFramed, loginHref, paymentReturn.active]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -1144,6 +1144,23 @@ export default function EmbedFormPage() {
     };
   }, [fontSizeParam]);
 
+  // The return leg is scoped to an existing server-created submission, so it
+  // must remain visible even if this public form is now missing or restricted.
+  if (paymentReturn.active) {
+    return (
+      <FormPaymentReturnScreen
+        embedded
+        status={paymentReturn.status}
+        provider={paymentReturn.provider}
+        error={paymentReturn.error}
+        successMessage={form ? surveySuccessMessage(form) : null}
+        onReturnToForm={paymentReturn.dismiss}
+        onRecheck={paymentReturn.recheck}
+        canRecheck={paymentReturn.canRecheck}
+      />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
@@ -1226,20 +1243,6 @@ export default function EmbedFormPage() {
           </CardContent>
         </Card>
       </div>
-    );
-  }
-
-  // Task #3501: payment redirect return replaces the form with a status
-  // screen, before the submitted branch (already-paid returns show success).
-  if (paymentReturn.active) {
-    return (
-      <FormPaymentReturnScreen
-        embedded
-        status={paymentReturn.status}
-        error={paymentReturn.error}
-        successMessage={form ? surveySuccessMessage(form) : null}
-        onReturnToForm={paymentReturn.dismiss}
-      />
     );
   }
 

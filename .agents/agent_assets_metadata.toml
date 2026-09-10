@@ -173,3 +173,17 @@ mtime_ms = 1788934747979
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ac32d0b1-f99a-4d64-b78c-565eaaf1eb20/ab12b1cb-0996-4d63-8172-9f02020a9903"
 storage_version_token = "1788934799649077"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "LDIIyQ78jXKyWuBmpPIZ1"
+uri = "file://client/public/guides/stripe-membership-payments.pdf"
+type = "pdf"
+title = "Updated Stripe membership payments guide"
+description = "Clarifies both monthly invoicing modes using the exact setting names, with a worked example and successful-payment/accounting recovery behavior. See pages 5–6."
+logical_id = "14bf9539-29f9-4b54-9488-ea4ad7a02782"
+content_hash = "sha256:d9c063fb02ca4272892fac5c5f4a6900abdf4c0cef68ba61455ae1c4284ad095"
+size = 106971
+mtime_ms = 1789064883845
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/14bf9539-29f9-4b54-9488-ea4ad7a02782/a003e21c-c349-4c5b-aea6-2ebffc88e075"
+storage_version_token = "1789064908686755"
+content_type = "application/pdf"

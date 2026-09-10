@@ -258,10 +258,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     formAccess.anonymous
   );
   useEffect(() => {
-    if (!authResolved || !needsLoginRedirect) return;
+    if (paymentReturn.active || !authResolved || !needsLoginRedirect) return;
     const returnTo = `${window.location.pathname}${window.location.search}`;
     window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
-  }, [authResolved, needsLoginRedirect]);
+  }, [authResolved, needsLoginRedirect, paymentReturn.active]);
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
@@ -1998,6 +1998,23 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
 
+  // Payment return status always wins over current form availability/access.
+  // Confirmation is tied to the server-created submission and prior access
+  // proof, not to whether the public form can still be loaded now.
+  if (paymentReturn.active) {
+    return (
+      <FormPaymentReturnScreen
+        status={paymentReturn.status}
+        provider={paymentReturn.provider}
+        error={paymentReturn.error}
+        successMessage={form ? surveySuccessMessage(form) : null}
+        onReturnToForm={paymentReturn.dismiss}
+        onRecheck={paymentReturn.recheck}
+        canRecheck={paymentReturn.canRecheck}
+      />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -2408,20 +2425,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   };
 
   handleSubmitRef.current = handleSubmit;
-
-  // Task #3501: a payment redirect return replaces the form with a status
-  // screen (paid / DD-pending / cancelled). Rendered before the submitted
-  // branch so an already-finalized submission still shows the paid outcome.
-  if (paymentReturn.active) {
-    return (
-      <FormPaymentReturnScreen
-        status={paymentReturn.status}
-        error={paymentReturn.error}
-        successMessage={form ? surveySuccessMessage(form) : null}
-        onReturnToForm={paymentReturn.dismiss}
-      />
-    );
-  }
 
   if (submitted) {
     return (

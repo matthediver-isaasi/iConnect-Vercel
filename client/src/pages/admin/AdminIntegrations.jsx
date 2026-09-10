@@ -42,6 +42,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { base44, setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
+import StripeMembershipWebhookSettings from "@/components/admin/StripeMembershipWebhookSettings";
 
 function StripeTestCardForm({ onReady }) {
   const [ready, setReady] = useState(false);
@@ -190,6 +191,7 @@ export default function AdminIntegrations() {
   const [stripeTestLoading, setStripeTestLoading] = useState(false);
   const [stripeTestError, setStripeTestError] = useState(null);
   const [stripePromise, setStripePromise] = useState(null);
+  const [stripeMembershipWebhook, setStripeMembershipWebhook] = useState(null);
 
   const [gcForm, setGcForm] = useState({
     access_token: '',
@@ -352,6 +354,7 @@ export default function AdminIntegrations() {
       if (response.ok) {
         const data = await response.json();
         setIntegrations(data.integrations || []);
+        setStripeMembershipWebhook(data.stripe_membership_webhook || null);
         
         const zoomIntegration = data.integrations?.find(i => i.integration_type === 'zoom');
         if (zoomIntegration) {
@@ -2977,6 +2980,12 @@ export default function AdminIntegrations() {
                   </div>
                 )}
               </div>
+
+              <StripeMembershipWebhookSettings
+                settings={stripeMembershipWebhook}
+                stripeEnabled={stripeEnabled}
+                onSaved={fetchIntegrations}
+              />
 
               <div className="flex items-center gap-3 pt-2">
                 <Button
