@@ -59,13 +59,28 @@ import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
 import { claimFormMonthlyCardMembership } from './formMonthlyCardCheckout.js';
 import { randomUUID } from 'node:crypto';
 import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
+import { initializePaidFormDueDiligence } from './formDueDiligence.js';
 
 // A processing lease older than this may be re-claimed by any subsequent
 // caller (webhook retry, reconciliation cron). Mirrors WORKFLOW_CLAIM_TTL_MS.
 export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // Full form columns needed for entity pipelines + submission emails.
-export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, due_diligence_required, survey_settings';
+
+async function initializeDueDiligenceSafely(db, submission) {
+  try {
+    await initializePaidFormDueDiligence({
+      db,
+      submissionId: submission.id,
+      tenantId: submission.tenant_id,
+    });
+  } catch (err) {
+    // DD remains independently recoverable; never leave financial membership
+    // binding without its terminal finalization stamp because of it.
+    console.error('[formMonthlyCardFinalize] Due diligence initialization failed for', submission.id, err?.message);
+  }
+}
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
@@ -391,6 +406,9 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   let ownerToken = null;
 
   if (currentState?.status === 'done') {
+    // Recover the independently retryable DD obligation without replaying
+    // pipeline work, member binding, or emails.
+    await initializeDueDiligenceSafely(db, currentRow);
     return { handled: true, alreadyFinalized: true, detail: `form_submission ${formSubmissionId} already finalized` };
   }
   if (currentState?.status === 'conflict') {
@@ -684,6 +702,11 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
       detail: `monthly-card finalization completed but the terminal state could not be saved for ${formSubmissionId}`,
     };
   }
+
+  // The terminal monthly state is the completed checkout boundary. The DD
+  // claim only considers completed monthly setups, so it cannot be initialized
+  // while a member/history bind remains recoverably in progress.
+  await initializeDueDiligenceSafely(db, currentRow);
 
   return {
     handled: true,

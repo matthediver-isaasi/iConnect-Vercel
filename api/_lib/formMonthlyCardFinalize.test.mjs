@@ -154,6 +154,10 @@ function makeSupabase({
   //                    modelled logic (used to inject arbitrary conflict codes)
   //   rpc.onCall(args) optional spy
   rpc = {},
+  // Controls for the separately retryable paid-DD initialization claim. The
+  // ordinary default is intentionally not eligible, matching a historical
+  // submission that lacks the trigger-owned prospective marker.
+  dueDiligenceRpc = {},
 } = {}) {
   const store = {};
   for (const [t, rows] of Object.entries(tables)) {
@@ -335,6 +339,16 @@ function makeSupabase({
     async rpc(name, args) {
       log.push({ op: 'rpc', name });
       if (name === 'claim_form_monthly_card_membership') return claimRpc(args);
+      if (name === 'claim_form_due_diligence_initialization') {
+        if (dueDiligenceRpc.error) return { data: null, error: dueDiligenceRpc.error };
+        return {
+          data: dueDiligenceRpc.result || { claimed: false, code: 'NOT_ELIGIBLE' },
+          error: null,
+        };
+      }
+      if (name === 'record_form_due_diligence_claim_failure') {
+        return { data: { recorded: true }, error: null };
+      }
       throw new Error(`Unmodelled rpc: ${name}`);
     },
     from(table) {
@@ -360,7 +374,7 @@ function makeSupabase({
           Object.assign(r, clone(payload));
         }
         if (hooks.onUpdate) hooks.onUpdate(table, { predicates, payload, matched: rows.length });
-        log.push({ op: 'update', table, matched: rows.length });
+        log.push({ op: 'update', table, matched: rows.length, payload: clone(payload) });
         return { data: null, error: null, _rows: rows.map((r) => clone(r)) };
       };
 
@@ -660,6 +674,41 @@ test('already done state → handled + alreadyFinalized, no claim writes', async
   assert.equal(result.alreadyFinalized, true);
   // No update to form_submission at all.
   assert.equal(db.log.filter((l) => l.op === 'update' && l.table === 'form_submission').length, 0);
+});
+
+test('paid DD claim runs after completed monthly-card finalization and cannot block done state', async () => {
+  const db = happyFake({}, {
+    dueDiligenceRpc: { error: { message: 'DD claim temporarily unavailable' } },
+  });
+  const result = await run(db);
+
+  assert.equal(result.handled, true);
+  assert.equal(db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state.status, 'done');
+  const membershipClaimAt = db.log.findIndex((entry) => entry.name === 'claim_form_monthly_card_membership');
+  const dueDiligenceClaimAt = db.log.findIndex((entry) => entry.name === 'claim_form_due_diligence_initialization');
+  const doneStampAt = db.log.findIndex((entry) => (
+    entry.op === 'update'
+      && entry.table === 'form_submission'
+      && entry.payload?.payment_meta?.monthly_card_state?.status === 'done'
+  ));
+  assert.ok(membershipClaimAt > -1 && dueDiligenceClaimAt > membershipClaimAt,
+    'DD initialization is invoked only after member/history binding');
+  assert.ok(doneStampAt > membershipClaimAt && dueDiligenceClaimAt > doneStampAt,
+    'DD initialization waits for the durable completed-checkout state');
+});
+
+test('already-finalized monthly-card submissions recover DD without replaying member binding', async () => {
+  const db = happyFake({
+    payment_meta: {
+      monthly_card: { agreement_id: 'ag1' },
+      monthly_card_state: { status: 'done', done_at: new Date().toISOString() },
+    },
+  });
+  const result = await run(db);
+
+  assert.equal(result.alreadyFinalized, true);
+  assert.equal(db.log.filter((entry) => entry.name === 'claim_form_monthly_card_membership').length, 0);
+  assert.equal(db.log.filter((entry) => entry.name === 'claim_form_due_diligence_initialization').length, 1);
 });
 
 // ===========================================================================

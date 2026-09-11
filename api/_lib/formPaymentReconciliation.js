@@ -36,8 +36,9 @@ import {
   FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS,
   formMembershipQuoteAmountMinor,
 } from './formStripeInvoiceSettlement.js';
+import { reconcilePaidFormDueDiligence } from './formDueDiligence.js';
 
-const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, due_diligence_required, survey_settings';
 
 // Only look at rows old enough that the browser confirm is clearly not
 // coming, and young enough to be worth polling.
@@ -64,6 +65,58 @@ function recordMonitoringFailure(results, scope, error) {
   });
 }
 
+// A paid one-off may have crashed after its financial finalized stamp but
+// before the durable DD-ready marker. Claim this prerequisite-only recovery
+// separately from DD actions so concurrent crons cannot rerun it together.
+async function recoverMissingOneOffDueDiligenceReadiness(supabase, { resolveBaseUrl, limit }) {
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
+  const { data: attentionRows, error: attentionError } = await supabase
+    .rpc('mark_expired_missing_one_off_form_due_diligence_ready_attention', { p_limit: boundedLimit });
+  if (attentionError) throw attentionError;
+  const { data: rows, error } = await supabase.rpc('claim_missing_one_off_form_due_diligence_ready', {
+    p_limit: boundedLimit,
+  });
+  if (error) throw error;
+  const outcomes = [];
+  for (const row of rows || []) {
+    let succeeded = false;
+    let failure = null;
+    try {
+      const { data: submission, error: submissionError } = await supabase
+        .from('form_submission').select('*').eq('id', row.form_submission_id)
+        .eq('tenant_id', row.tenant_id).maybeSingle();
+      if (submissionError || !submission) throw submissionError || new Error('Submission not found');
+      const { data: form, error: formError } = await supabase
+        .from('form').select(FORM_COLUMNS).eq('id', submission.form_id)
+        .eq('tenant_id', row.tenant_id).maybeSingle();
+      if (formError || !form) throw formError || new Error('Form not found');
+      await finalizeFormSubmission({
+        supabase,
+        submission,
+        form,
+        baseUrl: await resolveBaseUrl(row.tenant_id),
+      });
+      const { data: ready, error: readyError } = await supabase
+        .from('form_due_diligence_one_off_ready').select('form_submission_id')
+        .eq('form_submission_id', row.form_submission_id).eq('tenant_id', row.tenant_id).maybeSingle();
+      if (readyError || !ready) throw readyError || new Error('One-off DD readiness was not recorded');
+      succeeded = true;
+    } catch (err) {
+      failure = err;
+    }
+    const { error: finishError } = await supabase.rpc('finish_missing_one_off_form_due_diligence_ready', {
+      p_tenant_id: row.tenant_id,
+      p_submission_id: row.form_submission_id,
+      p_lease_token: row.lease_token,
+      p_succeeded: succeeded,
+      p_error: failure?.message || null,
+    });
+    if (finishError) throw finishError;
+    outcomes.push({ submissionId: row.form_submission_id, succeeded, error: failure?.message || null });
+  }
+  return { outcomes, requiresAttention: attentionRows || [] };
+}
+
 export async function reconcileFormPayments(supabase, {
   baseUrl = null,
   limit = 50,
@@ -73,6 +126,50 @@ export async function reconcileFormPayments(supabase, {
   const now = Date.now();
   const minCreated = new Date(now - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const maxCreated = new Date(now - MIN_AGE_MS).toISOString();
+
+  // One sweep spans tenants, so resolve and cache each trusted tenant URL.
+  // An explicit caller-supplied request URL still wins.
+  const baseUrlCache = new Map();
+  const resolveBaseUrl = async (tenantId) => {
+    if (baseUrl) return baseUrl;
+    if (!tenantId) return null;
+    if (!baseUrlCache.has(tenantId)) {
+      baseUrlCache.set(tenantId, await getTrustedBaseUrlForTenant(null, supabase, tenantId));
+    }
+    return baseUrlCache.get(tenantId);
+  };
+
+  // Restore missing one-off readiness before DD's independent sweep; until
+  // then the DD SQL gate intentionally cannot claim the paid submission.
+  try {
+    const readiness = await recoverMissingOneOffDueDiligenceReadiness(supabase, { resolveBaseUrl, limit });
+    if (readiness.requiresAttention.length || readiness.outcomes.some(row => !row.succeeded)) {
+      recordMonitoringFailure(results, 'due-diligence-readiness-recovery', new Error('One or more readiness recoveries failed'));
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] One-off DD readiness recovery failed:', err?.message);
+    recordMonitoringFailure(results, 'due-diligence-readiness-recovery', err);
+  }
+
+  // DD has its own prospective marker and retry state. Sweep it before the
+  // payment-provider queries so an unrelated provider query failure or a
+  // financial finalization stamp cannot suppress DD recovery.
+  try {
+    const dueDiligenceResult = await reconcilePaidFormDueDiligence({ db: supabase, limit });
+    // The helper deliberately converts its own database failures into an
+    // outcome so payment reconciliation remains independent. Still expose
+    // those failures to the cron heartbeat just as we do thrown sweep errors.
+    if (!dueDiligenceResult?.ok) {
+      recordMonitoringFailure(
+        results,
+        'due-diligence-sweep',
+        new Error(dueDiligenceResult?.error || dueDiligenceResult?.code || 'Due diligence reconciliation failed'),
+      );
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Due diligence sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'due-diligence-sweep', err);
+  }
 
   let rows = [];
   try {
@@ -93,21 +190,6 @@ export async function reconcileFormPayments(supabase, {
     recordMonitoringFailure(results, 'pending-payment-sweep', err);
     return results;
   }
-
-  // Task #3502: finalisation runs the form's entity pipelines via an
-  // internal HTTP call and silently skips them without a baseUrl. The cron
-  // caller has no request to derive an origin from, and one sweep spans
-  // tenants — so resolve the trusted base URL per tenant (cached). An
-  // explicit caller-supplied baseUrl (request-derived) still wins.
-  const baseUrlCache = new Map();
-  const resolveBaseUrl = async (tenantId) => {
-    if (baseUrl) return baseUrl;
-    if (!tenantId) return null;
-    if (!baseUrlCache.has(tenantId)) {
-      baseUrlCache.set(tenantId, await getTrustedBaseUrlForTenant(null, supabase, tenantId));
-    }
-    return baseUrlCache.get(tenantId);
-  };
 
   const formCache = new Map();
   const loadForm = async (formId, tenantId) => {

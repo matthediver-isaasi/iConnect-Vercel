@@ -1398,13 +1398,9 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId, inboxDelivery });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
       
-      results.push({ 
-        action_type: 'send_email', 
-        status: emailResult.success ? 'success' : 'failed',
-        messageId: emailResult.messageId,
-        error: emailResult.error,
-        template_id: action.config?.template_id
-      });
+      results.push(workflowEmailActionResult(emailResult, {
+        template_id: action.config?.template_id,
+      }));
     } else if (action.type === 'create_contract') {
       const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context);
       results.push(contractResult);
@@ -1428,9 +1424,10 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   return results;
 }
 
-async function executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context = {}) {
+export async function executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context = {}) {
   const tenantId = workflow.tenant_id;
   console.log(`[Workflows] Executing create_contract action for entity ${entityType}:${entityId}`);
+  let signingEmailAmbiguous = false;
   
   try {
     const contractFormId = action.config?.contract_form_id;
@@ -1610,7 +1607,7 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
 
             console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
             
-            await sendEmail({
+            const signingEmailResult = await (context.sendEmail || sendEmail)({
               to: signer.email,
               subject,
               html: body,
@@ -1618,6 +1615,7 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
               replyTo: emailTemplate.reply_to,
               tenantId
             });
+            signingEmailAmbiguous ||= signingEmailResult?.ambiguousEffect === true;
           }
           
           console.log(`[Workflows] Sent signing invitations to ${resolvedSigners.length} signers`);
@@ -1636,12 +1634,15 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
       contract_form_id: contractFormId,
       organization_id: organizationId,
       signers_count: resolvedSigners.length,
-      sent_for_signing: sendForSigning
+      sent_for_signing: sendForSigning,
+      ambiguousEffect: signingEmailAmbiguous
     };
     
   } catch (error) {
     console.error('[Workflows] create_contract action error:', error);
-    return { action_type: 'create_contract', status: 'failed', error: error.message };
+    // A later signer/template/database failure must not hide that an earlier
+    // signing invitation had an unconfirmed provider outcome.
+    return createContractFailureResult(error, signingEmailAmbiguous);
   }
 }
 
@@ -2045,10 +2046,11 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       }
     }
 
+    let invoiceEmailResult = null;
     if (invoice) {
       try {
         const { sendMembershipInvoiceEmail } = await import('./membershipInvoiceEmail.js');
-        await sendMembershipInvoiceEmail({
+        invoiceEmailResult = await sendMembershipInvoiceEmail({
           tenantId,
           organizationId,
           organizationName: simResult.org.name,
@@ -2066,6 +2068,11 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
         });
       } catch (emailErr) {
         console.error(`[Workflows] Membership invoice email failed for org ${organizationId} (non-fatal):`, emailErr.message);
+        invoiceEmailResult = {
+          success: false,
+          error: emailErr.message,
+          ambiguousEffect: emailErr?.ambiguousEffect === true || emailErr?.ddAmbiguousEffect === true,
+        };
       }
     }
 
@@ -2073,7 +2080,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       action_type: 'create_membership',
       // A membership record without its invoice is incomplete — surface it
       // as partial so the workflow log doesn't read as a clean success.
-      status: invoice ? 'success' : 'partial',
+      ...membershipInvoiceDeliveryActionState(invoice, invoiceEmailResult),
       ...(invoice
         ? { invoice_number: invoice.invoice_number || null, invoice_provider: providerLabel }
         : { invoice_error: invoiceError || `${providerLabel} invoice was not created - check the ${providerLabel} connection`, message: 'Membership record created but the invoice could not be created' }),
@@ -2484,6 +2491,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
       invoice_error: invoiceError,
       payment_link_sent_to: emailResult?.success ? emailResult.sentTo : null,
       payment_link_error: emailResult?.success ? null : (emailResult?.error || null),
+      ambiguousEffect: emailResult?.ambiguousEffect === true,
     };
   } catch (error) {
     console.error('[Workflows] create_membership (member) action error:', error);
@@ -2770,10 +2778,20 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       
       if (emailResult.success) {
         successCount++;
-        emailResults.push({ email: member.email, status: 'success', messageId: emailResult.messageId });
+        emailResults.push({
+          email: member.email,
+          status: 'success',
+          messageId: emailResult.messageId,
+          ambiguousEffect: emailResult.ambiguousEffect === true,
+        });
       } else {
         failCount++;
-        emailResults.push({ email: member.email, status: 'failed', error: emailResult.error });
+        emailResults.push({
+          email: member.email,
+          status: 'failed',
+          error: emailResult.error,
+          ambiguousEffect: emailResult.ambiguousEffect === true,
+        });
       }
     } catch (err) {
       failCount++;
@@ -2795,6 +2813,7 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
     template_id: action.config?.template_id,
     cc_role_ids: action.config?.cc_role_ids,
     cc_count: ccEmails ? ccEmails.length : 0,
+    ambiguousEffect: emailResults.some((result) => result.ambiguousEffect === true),
     details: emailResults
   });
   
@@ -2917,6 +2936,80 @@ async function failWorkflowDelivery(deliveryKey, ownerToken, error) {
     .eq('owner_token', ownerToken);
 }
 
+async function releaseWorkflowDelivery(deliveryKey, ownerToken) {
+  const { error } = await supabase
+    .from('workflow_delivery_claim')
+    .delete()
+    .eq('delivery_key', deliveryKey)
+    .eq('owner_token', ownerToken)
+    .eq('status', 'processing');
+  if (error) throw new Error(`workflow delivery release failed: ${error.message}`);
+}
+
+export function workflowEmailActionResult(emailResult = {}, extra = {}) {
+  return {
+    action_type: 'send_email',
+    status: emailResult.success ? 'success' : 'failed',
+    messageId: emailResult.messageId,
+    error: emailResult.error,
+    // Keep the provider's delivery uncertainty on the action result. The
+    // durable trigger path decides from this result whether its claim can be
+    // released, rather than treating an ambiguous provider response as a
+    // routine failed email.
+    ambiguousEffect: emailResult.ambiguousEffect === true,
+    ...extra,
+  };
+}
+
+export function createContractFailureResult(error, signingEmailAmbiguous = false) {
+  return {
+    action_type: 'create_contract',
+    status: 'failed',
+    error: error?.message || String(error),
+    ambiguousEffect: signingEmailAmbiguous
+      || error?.ambiguousEffect === true
+      || error?.ddAmbiguousEffect === true,
+  };
+}
+
+export function membershipInvoiceDeliveryActionState(invoice, invoiceEmailResult) {
+  if (invoiceEmailResult?.ambiguousEffect) {
+    return {
+      status: 'failed',
+      ambiguousEffect: true,
+      error: invoiceEmailResult.error || 'Membership invoice email delivery is unconfirmed',
+    };
+  }
+  return {
+    status: invoice ? 'success' : 'partial',
+  };
+}
+
+export function durableDeliveryOutcomeError(results, priorSuccessfulEffect = false) {
+  // A provider can explicitly report that it cannot confirm whether it
+  // produced an external effect. Such a result must never be retried.
+  if ((results || []).some((result) => result?.ambiguousEffect === true)) {
+    const error = new Error('Workflow delivery has an unconfirmed external action effect and cannot be replayed');
+    error.ddAmbiguousEffect = true;
+    return { error, hadSuccessfulEffect: true };
+  }
+  const statuses = (results || []).map((result) => String(result?.status || '').toLowerCase());
+  const hasFailed = statuses.some((status) => status === 'failed' || status === 'partial');
+  if (!hasFailed) {
+    return { error: null, hadSuccessfulEffect: priorSuccessfulEffect || statuses.includes('success') };
+  }
+  const hadSuccessfulEffect = priorSuccessfulEffect
+    || statuses.some((status) => status === 'success' || status === 'partial');
+  const error = new Error(
+    hadSuccessfulEffect
+      ? 'Workflow delivery had a partial effect and cannot be replayed'
+      : 'Workflow delivery actions failed before a confirmed effect',
+  );
+  if (hadSuccessfulEffect) error.ddAmbiguousEffect = true;
+  else error.ddKnownQueryFailure = true;
+  return { error, hadSuccessfulEffect };
+}
+
 export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl, context = {}) {
   console.log(`[Workflows] triggerWorkflows called: entityType=${entityType}, entityId=${entityId}, triggerType=${triggerType}`);
   console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
@@ -2931,6 +3024,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   }
   
   let deliveryClaim = null;
+  let deliveryHadSuccessfulEffect = false;
   const usesPerWorkflowDelivery = Boolean(context.attendance && context.deliveryKey);
   try {
     // Get tenant_id from entity data (afterData or beforeData)
@@ -3337,7 +3431,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         }
       }
       try {
-        const results = await executeWorkflowActions(
+        const results = await (context.executeWorkflowActions || executeWorkflowActions)(
           workflow,
           entityType,
           actionEntityId,
@@ -3346,11 +3440,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           context,
         );
         await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.triggerData || {}), ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+        if (context.deliveryKey) {
+          const deliveryOutcome = durableDeliveryOutcomeError(results, deliveryHadSuccessfulEffect);
+          deliveryHadSuccessfulEffect = deliveryOutcome.hadSuccessfulEffect;
+          if (deliveryOutcome.error) throw deliveryOutcome.error;
+        }
         if (workflowDeliveryClaim?.owned) {
           await finishWorkflowDelivery(workflowDeliveryKey, workflowDeliveryClaim.ownerToken);
         }
       } catch (workflowError) {
         if (workflowDeliveryClaim?.owned) {
+          if (workflowError.ddKnownQueryFailure && !deliveryHadSuccessfulEffect) {
+            await releaseWorkflowDelivery(workflowDeliveryKey, workflowDeliveryClaim.ownerToken);
+            throw workflowError;
+          }
           await failWorkflowDelivery(workflowDeliveryKey, workflowDeliveryClaim.ownerToken, workflowError);
           await supabase.from('workflow_log').insert({
             tenant_id: workflow.tenant_id,
@@ -3393,7 +3496,11 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
     if (deliveryClaim?.owned && !usesPerWorkflowDelivery) {
-      await failWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken, err);
+      if (err.ddKnownQueryFailure && !deliveryHadSuccessfulEffect) {
+        await releaseWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken);
+      } else {
+        await failWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken, err);
+      }
     }
     if (context.deliveryKey) throw err;
     return { pendingConfirmations: [], reverts: [] };
@@ -3597,33 +3704,72 @@ export async function recheckRecordCreateWorkflows(entityType, entityId, baseUrl
 export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl, previousValue, context = {}) {
   const pendingConfirmations = [];
   const reverts = [];
+  let deliveryClaim = null;
+  let deliveryHadSuccessfulEffect = false;
   
-  if (!supabase) return { pendingConfirmations, reverts };
+  if (!supabase) {
+    return {
+      pendingConfirmations,
+      reverts,
+      ...(context.deliveryKey ? { delivery: { status: 'completed', noop: true } } : {}),
+    };
+  }
   
   try {
     const table = entityType === 'organization' ? 'organization' : 'member';
-    const { data: entity } = await supabase
+    const { data: entity, error: entityError } = await supabase
       .from(table)
       .select('*')
       .eq('id', entityId)
       .single();
+    if (entityError && context.deliveryKey) {
+      throw new Error(`load preference workflow entity for durable delivery failed: ${entityError.message}`);
+    }
     
     const tenantId = entity?.tenant_id;
     
     if (!tenantId) {
       console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping preference workflow evaluation`);
-      return { pendingConfirmations, reverts };
+      return {
+        pendingConfirmations,
+        reverts,
+        ...(context.deliveryKey ? { delivery: { status: 'completed', noop: true } } : {}),
+      };
     }
     
-    const { data: workflows } = await supabase
+    const { data: workflows, error: workflowError } = await supabase
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
       .in('trigger_type', ['field_change', 'record_update'])
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
+    if (workflowError && context.deliveryKey) {
+      throw new Error(`load preference workflows for durable delivery failed: ${workflowError.message}`);
+    }
 
-    if (!workflows || workflows.length === 0) return { pendingConfirmations, reverts };
+    if (!workflows || workflows.length === 0) {
+      return {
+        pendingConfirmations,
+        reverts,
+        ...(context.deliveryKey ? { delivery: { status: 'completed', noop: true } } : {}),
+      };
+    }
+
+    if (context.deliveryKey) {
+      deliveryClaim = await claimWorkflowDelivery({
+        deliveryKey: context.deliveryKey,
+        tenantId,
+        entityType,
+        entityId,
+      });
+      if (deliveryClaim.completed) {
+        return { pendingConfirmations, reverts, delivery: { status: 'completed', duplicate: true } };
+      }
+      if (!deliveryClaim.owned) {
+        return { pendingConfirmations, reverts, delivery: { status: 'in_progress' } };
+      }
+    }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}", previousValue="${previousValue}" (tenant: ${tenantId})`);
 
@@ -3831,12 +3977,32 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       
       const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl, context);
       await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+      if (context.deliveryKey) {
+        const deliveryOutcome = durableDeliveryOutcomeError(results, deliveryHadSuccessfulEffect);
+        deliveryHadSuccessfulEffect = deliveryOutcome.hadSuccessfulEffect;
+        if (deliveryOutcome.error) throw deliveryOutcome.error;
+      }
+    }
+    if (deliveryClaim?.owned) {
+      await finishWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken);
     }
   } catch (err) {
     console.error('[Workflows] Preference Error:', err.message, err.stack);
+    if (deliveryClaim?.owned) {
+      if (err.ddKnownQueryFailure && !deliveryHadSuccessfulEffect) {
+        await releaseWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken);
+      } else {
+        await failWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken, err);
+      }
+    }
+    if (context.deliveryKey) throw err;
   }
   
-  return { pendingConfirmations, reverts };
+  return {
+    pendingConfirmations,
+    reverts,
+    ...(context.deliveryKey ? { delivery: { status: 'completed' } } : {}),
+  };
 }
 
 // Execute a workflow that was pending user confirmation

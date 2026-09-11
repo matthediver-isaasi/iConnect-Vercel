@@ -1,6 +1,7 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
+import { isAmbiguousDeliveryFailure } from './emailService.js';
 import { recordTransactionalInboxMessage } from './transactionalInbox.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
@@ -86,8 +87,11 @@ export async function sendTenantEmail({
   bcc,
   footer,
   inboxDelivery = null,
+  // Server-side callers do not supply this. It allows focused transport tests
+  // to exercise the same response/error translation without a real provider.
+  mailgunClient: injectedMailgunClient = null,
 }) {
-  if (!MAILGUN_API_KEY) {
+  if (!MAILGUN_API_KEY && !injectedMailgunClient) {
     console.error('[Tenant Email] MAILGUN_API_KEY not configured');
     return {
       success: false,
@@ -95,7 +99,7 @@ export async function sendTenantEmail({
     };
   }
 
-  const client = getMailgunClient();
+  const client = injectedMailgunClient || getMailgunClient();
   if (!client) {
     return {
       success: false,
@@ -179,6 +183,12 @@ export async function sendTenantEmail({
     return {
       success: false,
       error: error.message || 'Unknown error sending email',
+      // Transport adapters may know that a timeout/disconnect happened after
+      // the provider accepted the request. Do not erase that signal while
+      // translating the thrown provider response into this wrapper result.
+      ambiguousEffect: error?.ambiguousEffect === true
+        || error?.ddAmbiguousEffect === true
+        || isAmbiguousDeliveryFailure(error),
     };
   }
 }

@@ -37,6 +37,21 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = ZOHO_HTTP_TIMEOUT
   }
 }
 
+export function isZohoPostTransportAmbiguous(error) {
+  // DNS and pre-connect failures prove that no request reached Zoho. Fetch
+  // commonly wraps these in TypeError with the code on `cause`.
+  const code = error?.code || error?.cause?.code;
+  if (['EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH', 'ECONNREFUSED'].includes(code)) {
+    return false;
+  }
+  return error instanceof ZohoTimeoutError
+    || error?.name === 'AbortError'
+    || ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED'].includes(code)
+    // A fetch TypeError without a known pre-connect cause can represent an
+    // interrupted POST after the provider accepted its request.
+    || error?.name === 'TypeError';
+}
+
 const crmTokenCacheByTenant = new Map();
 
 // Matches our encrypted-at-rest shape: `<32-hex-char IV>:<non-empty hex ciphertext>`.
@@ -92,7 +107,7 @@ function encrypt(text) {
 }
 
 async function getTenantZohoCrmCredentials(tenantId, options = {}) {
-  const { bypassEnabledCheck = false } = options;
+  const { bypassEnabledCheck = false, strictQueryErrors = false } = options;
   
   if (!supabase || !tenantId) {
     return null;
@@ -107,7 +122,17 @@ async function getTenantZohoCrmCredentials(tenantId, options = {}) {
       .eq('integration_type', 'zoho_campaigns')
       .single();
 
-    if (error || !integration) {
+    if (error && error.code !== 'PGRST116') {
+      if (strictQueryErrors) {
+        const queryError = new Error(`Could not load Zoho CRM credentials: ${error.message || 'database error'}`);
+        queryError.ddKnownQueryFailure = true;
+        throw queryError;
+      }
+      console.error('[ZohoCRM] Could not load credentials:', error.message);
+      return null;
+    }
+
+    if (!integration) {
       console.log('[ZohoCRM] No Zoho integration found for tenant:', tenantId);
       return null;
     }
@@ -128,6 +153,7 @@ async function getTenantZohoCrmCredentials(tenantId, options = {}) {
 
     return credentials;
   } catch (error) {
+    if (error.ddKnownQueryFailure) throw error;
     console.error('[ZohoCRM] Error fetching credentials:', error);
     return null;
   }
@@ -339,16 +365,38 @@ export async function zohoCrmApiCall(tenantId, endpoint, options = {}, retryCoun
   // Strip apiVersion from the options before forwarding to fetch — it's not a
   // valid RequestInit key and would be ignored, but explicit is safer.
   const { apiVersion: _apiVersion, ...fetchOptions } = options;
-  const response = await fetchWithTimeout(url, {
-    ...fetchOptions,
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers
+  let response;
+  try {
+    response = await fetchWithTimeout(url, {
+      ...fetchOptions,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+  } catch (error) {
+    // Only a write can leave the remote system changed while the response is
+    // lost. Token/read transport failures occur before any account POST and
+    // remain ordinary safe retries.
+    if ((options.method || 'GET').toUpperCase() === 'POST' && isZohoPostTransportAmbiguous(error)) {
+      error.ddAmbiguousEffect = true;
     }
-  });
+    throw error;
+  }
 
-  const responseText = await response.text();
+  let responseText;
+  try {
+    responseText = await response.text();
+  } catch (error) {
+    // We know a non-2xx response is a confirmed rejection even if its body
+    // cannot be read. A successful response whose body disappears after a
+    // POST is instead an unknown remote-write outcome.
+    if (response.ok && (options.method || 'GET').toUpperCase() === 'POST') {
+      error.ddAmbiguousEffect = true;
+    }
+    throw error;
+  }
   
   if (!response.ok) {
     console.error('[ZohoCRM] API error:', response.status, responseText);
@@ -458,11 +506,12 @@ export async function createZohoOrganization(tenantId, orgData) {
     }
   }
   
-  return {
-    success: false,
-    error: 'Unexpected response format',
-    response
-  };
+  // The POST completed with a successful HTTP response, but without a
+  // parseable/recognizable create acknowledgement. Retrying could create a
+  // duplicate account, so preserve this as an unknown write outcome.
+  const error = new Error('Unexpected Zoho create response format');
+  error.ddAmbiguousEffect = true;
+  throw error;
 }
 
 export async function updateZohoOrganization(tenantId, recordId, orgData) {
@@ -580,8 +629,8 @@ export async function connectZohoCrm(tenantId, code, redirectUri) {
   return { success: true };
 }
 
-export async function isZohoCrmConnected(tenantId) {
-  const credentials = await getTenantZohoCrmCredentials(tenantId);
+export async function isZohoCrmConnected(tenantId, options = {}) {
+  const credentials = await getTenantZohoCrmCredentials(tenantId, options);
   return !!(credentials && credentials.refresh_token);
 }
 

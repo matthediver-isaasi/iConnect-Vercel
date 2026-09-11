@@ -5,15 +5,140 @@ import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
-import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
 import { prepareMemberCustomPreferenceValue } from './memberCustomMapping.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
+import {
+  applyFieldMappingMutationWithFanout,
+  dispatchFieldMappingWorkflowFanouts,
+  enqueueFieldMappingWorkflowFanout,
+} from './fieldMappingWorkflowFanout.js';
 import { 
   isZohoCrmConnected,
   lookupCountryInZoho,
   createZohoOrganization,
   updateZohoOrganization 
 } from '../_lib/zohoCrmClient.js';
+
+// Initialisation has a durable retry lifecycle. A failed read before an
+// external action is known-safe to retry, while ordinary review transitions
+// retain their existing best-effort behaviour and return an action result.
+function shouldFailOnQueryError(options = {}) {
+  return options.failOnQueryError === true || typeof options.onActionCompleted === 'function';
+}
+
+function createKnownQueryError(context, queryError) {
+  const error = new Error(`${context}: ${queryError?.message || 'database error'}`);
+  error.ddKnownQueryFailure = true;
+  return error;
+}
+
+function isMissingRowError(error) {
+  return error?.code === 'PGRST116';
+}
+
+function addQueryFailure(results, action, queryError, options, extra = {}) {
+  const entry = {
+    action,
+    ...extra,
+    status: 'error',
+    error: queryError?.message || 'Database query failed',
+    failure_kind: 'query',
+  };
+  results.push(entry);
+  if (shouldFailOnQueryError(options)) {
+    throw createKnownQueryError(`Could not load ${action} configuration`, queryError);
+  }
+  return entry;
+}
+
+function actionCheckpointKey(result) {
+  if (!result || typeof result !== 'object') return null;
+  const id = result.field_id
+    || result.meeting_request_id
+    || result.email_action_id
+    || result.member_action_id
+    || result.field_mapping_action_id
+    || result.action_id;
+  const prefix = {
+    send_contract: 'contract',
+    send_meeting_request: 'meeting',
+    send_email_template: 'email',
+    create_member: 'member',
+    field_mapping: 'field_mapping',
+    zoho_crm_create: 'zoho',
+  }[result.action];
+  return prefix && id ? `${prefix}:${id}` : null;
+}
+
+async function checkpointCompletedAction(options, result) {
+  const actionKey = actionCheckpointKey(result);
+  if (!actionKey || typeof options?.onActionCompleted !== 'function') return;
+  try {
+    await options.onActionCompleted(actionKey);
+  } catch (error) {
+    options.checkpointFailure = error;
+    throw error;
+  }
+}
+
+async function checkpointMemberCreation(options, memberActionId) {
+  if (typeof options?.onActionCompleted !== 'function') return;
+  try {
+    await options.onActionCompleted(`member-created:${memberActionId}`);
+  } catch (error) {
+    options.checkpointFailure = error;
+    throw error;
+  }
+}
+
+async function sendStageEmail(options, payload) {
+  return (options?.sendEmail || sendEmail)(payload);
+}
+
+function createEmailDeliveryError(emailResult) {
+  const error = new Error(emailResult?.error || 'Email provider did not confirm delivery');
+  if (emailResult?.ambiguousEffect === true) {
+    error.ddAmbiguousEffect = true;
+  }
+  return error;
+}
+
+function pendingContractSigners(signers = []) {
+  return signers.filter((signer) => !signer.sent_at);
+}
+
+function contractDeliveryStatus(sentCount, failedCount) {
+  if (sentCount > 0 && failedCount > 0) return 'partial';
+  return sentCount > 0 ? 'success' : 'failed';
+}
+
+function applyContractDelivery(signers, sentSignerEmails, now) {
+  const sent = new Set(sentSignerEmails.map((email) => email.toLowerCase()));
+  const updatedSigners = signers.map((signer) => (
+    sent.has((signer.email || '').toLowerCase())
+      ? { ...signer, sent_at: signer.sent_at || now, last_resent_at: now }
+      : signer
+  ));
+  return {
+    updatedSigners,
+    allSignersSent: updatedSigners.length > 0
+      && updatedSigners.every((signer) => signer.email && signer.sent_at),
+  };
+}
+
+function createAmbiguousContractPersistenceError(queryError) {
+  const error = new Error(
+    `Could not persist contract signer delivery: ${queryError?.message || 'database error'}`,
+  );
+  error.ddAmbiguousFailure = true;
+  return error;
+}
+
+function createAmbiguousZohoPersistenceError(context, queryError) {
+  const error = new Error(`${context}: ${queryError?.message || 'database error'}`);
+  error.ddAmbiguousEffect = true;
+  return error;
+}
 
 // Helper to escape regex special characters
 function escapeRegex(str) {
@@ -249,7 +374,7 @@ function extractContactFromFieldValue(fieldValue) {
   };
 }
 
-export async function executeContractSendingActions(contactFieldIds, ddSubmission, tenantId, triggeredBy) {
+export async function executeContractSendingActions(contactFieldIds, ddSubmission, tenantId, triggeredBy, options = {}) {
   console.log('[DD Contract Send] === CONTRACT SENDING ACTIONS START ===');
   console.log('[DD Contract Send] Contact field IDs to process:', JSON.stringify(contactFieldIds));
   console.log('[DD Contract Send] DD submission ID:', ddSubmission?.id);
@@ -283,6 +408,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     
     if (subError || !formSubmission) {
       console.error('[DD Contract Send] Could not find form submission:', subError);
+      addQueryFailure(results, 'send_contract', subError || { message: 'Form submission not found' }, options);
       return results;
     }
     
@@ -301,6 +427,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
 
     if (formError || !sourceForm) {
       console.error('[DD Contract Send] Could not find source form:', formError);
+      addQueryFailure(results, 'send_contract', formError || { message: 'Source form not found' }, options);
       return results;
     }
     
@@ -322,10 +449,14 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
 
     if (instancesError) {
       console.error('[DD Stage Actions] Error fetching contract instances:', instancesError);
+      addQueryFailure(results, 'send_contract', instancesError, options);
       return results;
     }
 
     for (const fieldId of contactFieldIds) {
+      if (options.completedActionKeys?.has(`contract:${fieldId}`)) {
+        continue;
+      }
       console.log('[DD Contract Send] --- Processing field:', fieldId);
       const field = (sourceForm.fields || []).find(f => f.id === fieldId || f.name === fieldId);
       
@@ -391,12 +522,18 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           continue;
         }
         
-        const { data: contractFormForSettings } = await supabase
+        const { data: contractFormForSettings, error: settingsError } = await supabase
           .from('form')
           .select('contract_settings')
           .eq('id', field.contract_form_id)
           .single();
-        
+        if (settingsError || !contractFormForSettings) {
+          addQueryFailure(results, 'send_contract', settingsError || { message: 'Contract form settings not found' }, options, {
+            field_id: fieldId,
+          });
+          continue;
+        }
+
         const timeoutDays = contractFormForSettings?.contract_settings?.timeout_days || 30;
         
         const { data: newInstance, error: createError } = await supabase
@@ -503,23 +640,57 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       console.log('[DD Contract Send] Email template found:', emailTemplate.name);
 
       const signers = contractInstance.signers || [];
-      console.log('[DD Contract Send] Signers to process:', signers.length, 'emails:', signers.map(s => s.email).join(', '));
+      const pendingSigners = pendingContractSigners(signers);
+      console.log('[DD Contract Send] Signers to process:', signers.length, 'pending:', pendingSigners.length);
       let sentCount = 0;
       let failedCount = 0;
       const sentSignerEmails = [];
+      const persistConfirmedSignerDelivery = async () => {
+        if (sentCount === 0) return;
+        const now = new Date().toISOString();
+        const { updatedSigners, allSignersSent } = applyContractDelivery(
+          signers,
+          sentSignerEmails,
+          now,
+        );
+        const { error: instanceUpdateError } = await supabase
+          .from('contract_instance')
+          .update({
+            signers: updatedSigners,
+            // Only full delivery marks the contract instance sent. A partial
+            // delivery is persisted on individual signers and can be retried.
+            sent_at: allSignersSent ? (contractInstance.sent_at || now) : null,
+            status: 'out_for_signing',
+            updated_at: now
+          })
+          .eq('id', contractInstance.id)
+          .eq('tenant_id', tenantId);
+        if (instanceUpdateError) {
+          // Delivery may already have succeeded. Without the signer-level
+          // record a retry could resend it, so this is deliberately ambiguous
+          // rather than a safe query retry.
+          throw createAmbiguousContractPersistenceError(instanceUpdateError);
+        }
+      };
 
       // Fetch organization name for [[organization.name]] placeholder
       const organizationName = await getOrganizationName(formSubmission.organization_id);
       
       // Fetch tenant name for [[tenant.name]] placeholder
-      const { data: tenantData } = await supabase
+      const { data: tenantData, error: tenantError } = await supabase
         .from('tenant')
         .select('name')
         .eq('id', tenantId)
         .single();
+      if (tenantError || !tenantData) {
+        addQueryFailure(results, 'send_contract', tenantError || { message: 'Tenant not found' }, options, {
+          field_id: fieldId,
+        });
+        continue;
+      }
       const tenantName = tenantData?.name || '';
 
-      for (const signer of signers) {
+      for (const signer of pendingSigners) {
         if (!signer.email) {
           failedCount++;
           continue;
@@ -591,7 +762,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
             email: signer.email,
             labelKey: 'automations',
           });
-          await sendEmail({
+          const emailResult = await sendStageEmail(options, {
             to: signer.email,
             subject,
             html: body,
@@ -600,38 +771,24 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
             tenantId,
             inboxDelivery
           });
+          if (!emailResult?.success) throw createEmailDeliveryError(emailResult);
           sentCount++;
           sentSignerEmails.push(signer.email.toLowerCase());
           console.log(`[DD Stage Actions] Sent contract to ${signer.email}`);
         } catch (emailError) {
+          if (emailError.ddAmbiguousEffect) {
+            // Persist every provider-confirmed signer before surfacing the
+            // unknown outcome for manual review.
+            await persistConfirmedSignerDelivery();
+            throw emailError;
+          }
           failedCount++;
           console.error(`[DD Stage Actions] Failed to send to ${signer.email}:`, emailError);
         }
       }
 
       if (sentCount > 0) {
-        const now = new Date().toISOString();
-        const updatedSigners = signers.map(s => {
-          if (sentSignerEmails.includes((s.email || '').toLowerCase())) {
-            return {
-              ...s,
-              sent_at: s.sent_at || now,
-              last_resent_at: now
-            };
-          }
-          return s;
-        });
-
-        await supabase
-          .from('contract_instance')
-          .update({
-            signers: updatedSigners,
-            sent_at: new Date().toISOString(),
-            status: 'out_for_signing',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', contractInstance.id)
-          .eq('tenant_id', tenantId);
+        await persistConfirmedSignerDelivery();
       }
 
       const resultEntry = {
@@ -639,7 +796,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         field_id: fieldId,
         field_label: field.label || field.name,
         contract_instance_id: contractInstance.id,
-        status: sentCount > 0 ? 'success' : 'failed',
+        status: contractDeliveryStatus(sentCount, failedCount),
         sent_count: sentCount,
         failed_count: failedCount
       };
@@ -652,10 +809,14 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           sent_count: sentCount
         });
       }
+      if (resultEntry.status === 'success') {
+        await checkpointCompletedAction(options, resultEntry);
+      }
     }
   } catch (error) {
     console.error('[DD Contract Send] ERROR executing contract sending:', error);
     console.error('[DD Contract Send] Error stack:', error.stack);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'send_contract',
       status: 'error',
@@ -684,12 +845,16 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     // First look up the form for this submission so we can scope by form_id.
     let scopedFormId = null;
     if (ddSubmission?.form_submission_id) {
-      const { data: subRow } = await supabase
+      const { data: subRow, error: subRowError } = await supabase
         .from('form_submission')
         .select('form_id')
         .eq('id', ddSubmission.form_submission_id)
         .eq('tenant_id', tenantId)
         .single();
+      if (subRowError) {
+        addQueryFailure(results, 'send_meeting_request', subRowError, options);
+        return results;
+      }
       scopedFormId = subRow?.form_id || null;
     }
 
@@ -728,11 +893,16 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .is('form_id', null)
         .eq('is_active', true)
         .order('sort_order', { ascending: true });
-      if (!legacy.error) meetingRequests = legacy.data;
+      if (legacy.error) {
+        addQueryFailure(results, 'send_meeting_request', legacy.error, options);
+        return results;
+      }
+      meetingRequests = legacy.data;
     }
 
     if (mrError) {
       console.log('[DD Meeting Request] Query error:', mrError);
+      addQueryFailure(results, 'send_meeting_request', mrError, options);
       return results;
     }
     if (!meetingRequests || meetingRequests.length === 0) {
@@ -757,6 +927,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
     if (subError || !formSubmission) {
       console.error('[DD Stage Actions] Could not find form submission:', subError);
+      addQueryFailure(results, 'send_meeting_request', subError || { message: 'Form submission not found' }, options);
       return results;
     }
 
@@ -770,6 +941,9 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     const baseUrl = getTenantBaseUrl(tenant?.slug || null);
 
     for (const mr of meetingRequests) {
+      if (options.completedActionKeys?.has(`meeting:${mr.id}`)) {
+        continue;
+      }
       const template = mr.meeting_template;
       if (!template) {
         results.push({
@@ -817,22 +991,36 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .single();
 
       if (templateError || !emailTemplate) {
+        if (templateError && !isMissingRowError(templateError)) {
+          addQueryFailure(results, 'send_meeting_request', templateError, options, {
+            meeting_request_id: mr.id,
+            template_name: template.name,
+          });
+          continue;
+        }
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
-          reason: 'Email template not found'
+          reason: 'Email template not found',
         });
         continue;
       }
 
       // Find a booking agent assigned to this template
-      const { data: agentAssignments } = await supabase
+      const { data: agentAssignments, error: assignmentsError } = await supabase
         .from('agent_meeting_template')
         .select('identity_id')
         .eq('meeting_template_id', template.id)
         .eq('tenant_id', tenantId);
+      if (assignmentsError) {
+        addQueryFailure(results, 'send_meeting_request', assignmentsError, options, {
+          meeting_request_id: mr.id,
+          template_name: template.name,
+        });
+        continue;
+      }
 
       if (!agentAssignments || agentAssignments.length === 0) {
         results.push({
@@ -861,12 +1049,19 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         console.log('[DD Meeting Request] No agent selected, using first:', agentId);
       }
       // Get member_id from tenant_membership, then look up member data
-      const { data: agentMembership } = await supabase
+      const { data: agentMembership, error: membershipError } = await supabase
         .from('tenant_membership')
         .select('identity_id, member_id')
         .eq('identity_id', agentId)
         .eq('tenant_id', tenantId)
         .single();
+      if (membershipError) {
+        addQueryFailure(results, 'send_meeting_request', membershipError, options, {
+          meeting_request_id: mr.id,
+          template_name: template.name,
+        });
+        continue;
+      }
 
       if (!agentMembership?.member_id) {
         console.log('[DD Meeting Request] SKIPPING - Agent has no member_id');
@@ -881,11 +1076,18 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       }
 
       // Look up member data (name, handle)
-      const { data: agentMember } = await supabase
+      const { data: agentMember, error: memberError } = await supabase
         .from('member')
         .select('id, first_name, last_name, email, handle')
         .eq('id', agentMembership.member_id)
         .single();
+      if (memberError) {
+        addQueryFailure(results, 'send_meeting_request', memberError, options, {
+          meeting_request_id: mr.id,
+          template_name: template.name,
+        });
+        continue;
+      }
 
       console.log('[DD Meeting Request] Agent member lookup result:', { 
         agentId, 
@@ -1006,7 +1208,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           from: emailTemplate.from_email,
           bookingUrl
         });
-        await sendEmail({
+        const emailResult = await sendStageEmail(options, {
           to: normalizedEmail,
           subject,
           html: body,
@@ -1014,6 +1216,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           replyTo: emailTemplate.reply_to,
           tenantId
         });
+        if (!emailResult?.success) throw createEmailDeliveryError(emailResult);
         console.log('[DD Meeting Request] Email sent successfully!');
 
         // Update tracking record with sent_at timestamp
@@ -1039,8 +1242,10 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           recipient: recipientEmail,
           agent_name: agentIdentity?.first_name ? `${agentIdentity.first_name} ${agentIdentity.last_name || ''}`.trim() : agentIdentity?.email
         });
+        await checkpointCompletedAction(options, results[results.length - 1]);
       } catch (emailError) {
         console.error(`[DD Stage Actions] Failed to send meeting invitation to ${recipientEmail}:`, emailError);
+        if (emailError.ddAmbiguousEffect || options.checkpointFailure) throw emailError;
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
@@ -1053,6 +1258,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     }
   } catch (error) {
     console.error('[DD Stage Actions] Error executing meeting request actions:', error);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'send_meeting_request',
       status: 'error',
@@ -1090,6 +1296,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
 
     if (subError || !formSubmission) {
       console.error('[DD Email Action] Could not find form submission:', subError);
+      addQueryFailure(results, 'send_email_template', subError || { message: 'Form submission not found' }, options);
       return results;
     }
 
@@ -1133,6 +1340,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
 
     if (eaError) {
       console.log('[DD Email Action] Query error:', eaError);
+      addQueryFailure(results, 'send_email_template', eaError, options);
       return results;
     }
     
@@ -1153,7 +1361,11 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
         .eq('is_active', true)
         .order('sort_order', { ascending: true });
       
-      if (!globalError && globalActions && globalActions.length > 0) {
+      if (globalError) {
+        addQueryFailure(results, 'send_email_template', globalError, options);
+        return results;
+      }
+      if (globalActions && globalActions.length > 0) {
         console.log('[DD Email Action] Found', globalActions.length, 'global email action config(s) - WARNING: These may have incorrect field mappings for this form');
         emailActions = globalActions;
       }
@@ -1166,6 +1378,9 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     console.log('[DD Email Action] Found', emailActions.length, 'email action config(s):', emailActions.map(ea => ({ id: ea.id, form_id: ea.form_id, template_id: ea.email_template_id, template_name: ea.email_template?.name })));
 
     for (const ea of emailActions) {
+      if (options.completedActionKeys?.has(`email:${ea.id}`)) {
+        continue;
+      }
       const template = ea.email_template;
       if (!template) {
         results.push({
@@ -1343,7 +1558,8 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
           cc: emailOptions.cc || null
         });
         
-        await sendEmail(emailOptions);
+        const emailResult = await sendStageEmail(options, emailOptions);
+        if (!emailResult?.success) throw createEmailDeliveryError(emailResult);
         
         console.log('[DD Email Action] Email sent successfully!');
         
@@ -1360,8 +1576,10 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
           recipient: normalizedEmail,
           recipients: emailOptions.cc ? [normalizedEmail, ...emailOptions.cc] : [normalizedEmail]
         });
+        await checkpointCompletedAction(options, results[results.length - 1]);
       } catch (emailError) {
         console.error(`[DD Email Action] Failed to send email to ${normalizedEmail}:`, emailError);
+        if (emailError.ddAmbiguousEffect || options.checkpointFailure) throw emailError;
         results.push({
           action: 'send_email_template',
           email_action_id: ea.id,
@@ -1374,6 +1592,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     }
   } catch (error) {
     console.error('[DD Email Action] Error executing email template actions:', error);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'send_email_template',
       status: 'error',
@@ -1416,6 +1635,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
 
     if (maError) {
       console.log('[DD Member Action] Query error:', maError);
+      addQueryFailure(results, 'create_member', maError, options);
       return results;
     }
     if (!memberActions || memberActions.length === 0) {
@@ -1440,6 +1660,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
 
     if (subError || !formSubmission) {
       console.error('[DD Member Action] Could not find form submission:', subError);
+      addQueryFailure(results, 'create_member', subError || { message: 'Form submission not found' }, options);
       return results;
     }
 
@@ -1458,12 +1679,16 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     // looking up values in original / reviewed submission data.
     let sourceFormFields = [];
     if (formSubmission.form_id) {
-      const { data: sourceForm } = await supabase
+      const { data: sourceForm, error: sourceFormError } = await supabase
         .from('form')
         .select('fields')
         .eq('id', formSubmission.form_id)
         .eq('tenant_id', tenantId)
         .single();
+      if (sourceFormError || !sourceForm) {
+        addQueryFailure(results, 'create_member', sourceFormError || { message: 'Source form not found' }, options);
+        return results;
+      }
       sourceFormFields = sourceForm?.fields || [];
     }
 
@@ -1489,6 +1714,9 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     };
 
     for (const ma of memberActions) {
+      if (options.completedActionKeys?.has(`member:${ma.id}`)) {
+        continue;
+      }
       // Get mandatory fields
       let firstName = resolveMappedField(ma.first_name_field, 'first_name');
       let lastName = resolveMappedField(ma.last_name_field, 'last_name');
@@ -1523,26 +1751,21 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
 
       // Check if member already exists with this email in the tenant (not just organization)
       // This ensures uniqueness across the entire tenant
-      const { data: existingMember } = await supabase
+      const { data: existingMember, error: existingMemberError } = await supabase
         .from('member')
         .select('id, email, organization_id')
         .eq('tenant_id', tenantId)
         .ilike('email', normalizedEmail)
         .single();
-
-      if (existingMember) {
-        results.push({
-          action: 'create_member',
-          member_action_id: ma.id,
-          status: 'skipped',
-          reason: `Member with email ${normalizedEmail} already exists in tenant`,
-          email: normalizedEmail,
-          first_name: firstName || '',
-          last_name: lastName || '',
-          existing_member_id: existingMember.id
-        });
+      if (existingMemberError && !isMissingRowError(existingMemberError)) {
+        addQueryFailure(results, 'create_member', existingMemberError, options, { member_action_id: ma.id });
         continue;
       }
+
+      // A previous run can have created the member while failing to persist a
+      // custom preference. Reuse that member to repair only the idempotent
+      // preference writes below; do not replay welcome email/history effects.
+      const memberAlreadyExists = Boolean(existingMember);
 
       // Build member data
       const memberData = {
@@ -1559,12 +1782,16 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       if (ma.role_id) {
         memberData.role_id = ma.role_id;
       } else {
-        const { data: defaultRole } = await supabase
+        const { data: defaultRole, error: defaultRoleError } = await supabase
           .from('role')
           .select('id')
           .eq('tenant_id', tenantId)
           .eq('is_default', true)
           .single();
+        if (defaultRoleError && !isMissingRowError(defaultRoleError)) {
+          addQueryFailure(results, 'create_member', defaultRoleError, options, { member_action_id: ma.id });
+          continue;
+        }
         
         if (defaultRole) {
           memberData.role_id = defaultRole.id;
@@ -1598,8 +1825,8 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       // Create the member - wrapped in try-catch to handle race conditions
       // If another process creates the same email between our check and insert,
       // the unique constraint will cause a database error which we handle gracefully
-      let newMember;
-      try {
+      let newMember = existingMember;
+      if (!memberAlreadyExists) try {
         const { data, error: createError } = await supabase
           .from('member')
           .insert(memberData)
@@ -1637,7 +1864,9 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         }
         
         newMember = data;
+        await checkpointMemberCreation(options, ma.id);
       } catch (err) {
+        if (options.checkpointFailure) throw err;
         // Handle any unexpected errors (including constraint violations thrown as exceptions)
         const isUniqueViolation = 
           err?.code === '23505' ||
@@ -1698,6 +1927,10 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           .eq('is_active', true);
         if (prefFieldsError) {
           console.error('[DD Member Action] Failed to load preference_field defs:', prefFieldsError);
+          if (shouldFailOnQueryError(options)) {
+            throw createKnownQueryError('Could not load member preference definitions', prefFieldsError);
+          }
+          customFieldErrors.push(...customFieldIds);
           for (const fieldId of customFieldIds) {
             customFieldOutcomes.push({
               field_id: fieldId,
@@ -1748,10 +1981,12 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
 
         const { error: prefError } = await supabase
           .from('member_preference_value')
-          .insert({
+          .upsert({
             member_id: newMember.id,
             field_id: prefFieldId,
             value: storedValue
+          }, {
+            onConflict: 'member_id,field_id'
           });
 
         if (prefError) {
@@ -1772,8 +2007,22 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         }
       }
 
-      // Send welcome email if template is configured
-      if (ma.welcome_email_template_id) {
+      // Do not send a welcome email before all preference writes are complete:
+      // otherwise a preference-write retry would have no durable indication
+      // that the welcome was already delivered. An initializer retry can send
+      // a previously failed welcome for an already-created member because its
+      // action key remains absent from completedActionKeys.
+      let welcomeEmailFailure = null;
+      const memberActionKey = `member:${ma.id}`;
+      const retryingCreatedMemberWelcome = memberAlreadyExists
+        && options.completedActionKeys instanceof Set
+        && options.completedActionKeys.has(`member-created:${ma.id}`)
+        && !options.completedActionKeys.has(memberActionKey);
+      if (
+        customFieldErrors.length === 0
+        && ma.welcome_email_template_id
+        && (!memberAlreadyExists || retryingCreatedMemberWelcome)
+      ) {
         try {
           // Fetch the email template
           const { data: emailTemplate, error: templateError } = await supabase
@@ -1785,6 +2034,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           
           if (templateError || !emailTemplate) {
             console.error('[DD Member Action] Could not find welcome email template:', templateError);
+            welcomeEmailFailure = new Error('Could not load welcome email template');
           } else {
             // Get tenant info for email sending
             const { data: tenant } = await supabase
@@ -1856,7 +2106,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
             emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
             
             // Send the email (include from and replyTo from template if available)
-            const emailResult = await sendEmail({
+            const emailResult = await sendStageEmail(options, {
               to: newMember.email,
               subject: emailSubject,
               html: emailBody,
@@ -1868,11 +2118,16 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
             if (emailResult.success) {
               console.log(`[DD Member Action] Welcome email sent to ${newMember.email}`);
             } else {
-              console.error('[DD Member Action] Failed to send welcome email:', emailResult.error);
+              welcomeEmailFailure = createEmailDeliveryError(emailResult);
+              console.error('[DD Member Action] Failed to send welcome email:', welcomeEmailFailure.message);
             }
           }
         } catch (emailError) {
           console.error('[DD Member Action] Error sending welcome email:', emailError);
+          welcomeEmailFailure = emailError;
+        }
+        if (welcomeEmailFailure?.ddAmbiguousEffect) {
+          throw welcomeEmailFailure;
         }
       }
 
@@ -1881,18 +2136,25 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         member_action_id: ma.id,
         member_id: newMember.id,
         email: normalizedEmail,
-        status: 'success',
+        status: customFieldErrors.length > 0 || welcomeEmailFailure ? 'partial' : 'success',
         custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined,
-        custom_field_outcomes: customFieldOutcomes.length > 0 ? customFieldOutcomes : undefined
+        custom_field_outcomes: customFieldOutcomes.length > 0 ? customFieldOutcomes : undefined,
+        welcome_email_error: welcomeEmailFailure?.message
       });
 
-      await addHistoryLogEntry(ddSubmission.id, tenantId, 'member_created', triggeredBy, {
-        member_email: normalizedEmail,
-        member_name: `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim() || normalizedEmail
-      });
+      if (!memberAlreadyExists) {
+        await addHistoryLogEntry(ddSubmission.id, tenantId, 'member_created', triggeredBy, {
+          member_email: normalizedEmail,
+          member_name: `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim() || normalizedEmail
+        });
+      }
+      if (results[results.length - 1].status === 'success') {
+        await checkpointCompletedAction(options, results[results.length - 1]);
+      }
     }
   } catch (error) {
     console.error('[DD Member Action] Error executing member creation actions:', error);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'create_member',
       status: 'error',
@@ -1903,7 +2165,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
   return results;
 }
 
-async function executeFieldMappingActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+export async function executeFieldMappingActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const results = [];
   
   try {
@@ -1923,6 +2185,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
 
     if (fsError || !formSubmission) {
       console.error('[DD Field Mapping] Form submission not found:', fsError);
+      addQueryFailure(results, 'field_mapping', fsError || { message: 'Form submission not found' }, options);
       return results;
     }
 
@@ -1941,7 +2204,26 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
-    if (fmaError || !fieldMappingActions || fieldMappingActions.length === 0) {
+    if (fmaError) {
+      addQueryFailure(results, 'field_mapping', fmaError, options);
+      return results;
+    }
+    if (!fieldMappingActions || fieldMappingActions.length === 0) {
+      let noActionBaseUrl = options.baseUrl;
+      if (!noActionBaseUrl) {
+        const { data: baseUrlTenant } = await supabase
+          .from('tenant')
+          .select('slug')
+          .eq('id', tenantId)
+          .single();
+        noActionBaseUrl = getTenantBaseUrl(baseUrlTenant?.slug || null);
+      }
+      await dispatchFieldMappingWorkflowFanouts({
+        dueDiligenceSubmissionId: ddSubmission.id,
+        tenantId,
+        baseUrl: noActionBaseUrl,
+        dependencies: options.workflowFanoutDependencies,
+      });
       return results;
     }
     console.log(`[DD Field Mapping] Loaded ${fieldMappingActions.length} field-mapping action(s) scoped to form ${formSubmission.form_id} stage ${stageId}`);
@@ -1949,16 +2231,29 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     const organizationId = formSubmission.organization_id;
     if (!organizationId) {
       console.log('[DD Field Mapping] No organization_id on form submission, skipping field mappings');
+      let noOrganizationBaseUrl = options.baseUrl;
+      if (!noOrganizationBaseUrl) {
+        const { data: baseUrlTenant } = await supabase
+          .from('tenant')
+          .select('slug')
+          .eq('id', tenantId)
+          .single();
+        noOrganizationBaseUrl = getTenantBaseUrl(baseUrlTenant?.slug || null);
+      }
+      await dispatchFieldMappingWorkflowFanouts({
+        dueDiligenceSubmissionId: ddSubmission.id,
+        tenantId,
+        baseUrl: noOrganizationBaseUrl,
+        dependencies: options.workflowFanoutDependencies,
+      });
       return results;
     }
 
-    // Snapshot the org row BEFORE any writes so we can fire workflow triggers with
-    // a consistent { before, after } payload matching the entity-API path.
-    // currentOrg is mutated in-place as successive mappings apply, so composite
-    // writes and trigger evaluation see the latest accumulated state.
-    let beforeOrg = null;
+    // currentOrg is mutated in-place as successive mappings apply, so every
+    // successful core mapping can persist its own exact before/after fanout.
+    // A strict initializer must not write without this snapshot: otherwise a
+    // retry cannot recreate the old value for a field-change workflow.
     let currentOrg = null;
-    let coreFieldChanged = false;
     try {
       const { data: orgRow, error: orgRowErr } = await supabase
         .from('organization')
@@ -1966,19 +2261,24 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         .eq('id', organizationId)
         .eq('tenant_id', tenantId)
         .single();
-      if (orgRowErr) {
-        console.warn('[DD Field Mapping] Could not snapshot org row for workflow triggers:', orgRowErr.message);
-      } else if (orgRow) {
-        beforeOrg = { ...orgRow };
-        currentOrg = { ...orgRow };
+      if (orgRowErr || !orgRow) {
+        const snapshotError = orgRowErr || { message: 'Organization not found' };
+        console.warn('[DD Field Mapping] Could not snapshot org row for workflow triggers:', snapshotError.message);
+        if (shouldFailOnQueryError(options)) {
+          throw createKnownQueryError('Could not snapshot organization for field-mapping workflows', snapshotError);
+        }
+        return results;
       }
+      currentOrg = { ...orgRow };
     } catch (snapErr) {
       console.warn('[DD Field Mapping] Error snapshotting org row:', snapErr.message);
+      if (snapErr.ddKnownQueryFailure || shouldFailOnQueryError(options)) {
+        throw snapErr.ddKnownQueryFailure
+          ? snapErr
+          : createKnownQueryError('Could not snapshot organization for field-mapping workflows', snapErr);
+      }
+      return results;
     }
-
-    // Track per-preference-field changes so we can fire triggerPreferenceWorkflows
-    // once per affected custom field after all writes are committed.
-    const prefChanges = []; // [{ field_id, previousValue, newValue }]
 
     // Derive baseUrl for workflow email placeholders (set_password_url etc).
     // Prefer the tenant's own subdomain over the shared fallback so links in
@@ -1992,6 +2292,42 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         .single();
       baseUrl = getTenantBaseUrl(baseUrlTenant?.slug || null);
     }
+    const useAtomicWorkflowOutbox = shouldFailOnQueryError(options);
+
+    const persistCoreMapping = async (updateData, mappingIndex, fmaId) => {
+      if (useAtomicWorkflowOutbox) {
+        return applyFieldMappingMutationWithFanout({
+          tenantId,
+          dueDiligenceSubmissionId: ddSubmission.id,
+          eventKey: `core:${fmaId}:${mappingIndex}`,
+          eventType: 'core',
+          organizationId,
+          mutation: updateData,
+        });
+      }
+      const { error: updateError } = await supabase
+        .from('organization')
+        .update(updateData)
+        .eq('id', organizationId)
+        .eq('tenant_id', tenantId);
+      if (updateError) throw updateError;
+      return { applied: true, after: { ...currentOrg, ...updateData } };
+    };
+
+    const persistPreferenceMapping = async (fieldId, value, mappingIndex, fmaId) => {
+      if (useAtomicWorkflowOutbox) {
+        return applyFieldMappingMutationWithFanout({
+          tenantId,
+          dueDiligenceSubmissionId: ddSubmission.id,
+          eventKey: `preference:${fmaId}:${mappingIndex}`,
+          eventType: 'preference',
+          organizationId,
+          preferenceFieldId: fieldId,
+          preferenceValue: value,
+        });
+      }
+      return null;
+    };
     
     // Original submission data (fallback)
     const originalData = formSubmission.submission_data || {};
@@ -2038,11 +2374,16 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     };
     
     // Get preference fields for custom field lookups
-    const { data: preferenceFields } = await supabase
+    const { data: preferenceFields, error: preferenceFieldsError } = await supabase
       .from('preference_field')
       .select('*')
+      .eq('tenant_id', tenantId)
       .eq('entity_scope', 'organization')
       .eq('is_active', true);
+    if (preferenceFieldsError) {
+      addQueryFailure(results, 'field_mapping', preferenceFieldsError, options);
+      return results;
+    }
     
     const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
     
@@ -2130,10 +2471,13 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     };
 
     for (const fma of fieldMappingActions) {
+      if (options.completedActionKeys?.has(`field_mapping:${fma.id}`)) {
+        continue;
+      }
       const mappings = fma.field_mappings || [];
       const mappingResults = [];
       
-      for (const mapping of mappings) {
+      for (const [mappingIndex, mapping] of mappings.entries()) {
         const { source_type, source_field_id, target_type, target_field, static_value, transformation } = mapping;
         
         let sourceValue;
@@ -2226,6 +2570,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         }
         
         if (target_type === 'core') {
+          const mappingBeforeOrg = currentOrg ? { ...currentOrg } : null;
           // Valid core fields for organization
           const VALID_CORE_FIELDS = ['name', 'email', 'invoicing_email', 'phone', 'website', 'description', 'logo_url', 'invoicing_address'];
           // Composite core fields (stored as JSONB with sub-fields)
@@ -2266,19 +2611,36 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             const updateData = {};
             updateData[parentField] = mergedValue;
             
-            const { error: updateError } = await supabase
-              .from('organization')
-              .update(updateData)
-              .eq('id', organizationId)
-              .eq('tenant_id', tenantId);
-            
-            if (updateError) {
-              console.error(`[DD Field Mapping] Error updating composite core field ${target_field}:`, updateError);
-              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            if (useAtomicWorkflowOutbox) {
+              const persisted = await persistCoreMapping(updateData, mappingIndex, fma.id);
+              if (!persisted.applied) {
+                mappingResults.push({ field: target_field, status: 'noop', type: 'core', composite: true });
+              } else {
+                currentOrg = persisted.after;
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
+              }
             } else {
-              if (currentOrg) currentOrg[parentField] = mergedValue;
-              coreFieldChanged = true;
-              mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
+              const { error: updateError } = await supabase
+                .from('organization')
+                .update(updateData)
+                .eq('id', organizationId)
+                .eq('tenant_id', tenantId);
+
+              if (updateError) {
+                console.error(`[DD Field Mapping] Error updating composite core field ${target_field}:`, updateError);
+                mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+              } else {
+                if (currentOrg) currentOrg[parentField] = mergedValue;
+                await enqueueFieldMappingWorkflowFanout({
+                  dueDiligenceSubmissionId: ddSubmission.id,
+                  tenantId,
+                  eventKey: `core:${fma.id}:${mappingIndex}`,
+                  eventType: 'core',
+                  organizationId,
+                  payload: { before: mappingBeforeOrg, after: { ...currentOrg } },
+                });
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
+              }
             }
           } else if (target_field === 'logo_url') {
             let resolvedLogoUrl = null;
@@ -2343,19 +2705,36 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             }
 
             console.log(`[DD Field Mapping] Resolved logo_url: ${resolvedLogoUrl.substring(0, 80)}...`);
-            const { error: updateError } = await supabase
-              .from('organization')
-              .update({ logo_url: resolvedLogoUrl })
-              .eq('id', organizationId)
-              .eq('tenant_id', tenantId);
-
-            if (updateError) {
-              console.error(`[DD Field Mapping] Error updating logo_url:`, updateError);
-              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            if (useAtomicWorkflowOutbox) {
+              const persisted = await persistCoreMapping({ logo_url: resolvedLogoUrl }, mappingIndex, fma.id);
+              if (!persisted.applied) {
+                mappingResults.push({ field: target_field, status: 'noop', type: 'core' });
+              } else {
+                currentOrg = persisted.after;
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              }
             } else {
-              if (currentOrg) currentOrg.logo_url = resolvedLogoUrl;
-              coreFieldChanged = true;
-              mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              const { error: updateError } = await supabase
+                .from('organization')
+                .update({ logo_url: resolvedLogoUrl })
+                .eq('id', organizationId)
+                .eq('tenant_id', tenantId);
+
+              if (updateError) {
+                console.error(`[DD Field Mapping] Error updating logo_url:`, updateError);
+                mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+              } else {
+                if (currentOrg) currentOrg.logo_url = resolvedLogoUrl;
+                await enqueueFieldMappingWorkflowFanout({
+                  dueDiligenceSubmissionId: ddSubmission.id,
+                  tenantId,
+                  eventKey: `core:${fma.id}:${mappingIndex}`,
+                  eventType: 'core',
+                  organizationId,
+                  payload: { before: mappingBeforeOrg, after: { ...currentOrg } },
+                });
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              }
             }
           } else {
             // Update simple core organization field
@@ -2382,20 +2761,38 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               : storedValue;
             console.log(`[DD Field Mapping] Updating organization ${organizationId} core field ${target_field} (column ${columnName}) = ${JSON.stringify(previewValue)}`);
 
-            const { error: updateError } = await supabase
-              .from('organization')
-              .update(updateData)
-              .eq('id', organizationId)
-              .eq('tenant_id', tenantId);
-            
-            if (updateError) {
-              console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
-              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            if (useAtomicWorkflowOutbox) {
+              const persisted = await persistCoreMapping(updateData, mappingIndex, fma.id);
+              if (!persisted.applied) {
+                mappingResults.push({ field: target_field, status: 'noop', type: 'core' });
+              } else {
+                currentOrg = persisted.after;
+                console.log(`[DD Field Mapping] Successfully updated organization ${organizationId} field ${target_field}`);
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              }
             } else {
-              if (currentOrg) currentOrg[columnName] = storedValue;
-              coreFieldChanged = true;
-              console.log(`[DD Field Mapping] Successfully updated organization ${organizationId} field ${target_field}`);
-              mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              const { error: updateError } = await supabase
+                .from('organization')
+                .update(updateData)
+                .eq('id', organizationId)
+                .eq('tenant_id', tenantId);
+
+              if (updateError) {
+                console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
+                mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+              } else {
+                if (currentOrg) currentOrg[columnName] = storedValue;
+                await enqueueFieldMappingWorkflowFanout({
+                  dueDiligenceSubmissionId: ddSubmission.id,
+                  tenantId,
+                  eventKey: `core:${fma.id}:${mappingIndex}`,
+                  eventType: 'core',
+                  organizationId,
+                  payload: { before: mappingBeforeOrg, after: { ...currentOrg } },
+                });
+                console.log(`[DD Field Mapping] Successfully updated organization ${organizationId} field ${target_field}`);
+                mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+              }
             }
           }
         } else if (target_type === 'custom') {
@@ -2404,6 +2801,25 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           if (!customField) {
             console.warn(`[DD Field Mapping] Custom field ${target_field} not found`);
             mappingResults.push({ field: target_field, status: 'error', error: 'Custom field not found' });
+            continue;
+          }
+
+          if (useAtomicWorkflowOutbox) {
+            const persisted = await persistPreferenceMapping(
+              target_field,
+              storedValue,
+              mappingIndex,
+              fma.id,
+            );
+            if (!persisted.applied) {
+              mappingResults.push({ field: customField.label, status: 'noop', type: 'custom' });
+            } else {
+              mappingResults.push({
+                field: customField.label,
+                status: persisted.created ? 'created' : 'updated',
+                type: 'custom',
+              });
+            }
             continue;
           }
           
@@ -2431,7 +2847,18 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating custom field ${customField.label}:`, updateError);
               mappingResults.push({ field: customField.label, status: 'error', error: updateError.message });
             } else {
-              prefChanges.push({ field_id: target_field, previousValue: existing.value, newValue: storedValue });
+              await enqueueFieldMappingWorkflowFanout({
+                dueDiligenceSubmissionId: ddSubmission.id,
+                tenantId,
+                eventKey: `preference:${fma.id}:${mappingIndex}`,
+                eventType: 'preference',
+                organizationId,
+                payload: {
+                  field_id: target_field,
+                  previous_value: existing.value,
+                  new_value: storedValue,
+                },
+              });
               mappingResults.push({ field: customField.label, status: 'updated', type: 'custom' });
             }
           } else {
@@ -2447,94 +2874,50 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error creating custom field ${customField.label}:`, insertError);
               mappingResults.push({ field: customField.label, status: 'error', error: insertError.message });
             } else {
-              prefChanges.push({ field_id: target_field, previousValue: undefined, newValue: storedValue });
+              await enqueueFieldMappingWorkflowFanout({
+                dueDiligenceSubmissionId: ddSubmission.id,
+                tenantId,
+                eventKey: `preference:${fma.id}:${mappingIndex}`,
+                eventType: 'preference',
+                organizationId,
+                payload: {
+                  field_id: target_field,
+                  previous_value: undefined,
+                  new_value: storedValue,
+                },
+              });
               mappingResults.push({ field: customField.label, status: 'created', type: 'custom' });
             }
           }
         }
       }
       
+      const mappingStatus = mappingResults.some(r => r.status === 'error') ? 'partial' : 'success';
       results.push({
         action: 'field_mapping',
         field_mapping_action_id: fma.id,
         mappings: mappingResults,
-        status: mappingResults.some(r => r.status === 'error') ? 'partial' : 'success'
+        status: mappingStatus
       });
       
       await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
         mappings_count: mappingResults.filter(r => r.status !== 'error').length,
         organization_id: organizationId
       });
-    }
-
-    // ============================================================
-    // Fan out to workflow triggers so that workflows watching
-    // "organisation field changed" / "field changed to X" (core or
-    // custom/preference) fire identically to the entity-API path.
-    // Failures here MUST NOT roll back DD writes or block subsequent
-    // mappings — they are logged and recorded in the DD history.
-    // ============================================================
-    if (coreFieldChanged && beforeOrg && currentOrg) {
-      try {
-        console.log(`[DD Field Mapping] Firing organisation workflow trigger for org ${organizationId}`);
-        await triggerWorkflows(
-          'organization',
-          organizationId,
-          beforeOrg,
-          currentOrg,
-          'field_change',
-          baseUrl
-        );
-      } catch (wfErr) {
-        console.error('[DD Field Mapping] triggerWorkflows (organization) failed:', wfErr);
-        try {
-          await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_workflow_trigger_failed', triggeredBy, {
-            scope: 'organization_core',
-            organization_id: organizationId,
-            error: wfErr.message
-          });
-        } catch {}
-        results.push({
-          action: 'field_mapping_workflow_trigger',
-          scope: 'organization_core',
-          status: 'error',
-          error: wfErr.message
-        });
+      if (results[results.length - 1].status === 'success') {
+        await checkpointCompletedAction(options, results[results.length - 1]);
       }
     }
 
-    for (const change of prefChanges) {
-      try {
-        console.log(`[DD Field Mapping] Firing preference workflow trigger for org ${organizationId}, field ${change.field_id}`);
-        await triggerPreferenceWorkflows(
-          'organization',
-          organizationId,
-          change.field_id,
-          change.newValue,
-          baseUrl,
-          change.previousValue
-        );
-      } catch (prefErr) {
-        console.error('[DD Field Mapping] triggerPreferenceWorkflows failed:', prefErr);
-        try {
-          await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_workflow_trigger_failed', triggeredBy, {
-            scope: 'organization_preference',
-            organization_id: organizationId,
-            field_id: change.field_id,
-            error: prefErr.message
-          });
-        } catch {}
-        results.push({
-          action: 'field_mapping_workflow_trigger',
-          scope: 'organization_preference',
-          field_id: change.field_id,
-          status: 'error',
-          error: prefErr.message
-        });
-      }
-    }
+    await dispatchFieldMappingWorkflowFanouts({
+      dueDiligenceSubmissionId: ddSubmission.id,
+      tenantId,
+      baseUrl,
+      dependencies: options.workflowFanoutDependencies,
+    });
   } catch (error) {
     console.error('[DD Field Mapping] Error executing field mapping actions:', error);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'field_mapping',
       status: 'error',
@@ -2608,6 +2991,9 @@ function determineOrganizationType(formName, formSlug) {
 
 export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const results = [];
+  const zohoIsConnected = options.isZohoCrmConnected || isZohoCrmConnected;
+  const zohoCreateOrganization = options.createZohoOrganization || createZohoOrganization;
+  const zohoLookupCountry = options.lookupCountryInZoho || lookupCountryInZoho;
   
   console.log('[DD Zoho CRM] ========== START executeZohoCrmActions ==========');
   console.log('[DD Zoho CRM] Params:', { stageId, tenantId, triggeredBy });
@@ -2615,7 +3001,9 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
   
   try {
     // Check if Zoho CRM is connected
-    const isConnected = await isZohoCrmConnected(tenantId);
+    const isConnected = await zohoIsConnected(tenantId, {
+      strictQueryErrors: shouldFailOnQueryError(options),
+    });
     if (!isConnected) {
       console.log('[DD Zoho CRM] Zoho CRM not connected for tenant');
       return results;
@@ -2637,6 +3025,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     
     if (subError || !formSubmission) {
       console.error('[DD Zoho CRM] Could not find form submission:', subError);
+      addQueryFailure(results, 'zoho_crm_create', subError || { message: 'Form submission not found' }, options);
       return results;
     }
     
@@ -2667,13 +3056,16 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         .eq('is_active', true)
         .order('sort_order', { ascending: true });
       
-      if (!globalResult.error) {
-        zohoCrmActions = globalResult.data;
+      if (globalResult.error) {
+        addQueryFailure(results, 'zoho_crm_create', globalResult.error, options);
+        return results;
       }
+      zohoCrmActions = globalResult.data;
     }
     
     if (zcError) {
       console.log('[DD Zoho CRM] Query error:', zcError);
+      addQueryFailure(results, 'zoho_crm_create', zcError, options);
       return results;
     }
     
@@ -2685,14 +3077,15 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     console.log('[DD Zoho CRM] Found', zohoCrmActions.length, 'Zoho CRM action(s)');
     
     // Get form fields for label lookups
-    const { data: form } = await supabase
+    const { data: form, error: formError } = await supabase
       .from('form')
       .select('id, name, slug, fields')
       .eq('id', formId)
       .single();
     
-    if (!form) {
+    if (formError || !form) {
       console.error('[DD Zoho CRM] Could not find form');
+      addQueryFailure(results, 'zoho_crm_create', formError || { message: 'Source form not found' }, options);
       return results;
     }
     
@@ -3041,6 +3434,9 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     console.log('[DD Zoho CRM] Final logo URL:', logoUrl ? `valid (${logoUrl.length} chars)` : 'null');
     
     for (const action of zohoCrmActions) {
+      if (options.completedActionKeys?.has(`zoho:${action.id}`)) {
+        continue;
+      }
       try {
         console.log('[DD Zoho CRM] Processing action:', action.id);
         
@@ -3131,7 +3527,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         // Build country subform by looking up each country
         const countrySubform = [];
         for (const countryName of countries) {
-          const countryRecord = await lookupCountryInZoho(tenantId, countryName);
+          const countryRecord = await zohoLookupCountry(tenantId, countryName);
           if (countryRecord) {
             countrySubform.push({
               Countries_of_ops: { id: countryRecord.id },
@@ -3183,11 +3579,11 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         }
         
         // Create the organization in Zoho CRM
-        const createResult = await createZohoOrganization(tenantId, orgData);
+        const createResult = await zohoCreateOrganization(tenantId, orgData);
         
         if (createResult.success) {
           // Update DD submission with Zoho account ID
-          await supabase
+          const { error: linkageError } = await supabase
             .from('form_submission_due_diligence')
             .update({ 
               zoho_crm_account_id: createResult.id,
@@ -3195,15 +3591,27 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
             })
             .eq('id', ddSubmission.id)
             .eq('tenant_id', tenantId);
+          if (linkageError) {
+            throw createAmbiguousZohoPersistenceError(
+              'Could not persist Zoho account linkage after provider success',
+              linkageError,
+            );
+          }
           
           // Update action execution tracking
-          await supabase
+          const { error: trackingError } = await supabase
             .from('stage_zoho_crm_action')
             .update({
               last_executed_at: new Date().toISOString(),
               last_execution_result: createResult
             })
             .eq('id', action.id);
+          if (trackingError) {
+            throw createAmbiguousZohoPersistenceError(
+              'Could not persist Zoho action execution after provider success',
+              trackingError,
+            );
+          }
           
           results.push({
             action: 'zoho_crm_create',
@@ -3217,6 +3625,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
             zoho_account_id: createResult.id,
             org_name: orgName
           });
+          await checkpointCompletedAction(options, results[results.length - 1]);
           
           console.log('[DD Zoho CRM] Successfully created organization:', createResult.id);
         } else {
@@ -3232,6 +3641,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         }
       } catch (actionError) {
         console.error('[DD Zoho CRM] Error executing action:', action.id, actionError);
+        if (actionError.ddKnownQueryFailure || actionError.ddAmbiguousEffect || options.checkpointFailure) throw actionError;
         results.push({
           action: 'zoho_crm_create',
           action_id: action.id,
@@ -3242,6 +3652,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     }
   } catch (error) {
     console.error('[DD Zoho CRM] Error executing Zoho CRM actions:', error);
+    if (error.ddKnownQueryFailure || error.ddAmbiguousEffect || options.checkpointFailure) throw error;
     results.push({
       action: 'zoho_crm_create',
       status: 'error',
@@ -3266,11 +3677,21 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   
   if (!formId) {
     console.log('[DD Stage Actions] No formId in submission, looking up from form_submission table');
-    const { data: formSub } = await supabase
+    const { data: formSub, error: formSubError } = await supabase
       .from('form_submission')
       .select('form_id')
       .eq('id', ddSubmission.form_submission_id)
       .single();
+    if (formSubError) {
+      const error = createKnownQueryError('Could not load form submission for due-diligence stage actions', formSubError);
+      if (shouldFailOnQueryError(options)) throw error;
+      return { stage_actions_results: [{
+        action: 'stage_actions',
+        status: 'error',
+        error: error.message,
+        failure_kind: 'query',
+      }] };
+    }
     
     if (formSub) {
       ddSubmission.form_id = formSub.form_id;
@@ -3290,8 +3711,16 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     .eq('tenant_id', tenantId)
     .single();
 
-  if (configError) {
+  if (configError && !isMissingRowError(configError)) {
     console.error('[DD Stage Actions] Error fetching DD config:', configError);
+    const error = createKnownQueryError('Could not load due-diligence stage configuration', configError);
+    if (shouldFailOnQueryError(options)) throw error;
+    return { stage_actions_results: [{
+      action: 'stage_actions',
+      status: 'error',
+      error: error.message,
+      failure_kind: 'query',
+    }] };
   }
 
   if (!ddConfig) {
@@ -3325,7 +3754,8 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
         sendContracts,
         ddSubmission,
         tenantId,
-        triggeredBy
+        triggeredBy,
+        options
       );
       console.log('[DD Stage Actions] Contract sending results:', contractResults.length, 'contracts processed');
       results.push(...contractResults);
@@ -3387,3 +3817,16 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   console.log('[DD Stage Actions] Completed all stage actions, total results:', results.length);
   return { stage_actions_results: results };
 }
+
+export const __testables = {
+  actionCheckpointKey,
+  applyContractDelivery,
+  checkpointCompletedAction,
+  checkpointMemberCreation,
+  createAmbiguousContractPersistenceError,
+  createEmailDeliveryError,
+  contractDeliveryStatus,
+  isMissingRowError,
+  pendingContractSigners,
+  shouldFailOnQueryError,
+};

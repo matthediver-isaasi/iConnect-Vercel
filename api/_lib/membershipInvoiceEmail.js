@@ -99,8 +99,12 @@ export async function sendMembershipInvoiceEmail({
   totalWithVat,
   onlineInvoiceUrl,
   tierConfig,
+  client = supabase,
+  send = sendTenantEmail,
+  resolveRecipients = resolveTierRecipients,
+  buildInbox = buildInboxDelivery,
 }) {
-  if (!supabase) {
+  if (!client) {
     console.error('[Invoice Email] Supabase not configured');
     return { success: false, error: 'Database not configured' };
   }
@@ -117,8 +121,8 @@ export async function sendMembershipInvoiceEmail({
   const hasInvoiceNumber = !!xeroInvoiceNumber;
 
   try {
-    const resolved = await resolveTierRecipients({
-      client: supabase,
+    const resolved = await resolveRecipients({
+      client,
       tenantId,
       organizationId,
       tierConfig,
@@ -137,7 +141,7 @@ export async function sendMembershipInvoiceEmail({
       return { success: false, error: 'No recipient email found' };
     }
 
-    const { data: tenant } = await supabase
+    const { data: tenant } = await client
       .from('tenant')
       .select('name, slug, logo_url, primary_color')
       .eq('id', tenantId)
@@ -148,7 +152,7 @@ export async function sendMembershipInvoiceEmail({
     let viewInvoiceUrl = onlineInvoiceUrl || null;
     if (!viewInvoiceUrl && historyRecordId) {
       const pdfToken = await getOrCreateInvoicePdfToken({
-        client: supabase,
+        client,
         tenantId,
         historyTable,
         recordId: historyRecordId,
@@ -182,26 +186,47 @@ export async function sendMembershipInvoiceEmail({
 
     for (const toEmail of allRecipients) {
       try {
-        const inboxDelivery = await buildInboxDelivery({
+        const inboxDelivery = await buildInbox({
           tenantId,
           email: toEmail,
           labelKey: 'membership',
         });
-        const emailResult = await sendTenantEmail({
+        const emailResult = await send({
           tenantId,
           to: toEmail,
           subject,
           html: emailHtml,
           inboxDelivery,
         });
-        sendResults.push({ email: toEmail, success: emailResult.success, error: emailResult.error });
+        sendResults.push({
+          email: toEmail,
+          success: emailResult.success,
+          error: emailResult.error,
+          ambiguousEffect: emailResult.ambiguousEffect === true,
+        });
       } catch (err) {
-        sendResults.push({ email: toEmail, success: false, error: err.message });
+        sendResults.push({
+          email: toEmail,
+          success: false,
+          error: err.message,
+          ambiguousEffect: err?.ambiguousEffect === true || err?.ddAmbiguousEffect === true,
+        });
       }
     }
 
     const successfulSends = sendResults.filter(r => r.success);
     const failedSends = sendResults.filter(r => !r.success);
+    const ambiguousEffect = sendResults.some((result) => result.ambiguousEffect === true);
+
+    if (ambiguousEffect) {
+      return {
+        success: false,
+        ambiguousEffect: true,
+        error: 'One or more membership invoice email deliveries are unconfirmed',
+        sentTo: successfulSends.map((result) => result.email),
+        failed: failedSends,
+      };
+    }
 
     if (successfulSends.length === 0) {
       console.error('[Invoice Email] All sends failed:', failedSends);
@@ -213,7 +238,7 @@ export async function sendMembershipInvoiceEmail({
     console.log(`[Invoice Email] Invoice email sent to ${recipientList} for ${organizationName} (${invoiceLabel})`);
 
     try {
-      await supabase.from('organization_note').insert({
+      await client.from('organization_note').insert({
         organization_id: organizationId,
         member_id: null,
         content: `[Membership Invoice Email] Invoice ${invoiceLabel} notification sent to ${recipientList} for ${membershipYear}.`,
@@ -228,6 +253,10 @@ export async function sendMembershipInvoiceEmail({
     };
   } catch (error) {
     console.error('[Invoice Email] Error:', error);
-    return { success: false, error: error.message };
+    return {
+      success: false,
+      error: error.message,
+      ambiguousEffect: error?.ambiguousEffect === true || error?.ddAmbiguousEffect === true,
+    };
   }
 }

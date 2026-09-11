@@ -52,12 +52,7 @@
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
 - [Public form submission idempotency](public-form-idempotency.md) — dup guard = client key + unique index returning the ORIGINAL success payload + keyless 10s backstop; test endpoint in-process against DEST (local DB is pre-tenant).
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
-- [Stripe membership reconcile safety net](stripe-membership-reconcile.md) — webhook + idempotent recorder back up the client confirm; PI lookups must tolerate test/live mode flips; post-charge rejections must say "charge succeeded, will be reconciled".
-- [Membership-paid workflow paths](membership-paid-workflow-paths.md) — any path settling a membership invoice as paid must insert the row paid AND fire the shared fireWorkflowForPaidRow helper (on payment success, exactly once).
-- [Stripe monthly card plans](stripe-monthly-card-plans.md) — card plans twin GC DD plans: shared dd_* config, metadata.card snapshot, exactly-once settle, replay-through-one-processor reconcile, both-ways year guards.
-- [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.
-- [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
-- [Manual membership activation atomicity](manual-membership-activation-atomicity.md) — admin approval must lock the plan/agreement and commit membership activation with its audit record.
+- [Membership payment topics](membership-payment-topics.md) — payment reconciliation, settlement, card plans, direct debit, arrears, and activation.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
@@ -71,10 +66,7 @@
 - [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
 - [Wildcard subdomain canonical links](wildcard-subdomain-canonical-links.md) — *.iconn.app is wildcard DNS; tenant-known link builders must use getTenantTrustedBaseUrl, and rebuilt custom domains must pass sanitizeHostname.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.
-- [Paid-form pipeline baseUrl](paid-form-pipeline-baseurl.md) — server-driven finalize paths (webhook/cron) must resolve a tenant-trusted baseUrl or entity pipelines are skipped.
-- [Form validation across payment paths](form-validation-payment-paths.md) — new submission constraints must guard normal submissions and every paid quote/create path.
-- [Form cross-tenant org guard & rollback pitfalls](form-crosstenant-write-guard.md) — org writes need write-time tenant filters (stale bundles bypass resolution fixes); public path rollback DELETES the submission + notes.
-- [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.
+- [Form processing topics](form-processing-topics.md) — paid-form pipeline, validation, tenant guards, prefill ownership, relationship owners, and retry state.
 - [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
 - [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
@@ -137,9 +129,6 @@
 - [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
 - [Conditional form transitions](conditional-form-transitions.md) — persist only action IDs/mappings; server re-verifies rules and destination access, while assignment/draft context stays source-scoped.
 - [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
-- [Reactive form prefill ownership](reactive-form-prefill-ownership.md) — configured defaults are replaceable only at their captured initial value; drafts, transitions, and respondent edits always win.
-- [Replacing required relationship owners](required-relationship-owner-replacement.md) — required many-to-one owner edges need one atomic DB operation; sequential REST replacement cannot preserve invariants.
-- [Structured form action retry state](structured-form-action-retry-state.md) — failed or already-running actions keep public/paid processing incomplete until every invocation reaches a safe terminal state.
 - [Event-card attendee count states](event-card-attendee-count-states.md) — attendee actions show a secured number; unresolved/error states must never fall back to the old icon or a false zero.
 - [Speaker award timing lifecycle](speaker-award-timing-lifecycle.md) — badges may award on assignment, but vouchers stay event-start; removals require atomic, provenance-safe reconciliation.
 - [Event CPD badge awards](event-cpd-badge-awards.md) — resolve the attendee, treat ticket rules as whole-config overrides, and isolate grants behind their own transactional outbox.
@@ -158,3 +147,4 @@
 - [Temporal form validation](temporal-form-validation.md) — midnight must not invalidate accepted retries, provider callbacks, or unchanged historical answers.
 - [Canvas dashboard embedding](canvas-dashboard-embedding.md) — tenant-shared is not public; reuse dashboard authorization/presentation and keep viewer sizing inside the authored frame.
 - [Form author schema discovery](form-author-schema-discovery.md) — schema visibility is not record access; preserve author gates and explicit field denials in respondent-facing metadata.
+- [Paid form DD eligibility](paid-form-dd-eligibility.md) — prospective eligibility must survive checkout retries without backfilling historical submissions; ambiguous external effects cannot be blindly replayed.

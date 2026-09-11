@@ -6,9 +6,24 @@ import { randomUUID } from 'node:crypto';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
 import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
+import { initializePaidFormDueDiligence } from './formDueDiligence.js';
 
 export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000;
-export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, form_type, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, application_level, field_mappings, structured_actions, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations';
+export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, form_type, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, application_level, field_mappings, structured_actions, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, due_diligence_required, survey_settings';
+
+async function initializeDueDiligenceSafely(db, submission) {
+  try {
+    await initializePaidFormDueDiligence({
+      db,
+      submissionId: submission.id,
+      tenantId: submission.tenant_id,
+    });
+  } catch (error) {
+    // DD failures are reconciled separately and must not block the Direct
+    // Debit membership state from reaching its durable terminal stamp.
+    console.error('[formMonthlyDirectDebitFinalize] Due diligence initialization failed for', submission.id, error?.message);
+  }
+}
 
 async function readState(db, id) {
   const { data, error } = await db.from('form_submission').select('payment_status,payment_meta,processing_notes')
@@ -143,7 +158,10 @@ export async function finalizeFormMonthlyDirectDebit({ db, agreement, billingReq
       detail: `load finalization state failed: ${current.error.message}`,
     };
   }
-  if (current.state?.status === 'done') return { handled: true, alreadyFinalized: true, detail: 'already finalized' };
+  if (current.state?.status === 'done') {
+    await initializeDueDiligenceSafely(db, submission);
+    return { handled: true, alreadyFinalized: true, detail: 'already finalized' };
+  }
   if (current.state?.status === 'conflict') return { handled: false, conflict: true, retryable: false, ...current.state };
   let acquired;
   if (current.state?.status === 'processing') {
@@ -247,6 +265,9 @@ export async function finalizeFormMonthlyDirectDebit({ db, agreement, billingReq
     });
   } catch { /* guarded email sender persists its own result */ }
   if (!await stamp(db, submissionId, token, true)) return { handled: false, retryable: true, detail: 'terminal state could not be saved' };
+  // DD is eligible only after the completed monthly setup is durably stamped;
+  // any DD outage remains independently recoverable and cannot undo binding.
+  await initializeDueDiligenceSafely(db, submission);
   return { handled: true, historyId: claim.historyId, detail: 'Direct Debit membership finalized' };
 }
 

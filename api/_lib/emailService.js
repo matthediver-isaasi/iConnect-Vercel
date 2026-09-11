@@ -25,6 +25,17 @@ const tenantFooterCache = new Map(); // Per-tenant footer cache
 const tenantSocialConfigCache = new Map(); // Per-tenant social config cache
 const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+export function isAmbiguousDeliveryFailure(error) {
+  // Mailgun wraps Axios transport failures, moving their code into text and
+  // assigning a synthetic HTTP 400. That status does not prove rejection.
+  const details = [error?.code, error?.message, error?.statusText, error?.details]
+    .filter(value => typeof value === 'string').join(' ');
+  return /\b(ETIMEDOUT|ECONNRESET|ECONNABORTED|ERR_NETWORK)\b/i.test(details)
+    || error?.name === 'AbortError'
+    || error?.name === 'TimeoutError'
+    || /\b(timeout|timed out|network error|connection reset)\b/i.test(details);
+}
+
 async function getTenantEmailConfig(tenantId) {
   if (!tenantId) {
     return null;
@@ -399,6 +410,10 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       error: status ? `${status}: ${errMsg}` : errMsg,
       status: status || null,
       domain,
+      // A transport interruption can happen after the provider accepted the
+      // message, so callers must surface it for manual review rather than
+      // automatically replaying the send.
+      ambiguousEffect: isAmbiguousDeliveryFailure(error),
     };
   }
 }

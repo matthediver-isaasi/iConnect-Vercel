@@ -14,9 +14,17 @@ const agreement = {
   metadata: { form_submission_id: 's1', dd: { kind: 'monthly_direct_debit', membership_year: '2026/27', plan_total: 120 } },
 };
 const form = { id: 'f1', tenant_id: 't1', fields: [], entity_pipelines: { members: [], organisations: [] } };
-function fake(sub, rpcResult = { ok: true, history_id: 'h1' }, formRow = form) {
+function fake(
+  sub,
+  rpcResult = { ok: true, history_id: 'h1' },
+  formRow = form,
+  { dueDiligenceClaimError = null } = {},
+) {
   const tables = { form_submission: [structuredClone(sub)], form: [structuredClone(formRow)] };
   let rpcCalls = 0;
+  let dueDiligenceRpcCalls = 0;
+  const rpcNames = [];
+  const operations = [];
   const readPath = (row, path) => path.split(/->>?/).reduce(
     (value, part) => value?.[part],
     row,
@@ -24,6 +32,9 @@ function fake(sub, rpcResult = { ok: true, history_id: 'h1' }, formRow = form) {
   return {
     tables,
     get rpcCalls() { return rpcCalls; },
+    get dueDiligenceRpcCalls() { return dueDiligenceRpcCalls; },
+    rpcNames,
+    operations,
     from(table) {
       const filters = [];
       let payload;
@@ -40,7 +51,10 @@ function fake(sub, rpcResult = { ok: true, history_id: 'h1' }, formRow = form) {
             if (op === 'is' && value === null) return actual == null;
             return true;
           });
-          if (payload && row && matches) Object.assign(row, payload);
+          if (payload && row && matches) {
+            Object.assign(row, payload);
+            operations.push({ type: 'update', payload: structuredClone(payload) });
+          }
           if (!payload && row && !matches) return { data: null, error: null };
           return { data: row ? structuredClone(row) : null, error: null };
         },
@@ -49,9 +63,23 @@ function fake(sub, rpcResult = { ok: true, history_id: 'h1' }, formRow = form) {
           .then(resolve, reject),
       }; return q;
     },
-    rpc: async () => {
-      rpcCalls += 1;
-      return { data: rpcResult, error: null };
+    rpc: async (name) => {
+      rpcNames.push(name);
+      operations.push({ type: 'rpc', name });
+      if (name === 'bind_form_monthly_direct_debit_membership') {
+        rpcCalls += 1;
+        return { data: rpcResult, error: null };
+      }
+      if (name === 'claim_form_due_diligence_initialization') {
+        dueDiligenceRpcCalls += 1;
+        return dueDiligenceClaimError
+          ? { data: null, error: dueDiligenceClaimError }
+          : { data: { claimed: false, code: 'NOT_ELIGIBLE' }, error: null };
+      }
+      if (name === 'record_form_due_diligence_claim_failure') {
+        return { data: { recorded: true }, error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
     },
   };
 }
@@ -129,6 +157,46 @@ test('pipeline HTTP failure with a persisted member retries and binds membership
     else process.env.SESSION_SECRET = previousSessionSecret;
     globalThis.fetch = previousFetch;
   }
+});
+
+test('paid DD claim failure is isolated after Direct Debit binding and done state', async () => {
+  const db = fake(
+    submission(),
+    { ok: true, history_id: 'h1' },
+    form,
+    { dueDiligenceClaimError: { message: 'DD claim temporarily unavailable' } },
+  );
+  const result = await finalizeFormMonthlyDirectDebit({ db, agreement });
+
+  assert.equal(result.handled, true);
+  assert.equal(db.rpcCalls, 1, 'only the membership-binding RPC is financial');
+  assert.equal(db.dueDiligenceRpcCalls, 1);
+  assert.equal(db.tables.form_submission[0].payment_meta.monthly_dd_state.status, 'done');
+  assert.ok(
+    db.rpcNames.indexOf('bind_form_monthly_direct_debit_membership')
+      < db.rpcNames.indexOf('claim_form_due_diligence_initialization'),
+    'DD initialization follows successful membership binding',
+  );
+  const doneStampAt = db.operations.findIndex((operation) => (
+    operation.type === 'update'
+      && operation.payload.payment_meta?.monthly_dd_state?.status === 'done'
+  ));
+  const dueDiligenceClaimAt = db.operations.findIndex(
+    (operation) => operation.type === 'rpc' && operation.name === 'claim_form_due_diligence_initialization',
+  );
+  assert.ok(doneStampAt > -1 && dueDiligenceClaimAt > doneStampAt,
+    'DD initialization waits for the durable completed-checkout state');
+});
+
+test('already-finalized Direct Debit submissions recover DD without replaying binding', async () => {
+  const db = fake(submission({
+    payment_meta: { monthly_dd_state: { status: 'done', done_at: new Date().toISOString() } },
+  }));
+  const result = await finalizeFormMonthlyDirectDebit({ db, agreement });
+
+  assert.equal(result.alreadyFinalized, true);
+  assert.equal(db.rpcCalls, 0);
+  assert.equal(db.dueDiligenceRpcCalls, 1);
 });
 
 test('source contract keeps mandate-only finalizer free of subscription creation', () => {

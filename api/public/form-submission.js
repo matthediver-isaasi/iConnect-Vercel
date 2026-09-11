@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
-import { executeStageActions } from '../due-diligence/_stageActions.js';
+import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -1731,110 +1731,17 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
-    // Auto-create due diligence record if form has due diligence enabled
-    console.log('[Public Form Submission] Checking DD enabled:', form.due_diligence_required, 'form_id:', form.id);
-    // Anonymous surveys never create due-diligence records (they carry the
-    // respondent's raw answers/identity into admin review surfaces).
+    // Shared, tenant-bound DD lifecycle. The helper atomically creates the
+    // record and persists completed action checkpoints. Anonymous surveys are
+    // excluded here and rechecked from persisted data by the database claim.
     if (form.due_diligence_required && !surveyIsAnonymous) {
-      try {
-        console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
-        
-        // Get the form's DD config for initial workflow status
-        console.log('[Public Form Submission] Looking up DD config for form_id:', form_id, 'tenant_id:', tenantData.id);
-        const { data: ddConfig, error: ddConfigError } = await supabase
-          .from('form_due_diligence_config')
-          .select('workflow_stages')
-          .eq('form_id', form_id)
-          .eq('tenant_id', tenantData.id)
-          .single();
-        
-        if (ddConfigError) {
-          console.log('[Public Form Submission] DD config lookup error:', ddConfigError.code, ddConfigError.message);
-        }
-        console.log('[Public Form Submission] DD config found:', !!ddConfig, 'workflow_stages count:', ddConfig?.workflow_stages?.length || 0);
-        
-        // Find initial stage
-        const workflowStages = ddConfig?.workflow_stages || [];
-        const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
-        const initialStatus = initialStage?.id || 'new';
-        console.log('[Public Form Submission] Initial stage:', initialStatus, 'is_initial flag:', initialStage?.is_initial, 'label:', initialStage?.label);
-        
-        // Create the DD submission record
-        const ddRecord = {
-          form_submission_id: submission.id,
-          tenant_id: tenantData.id,
-          application_uid: `DD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          original_form_values: submission_data || {},
-          reviewed_form_values: submission_data || {},
-          field_review_status: {},
-          workflow_status: initialStatus,
-          history_log: [{
-            timestamp: new Date().toISOString(),
-            event_type: 'submission_received',
-            user_email: 'System',
-            details: {
-              form_submission_id: submission.id,
-              initial_status: initialStatus
-            }
-          }]
-        };
-
-        const { data: newDDRecord, error: ddInsertError } = await supabase
-          .from('form_submission_due_diligence')
-          .insert(ddRecord)
-          .select()
-          .single();
-
-        if (ddInsertError) {
-          console.error('[Public Form Submission] Failed to create DD record:', ddInsertError);
-          // Don't fail the submission, just log the error
-        } else {
-          console.log('[Public Form Submission] Due diligence record created:', newDDRecord.id);
-          
-          // Execute stage actions for the initial stage (e.g., send contracts, meeting requests, emails)
-          // Always attempt to execute when there's an initial stage - the function handles its own config lookup
-          // and checks for both inline actions (send_contracts) and database-stored actions (stage_email_action, etc.)
-          if (initialStage) {
-            const hasInlineActions = initialStage.actions || initialStage.stage_actions;
-            const sendContractsFields = initialStage.stage_actions?.send_contracts || initialStage.actions?.send_contracts || [];
-            console.log('[Public Form Submission] === STAGE ACTIONS DEBUG ===');
-            console.log('[Public Form Submission] Form ID:', form.id);
-            console.log('[Public Form Submission] Form Name:', form.name);
-            console.log('[Public Form Submission] Initial stage ID:', initialStage.id);
-            console.log('[Public Form Submission] Has inline actions:', !!hasInlineActions);
-            console.log('[Public Form Submission] send_contracts fields:', JSON.stringify(sendContractsFields));
-            console.log('[Public Form Submission] Full stage config:', JSON.stringify(initialStage));
-            
-            try {
-              const ddSubmissionData = {
-                ...newDDRecord,
-                form_submission_id: submission.id,
-                form_id: form.id
-              };
-              console.log('[Public Form Submission] Executing stage actions for initial stage:', initialStatus);
-              const actionResults = await executeStageActions(
-                initialStatus,
-                ddSubmissionData,
-                tenantData.id,
-                'system_init'
-              );
-              
-              if (actionResults?.stage_actions_results?.length > 0) {
-                console.log('[Public Form Submission] Initial stage actions executed:', JSON.stringify(actionResults.stage_actions_results));
-              } else {
-                console.log('[Public Form Submission] No stage action results returned');
-              }
-            } catch (actionError) {
-              console.error('[Public Form Submission] Error executing initial stage actions:', actionError);
-              // Don't fail the submission for action errors
-            }
-          } else {
-            console.log('[Public Form Submission] No initial stage found, skipping stage actions');
-          }
-        }
-      } catch (ddError) {
-        console.error('[Public Form Submission] Error creating DD record:', ddError);
-        // Don't fail the submission for DD errors
+      const ddInitialization = await initializeFormDueDiligence({
+        db: supabase,
+        submissionId: submission.id,
+        tenantId: tenantData.id,
+      });
+      if (!ddInitialization.ok) {
+        console.error('[Public Form Submission] Due diligence initialization failed:', ddInitialization.error || ddInitialization.code);
       }
     }
 

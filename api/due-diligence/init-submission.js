@@ -2,7 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
-import { executeStageActions } from './_stageActions.js';
+import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -82,81 +82,46 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
-    // Get the form's DD config with tenant isolation
-    const { data: ddConfig } = await supabase
-      .from('form_due_diligence_config')
-      .select('workflow_stages')
-      .eq('form_id', formSubmission.form_id)
-      .eq('tenant_id', tenantCtx.tenantId)
-      .single();
-
-    // Find initial stage
-    const workflowStages = ddConfig?.workflow_stages || [];
-    const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
-    const initialStatus = initialStage?.id || 'new';
-
-    // Create the DD submission record
-    const ddRecord = {
-      form_submission_id: formSubmissionId,
-      tenant_id: tenantCtx.tenantId,
-      application_uid: `DD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      original_form_values: submissionValues,
-      reviewed_form_values: submissionValues,
-      field_review_status: {},
-      workflow_status: initialStatus,
-      history_log: [{
-        timestamp: new Date().toISOString(),
-        event_type: 'submission_received',
-        user_email: 'System',
-        details: {
-          form_submission_id: formSubmissionId,
-          initial_status: initialStatus
-        }
-      }]
-    };
-
-    const { data: newRecord, error: insertError } = await supabase
-      .from('form_submission_due_diligence')
-      .insert(ddRecord)
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('[DD Init] Insert error:', insertError);
-      return res.status(500).json({ error: 'Failed to create due diligence record' });
+    const initialization = await initializeFormDueDiligence({
+      db: supabase,
+      submissionId: formSubmissionId,
+      tenantId: tenantCtx.tenantId,
+    });
+    if (!initialization.ok) {
+      console.error('[DD Init] Durable initialization failed:', initialization.error || initialization.code);
+      return res.status(500).json({ error: 'Failed to initialize due diligence record' });
     }
-
-    // Execute stage actions for the initial stage
-    let stageActionsResults = [];
-    const hasStageActions = initialStage && (initialStage.actions || initialStage.stage_actions);
-    if (hasStageActions) {
-      try {
-        const ddSubmissionData = {
-          ...newRecord,
-          form_submission_id: formSubmissionId,
-          form_id: formSubmission.form_id
-        };
-        const actionResults = await executeStageActions(
-          initialStatus,
-          ddSubmissionData,
-          tenantCtx.tenantId,
-          'system_init'
-        );
-        stageActionsResults = actionResults.stage_actions_results || [];
-        
-        if (stageActionsResults.length > 0) {
-          console.log('[DD Init] Initial stage actions executed:', stageActionsResults);
+    if (!initialization.claimed) {
+      if (initialization.code === 'ALREADY_COMPLETED') {
+        const { data: completedRecord } = await supabase
+          .from('form_submission_due_diligence')
+          .select('id')
+          .eq('form_submission_id', formSubmissionId)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .maybeSingle();
+        if (completedRecord) {
+          return res.status(200).json({
+            success: true,
+            id: completedRecord.id,
+            message: 'Due diligence record already exists',
+          });
         }
-      } catch (actionError) {
-        console.error('[DD Init] Error executing initial stage actions:', actionError);
       }
+      if (['FORM_NOT_ELIGIBLE', 'ANONYMOUS_SUBMISSION', 'NOT_PROSPECTIVELY_MARKED',
+        'PAYMENT_NOT_SUCCESSFUL', 'PAYMENT_LIFECYCLE_REQUIRES_MARKER'].includes(initialization.code)) {
+        return res.status(400).json({ error: 'Submission is not eligible for due diligence', code: initialization.code });
+      }
+      return res.status(409).json({
+        error: 'Due diligence initialization is already in progress or requires attention',
+        code: initialization.code,
+      });
     }
 
     return res.status(201).json({
       success: true,
-      id: newRecord.id,
+      id: initialization.ddRecordId,
       message: 'Due diligence record created',
-      stage_actions_results: stageActionsResults
+      stage_actions_results: initialization.stageActionsResults || []
     });
 
   } catch (error) {
