@@ -510,9 +510,10 @@ export async function checkCrossMemberPermissions(roleId) {
  * 
  * @param {string|null} roleId - The member's role_id
  * @param {string} resourceId - The feature/resource ID to check (e.g., 'admin.integrations', 'forms.form-management')
+ * @param {string[]} memberExcludedFeatures - Per-member exclusions applied in addition to role exclusions
  * @returns {Promise<boolean>} - True if the member has access to the feature
  */
-export async function hasFeatureAccess(roleId, resourceId) {
+export async function hasFeatureAccess(roleId, resourceId, memberExcludedFeatures = []) {
   if (!roleId || !supabase) {
     return false;
   }
@@ -528,7 +529,10 @@ export async function hasFeatureAccess(roleId, resourceId) {
       return false;
     }
     
-    const excludedFeatures = role.excluded_features || [];
+    const excludedFeatures = [
+      ...(Array.isArray(role.excluded_features) ? role.excluded_features : []),
+      ...(Array.isArray(memberExcludedFeatures) ? memberExcludedFeatures : []),
+    ];
     return !isResourceExcluded(excludedFeatures, resourceId);
   } catch (err) {
     console.error('Error checking feature access:', err);

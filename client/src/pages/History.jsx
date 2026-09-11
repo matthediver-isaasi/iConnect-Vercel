@@ -18,6 +18,50 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const ITEMS_PER_PAGE = 10;
 
+/**
+ * The history endpoint returns records from both membership ledgers. Keep the
+ * source on every row (including older responses which pre-date the source
+ * field) so rows from the same membership year never collide.
+ */
+export function getMembershipSource(record) {
+  if (record?.membership_source === 'personal') return 'personal';
+  if (record?.membership_source === 'organisation' || record?.membership_source === 'organization') {
+    return 'organisation';
+  }
+  return record?.organization_id ? 'organisation' : 'personal';
+}
+
+export function membershipRecordKey(record) {
+  return `${getMembershipSource(record)}:${record?.id || 'unknown'}`;
+}
+
+export function getAccountingInvoiceId(record) {
+  return record?.accounting_invoice_id || record?.xero_invoice_id || null;
+}
+
+export function getAccountingInvoiceNumber(record) {
+  return record?.accounting_invoice_number || record?.xero_invoice_number || null;
+}
+
+export function normalizeMembershipHistory(payload) {
+  if (!Array.isArray(payload)) {
+    throw new Error('Invalid membership history response');
+  }
+
+  return payload.map((record) => {
+    const source = getMembershipSource(record);
+    return {
+      ...record,
+      membership_source: source,
+      membership_source_label: membershipSourceLabel(source),
+    };
+  });
+}
+
+function membershipSourceLabel(source) {
+  return source === 'organisation' ? 'Organisation membership' : 'Personal membership';
+}
+
 export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   
@@ -28,6 +72,11 @@ export default function HistoryPage({ hasBanner }) {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  // These states must be declared before the member/organisation loading
+  // returns below. Keeping them here avoids changing hook order when context
+  // resolves from null to an authenticated member.
+  const [loadingMembershipInvoice, setLoadingMembershipInvoice] = useState(null);
+  const [loadingPurchaseInvoice, setLoadingPurchaseInvoice] = useState(null);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
@@ -135,17 +184,30 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 0,
   });
 
-  const { data: membershipHistory = [], isLoading: membershipHistoryLoading } = useQuery({
-    queryKey: ['membership-history', hasOrg ? organizationInfo.id : memberInfo?.id],
+  const {
+    data: membershipHistory = [],
+    isLoading: membershipHistoryLoading,
+    isError: membershipHistoryFailed,
+    refetch: retryMembershipHistory,
+  } = useQuery({
+    queryKey: [
+      'membership-history',
+      memberInfo?.tenant_id || memberInfo?.tenantId || null,
+      memberInfo?.id || null,
+      organizationInfo?.id || null,
+    ],
     queryFn: async () => {
       const response = await fetch('/api/membership/member-history', { credentials: 'include' });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to fetch membership history');
       }
-      return response.json();
+      return normalizeMembershipHistory(await response.json());
     },
-    enabled: !!memberInfo?.id,
+    // Wait for the organisation context when the member is linked. This
+    // prevents a transient null-organisation cache entry from racing the
+    // combined personal+organisation request.
+    enabled: !!memberInfo?.id && (!memberInfo?.organization_id || !!organizationInfo?.id),
     staleTime: 0,
     refetchOnMount: true,
     retry: false,
@@ -309,7 +371,18 @@ export default function HistoryPage({ hasBanner }) {
   const filteredMembershipHistory = useMemo(() => {
     return filterAndSortData(
       membershipHistory,
-      ['membership_year', 'tier_label', 'band_label', 'xero_invoice_number', 'purchase_order_number'],
+      [
+        'membership_year',
+        'tier_label',
+        'band_label',
+        'membership_source',
+        'membership_source_label',
+        'accounting_invoice_id',
+        'accounting_invoice_number',
+        'xero_invoice_id',
+        'xero_invoice_number',
+        'purchase_order_number',
+      ],
       'created_at'
     );
   }, [membershipHistory, searchQuery, sortOrder]);
@@ -350,6 +423,14 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || trainingFundPurchasesLoading || voucherTransactionsLoading));
+  const hasNonMembershipHistory = bookingGroups.length > 0
+    || (hasOrg && (
+      transactions.length > 0
+      || trainingFundTransactions.length > 0
+      || trainingFundPurchases.length > 0
+      || voucherTransactions.length > 0
+    ));
+  const hasAnyHistory = hasNonMembershipHistory || membershipHistory.length > 0;
 
   if (!memberInfo) {
     return (
@@ -532,9 +613,6 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const [loadingMembershipInvoice, setLoadingMembershipInvoice] = useState(null);
-  const [loadingPurchaseInvoice, setLoadingPurchaseInvoice] = useState(null);
-
   const handleViewPurchaseInvoice = async (purchaseId, invoiceNumber) => {
     setLoadingPurchaseInvoice(purchaseId);
 
@@ -596,11 +674,14 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const handleViewMembershipInvoice = async (recordId, invoiceNumber) => {
+  const handleViewMembershipInvoice = async (record, invoiceNumber) => {
+    const recordId = record?.id || record;
+    const source = getMembershipSource(record);
     setLoadingMembershipInvoice(recordId);
     
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+      const params = new URLSearchParams({ inline: 'true', source });
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
         credentials: 'include'
       });
       
@@ -624,11 +705,14 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const handleDownloadMembershipInvoice = async (recordId, invoiceNumber) => {
+  const handleDownloadMembershipInvoice = async (record, invoiceNumber) => {
+    const recordId = record?.id || record;
+    const source = getMembershipSource(record);
     setLoadingMembershipInvoice(recordId);
     
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+      const params = new URLSearchParams({ source });
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
         credentials: 'include'
       });
       
@@ -1221,7 +1305,12 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   const MembershipHistoryCard = ({ record }) => {
-    const hasInvoice = !!(record.xero_invoice_number || record.xero_invoice_id);
+    const membershipSource = getMembershipSource(record);
+    const invoiceId = getAccountingInvoiceId(record);
+    const invoiceNumber = getAccountingInvoiceNumber(record);
+    // A number alone is informational; only a provider invoice ID can be
+    // passed through to the PDF endpoint.
+    const hasInvoice = !!invoiceId;
     const transactionDate = record.created_at ? new Date(record.created_at) : null;
     const finalCost = parseFloat(record.final_cost || 0);
     const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : (record.vat_rate_percent != null ? parseFloat(record.vat_rate_percent) : 0);
@@ -1229,7 +1318,11 @@ export default function HistoryPage({ hasBanner }) {
     const totalAmount = record.total_with_vat != null ? parseFloat(record.total_with_vat) : (finalCost + vatAmount);
 
     return (
-      <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+      <div
+        className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200"
+        data-testid={`membership-history-card-${membershipSource}-${record.id}`}
+        data-membership-source={membershipSource}
+      >
         <div className="flex items-start gap-3 sm:gap-4">
           <TransactionDateColumn date={transactionDate} />
           
@@ -1242,7 +1335,7 @@ export default function HistoryPage({ hasBanner }) {
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h3 className="font-semibold text-slate-900">Membership {record.membership_year}</h3>
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
-                Membership
+                {membershipSourceLabel(membershipSource)}
               </Badge>
               {record.payment_method && (
                 <Badge variant="outline" className="text-xs">
@@ -1266,9 +1359,9 @@ export default function HistoryPage({ hasBanner }) {
                   PO: {record.purchase_order_number}
                 </p>
               )}
-              {hasInvoice && record.xero_invoice_number && (
+              {invoiceNumber && (
                 <p className="text-xs text-slate-500">
-                  Invoice: {record.xero_invoice_number}
+                  Invoice: {invoiceNumber}
                 </p>
               )}
             </div>
@@ -1286,9 +1379,9 @@ export default function HistoryPage({ hasBanner }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => handleViewMembershipInvoice(record.id, record.xero_invoice_number || record.id)}
+              onClick={() => handleViewMembershipInvoice(record, invoiceNumber || record.id)}
               disabled={loadingMembershipInvoice === record.id}
-              data-testid={`button-view-membership-invoice-${record.id}`}
+              data-testid={`button-view-membership-invoice-${membershipSource}-${record.id}`}
             >
               {loadingMembershipInvoice === record.id ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1302,9 +1395,9 @@ export default function HistoryPage({ hasBanner }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => handleDownloadMembershipInvoice(record.id, record.xero_invoice_number || record.id)}
+              onClick={() => handleDownloadMembershipInvoice(record, invoiceNumber || record.id)}
               disabled={loadingMembershipInvoice === record.id}
-              data-testid={`button-download-membership-invoice-${record.id}`}
+              data-testid={`button-download-membership-invoice-${membershipSource}-${record.id}`}
             >
               {loadingMembershipInvoice === record.id ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1382,6 +1475,29 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
+  const MembershipHistoryErrorCard = ({ location }) => (
+    <div
+      className="text-center py-8 px-4 border border-red-200 bg-red-50 rounded-lg"
+      role="alert"
+      data-testid={`membership-history-error-${location}`}
+    >
+      <Crown className="w-12 h-12 text-red-300 mx-auto mb-3" />
+      <p className="font-medium text-red-900">Membership history could not be loaded</p>
+      <p className="text-sm text-red-700 mt-1">
+        Other transaction types remain available when present. Please try again.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => retryMembershipHistory()}
+        data-testid={`button-retry-membership-history-${location}`}
+      >
+        Retry
+      </Button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       {showTour && shouldShowTours &&
@@ -1406,7 +1522,7 @@ export default function HistoryPage({ hasBanner }) {
               <TourButton onClick={handleStartTour} />
               }
             </div>
-            <p className="text-slate-600">View your organisation's transaction history
+            <p className="text-slate-600">View your transaction and membership history
             </p>
           </div>
         )}
@@ -1419,7 +1535,7 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (bookingGroups.length === 0 && membershipHistory.length === 0 && (!hasOrg || (transactions.length === 0 && trainingFundTransactions.length === 0 && trainingFundPurchases.length === 0 && voucherTransactions.length === 0))) ? (
+            ) : (!hasAnyHistory && !membershipHistoryFailed) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
@@ -1456,6 +1572,10 @@ export default function HistoryPage({ hasBanner }) {
 
                 {/* All Transactions Tab */}
                 <TabsContent value="all" className="space-y-6">
+                  {membershipHistoryFailed && (
+                    <MembershipHistoryErrorCard location="overview" />
+                  )}
+
                   {/* Standard Ticket Purchases Section */}
                   {filteredBookingGroups.length > 0 && (
                     <div className="space-y-3">
@@ -1597,7 +1717,7 @@ export default function HistoryPage({ hasBanner }) {
                       </h3>
                       {filteredMembershipHistory.slice(0, 5).map((record) => (
                         <MembershipHistoryCard
-                          key={record.id}
+                          key={membershipRecordKey(record)}
                           record={record}
                         />
                       ))}
@@ -1617,6 +1737,7 @@ export default function HistoryPage({ hasBanner }) {
                   {filteredBookingGroups.length === 0 && 
                    filteredMembershipHistory.length === 0 &&
                    (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 && filteredVoucherTransactions.length === 0)) &&
+                   !membershipHistoryFailed &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">
                       <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1773,6 +1894,9 @@ export default function HistoryPage({ hasBanner }) {
                 <TabsContent value="membership" className="space-y-3">
                   {(() => {
                     const pagination = paginateData(filteredMembershipHistory);
+                    if (membershipHistoryFailed) {
+                      return <MembershipHistoryErrorCard location="tab" />;
+                    }
                     return filteredMembershipHistory.length === 0 ? (
                       <div className="text-center py-8">
                         <Crown className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1789,7 +1913,7 @@ export default function HistoryPage({ hasBanner }) {
                       <>
                         {pagination.items.map((record) => (
                           <MembershipHistoryCard
-                            key={record.id}
+                            key={membershipRecordKey(record)}
                             record={record}
                           />
                         ))}
