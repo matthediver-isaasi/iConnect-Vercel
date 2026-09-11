@@ -87,7 +87,7 @@ export function isDefinitiveInvoiceCreateRejection(error) {
     && ![408, 409, 429].includes(statusCode);
 }
 
-export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null }) {
+export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null }, deps = {}) {
   const meta = (submission?.payment_meta && typeof submission.payment_meta === 'object')
     ? submission.payment_meta : {};
   const membership = meta.membership;
@@ -196,10 +196,13 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         patch: {
           invoice_state: 'done',
           invoice_number: historyRow.accounting_invoice_number || historyRow.xero_invoice_number || null,
-          ...(isStripe ? { settlement_state: states.settlement_state === 'blocked' ? 'blocked' : 'pending' } : {}),
+          accounting_error: null,
+          ...(isStripe ? { settlement_state: states.settlement_state === 'waiting_invoice'
+            ? 'pending' : (states.settlement_state || 'pending') } : {}),
         },
       });
       if (!recoveredLink.updated) throw new Error('linked invoice progress changed concurrently');
+      states = recoveredLink.result;
     }
     // Prior attempt flagged failed on the row → leave to admin retry surface.
     if (invoiceState === 'pending' && historyRow.accounting_sync_status === 'failed') {
@@ -218,8 +221,8 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       try {
         const { getAccountingProvider, getAccountingProviderByName } = await import('./accountingProvider.js');
         invoiceProvider = states.accounting_provider
-          ? getAccountingProviderByName(states.accounting_provider)
-          : await getAccountingProvider(tenantId);
+          ? (deps.getAccountingProviderByName || getAccountingProviderByName)(states.accounting_provider)
+          : await (deps.getAccountingProvider || getAccountingProvider)(tenantId);
         if (isStripe) {
           const tokenSummary = await invoiceProvider.getRawAccessToken(tenantId);
           const currentContext = accountingProviderContext(invoiceProvider.name, tokenSummary);
@@ -243,7 +246,13 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             ...(isStripe ? { provider_context: pinnedProviderContext } : {}),
           },
         });
-        if (claim.updated) invoiceState = 'processing';
+        if (claim.updated) {
+          invoiceState = 'processing';
+        } else {
+          // A losing caller must not use its locally generated claim timestamp.
+          invoiceClaimedAt = null;
+          invoiceState = claim.result?.invoice_state || invoiceState;
+        }
       } catch (providerPrepError) {
         accountingSyncError = String(providerPrepError?.message || providerPrepError);
         invoiceState = invoiceAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
@@ -272,7 +281,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
 
     if (invoiceState === 'processing' && invoiceClaimedAt) {
       try {
-        const config = await getConfigByIdDirect(tenantId, quote.config_id);
+        const config = await (deps.getConfigByIdDirect || getConfigByIdDirect)(tenantId, quote.config_id);
         let invoiceName;
         let invoicingEmail;
         let invoicingAddress;
@@ -321,10 +330,10 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           ...(isStripe && paymentRef ? { stripePaymentIntentId: paymentRef } : {}),
           invoiceDescription: quote.invoice_description || null,
         });
+        const resultProviderContext = invoiceResult?.providerContext
+          || invoiceResult?.raw?.provider_context
+          || null;
         if (invoiceResult?.invoice_id) {
-          const resultProviderContext = invoiceResult.providerContext
-            || invoiceResult.raw?.provider_context
-            || null;
           if (isStripe && !accountingProviderContextsEqual(resultProviderContext, pinnedProviderContext)) {
             throw new Error('Accounting invoice was returned from an unexpected provider company context');
           }
@@ -352,10 +361,12 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             invoice_number: invoiceResult?.invoice_number || null,
             accounting_provider: invoiceResult?.provider || provider.name,
             provider_context: resultProviderContext,
+            accounting_error: null,
             ...(isStripe ? { settlement_state: 'pending' } : {}),
           },
         });
         if (!linkedProgress.updated) throw new Error('invoice progress changed before linkage could be recorded');
+        states = linkedProgress.result;
       } catch (invoiceErr) {
         accountingSyncError = invoiceErr?.message || String(invoiceErr) || 'Unknown accounting provider error';
         console.error(`[formMembershipFinalize] Accounting invoice failed for submission ${submission.id}:`, invoiceErr);
@@ -405,7 +416,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       && (Date.now() - new Date(states.invoice_claimed_at).getTime()) > WORKFLOW_CLAIM_TTL_MS;
     if (staleInvoiceCreation) {
       try {
-        settlementResult = await settleFormStripeInvoice({
+        settlementResult = await (deps.settleFormStripeInvoice || settleFormStripeInvoice)({
           supabase,
           submissionId: submission.id,
           tenantId,
@@ -434,7 +445,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         && states.settlement_state !== 'done'
         && states.settlement_state !== 'blocked') {
       try {
-        settlementResult = await settleFormStripeInvoice({
+        settlementResult = await (deps.settleFormStripeInvoice || settleFormStripeInvoice)({
           supabase,
           submissionId: submission.id,
           tenantId,
@@ -477,7 +488,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       if (claim.claimed) {
         try {
           const { fireWorkflowForPaidRow } = await import('./membershipPaymentReconciliation.js');
-          await fireWorkflowForPaidRow({
+          await (deps.fireWorkflowForPaidRow || fireWorkflowForPaidRow)({
             table: historyTable,
             row: historyRow,
             snapshot: { paidAt: historyRow.paid_at || new Date().toISOString() },

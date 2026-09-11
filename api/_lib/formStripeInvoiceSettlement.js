@@ -184,6 +184,23 @@ export async function settleFormStripeInvoice({
         processing_notes: `Payment remains paid, but accounting invoice settlement needs attention: ${String(errorMessage).slice(0, 1000)}. Do not charge the applicant again.`,
       }).eq('id', submission.id).eq('tenant_id', tenantId);
       if (noteError) throw new Error(`persist settlement processing note failed: ${noteError.message}`);
+    } else {
+      // Clear only our own stale diagnostic, and only if no other writer has
+      // replaced it since this verified settlement began.
+      const note = submission.processing_notes;
+      const ownedNote = typeof note === 'string' && [
+        'Payment succeeded and the membership was created, but accounting provider preparation failed:',
+        'Payment succeeded and the membership was created, but the accounting invoice step failed:',
+        'Payment succeeded and the membership was created, but the accounting invoice creation outcome needs review:',
+        'Payment succeeded and the membership was created, but accounting invoice settlement did not complete:',
+        'Payment remains paid, but accounting invoice settlement needs attention:',
+      ].some((prefix) => note.startsWith(prefix));
+      if (ownedNote) {
+        const { error: noteError } = await supabase.from('form_submission')
+          .update({ processing_notes: null })
+          .eq('id', submission.id).eq('tenant_id', tenantId).eq('processing_notes', note);
+        if (noteError) throw new Error(`clear settlement processing note failed: ${noteError.message}`);
+      }
     }
   };
   if (!submission.payment_reference) throw new Error('Stripe PaymentIntent linkage not found');
@@ -472,6 +489,7 @@ export async function settleFormStripeInvoice({
         payment_state: normalized.payment_recorded ? 'done' : (progress.payment_state || 'pending'),
         annotation_state: normalized.annotation_recorded ? 'done' : (progress.annotation_state || 'pending'),
         settlement_error: normalized.error ? String(normalized.error).slice(0, 1000) : null,
+        ...(finalState === 'done' ? { accounting_error: null } : {}),
         settlement_account: normalized.account,
         invoice_balance: normalized.balance,
       },
