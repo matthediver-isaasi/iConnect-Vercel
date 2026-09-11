@@ -1,10 +1,7 @@
 import { supabase } from './database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantContext.js';
-import { isResourceExcluded } from './roleVisibility.js';
 import { CustomObjectHttpError, createCustomObjectService } from './customObjectService.js';
-
-const VIEW_SCHEMA_FEATURE = 'admin.data-studio';
-const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
+import { resolveTrustedSchemaCapabilities } from './customObjectSchemaAccess.js';
 
 function schemaAccessRequired(level, resource, method) {
   if ([
@@ -68,16 +65,10 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         || supportsRecordGrantFallback(level, resource, req.method);
       // Schema access follows the role editor exactly. A portal member's broad
       // admin capability must not override an explicit schema exclusion.
-      const override = Boolean(context.tenantUserId);
-      let canViewSchema = override;
-      let canManageSchema = override;
-      if (resolveSchemaAccess && !override && context.roleId) {
-        const memberExclusions = context.memberExcludedFeatures || [];
-        canViewSchema = Boolean(await featureCheck(context.roleId, VIEW_SCHEMA_FEATURE))
-          && !isResourceExcluded(memberExclusions, VIEW_SCHEMA_FEATURE);
-        canManageSchema = Boolean(await featureCheck(context.roleId, MANAGE_SCHEMA_FEATURE))
-          && !isResourceExcluded(memberExclusions, MANAGE_SCHEMA_FEATURE);
-      }
+      const { canViewSchema, canManageSchema } = await resolveTrustedSchemaCapabilities(
+        context,
+        { hasFeatureAccess: featureCheck, enabled: Boolean(resolveSchemaAccess) },
+      );
       if (
         (requiredAccess === 'view' && !canViewSchema)
         || (requiredAccess === 'manage' && !canManageSchema)

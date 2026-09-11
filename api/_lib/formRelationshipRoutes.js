@@ -1,5 +1,5 @@
 import { supabase } from './database.js';
-import { getTenantContext, hasAdminAccess } from './tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantContext.js';
 import { resolveTenantFromRequest } from './tenantResolver.js';
 import { resolveFormAccess, sendFormAccessDenied } from './formAccessPolicy.js';
 import { isFormScheduleAvailable } from './formAvailability.js';
@@ -18,6 +18,7 @@ import {
   requiresAssignmentLink,
 } from './surveyAssignment.js';
 import { activeVersionNumber } from './surveyScoring.js';
+import { resolveTrustedSchemaCapabilities } from './customObjectSchemaAccess.js';
 
 function failure(res, error) {
   const status = error instanceof FormRelationshipError ? error.status : 500;
@@ -30,6 +31,7 @@ export function createFormRelationshipDiscoveryHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
   const contextResolver = dependencies.getTenantContext || getTenantContext;
   const adminCheck = dependencies.hasAdminAccess || hasAdminAccess;
+  const featureCheck = dependencies.hasFeatureAccess || hasFeatureAccess;
   const serviceFactory = dependencies.createService || createFormRelationshipService;
   return async function handler(req, res) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -40,11 +42,15 @@ export function createFormRelationshipDiscoveryHandler(dependencies = {}) {
         throw new FormRelationshipError(401, 'Authentication required');
       }
       if (!await adminCheck(context)) throw new FormRelationshipError(403, 'Admin access required');
+      const schemaCapabilities = await resolveTrustedSchemaCapabilities(context, {
+        hasFeatureAccess: featureCheck,
+      });
       const service = serviceFactory({ db, tenantId: context.tenantId });
-       return res.status(200).json(await service.eligibleDefinitions(req.query.formId, {
-         isTenantUser: Boolean(context.tenantUserId),
-         roleId: context.roleId || null,
-       }));
+      return res.status(200).json(await service.eligibleDefinitions(req.query.formId, {
+        isTenantUser: Boolean(context.tenantUserId),
+        roleId: context.roleId || null,
+        ...schemaCapabilities,
+      }));
     } catch (error) {
       return failure(res, error);
     }

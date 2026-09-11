@@ -156,8 +156,7 @@ export function createFormRelationshipService({ db, tenantId }) {
     await loadForm({ formId }); const { data, error } = await db.from('custom_object_relationship_definition').select('*').eq('tenant_id', tenantId).eq('status', 'active').order('relationship_key', { ascending: true }).order('id', { ascending: true }); throwDb(error);
     const sides = (data || []).filter(d => !d.archived_at).flatMap(d => ['source', 'target'].map(side => ({ d, side, parent: endpoint(d, side), related: endpoint(d, side === 'source' ? 'target' : 'source') }))).filter(x => x.parent && x.related && x.d[`show_on_${x.side}`] !== false);
     const ids = [...new Set(sides.flatMap(x => [x.parent, x.related]).filter(x => x.kind === 'custom_object').map(x => x.custom_object_id))];
-    const objects = new Map(); if (ids.length) { const { data: rows, error: e } = await db.from('custom_object_definition').select('id, object_key, singular_label, plural_label, primary_display_field_id, status').eq('tenant_id', tenantId).eq('status', 'active').in('id', ids); throwDb(e); (rows || []).forEach(x => objects.set(x.id, x)); }
-    const relationships = sides.map(x => publicDefinition(x.d, x.side, objects)).filter(Boolean).filter(x => x.parent.kind !== 'member');
+    const objects = new Map(); if (ids.length) { const { data: rows, error: e } = await db.from('custom_object_definition').select('id, object_key, singular_label, plural_label, primary_display_field_id, status, archived_at').eq('tenant_id', tenantId).eq('status', 'active').in('id', ids); throwDb(e); (rows || []).forEach(x => objects.set(x.id, x)); }
     const { data: allObjects, error: objectError } = await db.from('custom_object_definition')
       .select('id, object_key, singular_label, plural_label, primary_display_field_id, status, archived_at')
       .eq('tenant_id', tenantId).eq('status', 'active')
@@ -195,48 +194,60 @@ export function createFormRelationshipService({ db, tenantId }) {
         })),
       };
     }).filter(Boolean);
-    let visibleRelationships = relationships;
+    let visibleObjectIds = new Set(customObjects.map(object => String(object.id)));
     if (authorAccess && !authorAccess.isTenantUser) {
-      if (!authorAccess.roleId || objectIds.length === 0) {
-        customObjects = [];
-        visibleRelationships = relationships.filter(item => (
-          item.parent.kind !== 'custom_object' && item.related.kind !== 'custom_object'
-        ));
-      } else {
-        const { data: grants, error: grantError } = await db.from('custom_object_role_permission')
-          .select('custom_object_id').eq('tenant_id', tenantId)
-          .eq('role_id', authorAccess.roleId).eq('can_view_records', true)
-          .in('custom_object_id', objectIds);
-        throwDb(grantError);
-        const grantedObjects = new Set((grants || []).map(item => String(item.custom_object_id)));
-        const visibleObjectIds = customObjects.map(item => item.id)
-          .filter(objectId => grantedObjects.has(String(objectId)));
-        const { data: denied, error: deniedError } = visibleObjectIds.length
-          ? await db.from('custom_object_field_role_permission')
-            .select('custom_object_id, field_id, access_level')
-            .eq('tenant_id', tenantId).eq('role_id', authorAccess.roleId)
-            .eq('access_level', 'none').in('custom_object_id', visibleObjectIds)
-          : { data: [], error: null };
-        throwDb(deniedError);
-        const deniedKeys = new Set((denied || [])
-          .map(item => `${item.custom_object_id}:${item.field_id}`));
-        customObjects = customObjects.filter(object => grantedObjects.has(String(object.id)))
-          .map(object => ({
-            ...object,
-            fields: object.fields.filter(field => !deniedKeys.has(`${object.id}:${field.id}`)),
-          }))
-          .filter(object => object.fields.some(field => (
-            String(field.id) === String(object.primary_display_field_id)
-          )));
-        const accessible = new Set(customObjects.map(object => String(object.id)));
-        visibleRelationships = relationships.filter(item => (
-          (item.parent.kind !== 'custom_object'
-            || accessible.has(String(item.parent.custom_object_id)))
-          && (item.related.kind !== 'custom_object'
-            || accessible.has(String(item.related.custom_object_id)))
-        ));
+      const schemaAccess = Boolean(authorAccess.canViewSchema || authorAccess.canManageSchema);
+      if (!schemaAccess) {
+        if (!authorAccess.roleId || objectIds.length === 0) {
+          visibleObjectIds = new Set();
+        } else {
+          const { data: grants, error: grantError } = await db.from('custom_object_role_permission')
+            .select('custom_object_id').eq('tenant_id', tenantId)
+            .eq('role_id', authorAccess.roleId).eq('can_view_records', true)
+            .in('custom_object_id', objectIds);
+          throwDb(grantError);
+          visibleObjectIds = new Set((grants || []).map(item => String(item.custom_object_id)));
+        }
+        customObjects = customObjects.filter(object => visibleObjectIds.has(String(object.id)));
       }
+
+      // Schema access is publication metadata access, not record access. Even
+      // when it removes the object-level grant requirement, explicit field
+      // denials still apply so authors cannot publish a hidden display/filter
+      // field in a form.
+      const deniedObjectIds = [...visibleObjectIds];
+      const { data: denied, error: deniedError } = authorAccess.roleId && deniedObjectIds.length
+        ? await db.from('custom_object_field_role_permission')
+          .select('custom_object_id, field_id, access_level')
+          .eq('tenant_id', tenantId).eq('role_id', authorAccess.roleId)
+          .eq('access_level', 'none').in('custom_object_id', deniedObjectIds)
+        : { data: [], error: null };
+      throwDb(deniedError);
+      const deniedKeys = new Set((denied || [])
+        .map(item => `${item.custom_object_id}:${item.field_id}`));
+      customObjects = customObjects
+        .map(object => ({
+          ...object,
+          fields: object.fields.filter(field => !deniedKeys.has(`${object.id}:${field.id}`)),
+        }))
+        .filter(object => object.fields.some(field => (
+          String(field.id) === String(object.primary_display_field_id)
+        )));
+      visibleObjectIds = new Set(customObjects.map(object => String(object.id)));
     }
+    const relationshipObjects = new Map(
+      [...objects.entries()].filter(([id, object]) => (
+        !object.archived_at && visibleObjectIds.has(String(id))
+      )),
+    );
+    const relationships = sides.map(x => publicDefinition(x.d, x.side, relationshipObjects))
+      .filter(Boolean).filter(x => x.parent.kind !== 'member');
+    const visibleRelationships = relationships.filter(item => (
+      (item.parent.kind !== 'custom_object'
+        || visibleObjectIds.has(String(item.parent.custom_object_id)))
+      && (item.related.kind !== 'custom_object'
+        || visibleObjectIds.has(String(item.related.custom_object_id)))
+    ));
     return { data: visibleRelationships, custom_objects: customObjects };
   }
   async function loadEndpoint(kind, id, objectId) {

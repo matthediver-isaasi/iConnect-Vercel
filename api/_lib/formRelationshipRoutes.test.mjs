@@ -14,6 +14,61 @@ function response() {
   };
 }
 
+function discoveryDb(seed) {
+  const tables = structuredClone(seed);
+  const calls = [];
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.orders = [];
+    }
+    select(projection) {
+      this.projection = projection;
+      calls.push({ table: this.table, operation: 'select' });
+      return this;
+    }
+    eq(column, value) {
+      this.filters.push(row => row[column] === value);
+      return this;
+    }
+    in(column, values) {
+      this.filters.push(row => values.includes(row[column]));
+      return this;
+    }
+    order(column, { ascending = true } = {}) {
+      this.orders.push({ column, ascending });
+      return this;
+    }
+    execute() {
+      const rows = (tables[this.table] || []).filter(row => this.filters.every(filter => filter(row)));
+      rows.sort((left, right) => {
+        for (const order of this.orders) {
+          if (left[order.column] === right[order.column]) continue;
+          const result = left[order.column] < right[order.column] ? -1 : 1;
+          return order.ascending ? result : -result;
+        }
+        return 0;
+      });
+      return { data: structuredClone(rows), error: null };
+    }
+    async maybeSingle() {
+      const result = this.execute();
+      return { ...result, data: result.data[0] || null };
+    }
+    then(resolve, reject) {
+      return Promise.resolve(this.execute()).then(resolve, reject);
+    }
+  }
+  return {
+    calls,
+    from(table) {
+      calls.push({ table, operation: 'from' });
+      return new Query(table);
+    },
+  };
+}
+
 function surveyDb({ assignments = [], assignment = null, snapshot = null, snapshotError = null } = {}) {
   const calls = [];
   return {
@@ -46,12 +101,18 @@ test('discovery handler requires an authenticated administrator and form scope',
       roleId: 'role-1',
     }),
     hasAdminAccess: async () => true,
+    hasFeatureAccess: async () => false,
     createService: ({ tenantId }) => ({
       eligibleDefinitions: async (formId, authorAccess) => {
         dispatched = true;
         assert.equal(tenantId, 'tenant-1');
         assert.equal(formId, 'form-1');
-        assert.deepEqual(authorAccess, { isTenantUser: false, roleId: 'role-1' });
+        assert.deepEqual(authorAccess, {
+          isTenantUser: false,
+          roleId: 'role-1',
+          canViewSchema: false,
+          canManageSchema: false,
+        });
         return { data: [{ id: 'definition-1' }] };
       },
     }),
@@ -67,6 +128,240 @@ test('discovery handler requires an authenticated administrator and form scope',
     getTenantContext: async () => ({ isAuthenticated: false }),
   })({ method: 'GET', query: {} }, denied);
   assert.equal(denied.statusCode, 401);
+});
+
+test('discovery route resolves trusted schema access before the real service and filters publication metadata', async () => {
+  const seed = {
+    form: [
+      { id: 'form-1', tenant_id: 'tenant-1', is_active: true },
+      { id: 'foreign-form', tenant_id: 'tenant-2', is_active: true },
+    ],
+    custom_object_relationship_definition: [
+      {
+        id: 'organization-object',
+        tenant_id: 'tenant-1',
+        relationship_key: 'organization_object',
+        status: 'active',
+        source_kind: 'organization',
+        source_custom_object_id: null,
+        target_kind: 'custom_object',
+        target_custom_object_id: 'object-1',
+        show_on_source: true,
+        show_on_target: true,
+        source_label: 'Object',
+        target_label: 'Organization',
+      },
+      {
+        id: 'object-object',
+        tenant_id: 'tenant-1',
+        relationship_key: 'object_object',
+        status: 'active',
+        source_kind: 'custom_object',
+        source_custom_object_id: 'object-1',
+        target_kind: 'custom_object',
+        target_custom_object_id: 'object-2',
+        show_on_source: true,
+        show_on_target: true,
+        source_label: 'Object 2',
+        target_label: 'Object 1',
+      },
+    ],
+    custom_object_definition: [
+      {
+        id: 'object-1',
+        tenant_id: 'tenant-1',
+        object_key: 'object_one',
+        singular_label: 'Object One',
+        plural_label: 'Object Ones',
+        primary_display_field_id: 'object-1-primary',
+        status: 'active',
+        archived_at: null,
+      },
+      {
+        id: 'object-2',
+        tenant_id: 'tenant-1',
+        object_key: 'object_two',
+        singular_label: 'Object Two',
+        plural_label: 'Object Twos',
+        primary_display_field_id: 'object-2-primary',
+        status: 'active',
+        archived_at: null,
+      },
+      {
+        id: 'standalone-object',
+        tenant_id: 'tenant-1',
+        object_key: 'standalone',
+        singular_label: 'Standalone',
+        plural_label: 'Standalone Objects',
+        primary_display_field_id: 'standalone-primary',
+        status: 'active',
+        archived_at: null,
+      },
+    ],
+    preference_field: [
+      {
+        id: 'object-1-primary', tenant_id: 'tenant-1', custom_object_id: 'object-1',
+        entity_scope: 'custom_object', is_active: true, name: 'name', label: 'Name',
+        field_type: 'text',
+      },
+      {
+        id: 'object-1-filter', tenant_id: 'tenant-1', custom_object_id: 'object-1',
+        entity_scope: 'custom_object', is_active: true, name: 'filter', label: 'Filter',
+        field_type: 'text',
+      },
+      {
+        id: 'object-2-primary', tenant_id: 'tenant-1', custom_object_id: 'object-2',
+        entity_scope: 'custom_object', is_active: true, name: 'name', label: 'Name',
+        field_type: 'text',
+      },
+      {
+        id: 'standalone-primary', tenant_id: 'tenant-1', custom_object_id: 'standalone-object',
+        entity_scope: 'custom_object', is_active: true, name: 'name', label: 'Name',
+        field_type: 'text',
+      },
+    ],
+    custom_object_role_permission: [{
+      tenant_id: 'tenant-1',
+      custom_object_id: 'object-1',
+      role_id: 'restricted-author',
+      can_view_records: true,
+    }],
+    custom_object_field_role_permission: [
+      {
+        tenant_id: 'tenant-1', custom_object_id: 'object-1', role_id: 'schema-author',
+        field_id: 'object-1-filter', access_level: 'none',
+      },
+      {
+        tenant_id: 'tenant-1', custom_object_id: 'object-2', role_id: 'schema-author',
+        field_id: 'object-2-primary', access_level: 'none',
+      },
+      {
+        tenant_id: 'tenant-1', custom_object_id: 'object-1', role_id: 'restricted-author',
+        field_id: 'object-1-filter', access_level: 'none',
+      },
+      {
+        tenant_id: 'tenant-1', custom_object_id: 'object-1', role_id: 'primary-denied-author',
+        field_id: 'object-1-primary', access_level: 'none',
+      },
+    ],
+  };
+  const featureAccess = async (roleId, feature) => (
+    (roleId === 'schema-author' && feature === 'admin.data-studio')
+    || (roleId === 'schema-manager' && feature === 'data.custom-objects.manage-data-model')
+    || (roleId === 'primary-denied-author' && feature === 'admin.data-studio')
+  );
+  async function invoke(context, query = { formId: 'form-1' }, admin = true) {
+    const db = discoveryDb(seed);
+    const handler = createFormRelationshipDiscoveryHandler({
+      db,
+      getTenantContext: async () => context,
+      hasAdminAccess: async () => admin,
+      hasFeatureAccess: featureAccess,
+    });
+    const res = response();
+    await handler({ method: 'GET', query }, res);
+    return { db, res };
+  }
+
+  const schemaAuthor = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'schema-author',
+  });
+  assert.equal(schemaAuthor.res.statusCode, 200);
+  assert.deepEqual(schemaAuthor.res.payload.custom_objects.map(object => object.id), [
+    'object-1', 'standalone-object',
+  ]);
+  assert.deepEqual(
+    schemaAuthor.res.payload.custom_objects.find(object => object.id === 'object-1').fields
+      .map(field => field.id),
+    ['object-1-primary'],
+  );
+  assert.deepEqual(schemaAuthor.res.payload.data.map(item => item.discovery_key).sort(), [
+    'organization-object:source', 'organization-object:target',
+  ]);
+  assert.equal(
+    schemaAuthor.db.calls.some(call => call.table === 'custom_object_role_permission'),
+    false,
+  );
+
+  const schemaManager = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'schema-manager',
+  });
+  assert.equal(schemaManager.res.statusCode, 200);
+  assert.deepEqual(schemaManager.res.payload.custom_objects.map(object => object.id), [
+    'object-1', 'object-2', 'standalone-object',
+  ]);
+
+  const restrictedAuthor = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'restricted-author',
+  });
+  assert.equal(restrictedAuthor.res.statusCode, 200);
+  assert.deepEqual(restrictedAuthor.res.payload.custom_objects.map(object => object.id), ['object-1']);
+  assert.deepEqual(restrictedAuthor.res.payload.data.map(item => item.discovery_key).sort(), [
+    'organization-object:source', 'organization-object:target',
+  ]);
+
+  const noSchema = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'no-schema-author',
+  });
+  assert.equal(noSchema.res.statusCode, 200);
+  assert.deepEqual(noSchema.res.payload.custom_objects, []);
+  assert.deepEqual(noSchema.res.payload.data, []);
+
+  const memberExclusion = await invoke({
+    isAuthenticated: true,
+    tenantId: 'tenant-1',
+    roleId: 'schema-author',
+    memberExcludedFeatures: ['admin.data-studio'],
+  });
+  assert.equal(memberExclusion.res.statusCode, 200);
+  assert.deepEqual(memberExclusion.res.payload.custom_objects, []);
+
+  const primaryDenied = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'primary-denied-author',
+  });
+  assert.equal(primaryDenied.res.statusCode, 200);
+  assert.deepEqual(primaryDenied.res.payload.custom_objects.map(object => object.id), [
+    'object-2', 'standalone-object',
+  ]);
+  assert.deepEqual(primaryDenied.res.payload.data, []);
+
+  const spoofed = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'no-schema-author',
+  }, {
+    formId: 'form-1',
+    canViewSchema: 'true',
+    canManageSchema: 'true',
+    isTenantUser: 'true',
+  });
+  assert.equal(spoofed.res.statusCode, 200);
+  assert.deepEqual(spoofed.res.payload.custom_objects, []);
+
+  const tenantUser = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', tenantUserId: 'tenant-user-1',
+  });
+  assert.equal(tenantUser.res.statusCode, 200);
+  assert.deepEqual(tenantUser.res.payload.custom_objects.map(object => object.id), [
+    'object-1', 'object-2', 'standalone-object',
+  ]);
+  assert.deepEqual(
+    tenantUser.res.payload.custom_objects.find(object => object.id === 'object-1').fields
+      .map(field => field.id),
+    ['object-1-filter', 'object-1-primary'],
+  );
+  assert.deepEqual(tenantUser.res.payload.data.map(item => item.discovery_key).sort(), [
+    'object-object:source', 'object-object:target',
+    'organization-object:source', 'organization-object:target',
+  ]);
+
+  const foreignForm = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'schema-author',
+  }, { formId: 'foreign-form' });
+  assert.equal(foreignForm.res.statusCode, 404);
+
+  const schemaCannotBypassAdmin = await invoke({
+    isAuthenticated: true, tenantId: 'tenant-1', roleId: 'schema-author',
+  }, { formId: 'form-1' }, false);
+  assert.equal(schemaCannotBypassAdmin.res.statusCode, 403);
 });
 
 test('public options handler checks saved active form access before option dispatch', async () => {
