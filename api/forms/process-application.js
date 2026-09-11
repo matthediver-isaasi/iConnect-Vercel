@@ -28,6 +28,7 @@ import {
 } from '../_lib/formCommunicationSubscriptions.js';
 import {
   assertStructuredMutationAuthorized,
+  preflightPersistedStructuredMemberOrganizationGroups,
   processPersistedStructuredActions,
   processPrimaryPipelineRelatedRecords,
   StructuredActionAuthorizationError,
@@ -63,6 +64,13 @@ import {
   singlePersistedCreationId,
 } from '../_lib/formEntityCreationProvenance.js';
 import { validateStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
+import {
+  collectMemberOrganizationGroupAssignments,
+  resolveMemberOrganizationGroupSelection,
+  validateMemberOrganizationGroupAssignments,
+  validateMemberOrganizationGroupWrite,
+  MemberOrganizationGroupValidationError,
+} from '../_lib/formMemberOrganizationGroup.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -842,7 +850,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
       supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
-      supabase.from('form').select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
+      supabase.from('form').select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, structured_actions, default_member_role_id')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
     ]);
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
@@ -1058,6 +1066,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       allowPersistedCustomObjectCreates: trustedInternal,
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
+
     const hasStripeAddressMappingWork = !!(
       persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
     );
@@ -1092,6 +1101,87 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           },
         });
       }
+    }
+
+    // Direct member Organisation Group references are a persisted-form
+    // contract, not a request-side instruction. Validate every configured
+    // member pipeline/legacy mapping after the completed Stripe-address
+    // shortcut, but before the Stripe lease, structured actions, or any
+    // entity write can start. This keeps an already-completed paid retry
+    // independent of later form-configuration drift.
+    let memberOrganizationGroupAssignments = [];
+    try {
+      memberOrganizationGroupAssignments = collectMemberOrganizationGroupAssignments({
+        fields,
+        fieldMappings: field_mappings,
+        entityPipelines: entity_pipelines,
+        additionalMemberCreations: additional_member_creations,
+        formValues: form_values,
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+        organizationProcessingEnabled: shouldProcessOrganization,
+      });
+      const knownProcessingOrganizationId = persistedSubmission.created_organization_id
+        || persistedSubmission.organization_id
+        || prefill_organization_id
+        || null;
+      memberOrganizationGroupAssignments = memberOrganizationGroupAssignments.map(assignment => (
+        ['primary', 'legacy_primary'].includes(assignment.role) && prefill_member_id
+          ? { ...assignment, memberId: prefill_member_id }
+          : assignment
+      ));
+      const hasMemberOrganizationGroupAssignments = memberOrganizationGroupAssignments.length > 0;
+      const mappedOrganizationId = memberOrganizationGroupAssignments.find(assignment =>
+        assignment.organizationId)?.organizationId || null;
+      const hasUnknownProspectiveOrganization = memberOrganizationGroupAssignments.some(assignment =>
+        assignment.hasProspectiveOrganization === true);
+      memberOrganizationGroupAssignments = await validateMemberOrganizationGroupAssignments({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        assignments: memberOrganizationGroupAssignments,
+        organizationId: knownProcessingOrganizationId,
+        rejectUnknownOrganization: hasMemberOrganizationGroupAssignments
+          && shouldProcessOrganization
+          && !knownProcessingOrganizationId
+          && !mappedOrganizationId
+          && hasUnknownProspectiveOrganization,
+      });
+    } catch (error) {
+      if (error instanceof MemberOrganizationGroupValidationError
+        || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+        return res.status(error.status || 400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      throw error;
+    }
+
+    // Structured member-group mappings use the same read-only preflight as
+    // the structured executor. Run it before a paid Stripe lease as well as
+    // before the executor's action claims, so a persisted structured conflict
+    // cannot be followed by legacy entity side effects.
+    try {
+      await preflightPersistedStructuredMemberOrganizationGroups({
+        db: supabase,
+        form: persistedForm,
+        submission: persistedSubmission,
+        tenantId: effectiveEntityTenantId,
+        visibilityOptions: submitControlOptions,
+      });
+    } catch (error) {
+      if (error instanceof StructuredActionContractError
+        || error?.code === 'INVALID_STRUCTURED_ACTIONS') {
+        return res.status(error.status || 400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      throw error;
+    }
+
+    if (hasStripeAddressMappingWork) {
       const leaseToken = randomUUID();
       const { data: leaseClaimed, error: leaseError } = await supabase.rpc(
         'claim_form_stripe_address_mapping_processing',
@@ -1209,6 +1299,19 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           addProcessingNote({
             kind: 'structured_action',
             ...outcome,
+          });
+        }
+        if (structuredResult?.success === false) {
+          // A structured action may have completed some rows while another
+          // row remains failed/retryable. Never fall through to the legacy
+          // member/organisation pipelines in that state: doing so would
+          // create side effects that are not part of the failed structured
+          // contract and make a retry non-deterministic.
+          return res.status(409).json({
+            success: false,
+            error: 'Structured actions did not complete',
+            code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+            structured_actions: structuredResult,
           });
         }
       } catch (error) {
@@ -1486,7 +1589,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // source field's type. Used to guard against writing an
     // organisation_dropdown's stored UUID into an organisation core column
     // (which would rename the org to its own id).
-    const fieldsById = new Map((fields || []).filter(f => f && f.id).map(f => [f.id, f]));
+    const fieldsById = new Map((fields || []).filter(f => f && f.id).map(f => [String(f.id), f]));
     const isOrgDropdownSourceField = (sourceFieldId) => {
       if (!sourceFieldId) return false;
       const f = fieldsById.get(sourceFieldId);
@@ -1714,6 +1817,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             continue;
           }
           if (target_entity === 'member') {
+            if (target_field === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(source_field_id)),
+                value,
+                sourceType: source_type === 'field' ? 'field' : source_type,
+                sourceFieldId: source_field_id,
+                hidden: source_field_id != null
+                  && hiddenSubmissionFieldIds.has(String(source_field_id)),
+              });
+              if (selection) memberData.organization_group_id = selection.groupId;
+              continue;
+            }
             // Guard: a member_dropdown stores the selected member's UUID
             // as its value. Writing that into memberData.email / .full_name
             // / etc. would rename the member to its own id. Instead,
@@ -1792,6 +1907,17 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
               ? pipelineOrgFields.has(resolveOrganizationCoreField(fieldName))
               : false;
           if (!pipelineOwnsCoreDestination && entity === 'member') {
+            if (fieldName === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field,
+                value,
+                sourceType: 'field',
+                sourceFieldId: field.id,
+                hidden: hiddenSubmissionFieldIds.has(String(field.id)),
+              });
+              if (selection) memberData.organization_group_id = selection.groupId;
+              continue;
+            }
             // Guard: a member_dropdown stores the selected member's UUID.
             // Writing it into a member core column would rename the member
             // to its own id. Capture the id for the member-resolution chain
@@ -2087,6 +2213,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           if (mapping.target_type === 'core') {
             // Map to database field name using config
             const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+            if (targetEntity === 'member' && dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(mapping.source_field_id)),
+                value,
+                sourceType: mapping.source_type === 'field' ? 'field' : mapping.source_type,
+                sourceFieldId: mapping.source_field_id,
+                hidden: mapping.source_field_id != null
+                  && hiddenSubmissionFieldIds.has(String(mapping.source_field_id)),
+              });
+              if (selection) dataObj.organization_group_id = selection.groupId;
+              continue;
+            }
             // Guard: an organisation_dropdown stores the selected org's UUID
             // as its value. Writing that into an organisation core column
             // (e.g. name) would rename the org to its own id. Capture the
@@ -2177,6 +2315,17 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             assignOrganizationCore(dataObj, dbKey, null);
           } else {
             const val = form_values[fieldId];
+            if (targetEntity === 'member' && dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(fieldId)),
+                value: val,
+                sourceType: 'field',
+                sourceFieldId: fieldId,
+                hidden: hiddenSubmissionFieldIds.has(String(fieldId)),
+              });
+              if (selection) dataObj.organization_group_id = selection.groupId;
+              continue;
+            }
             if (targetEntity === 'organization' && isOrgDropdownSourceField(fieldId)) {
               const resolved = resolveOrgDropdownMapping(fieldId, dbKey);
               if (resolved?.organizationName) {
@@ -2243,6 +2392,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         'mobile': 'mobile',
         'landline': 'landline',
         'organization_id': 'organization_id',
+         'organization_group_id': 'organization_group_id',
         'show_in_directory': 'show_in_directory'
       };
       
@@ -2795,6 +2945,26 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (memberAction === 'create') {
           // Create mode but member exists - skip creation, use existing ID
           console.log('[AppProcessor] Member exists, skipping create (create mode):', existingMember.id);
+          if (memberData.organization_group_id) {
+            try {
+              await validateMemberOrganizationGroupWrite({
+                db: supabase,
+                tenantId: effectiveEntityTenantId,
+                groupId: memberData.organization_group_id,
+                existingMember,
+              });
+            } catch (error) {
+              if (error instanceof MemberOrganizationGroupValidationError
+                || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                return res.status(error.status || 400).json({
+                  error: error.message,
+                  code: error.code,
+                  details: error.details,
+                });
+              }
+              throw error;
+            }
+          }
           createdMemberId = existingMember.id;
         } else if (memberAction === 'update' || memberAction === 'upsert') {
           // Update existing member
@@ -2893,6 +3063,31 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
           const orgIdToLink = createdOrganizationId || prefill_organization_id;
           if (orgIdToLink) memberUpdateData.organization_id = orgIdToLink;
+
+           if (memberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: memberData.organization_group_id,
+                 organizationId: targetOrgId,
+                 existingMember,
+               });
+               if (groupWrite.shouldWrite) {
+                 memberUpdateData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
           
           // Belt-and-braces (Task #3555): the resolution chain already rejects
           // cross-tenant rows, but never rely on that alone — a resolved row
@@ -2998,6 +3193,30 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : false,
             show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
           };
+
+           if (memberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: memberData.organization_group_id,
+                 organizationId: orgIdForNewMember,
+               });
+               if (groupWrite.shouldWrite) {
+                 memberInsertData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
           
           // Stamp the resolved (form-authoritative) tenant on the new member
           if (effectiveEntityTenantId) {
@@ -3554,6 +3773,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           'mobile': 'mobile',
           'landline': 'landline',
           'organization_id': 'organization_id',
+          'organization_group_id': 'organization_group_id',
           'show_in_directory': 'show_in_directory'
         };
         
@@ -3646,6 +3866,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             
             if (mapping.target_type === 'core') {
               const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
+              if (dbKey === 'organization_group_id') {
+                const selection = resolveMemberOrganizationGroupSelection({
+                  field: fieldsById.get(String(mapping.source_field_id)),
+                  value,
+                  sourceType: mapping.source_type === 'field' ? 'field' : mapping.source_type,
+                  sourceFieldId: mapping.source_field_id,
+                  hidden: mapping.source_field_id != null
+                    && hiddenSubmissionFieldIds.has(String(mapping.source_field_id)),
+                });
+                if (selection) additionalMemberData.organization_group_id = selection.groupId;
+                continue;
+              }
               // Use hasAssignableValue to allow boolean false/empty through for boolean fields
               if (hasAssignableValue(dbKey, value)) {
                 // Coerce boolean fields for member entities
@@ -3686,6 +3918,15 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             if (fieldId === '__clear__') {
               clearFields.push(dbKey);
               additionalMemberData[dbKey] = null;
+            } else if (dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(fieldId)),
+                value: form_values[fieldId],
+                sourceType: 'field',
+                sourceFieldId: fieldId,
+                hidden: hiddenSubmissionFieldIds.has(String(fieldId)),
+              });
+              if (selection) additionalMemberData.organization_group_id = selection.groupId;
             } else if (hasAssignableValue(dbKey, form_values[fieldId])) {
               // Coerce boolean fields for member entities
               additionalMemberData[dbKey] = coerceBooleanField(dbKey, form_values[fieldId]);
@@ -3821,6 +4062,33 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
               delete additionalMemberData.organization_id;
             }
           }
+
+           if (additionalMemberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: additionalMemberData.organization_group_id,
+                 organizationId: resolvedAdditionalOrgId,
+                 existingMember: existingMemberRecord,
+               });
+               if (!groupWrite.shouldWrite) {
+                 delete additionalMemberData.organization_group_id;
+               } else {
+                 additionalMemberData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
           
           console.log('[AppProcessor] Updating existing member:', existingMemberId, 'with:', additionalMemberData);
           
@@ -3965,6 +4233,32 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             ...additionalMemberData,
             organization_id: additionalOrgId,
           };
+
+           if (additionalMemberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: additionalMemberData.organization_group_id,
+                 organizationId: additionalOrgId,
+               });
+               if (groupWrite.shouldWrite) {
+                 newMemberData.organization_group_id = groupWrite.groupId;
+               } else {
+                 delete newMemberData.organization_group_id;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
           
           // Stamp the resolved (form-authoritative) tenant on the new member
           if (effectiveEntityTenantId) {

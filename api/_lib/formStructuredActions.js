@@ -39,6 +39,11 @@ import {
   isCustomObjectRowSource,
   isDistinctRowSource,
 } from '../../shared/formCustomObjectRowSources.js';
+import {
+  isOrganisationGroupDropdownField,
+  validateMemberOrganizationGroupWrite,
+  MemberOrganizationGroupValidationError,
+} from './formMemberOrganizationGroup.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -49,7 +54,7 @@ const ENTITY_ALIASES = {
 const ENTITIES = new Set(['member', 'organization', 'organization_group', 'custom_object']);
 const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship', 'resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION]);
 const CORE_COLUMNS = {
-  member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'role_id', 'login_enabled', 'show_in_directory']),
+  member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'organization_group_id', 'role_id', 'login_enabled', 'show_in_directory']),
   organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id']),
   organization_group: new Set(['name', 'description', 'logo_url']),
 };
@@ -57,6 +62,7 @@ const CORE_FIELD_TYPES = {
   member: {
     first_name: 'text', last_name: 'text', email: 'email', mobile: 'text',
     landline: 'text', job_title: 'text', organization_id: 'reference:organization',
+    organization_group_id: 'reference:organization_group',
     show_in_directory: 'boolean',
   },
   organization: {
@@ -145,6 +151,10 @@ const resolvedRecordLabelSources = (mapping) => Array.isArray(mapping?.record_so
   ? mapping.record_sources
   : [];
 const organizationGroupSource = (action) => action?.organization_group_source || null;
+const isOrganizationGroupMultiSelect = field => (
+  isOrganisationGroupDropdownField(field)
+  && ['multiple', 'multi', 'multiselect', 'multi_select'].includes(field?.selection_mode)
+);
 const endpointInput = (endpoint) => endpoint?.source || endpoint?.record_source || {};
 const endpointDescriptor = (endpoint) => ({
   kind: ENTITY_ALIASES[endpoint?.kind] || endpoint?.kind,
@@ -543,9 +553,22 @@ export function validateStructuredActionsContract(input, fields = []) {
           : ['organisation_dropdown', 'organization_dropdown'].includes(sourceField.type)
           ? entity === 'member' && targetType === 'core' && targetField(mapping) === 'organization_id'
           : ['organisation_group_dropdown', 'organization_group_dropdown'].includes(sourceField.type)
-            ? entity === 'organization' && targetType === 'core' && targetField(mapping) === 'organization_group_id'
+            ? ['member', 'organization'].includes(entity)
+              && targetType === 'core' && targetField(mapping) === 'organization_group_id'
             : false;
         if (!permitted) errors.push(`${mp} relationship/record selector can only map to a compatible reference core target`);
+      }
+      if (entity === 'member'
+        && targetType === 'core'
+        && targetField(mapping) === 'organization_group_id') {
+        const isPersistedGroupDropdown = isOrganisationGroupDropdownField(sourceField);
+        if (!isPersistedGroupDropdown || (
+          mapping.source_type && mapping.source_type !== 'field'
+        )
+          || isRelationshipMultiSelect(sourceField)
+          || isOrganizationGroupMultiSelect(sourceField)) {
+          errors.push(`${mp}.organization_group_id must map a single-select persisted organisation_group_dropdown field`);
+        }
       }
       if (targetType === 'core' && entity !== 'custom_object' && !CORE_COLUMNS[entity]?.has(targetField(mapping))) {
         errors.push(`${mp}.target_field is not writable for ${entity}`);
@@ -1158,9 +1181,32 @@ export function mappedPayload(invocation, entity, preferenceFields) {
     invocation.values,
   );
   for (const mapping of mappings) {
-    const value = sourceValue(mapping, invocation.values, invocation.resolvedMappingValues);
+    let value = sourceValue(mapping, invocation.values, invocation.resolvedMappingValues);
     if (value === undefined) continue;
     const targetType = mapping.target_type || (entity === 'custom_object' ? 'custom' : 'core');
+    if (entity === 'member' && targetType === 'core'
+      && targetField(mapping) === 'organization_group_id') {
+      if (value === '__clear__') {
+        throw new StructuredActionContractError(
+          'A member Organisation Group assignment cannot be explicitly cleared by a structured action',
+        );
+      }
+      if (value == null || value === ''
+        || (Array.isArray(value) && value.length === 0)) {
+        // An optional group picker is a no-op when it is unanswered or hidden.
+        // In particular, do not turn a hidden/empty source into a NULL update
+        // that would discard an existing direct assignment.
+        continue;
+      }
+      if (Array.isArray(value)) {
+        if (value.length !== 1) {
+          throw new StructuredActionContractError(
+            'A member Organisation Group assignment must select exactly one group',
+          );
+        }
+        [value] = value;
+      }
+    }
     if (targetType === 'custom') {
       const mappedTarget = targetField(mapping);
       const field = preferenceFields.get(String(mappedTarget));
@@ -1459,6 +1505,155 @@ async function resolveMappingValues(db, tenantId, invocation, actionOutputs, pri
     values.set(String(mapping.id), labels.map(label => label.trim()).filter(Boolean).join(separator).slice(0, 500));
   }
   return values;
+}
+
+async function assertMemberOrganizationGroupAssignment({
+  db,
+  tenantId,
+  payload,
+  existingMember = null,
+}) {
+  if (!Object.hasOwn(payload.core, 'organization_group_id')
+    || payload.core.organization_group_id == null
+    || payload.core.organization_group_id === '') return;
+
+  const effectiveOrganizationId = Object.hasOwn(payload.core, 'organization_id')
+    ? payload.core.organization_id
+    : existingMember?.organization_id;
+  try {
+    const result = await validateMemberOrganizationGroupWrite({
+      db,
+      tenantId,
+      groupId: payload.core.organization_group_id,
+      organizationId: effectiveOrganizationId,
+      existingMember,
+    });
+    // A matching Organisation-derived group is valid but is not a direct
+    // member assignment. Keep structured actions consistent with the legacy
+    // member pipeline and preserve any existing direct value.
+    if (!result.shouldWrite) delete payload.core.organization_group_id;
+  } catch (error) {
+    if (error instanceof MemberOrganizationGroupValidationError
+      || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+      throw new StructuredActionContractError(error.message, error.details);
+    }
+    throw error;
+  }
+}
+
+async function preflightMemberOrganizationGroupInvocations({
+  db,
+  tenantId,
+  invocations,
+  preferenceFields,
+}) {
+  for (const invocation of invocations || []) {
+    if (isRelationshipAction(invocation.action) || entityName(invocation.action) !== 'member') continue;
+    // A selected record-reference invocation returns the authoritative
+    // existing record before mapped companion fields are evaluated. Its
+    // companion group mapping is intentionally ignored; preflighting it would
+    // incorrectly reject a stale companion value against the selected
+    // member's effective Organisation. This also applies independently to
+    // each selected item of a multi-record reference action.
+    if (isRecordReferenceAction(invocation.action) && invocation.selectedRecordId) continue;
+
+    // Group mappings are deliberately restricted to persisted field values by
+    // the contract. Mapping the payload here is therefore side-effect free and
+    // lets every member-group conflict be found before the first ledger claim.
+    const payload = mappedPayload(invocation, 'member', preferenceFields);
+    if (!Object.hasOwn(payload.core, 'organization_group_id')
+      || payload.core.organization_group_id == null
+      || payload.core.organization_group_id === '') {
+      continue;
+    }
+
+    const operation = isRecordReferenceAction(invocation.action)
+      ? notListedOperation(invocation.action)
+      : operationName(invocation.action);
+    const actionForFind = invocation.selectedRecordId
+      ? { ...invocation.action, target_record_id: invocation.selectedRecordId }
+      : invocation.action;
+    const existing = operation === 'create'
+      ? null
+      : await findExisting(db, tenantId, 'member', actionForFind, payload);
+
+    // These invocations do not write a member group: create skips an existing
+    // identity, while update has no target. Tenant selector validation already
+    // covers the submitted group reference for both cases.
+    if (operation === 'create' && existing) {
+      invocation.memberOrganizationGroupPreflight = { shouldWrite: false, skipped: true };
+      continue;
+    }
+    if (operation === 'update' && !existing) {
+      invocation.memberOrganizationGroupPreflight = { shouldWrite: false, skipped: true };
+      continue;
+    }
+
+    await assertMemberOrganizationGroupAssignment({
+      db,
+      tenantId,
+      payload,
+      existingMember: existing,
+    });
+    invocation.memberOrganizationGroupPreflight = {
+      shouldWrite: Object.hasOwn(payload.core, 'organization_group_id'),
+    };
+  }
+}
+
+async function applyMemberOrganizationGroupPreflight({
+  db,
+  tenantId,
+  payload,
+  existingMember,
+}) {
+  // Always retain the freshly mapped group value through this boundary. The
+  // read-only preflight marker can be stale if an Organisation is attached or
+  // changed between preflight and execution; the shared guard must inspect
+  // the member and effective Organisation immediately before a write (or
+  // recovered-create completion). It removes the group itself only when the
+  // current guard returns shouldWrite=false.
+  await assertMemberOrganizationGroupAssignment({
+    db,
+    tenantId,
+    payload,
+    existingMember,
+  });
+}
+
+/**
+ * Read-only preflight for process-application. The caller should invoke this
+ * after persisted form/submission loading and before any lease, ledger claim,
+ * entity write, or legacy pipeline work. It intentionally returns no mutable
+ * payload: processPersistedStructuredActions repeats the pure mapping and
+ * re-runs the shared guard at its immediate write/recovery boundary.
+ */
+export async function preflightPersistedStructuredMemberOrganizationGroups({
+  db,
+  form,
+  submission,
+  tenantId,
+  visibilityOptions = {},
+  preferenceFields = null,
+} = {}) {
+  const contract = validateStructuredActionsContract(form?.structured_actions, form?.fields || []);
+  if (!contract || contract.actions.length === 0) return null;
+  const fields = form?.fields || [];
+  const preferences = preferenceFields || await loadPreferenceFields(db, tenantId);
+  const invocations = expandStructuredActionInvocations(
+    contract,
+    form,
+    submission?.submission_data || {},
+    visibilityOptions,
+  );
+  for (const invocation of invocations) invocation.formFields = fields;
+  await preflightMemberOrganizationGroupInvocations({
+    db,
+    tenantId,
+    invocations,
+    preferenceFields: preferences,
+  });
+  return { contract, invocations };
 }
 
 function invocationFingerprintValues(invocation, actionOutputs = new Map(), primaryRecords = {}) {
@@ -1884,6 +2079,12 @@ async function executeInvocation(
     const { data: recovered, error: recoveredError } = await recoveredQuery.maybeSingle();
     if (recoveredError) throw recoveredError;
     if (recovered) {
+      await applyMemberOrganizationGroupPreflight({
+        db,
+        tenantId,
+        payload,
+        existingMember: entity === 'member' ? recovered : null,
+      });
       if (entity !== 'custom_object') {
         await writePreferences(db, tenantId, entity, recovered.id, payload.custom, preferenceFields, payload.clearCustom);
       }
@@ -1925,6 +2126,12 @@ async function executeInvocation(
     && authorization.allowPersistedRecordReferenceWrites === true)) {
     assertStructuredMutationAuthorized({ action: effectiveAction, recordId: existing.id, authorization });
   }
+  await applyMemberOrganizationGroupPreflight({
+    db,
+    tenantId,
+    payload,
+    existingMember: entity === 'member' ? existing : null,
+  });
   let record;
   if (existing) {
     let update;
@@ -2092,6 +2299,15 @@ export async function processPersistedStructuredActions({
     visibilityOptions,
   );
   for (const invocation of invocations) invocation.formFields = form.fields || [];
+  // Resolve every direct member-group assignment before any authorization
+  // claim, ledger claim, or entity write. A later conflicting member action
+  // must never leave an earlier action partially applied.
+  await preflightMemberOrganizationGroupInvocations({
+    db,
+    tenantId,
+    invocations,
+    preferenceFields,
+  });
   // Reject the whole run before any ledger claim or side effect when the
   // target class requires admin access or a selected update is outside the
   // caller's verified ownership.

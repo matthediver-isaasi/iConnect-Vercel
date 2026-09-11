@@ -326,7 +326,7 @@ test('monthly card starts a server-derived subscription checkout and preserves r
   assert.match(monthly, /savePaymentSubmissionContext\(\{/);
   assert.match(monthly, /returnPath:\s*paymentNavigation\.returnPath/);
   assert.ok(
-    monthly.indexOf('savePaymentSubmissionContext') < monthly.indexOf('navigateToPaymentProvider'),
+    monthly.indexOf('savePaymentSubmissionContext') < monthly.indexOf('leaveForProvider'),
     'recovery id must be stored before leaving for Stripe',
   );
 });
@@ -334,7 +334,10 @@ test('monthly card starts a server-derived subscription checkout and preserves r
 test('form payment Checkout only escapes a verified same-origin embedded frame', () => {
   const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
   assert.match(src, /getPaymentNavigationContext\(\)/);
-  assert.match(src, /navigateToPaymentProvider\(json\.checkoutUrl,\s*paymentNavigation\)/);
+  assert.match(src, /leaveForProvider\(json\.checkoutUrl,\s*paymentNavigation\)/);
+  assert.match(src, /paymentNavigation\.framed && paymentNavigation\.target === 'self'/);
+  assert.match(src, /setExternalCheckoutUrl\(url\)/);
+  assert.match(src, /navigateToPaymentProvider\(url,\s*paymentNavigation\)/);
   assert.doesNotMatch(src, /window\.top\.location\.href\s*=\s*json\.checkoutUrl/);
 });
 
@@ -409,7 +412,11 @@ test('server confirm securely retrieves and replays a monthly-card checkout', ()
   const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
   const confirm = src.slice(src.indexOf('async function handleConfirm'));
   assert.match(confirm, /payment_provider === 'stripe_monthly_card'/);
-  assert.match(confirm, /checkout\.sessions\.retrieve\(checkoutSessionId\)/);
+  assert.match(
+    confirm,
+    /checkout\.sessions\.retrieve\(checkoutSessionId,\s*\{\s*expand:\s*\['subscription\.latest_invoice'\]/s,
+    'monthly-card confirmation must retrieve the latest invoice for completion/accounting verification',
+  );
   assert.match(confirm, /session\.status !== 'complete'/);
   assert.match(confirm, /processStripeCardPlanEvent/);
   assert.match(confirm, /outcome\.conflict/);

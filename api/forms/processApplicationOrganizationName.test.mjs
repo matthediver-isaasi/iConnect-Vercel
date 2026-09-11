@@ -49,6 +49,8 @@ function makeSupabase({
   form,
   submission,
   existingOrganization = null,
+  organizationGroups = [],
+  completedStripeAddressMapping = null,
   existingMember = null,
   submitterMember = null,
   preferenceFields = [],
@@ -126,7 +128,17 @@ function makeSupabase({
         const insertedMatchesId = id && insertedOrganization?.id === id;
         return { data: matchesId || matchesName ? existingOrganization : insertedMatchesId ? insertedOrganization : null, error: null };
       }
-      if (this.table === 'form_stripe_address_mapping_ledger') return { data: null, error: null };
+      if (this.table === 'organization_group') {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const tenantId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'tenant_id')?.[2];
+        const group = organizationGroups.find(candidate =>
+          String(candidate.id) === String(id)
+          && (!tenantId || String(candidate.tenant_id) === String(tenantId)));
+        return { data: group || null, error: null };
+      }
+      if (this.table === 'form_stripe_address_mapping_ledger') {
+        return { data: completedStripeAddressMapping, error: null };
+      }
       if (this.table === 'member') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
@@ -218,6 +230,18 @@ function makeSupabase({
         data = inserts.filter(entry => entry.table === this.table)
           .flatMap(entry => Array.isArray(entry.payload) ? entry.payload : [entry.payload]);
       }
+      if (this.table === 'member' && !this.updatePayload) {
+        const candidate = existingMember || submitterMember;
+        const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
+        if (candidate && email
+          && candidate.email?.toLowerCase() === String(email).toLowerCase()) {
+          data = [candidate];
+        }
+      }
+      if (this.table === 'organization' && !this.insertPayload) {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        if (existingOrganization && id === existingOrganization.id) data = [existingOrganization];
+      }
       if (this.table === 'custom_object_relationship') data = relationshipEdges;
       if (this.table === 'organization_preference_value') {
         const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
@@ -290,8 +314,10 @@ function makeSupabase({
   };
 }
 
-async function invokeProcessor(payload, {
+export async function invokeProcessor(payload, {
   existingOrganization = null,
+  organizationGroups = [],
+  completedStripeAddressMapping = null,
   existingMember = null,
   requestFormValues = payload.form_values,
   verifiedAdminAccess = true,
@@ -351,6 +377,8 @@ async function invokeProcessor(payload, {
     form,
     submission,
     existingOrganization,
+    organizationGroups,
+    completedStripeAddressMapping,
     existingMember,
     submitterMember,
     preferenceFields,

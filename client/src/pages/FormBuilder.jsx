@@ -512,6 +512,7 @@ const MEMBER_CORE_FIELDS = [
   { value: 'landline', label: 'Landline' },
   { value: 'job_title', label: 'Job Title' },
   { value: 'organization_id', label: 'Organisation' },
+  { value: 'organization_group_id', label: 'Organisation Group' },
   { value: 'show_in_directory', label: 'Show in Member Directory' },
 ];
 
@@ -856,7 +857,11 @@ const structuredTargetFields = (action, customFields, customObjectFields) => {
   const core = (STRUCTURED_CORE_FIELDS[kind] || []).map(field => ({
     ...field,
     required: field.value === requiredCoreField,
-    reference_kind: kind === 'member' && field.value === 'organization_id' ? 'organization' : null,
+    reference_kind: kind === 'member' && field.value === 'organization_id'
+      ? 'organization'
+      : kind === 'member' && field.value === 'organization_group_id'
+        ? 'organization_group'
+        : null,
     target_type: 'core',
   }));
   const preferences = kind === 'member' || kind === 'organization' || kind === 'organization_group'
@@ -1377,6 +1382,13 @@ function StructuredRecordActionsEditor({
                 )}
               </div>
             )}
+            {action.target?.kind === 'member' && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700" data-testid={`member-organization-group-guidance-${actionIndex}`}>
+                Direct Organisation Group assignment applies only to members without an Organisation.
+                Members with an Organisation derive their group from that Organisation. Organisation Group
+                Dropdown values are persisted Organisation Group IDs, not display names.
+              </div>
+            )}
             <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-1"><Label className="text-xs">Record operation</Label>
                 <Select value={action.operation || ''} onValueChange={operation => updateAction(actionIndex, {
@@ -1811,13 +1823,25 @@ function FieldMappingSection({
           {normalizedMappings.map((mapping, index) => {
             const sourceType = mapping.source_type || 'field';
             const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
+            const mappingTargetEntity = fixedTargetEntity || mapping.target_entity || effectiveEntity;
+            const isOrganizationGroupTarget = mappingTargetEntity === 'member'
+              && mapping.target_type === 'core'
+              && mapping.target_field === 'organization_group_id';
+            const availableSourceFields = fields.filter(field => {
+              if (['instructions', 'image', 'image_buttons'].includes(field.type)) return false;
+              // Organisation Group Dropdown answers are persisted group IDs.
+              // Do not offer ordinary text fields for this reference target:
+              // their labels/names are not valid member group assignments.
+              return !isOrganizationGroupTarget || sourceType !== 'field'
+                || ['organisation_group_dropdown', 'organization_group_dropdown'].includes(field.type);
+            });
             const isCategorySource = sourceType === 'field'
               && ['category_dropdown', 'category_multiselect'].includes(selectedSourceField?.type);
             const canTargetResourceCategory = isCategorySource
-              && (fixedTargetEntity || mapping.target_entity || effectiveEntity) === 'member';
+              && mappingTargetEntity === 'member';
             const canTargetCrmNotes = sourceType === 'field'
               && isCrmNoteSourceField(selectedSourceField)
-              && ['member', 'organization'].includes(fixedTargetEntity || mapping.target_entity || effectiveEntity);
+              && ['member', 'organization'].includes(mappingTargetEntity);
             const compatibleResourceCategories = selectedSourceField?.type === 'category_dropdown'
               ? resourceCategories.filter(category => category.id === selectedSourceField.category_id)
               : selectedSourceField?.allowed_category_ids?.length > 0
@@ -1923,7 +1947,7 @@ function FieldMappingSection({
                           <SelectValue placeholder="Select field..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {fields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
+                          {availableSourceFields.map(field => (
                             <SelectItem key={field.id} value={field.id}>
                               <span className="inline-flex items-center gap-2">
                                 <span>{field.label || field.type}</span>
@@ -2135,7 +2159,14 @@ function FieldMappingSection({
                       onValueChange={(value) => {
                         console.log('[FieldMapping] Target field changed to:', value);
                         if (value && value !== '__none') {
-                          updateMapping(mapping.id, { target_field: value, static_value: '' });
+                           const updates = { target_field: value, static_value: '' };
+                           if (value === 'organization_group_id'
+                             && mappingTargetEntity === 'member'
+                             && sourceType === 'field'
+                             && !['organisation_group_dropdown', 'organization_group_dropdown'].includes(selectedSourceField?.type)) {
+                             updates.source_field_id = '';
+                           }
+                           updateMapping(mapping.id, updates);
                         }
                       }}
                     >
@@ -2150,7 +2181,7 @@ function FieldMappingSection({
                               : 'Organisation CRM Notes'}
                           </SelectItem>
                         ) : mapping.target_type === 'core' ? (
-                          getAvailableCoreFields(mapping.target_entity).map(f => (
+                          getAvailableCoreFields(mappingTargetEntity).map(f => (
                             <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                           ))
                         ) : mapping.target_type === 'resource_category' ? (
@@ -2170,10 +2201,10 @@ function FieldMappingSection({
                             ))
                           )
                         ) : (
-                          getAvailableCustomFields(mapping.target_entity).length === 0 ? (
+                          getAvailableCustomFields(mappingTargetEntity).length === 0 ? (
                             <SelectItem value="__none" disabled>No custom fields available</SelectItem>
                           ) : (
-                            getAvailableCustomFields(mapping.target_entity).map(f => (
+                            getAvailableCustomFields(mappingTargetEntity).map(f => (
                               <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
                             ))
                           )
@@ -2181,6 +2212,14 @@ function FieldMappingSection({
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {isOrganizationGroupTarget && (
+                    <p className="text-xs text-blue-700" data-testid={`member-organization-group-guidance-${index}`}>
+                      Direct Organisation Group assignment applies only to members without an Organisation.
+                      Members with an Organisation derive their group from that Organisation. The dropdown value
+                      is the persisted Organisation Group ID, not its display name.
+                    </p>
+                  )}
 
                   {/* Delete */}
                   <div className="flex items-end pb-0.5">
