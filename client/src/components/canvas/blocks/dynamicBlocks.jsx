@@ -114,6 +114,7 @@ import {
   buildSectionOverlayBackground,
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
+import { getEmbeddedPaymentReturnRelay, stripPaymentParams } from '@/lib/formPaymentReturn';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import {
   EVENT_REGISTRATION_LAYOUT_CONTRACT,
@@ -5440,6 +5441,7 @@ function ResourceShowcaseInspector({ block, update }) {
 // ============================================================================
 function FormEmbedRender({ block, asEditor, priority }) {
   const c = block.content || {};
+  const { micrositePrefix } = useMicrosite();
   const { data: form, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-form', c.formSlug],
     queryFn: () => publicClient.getForm(c.formSlug),
@@ -5462,6 +5464,11 @@ function FormEmbedRender({ block, asEditor, priority }) {
   const params = new URLSearchParams();
   if (c.fontFamily) params.set('font', c.fontFamily);
   if (Number.isFinite(c.fontSize) && c.fontSize > 0) params.set('fontSize', String(c.fontSize));
+  // This stable block id isolates two copies of the same form on one Canvas
+  // page in sessionStorage. The home path is resolved by the trusted Canvas
+  // context, not inferred from an arbitrary provider return URL.
+  if (block.id) params.set('payment_embed_instance', String(block.id));
+  params.set('payment_embed_continue', micrositePrefix ? `/${micrositePrefix}` : '/');
   const qs = params.toString();
   const href = `/embed/form/${encodeURIComponent(form.slug)}${qs ? `?${qs}` : ''}`;
 
@@ -5629,6 +5636,45 @@ function FormEmbedRender({ block, asEditor, priority }) {
 function FormEmbedIframe({ href, title }) {
   const iframeRef = useRef(null);
   const [height, setHeight] = useState(null);
+  // Provider redirects that began in this same-origin iframe intentionally
+  // return to the Canvas page, so its header/footer and microsite context are
+  // restored. Relay only a short-lived, submission-bound return to the one
+  // iframe that started it; see getEmbeddedPaymentReturnRelay for the scope
+  // and submission-id checks.
+  const relaySearch = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const frameUrl = new URL(href, window.location.origin);
+      return getEmbeddedPaymentReturnRelay({
+        parentPathname: window.location.pathname,
+        parentSearch: window.location.search,
+        iframePathname: frameUrl.pathname,
+        iframeSearch: frameUrl.search,
+      });
+    } catch {
+      return null;
+    }
+  }, [href]);
+  const src = useMemo(() => {
+    if (!relaySearch || typeof window === 'undefined') return href;
+    const url = new URL(href, window.location.origin);
+    const returned = new URLSearchParams(relaySearch);
+    returned.forEach((value, key) => url.searchParams.set(key, value));
+    return `${url.pathname}${url.search}`;
+  }, [href, relaySearch]);
+
+  useEffect(() => {
+    if (!relaySearch) return;
+    // The iframe now owns the return handling. Clean the containing Canvas
+    // URL immediately so refresh cannot dispatch the same provider return to
+    // a newly mounted form or expose Stripe redirect parameters in the page.
+    const cleaned = stripPaymentParams(window.location.search);
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${cleaned}${window.location.hash || ''}`,
+    );
+  }, [relaySearch]);
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -5668,7 +5714,7 @@ function FormEmbedIframe({ href, title }) {
   return (
     <iframe
       ref={iframeRef}
-      src={href}
+      src={src}
       title={title}
       loading="lazy"
       style={{

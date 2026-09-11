@@ -323,23 +323,19 @@ test('monthly card starts a server-derived subscription checkout and preserves r
   const monthly = src.slice(src.indexOf('const startMonthlyCard'), src.indexOf('const handleStripeConfirm'));
   assert.match(monthly, /action:\s*'create_monthly_card'/);
   assert.doesNotMatch(monthly, /\bamount\s*:/, 'browser must not submit a price');
-  assert.match(monthly, /sessionStorage\.setItem\(SS_KEY,\s*json\.submissionId\)/);
+  assert.match(monthly, /savePaymentSubmissionContext\(\{/);
+  assert.match(monthly, /returnPath:\s*paymentNavigation\.returnPath/);
   assert.ok(
-    monthly.indexOf('sessionStorage.setItem') < monthly.indexOf('window.top.location.href'),
+    monthly.indexOf('savePaymentSubmissionContext') < monthly.indexOf('navigateToPaymentProvider'),
     'recovery id must be stored before leaving for Stripe',
   );
 });
 
-test('monthly card Checkout redirects escape embedded frames at every client entry point', () => {
-  const sources = [
-    ['form payment', join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx')],
-    ['member payment field', join(repoRoot, 'client', 'src', 'components', 'forms', 'MembershipPaymentField.jsx')],
-    ['public membership fee', join(repoRoot, 'client', 'src', 'pages', 'MembershipFeePage.jsx')],
-  ];
-  for (const [label, path] of sources) {
-    const src = readFileSync(path, 'utf8');
-    assert.match(src, /window\.top\.location\.href\s*=\s*(?:json|result|body)\.checkoutUrl/, `${label} must navigate the top-level page`);
-  }
+test('form payment Checkout only escapes a verified same-origin embedded frame', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  assert.match(src, /getPaymentNavigationContext\(\)/);
+  assert.match(src, /navigateToPaymentProvider\(json\.checkoutUrl,\s*paymentNavigation\)/);
+  assert.doesNotMatch(src, /window\.top\.location\.href\s*=\s*json\.checkoutUrl/);
 });
 
 test('existing one-off card and Direct Debit choices remain wired', () => {

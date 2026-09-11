@@ -36,6 +36,83 @@ export const PAYMENT_RETURN_PARAMS = [
   'redirect_status',
 ];
 
+function normalizeRelativePath(value) {
+  if (typeof value !== 'string' || value.length > 8192
+      || !value.startsWith('/') || value.startsWith('//')
+      || /[\\\u0000-\u0020\u007f]|%(?:0[0-9a-f]|1[0-9a-f]|5c|7f)/i.test(value)) return null;
+  try {
+    const url = new URL(value, 'https://payment-return.invalid');
+    if (url.origin !== 'https://payment-return.invalid'
+        || /%(?:2f|5c)/i.test(url.pathname)) return null;
+    // Encoded slashes in query values are ordinary data (e.g. next=%2Fhome),
+    // not path separators. Serialize them identically before saving/relaying.
+    return `${url.pathname}${stripPaymentParams(url.search)}`;
+  } catch {
+    return null;
+  }
+}
+
+function safeRelativePath(pathname, search = '') {
+  return normalizeRelativePath(`${pathname}${search}`) || '/';
+}
+
+/** Safe non-payment continuation paths are local and never another form. */
+export function sanitizePaymentContinuePath(value) {
+  const path = normalizeRelativePath(value);
+  if (!path) return '/';
+  return /^\/(?:embed\/form|forms)(?:\/|$|\?)/i.test(path) ? '/' : path;
+}
+
+/**
+ * Resolve where a payment provider may return and which browsing context may
+ * be navigated to it. A framed form is allowed to use its containing page
+ * only when it can read that page and prove it is the same origin. Cross-origin
+ * embeds deliberately remain in their own frame: they must never navigate an
+ * arbitrary host page.
+ */
+export function getPaymentNavigationContext(windowObj = typeof window !== 'undefined' ? window : null) {
+  if (!windowObj?.location) {
+    return { returnPath: '/', target: 'self', framed: false };
+  }
+  const ownPath = safeRelativePath(windowObj.location.pathname, windowObj.location.search);
+  try {
+    if (windowObj.self === windowObj.top) {
+      return { returnPath: ownPath, target: 'self', framed: false };
+    }
+    const topLocation = windowObj.top.location;
+    if (topLocation.origin !== windowObj.location.origin) {
+      return { returnPath: ownPath, target: 'self', framed: true };
+    }
+    return {
+      returnPath: safeRelativePath(topLocation.pathname, topLocation.search),
+      target: 'top',
+      framed: true,
+    };
+  } catch {
+    // Accessing a cross-origin ancestor throws. Treat it as an external embed,
+    // not as permission to navigate the top-level page.
+    return { returnPath: ownPath, target: 'self', framed: true };
+  }
+}
+
+/** Navigate to a provider only in the browsing context established above. */
+export function navigateToPaymentProvider(url, navigation, windowObj = typeof window !== 'undefined' ? window : null) {
+  if (!windowObj || !url) return false;
+  if (navigation?.target === 'top') {
+    try {
+      // This was selected only after a same-origin read in
+      // getPaymentNavigationContext. Do not fall through to top on failure.
+      if (windowObj.top.location.origin === windowObj.location.origin) {
+        windowObj.top.location.assign(url);
+        return true;
+      }
+    } catch { /* do not fall through to an iframe after losing top access */ }
+    return false;
+  }
+  windowObj.location.assign(url);
+  return true;
+}
+
 /**
  * Decide what a page load's query string means for the payment return leg.
  * Pure: pass `search` (window.location.search) and the sessionStorage-backed
@@ -88,6 +165,9 @@ export function paymentContextKey(pathname = '/', search = '') {
 export function savePaymentSubmissionContext({
   submissionId,
   provider = null,
+  returnPath = null,
+  continuePath = null,
+  terminalStatus = null,
   pathname = typeof window !== 'undefined' ? window.location.pathname : '/',
   search = typeof window !== 'undefined' ? window.location.search : '',
   storage = typeof sessionStorage !== 'undefined' ? sessionStorage : null,
@@ -95,11 +175,19 @@ export function savePaymentSubmissionContext({
 }) {
   if (!submissionId || !storage) return;
   const scope = paymentContextScope(pathname, search);
+  const normalizedReturnPath = normalizeRelativePath(returnPath);
+  const normalizedContinuePath = sanitizePaymentContinuePath(continuePath);
   const context = {
     submissionId,
     provider: VERIFIED_PAYMENT_PROVIDERS.has(provider) ? provider : null,
     scope,
     createdAt: now,
+    // This is a same-origin relative page path selected before leaving for a
+    // provider. It lets a Canvas parent relay a return only back to the exact
+    // form frame that created this submission; it is not an arbitrary URL.
+    ...(normalizedReturnPath ? { returnPath: normalizedReturnPath } : {}),
+    ...(continuePath && normalizedContinuePath ? { continuePath: normalizedContinuePath } : {}),
+    ...(terminalStatus === 'paid' ? { terminalStatus: 'paid' } : {}),
   };
   storage.setItem(paymentContextKey(pathname, search), JSON.stringify(context));
   // Preserve the old key for redirects already in flight, but keep it equally
@@ -126,12 +214,58 @@ export function loadPaymentSubmissionContext({
     return {
       submissionId: parsed.submissionId,
       provider: VERIFIED_PAYMENT_PROVIDERS.has(parsed.provider) ? parsed.provider : null,
+      ...(normalizeRelativePath(parsed.returnPath)
+        ? { returnPath: normalizeRelativePath(parsed.returnPath) }
+        : {}),
+      ...(parsed.continuePath ? { continuePath: sanitizePaymentContinuePath(parsed.continuePath) } : {}),
+      ...(parsed.terminalStatus === 'paid' ? { terminalStatus: 'paid' } : {}),
     };
   } catch {
     // A bare id is accepted only to finish an old redirect. It is deliberately
     // not used for refresh resume because the legacy value was not path-bound.
     return { submissionId: legacy, provider: null, legacy: true };
   }
+}
+
+/**
+ * Return the provider parameters a same-origin Canvas parent may pass into one
+ * specific iframe. The saved context is both short-lived and bound to the
+ * iframe's path/query and the exact containing page path. A query pasted onto
+ * another Canvas page, another form embed, or another submission is ignored.
+ */
+export function getEmbeddedPaymentReturnRelay({
+  parentPathname,
+  parentSearch,
+  iframePathname,
+  iframeSearch = '',
+  storage = typeof sessionStorage !== 'undefined' ? sessionStorage : null,
+  now = Date.now(),
+} = {}) {
+  const context = loadPaymentSubmissionContext({
+    pathname: iframePathname,
+    search: iframeSearch,
+    storage,
+    now,
+  });
+  if (!context?.returnPath) return null;
+  const parentPath = safeRelativePath(parentPathname, parentSearch);
+  if (context.returnPath !== parentPath) return null;
+  const returnedSubmissionId = new URLSearchParams(parentSearch || '').get('form_payment_submission');
+  // Every relay outcome, including provider cancellation/failure, has to name
+  // the exact submission that this iframe created. A context alone cannot
+  // select a form instance when a page contains multiple embeds.
+  if (!returnedSubmissionId || returnedSubmissionId !== context.submissionId) return null;
+  const decision = parsePaymentReturn(parentSearch, {
+    storedSubmissionId: context.submissionId,
+  });
+  if (decision.kind === 'none' || decision.kind === 'orphan') return null;
+
+  const source = new URLSearchParams(parentSearch || '');
+  const params = new URLSearchParams();
+  PAYMENT_RETURN_PARAMS.forEach((key) => {
+    if (source.has(key)) params.set(key, source.get(key));
+  });
+  return params.toString() ? `?${params.toString()}` : null;
 }
 
 export function clearPaymentSubmissionContext({

@@ -94,6 +94,75 @@ test('hook resumes a path-scoped refresh and preserves setup_complete truthfully
   container.remove();
 });
 
+test('verified paid receipt survives refresh without confirming or reopening payment', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'submission-paid',
+    provider: 'stripe',
+    terminalStatus: 'paid',
+    pathname: '/forms/example',
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error('a paid receipt must not call confirm');
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(calls, 0);
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment received');
+  assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
+  assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('a paid confirmation writes the terminal receipt used by refresh', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example?form_payment_submission=sub-confirmed&form_payment_provider=stripe');
+  savePaymentSubmissionContext({
+    submissionId: 'sub-confirmed',
+    provider: 'stripe',
+    pathname: '/forms/example',
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return {
+      ok: true,
+      json: async () => ({ status: 'paid', provider: 'stripe' }),
+    };
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls, 1);
+  assert.match(window.sessionStorage.getItem('form_payment_pending_submission'), /"terminalStatus":"paid"/);
+
+  await act(async () => root.unmount());
+  const refreshedRoot = createRoot(container);
+  await act(async () => {
+    refreshedRoot.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls, 1, 'the receipt restores paid UI without a second confirm');
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment received');
+  await act(async () => refreshedRoot.unmount());
+  container.remove();
+});
+
 test('blocked screen has safe recheck but no return-to-payment affordance', async () => {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -111,6 +180,7 @@ test('blocked screen has safe recheck but no return-to-payment affordance', asyn
   assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment status needs attention');
   assert.ok(container.querySelector('[data-testid="button-payment-return-recheck"]'));
   assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
+  assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
 
   await act(async () => root.unmount());
   container.remove();
@@ -128,6 +198,47 @@ test('unknown-provider pending copy stays payment-neutral', async () => {
 
   assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Checking payment status');
   assert.doesNotMatch(container.textContent, /Direct Debit|card set-up/);
+  assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('paid member return provides a non-payment onward destination', async () => {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(React.createElement(FormPaymentReturnScreen, {
+    status: 'paid',
+    continueHref: '/Dashboard',
+    continueLabel: 'Go to member area',
+  })));
+
+  const onward = container.querySelector('[data-testid="button-payment-return-continue"]');
+  assert.equal(onward?.getAttribute('href'), '/Dashboard');
+  assert.match(onward?.textContent || '', /member area/i);
+  assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('same-origin embedded continuation uses the explicit parent callback', async () => {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let continued = 0;
+  await act(async () => root.render(React.createElement(FormPaymentReturnScreen, {
+    status: 'paid',
+    embedded: true,
+    continueHref: '/microsite',
+    onContinue: () => { continued += 1; },
+  })));
+
+  const onward = container.querySelector('[data-testid="button-payment-return-continue"]');
+  assert.equal(onward?.tagName, 'BUTTON');
+  await act(async () => onward.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
+  assert.equal(continued, 1);
 
   await act(async () => root.unmount());
   container.remove();

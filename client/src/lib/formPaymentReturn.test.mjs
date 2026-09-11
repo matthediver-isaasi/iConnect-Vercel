@@ -15,6 +15,10 @@ import {
   savePaymentSubmissionContext,
   loadPaymentSubmissionContext,
   clearPaymentSubmissionContext,
+  getEmbeddedPaymentReturnRelay,
+  getPaymentNavigationContext,
+  navigateToPaymentProvider,
+  sanitizePaymentContinuePath,
 } from './formPaymentReturn.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -108,6 +112,223 @@ test('submission context is sanitized path/query-scoped, expiring and contains n
   }), null);
   clearPaymentSubmissionContext({ pathname: '/forms/a', search: '?slug=alpha', storage });
   assert.equal(values.size, 0);
+});
+
+test('same-origin iframe navigation returns to its containing tenant page, external frames stay confined', () => {
+  const ownLocation = { origin: 'https://tenant.example', pathname: '/embed/form/join', search: '?font=Inter' };
+  const sameOrigin = {
+    self: {},
+    location: ownLocation,
+    top: { location: { origin: 'https://tenant.example', pathname: '/membership/join', search: '?campaign=spring' } },
+  };
+  assert.deepEqual(getPaymentNavigationContext(sameOrigin), {
+    returnPath: '/membership/join?campaign=spring',
+    target: 'top',
+    framed: true,
+  });
+
+  const external = {
+    self: {},
+    location: ownLocation,
+    get top() { throw new Error('cross-origin ancestor'); },
+  };
+  assert.deepEqual(getPaymentNavigationContext(external), {
+    returnPath: '/embed/form/join?font=Inter',
+    target: 'self',
+    framed: true,
+  });
+});
+
+test('provider navigation never targets an unreadable ancestor', () => {
+  const topAssignments = [];
+  const selfAssignments = [];
+  const sameOrigin = {
+    self: {},
+    location: {
+      origin: 'https://tenant.example',
+      pathname: '/embed/form/join',
+      search: '',
+      assign: (url) => selfAssignments.push(url),
+    },
+    top: {
+      location: {
+        origin: 'https://tenant.example',
+        pathname: '/join',
+        search: '',
+        assign: (url) => topAssignments.push(url),
+      },
+    },
+  };
+  assert.equal(navigateToPaymentProvider(
+    'https://checkout.example/session',
+    getPaymentNavigationContext(sameOrigin),
+    sameOrigin,
+  ), true);
+  assert.deepEqual(topAssignments, ['https://checkout.example/session']);
+  assert.deepEqual(selfAssignments, []);
+
+  const externalAssignments = [];
+  const external = {
+    self: {},
+    location: {
+      origin: 'https://tenant.example',
+      pathname: '/embed/form/join',
+      search: '',
+      assign: (url) => externalAssignments.push(url),
+    },
+    get top() { throw new Error('cross-origin ancestor'); },
+  };
+  assert.equal(navigateToPaymentProvider(
+    'https://checkout.example/session',
+    getPaymentNavigationContext(external),
+    external,
+  ), true);
+  assert.deepEqual(externalAssignments, ['https://checkout.example/session']);
+});
+
+test('Canvas only relays a return to the iframe and page that created that submission', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  savePaymentSubmissionContext({
+    submissionId: 'sub-embedded',
+    provider: 'stripe_monthly_card',
+    pathname: '/embed/form/join',
+    search: '?font=Inter&payment_embed_instance=canvas-block-a',
+    returnPath: '/membership/join?campaign=spring',
+    storage,
+    now: 100,
+  });
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/join',
+    parentSearch: '?campaign=spring&form_payment_submission=sub-embedded&form_payment_provider=stripe_monthly_card',
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?font=Inter&payment_embed_instance=canvas-block-a',
+    storage,
+    now: 200,
+  }), '?form_payment_submission=sub-embedded&form_payment_provider=stripe_monthly_card');
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/another-page',
+    parentSearch: '?form_payment_submission=sub-embedded&form_payment_provider=stripe_monthly_card',
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?font=Inter&payment_embed_instance=canvas-block-a',
+    storage,
+    now: 200,
+  }), null, 'a query cannot be relayed on another Canvas page');
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/join',
+    parentSearch: '?campaign=spring&form_payment_submission=another-submission&form_payment_provider=stripe_monthly_card',
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?font=Inter&payment_embed_instance=canvas-block-a',
+    storage,
+    now: 200,
+  }), null, 'a query cannot select another submission');
+});
+
+test('same-form Canvas embeds are isolated by block id and cancellation also requires its submission id', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const shared = {
+    provider: 'gocardless',
+    pathname: '/embed/form/join',
+    returnPath: '/membership/join',
+    storage,
+    now: 100,
+  };
+  savePaymentSubmissionContext({
+    ...shared,
+    submissionId: 'sub-a',
+    search: '?payment_embed_instance=canvas-a',
+  });
+  savePaymentSubmissionContext({
+    ...shared,
+    submissionId: 'sub-b',
+    search: '?payment_embed_instance=canvas-b',
+  });
+  const returnSearch = '?form_payment_submission=sub-b&form_payment_provider=gocardless';
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/join',
+    parentSearch: returnSearch,
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?payment_embed_instance=canvas-a',
+    storage,
+    now: 200,
+  }), null);
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/join',
+    parentSearch: returnSearch,
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?payment_embed_instance=canvas-b',
+    storage,
+    now: 200,
+  }), returnSearch);
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    parentPathname: '/membership/join',
+    parentSearch: '?form_payment_cancelled=1&form_payment_submission=sub-a',
+    iframePathname: '/embed/form/join',
+    iframeSearch: '?payment_embed_instance=canvas-b',
+    storage,
+    now: 200,
+  }), null, 'a cancellation cannot be dispatched by context alone');
+});
+
+test('continuation paths reject encoded separators, backslashes, and payment-form routes', () => {
+  assert.equal(sanitizePaymentContinuePath('/membership'), '/membership');
+  assert.equal(sanitizePaymentContinuePath('/embed/form/join'), '/');
+  assert.equal(sanitizePaymentContinuePath('/forms/join'), '/');
+  assert.equal(sanitizePaymentContinuePath('/%2f/evil'), '/');
+  assert.equal(sanitizePaymentContinuePath('/\\evil'), '/');
+});
+
+test('encoded query slashes survive a parent round-trip without weakening frame isolation', () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  const returnPath = '/conference/join?next=%2Fpricing&campaign=a+b';
+  savePaymentSubmissionContext({
+    submissionId: 'encoded-query-submission',
+    provider: 'stripe_monthly_card',
+    pathname: '/embed/form/join',
+    search: '?payment_embed_instance=block-a',
+    returnPath,
+    storage,
+    now: 100,
+  });
+  const stored = loadPaymentSubmissionContext({
+    pathname: '/embed/form/join',
+    search: '?payment_embed_instance=block-a',
+    storage,
+    now: 200,
+  });
+  assert.equal(stored.returnPath, returnPath);
+  const parentSearch = '?next=%2Fpricing&campaign=a+b&form_payment_submission=encoded-query-submission&form_payment_provider=stripe_monthly_card';
+  const relayArgs = {
+    parentPathname: '/conference/join',
+    parentSearch,
+    iframePathname: '/embed/form/join',
+    storage,
+    now: 200,
+  };
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    ...relayArgs, iframeSearch: '?payment_embed_instance=block-a',
+  }), '?form_payment_submission=encoded-query-submission&form_payment_provider=stripe_monthly_card');
+  assert.equal(getEmbeddedPaymentReturnRelay({
+    ...relayArgs, iframeSearch: '?payment_embed_instance=block-b',
+  }), null);
+  assert.equal(stripPaymentParams(parentSearch), '?next=%2Fpricing&campaign=a+b');
+  assert.equal(sanitizePaymentContinuePath('/conference?next=%2Fpricing&campaign=a+b'),
+    '/conference?next=%2Fpricing&campaign=a+b');
+  assert.equal(sanitizePaymentContinuePath('/forms?next=%2Fpricing'), '/');
 });
 
 // --- confirmFormPayment -------------------------------------------------------
@@ -253,4 +474,30 @@ test('hook cleans the URL and sessionStorage key stays stable', () => {
   assert.equal(SS_KEY, 'form_payment_pending_submission');
   assert.match(src, /PAYMENT_RETURN_POLL_DELAYS_MS = \[1500, 3000, 5000\]/);
   assert.match(src, /button-payment-return-recheck/);
+  assert.match(src, /button-payment-return-continue/);
+});
+
+test('Canvas relays only a validated return into its original iframe', () => {
+  const src = read('../components/canvas/blocks/dynamicBlocks.jsx');
+  assert.match(src, /getEmbeddedPaymentReturnRelay/);
+  assert.match(src, /payment_embed_instance/);
+  assert.match(src, /payment_embed_continue/);
+  assert.match(src, /event\.source !== iframe\.contentWindow/, 'resize relay remains source-validated');
+  assert.match(src, /stripPaymentParams\(window\.location\.search\)/);
+  assert.match(src, /src=\{src\}/);
+});
+
+test('embedded return continuation only uses a verified same-origin parent click', () => {
+  const src = read('../pages/EmbedForm.jsx');
+  assert.match(src, /paymentContinue\.mayNavigateParent/);
+  assert.match(src, /navigateToPaymentProvider\(paymentContinue\.destination,\s*paymentContinue\.navigation\)/);
+  assert.match(src, /continueTarget=\{isFramed \? '_blank' : undefined\}/);
+  assert.match(src, /sanitizePaymentContinuePath/);
+});
+
+test('cross-origin embeds offer a deliberate new-tab checkout instead of forcing their host page', () => {
+  const src = read('../components/forms/FormPaymentSubmit.jsx');
+  assert.match(src, /paymentNavigation\.framed && paymentNavigation\.target === 'self'/);
+  assert.match(src, /form-payment-external-checkout-/);
+  assert.match(src, /target="_blank" rel="noopener noreferrer"/);
 });

@@ -1457,12 +1457,14 @@ useEffect(() => {
   setContextMemberRole(memberRole);
 }, [memberRole, setContextMemberRole]);
 
-  const publicPages = ["Home", "Login", "ResetPassword", "DirectDebitReturn", "UnpackedInternationalEmployability", "PublicEvents", "PublicComplexEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "sharon", "content", "Search", "search", "SearchResults"];
+  const publicPages = ["Home", "Login", "ResetPassword", "UnpackedInternationalEmployability", "PublicEvents", "PublicComplexEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "sharon", "content", "Search", "search", "SearchResults"];
   
   // Hybrid pages that work both as public (for non-members) and portal (for members)
   // "_DynamicPage" is a special marker for CMS pages (e.g. /homely) that handle their own auth
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
-  const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
+  // Hosted provider callbacks are hybrid: guests need the public tenant shell
+  // without a login redirect, while authenticated members retain portal chrome.
+  const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "DirectDebitReturn", "MonthlyCardReturn", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 

@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { confirmFormPayment, savePaymentSubmissionContext } from "@/lib/formPaymentReturn";
+import {
+  confirmFormPayment,
+  getPaymentNavigationContext,
+  navigateToPaymentProvider,
+  savePaymentSubmissionContext,
+} from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -45,6 +50,8 @@ export function derivePaymentAmountClient(paymentField, formValues) {
  *  - onPaid(submissionId): payment verified server-side — show success
  *  - onNormalSubmit(): fall back to the plain submit path (zero amount /
  *    no configured provider)
+ *  - continueHref / continueLabel: safe non-payment exit for an inline
+ *    provider completion that is still awaiting finalisation
  *  - submitLabel: label used for the fallback submit button
  *  - membershipQuote: result of useMembershipFeeQuote (Task #3498). When a
  *    conditional membership rule matches, the payable amount is the
@@ -64,6 +71,11 @@ export default function FormPaymentSubmit({
   onNormalSubmit,
   submitLabel = 'Submit',
   membershipQuote = null,
+  continueHref = '/',
+  continueLabel = 'Continue to site',
+  continueTarget,
+  continueRel,
+  onContinue,
 }) {
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -74,6 +86,7 @@ export default function FormPaymentSubmit({
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
   const [paymentStage, setPaymentStage] = useState(null);
+  const [externalCheckoutUrl, setExternalCheckoutUrl] = useState(null);
   // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
   const [gcDropin, setGcDropin] = useState(null);
 
@@ -168,12 +181,29 @@ export default function FormPaymentSubmit({
     }
   }, [onPaid, selectedProvider]);
 
+  const leaveForProvider = (url, paymentNavigation) => {
+    // Stripe Checkout and some hosted mandate pages refuse to render in a
+    // third-party iframe. Do not replace that host page; require a deliberate
+    // new-tab click instead. Same-origin Canvas frames have an approved top
+    // route and continue through navigateToPaymentProvider.
+    if (paymentNavigation.framed && paymentNavigation.target === 'self') {
+      setExternalCheckoutUrl(url);
+      return;
+    }
+    navigateToPaymentProvider(url, paymentNavigation);
+  };
+
   const startPayment = async (providerId) => {
     setPaymentError(null);
     setPaymentCaptured(false);
     setPaymentStage(null);
+    setExternalCheckoutUrl(null);
     const payload = await buildPayload();
     if (!payload) return;
+    // A Canvas form is an iframe inside a same-origin tenant page. Keep the
+    // provider return bound to that page and only let hosted flows leave via
+    // the top window when the ancestor is readable/same-origin.
+    const paymentNavigation = getPaymentNavigationContext();
     setCreating(true);
     try {
       const res = await fetch('/api/public/form-payment', {
@@ -188,7 +218,7 @@ export default function FormPaymentSubmit({
           idempotency_key: idempotencyKey || undefined,
           prefill_organization_id: payload.prefill_organization_id || null,
           role_id: payload.role_id || null,
-          return_path: `${window.location.pathname}${window.location.search}`,
+          return_path: paymentNavigation.returnPath,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -208,6 +238,8 @@ export default function FormPaymentSubmit({
          savePaymentSubmissionContext({
            submissionId: json.submissionId,
            provider: providerId,
+            returnPath: paymentNavigation.returnPath,
+            continuePath: continueHref,
          });
        } catch { /* ignore */ }
 
@@ -222,7 +254,7 @@ export default function FormPaymentSubmit({
           });
           return;
         }
-        window.location.href = json.authorisationUrl;
+        leaveForProvider(json.authorisationUrl, paymentNavigation);
         return;
       }
 
@@ -269,15 +301,17 @@ export default function FormPaymentSubmit({
 
   const startMonthlyCard = async () => {
     setPaymentError(null);
-       setPaymentStage(null);
+    setPaymentStage(null);
+    setExternalCheckoutUrl(null);
     const payload = await buildPayload();
     if (!payload) return;
+    const paymentNavigation = getPaymentNavigationContext();
     setCreating(true);
     try {
       const res = await fetch('/api/public/form-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'create_monthly_card', form_id: payload.form_id, submission_data: payload.submission_data,
           idempotency_key: idempotencyKey || undefined, prefill_organization_id: payload.prefill_organization_id || null,
-          role_id: payload.role_id || null, return_path: `${window.location.pathname}${window.location.search}` }) });
+          role_id: payload.role_id || null, return_path: paymentNavigation.returnPath }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
       if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');
@@ -285,9 +319,11 @@ export default function FormPaymentSubmit({
          savePaymentSubmissionContext({
            submissionId: json.submissionId,
            provider: 'stripe_monthly_card',
+            returnPath: paymentNavigation.returnPath,
+            continuePath: continueHref,
          });
        } catch { /* ignore */ }
-      window.top.location.href = json.checkoutUrl;
+      leaveForProvider(json.checkoutUrl, paymentNavigation);
     } catch (err) { setPaymentError(err.message); } finally { setCreating(false); }
   };
 
@@ -351,7 +387,8 @@ export default function FormPaymentSubmit({
           }}
           onLoadFailure={() => {
             // Fall back to the hosted redirect flow.
-            window.location.href = gcDropin.authorisationUrl;
+            setGcDropin(null);
+            leaveForProvider(gcDropin.authorisationUrl, getPaymentNavigationContext());
           }}
         />
       )}
@@ -374,7 +411,17 @@ export default function FormPaymentSubmit({
         </div>
       )}
 
-      {effective.pending ? (
+      {externalCheckoutUrl ? (
+        <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid={`form-payment-external-checkout-${field?.id}`}>
+          <p className="text-sm font-medium">Continue to secure payment</p>
+          <p className="text-sm text-muted-foreground">
+            Your website does not allow secure checkout inside this embedded form. Open the payment in a new tab to continue.
+          </p>
+          <Button asChild data-testid={`button-form-payment-external-checkout-${field?.id}`}>
+            <a href={externalCheckoutUrl} target="_blank" rel="noopener noreferrer">Open secure checkout</a>
+          </Button>
+        </div>
+      ) : effective.pending ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`form-payment-quote-loading-${field?.id}`}>
           <Loader2 className="h-4 w-4 animate-spin" /> Calculating the amount due…
         </div>
@@ -417,6 +464,17 @@ export default function FormPaymentSubmit({
             {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Check status again
           </Button>
+          {continueHref && (
+            onContinue ? (
+              <Button variant="outline" onClick={onContinue} data-testid={`button-form-payment-continue-${field?.id}`}>
+                {continueLabel}
+              </Button>
+            ) : (
+              <Button variant="outline" asChild data-testid={`button-form-payment-continue-${field?.id}`}>
+                <a href={continueHref} target={continueTarget} rel={continueRel}>{continueLabel}</a>
+              </Button>
+            )
+          )}
         </div>
       ) : fallbackToNormalSubmit ? (
         <>

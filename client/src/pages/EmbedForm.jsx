@@ -19,6 +19,11 @@ import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
+import {
+  getPaymentNavigationContext,
+  navigateToPaymentProvider,
+  sanitizePaymentContinuePath,
+} from "@/lib/formPaymentReturn";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
@@ -106,6 +111,12 @@ export default function EmbedFormPage() {
   const tenantParam = searchParams.get('tenant');
   const fontFamilyParam = searchParams.get('font') || '';
   const fontSizeParam = searchParams.get('fontSize') || '';
+  // Canvas supplies its resolved microsite (or tenant) home. It is limited to
+  // a safe local non-form path before it can be used as a continuation.
+  const embedContinuePath = useMemo(
+    () => sanitizePaymentContinuePath(searchParams.get('payment_embed_continue') || '/'),
+    [searchParams],
+  );
 
   // Task #3336: resolve the authenticated member inside the embed iframe.
   // The Canvas Form Embed block uses a same-origin iframe, so the session
@@ -207,6 +218,18 @@ export default function EmbedFormPage() {
   // Return-leg confirmation is safe before the form body is released: it can
   // only finalize a server-created pending payment carrying prior access proof.
   const paymentReturn = useFormPaymentReturn();
+  const paymentContinue = useMemo(() => {
+    const navigation = getPaymentNavigationContext();
+    return {
+      destination: sanitizePaymentContinuePath(paymentReturn.continuePath || embedContinuePath),
+      mayNavigateParent: navigation.target === 'top',
+      navigation,
+    };
+  }, [embedContinuePath, paymentReturn.continuePath]);
+  const continuePaymentReturn = useCallback(() => {
+    if (!paymentContinue.mayNavigateParent) return;
+    navigateToPaymentProvider(paymentContinue.destination, paymentContinue.navigation);
+  }, [paymentContinue]);
 
   // Task #3364: auth-required form viewed anonymously. Wait for the auth
   // probe to settle so a logged-in visitor is never bounced to /login while
@@ -1157,6 +1180,15 @@ export default function EmbedFormPage() {
         onReturnToForm={paymentReturn.dismiss}
         onRecheck={paymentReturn.recheck}
         canRecheck={paymentReturn.canRecheck}
+        // A same-origin Canvas parent is navigated only by this explicit user
+        // click and only to its resolved tenant/microsite home. External
+        // embeds open the tenant destination separately instead of replacing
+        // the host page or nesting a full public shell in the iframe.
+        continueHref={paymentContinue.destination}
+        continueLabel="Continue to site"
+        onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
+        continueTarget={isFramed ? '_blank' : undefined}
+        continueRel={isFramed ? 'noopener noreferrer' : undefined}
       />
     );
   }
@@ -1356,6 +1388,11 @@ export default function EmbedFormPage() {
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text || 'Submit'}
                     membershipQuote={membershipFeeQuote}
+                    continueHref={paymentContinue.destination}
+                    continueLabel="Continue to site"
+                    onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
+                    continueTarget={isFramed ? '_blank' : undefined}
+                    continueRel={isFramed ? 'noopener noreferrer' : undefined}
                   />
                 ) : (
                 <Button
@@ -1540,6 +1577,11 @@ export default function EmbedFormPage() {
                 onNormalSubmit={handleSubmit}
                 submitLabel={form.submit_button_text || 'Submit'}
                 membershipQuote={membershipFeeQuote}
+                continueHref={paymentContinue.destination}
+                continueLabel="Continue to site"
+                onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
+                continueTarget={isFramed ? '_blank' : undefined}
+                continueRel={isFramed ? 'noopener noreferrer' : undefined}
               />
               </div>
             )}

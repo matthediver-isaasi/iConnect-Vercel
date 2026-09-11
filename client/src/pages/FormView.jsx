@@ -2011,6 +2011,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         onReturnToForm={paymentReturn.dismiss}
         onRecheck={paymentReturn.recheck}
         canRecheck={paymentReturn.canRecheck}
+        continueHref={memberInfo ? '/Dashboard' : '/'}
+        continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
       />
     );
   }
@@ -2634,6 +2636,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       onNormalSubmit={handleSubmit}
                       submitLabel={form.submit_button_text}
                       membershipQuote={membershipFeeQuote}
+                      continueHref={memberInfo ? '/Dashboard' : '/'}
+                      continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
                     />
                   ) : (
                   <Button
@@ -3104,6 +3108,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text}
                     membershipQuote={membershipFeeQuote}
+                    continueHref={memberInfo ? '/Dashboard' : '/'}
+                    continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
                   />
                 </div>
               )}

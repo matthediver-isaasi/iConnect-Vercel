@@ -107,6 +107,8 @@ import PostJob from "./PostJob";
 import JobPostSuccess from "./JobPostSuccess";
 
 import DirectDebitReturn from "./DirectDebitReturn";
+import MonthlyCardReturn from "./MonthlyCardReturn";
+import { getMembershipReturnPageName, MEMBERSHIP_RETURN_ROUTES } from "@/lib/membershipPaymentReturn";
 
 import JobBoardSettings from "./JobBoardSettings";
 
@@ -595,6 +597,7 @@ const PAGES = {
     JobPostSuccess: JobPostSuccess,
     
     DirectDebitReturn: DirectDebitReturn,
+    MonthlyCardReturn: MonthlyCardReturn,
     
     JobBoardSettings: JobBoardSettings,
     
@@ -892,9 +895,8 @@ function _getCurrentPage(url) {
         return 'HelpArticleView';
     }
     
-    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'membership' && urlParts[1].toLowerCase() === 'direct-debit') {
-        return 'DirectDebitReturn';
-    }
+    const membershipReturnPage = getMembershipReturnPageName(url);
+    if (membershipReturnPage) return membershipReturnPage;
     
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
@@ -1076,8 +1078,10 @@ function PagesContent() {
                 
                 <Route path="/JobPostSuccess" element={<JobPostSuccess />} />
                 
-                <Route path="/membership/direct-debit/complete" element={<DirectDebitReturn outcome="complete" />} />
-                <Route path="/membership/direct-debit/cancelled" element={<DirectDebitReturn outcome="cancelled" />} />
+                {MEMBERSHIP_RETURN_ROUTES.map((route) => {
+                    const ReturnPage = route.pageName === "DirectDebitReturn" ? DirectDebitReturn : MonthlyCardReturn;
+                    return <Route key={route.path} path={route.path} element={<ReturnPage outcome={route.outcome} />} />;
+                })}
                 
                 <Route path="/JobBoardSettings" element={<JobBoardSettings />} />
                 

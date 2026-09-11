@@ -156,3 +156,4 @@
 - [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Row-source answer semantics](form-row-source-answer-types.md) — projected distinct values are scalars, not record references, even when they share the legacy relationship dropdown type.
+- [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.

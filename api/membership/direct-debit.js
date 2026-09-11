@@ -117,13 +117,17 @@ async function handleGet(req, res, resolvedTenantId) {
 
   const { data: agreements, error } = await supabase
     .from('membership_billing_agreements')
-    .select('id, status, gocardless_mandate_id, metadata, created_at')
+    .select('id, status, provider, gocardless_mandate_id, metadata, created_at')
     .eq('tenant_id', member.tenant_id)
     .eq('member_id', member.id)
-    .order('created_at', { ascending: false })
-    .limit(1);
+    // New DD agreements always declare their provider. The NULL branch keeps
+    // the pre-provider-column DD records readable, and is filtered again by
+    // their immutable DD snapshot below so a Stripe agreement is never shown
+    // on a Direct Debit return page.
+    .or('provider.eq.gocardless,provider.is.null')
+    .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Failed to load agreement' });
-  const agreement = agreements?.[0] || null;
+  const agreement = selectLatestDirectDebitAgreement(agreements);
   if (!agreement) return res.json({ agreement: null });
   return res.json({
     agreement: {
@@ -133,6 +137,13 @@ async function handleGet(req, res, resolvedTenantId) {
       terms: agreement.metadata?.dd || null,
     },
   });
+}
+
+export function selectLatestDirectDebitAgreement(agreements = []) {
+  return agreements.find((agreement) => (
+    agreement?.provider === 'gocardless'
+    || (!agreement?.provider && !!agreement?.metadata?.dd)
+  )) || null;
 }
 
 async function handlePost(req, res, resolvedTenantId) {
@@ -248,6 +259,7 @@ async function handlePost(req, res, resolvedTenantId) {
     tenant_id: tenantId,
     member_id: member.id,
     agreement_type: 'member',
+    provider: 'gocardless',
     status: STATUS.PAYMENT_SETUP_REQUIRED,
     idempotency_key: idempotencyKey,
     environment: creds.environment || 'sandbox',

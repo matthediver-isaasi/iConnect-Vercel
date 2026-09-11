@@ -24,6 +24,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
+import { buildFormPaymentReturnUrl } from '../_lib/formPaymentReturnUrl.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
@@ -131,13 +132,6 @@ export function submissionRequiresStripeBillingAddress(submission) {
   return !!meta.membership
     || (Array.isArray(meta.stripe_address_mapping_config?.mappings)
       && meta.stripe_address_mapping_config.mappings.length > 0);
-}
-
-function sanitizeReturnPath(p) {
-  if (typeof p !== 'string') return '/';
-  if (!p.startsWith('/') || p.startsWith('//')) return '/';
-  // strip any fragment; keep path + query
-  return p.split('#')[0] || '/';
 }
 
 function extractSubmitterEmail(form, data) {
@@ -798,12 +792,7 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
     prior = { ...prior, member_id: preResolvedMemberId };
   }
   const baseUrl = getTenantTrustedBaseUrl(req, tenantData);
-  const returnPath = sanitizeReturnPath(return_path);
-  const withParams = (entries) => {
-    const url = new URL(returnPath, baseUrl);
-    for (const [key, value] of entries) url.searchParams.set(key, value);
-    return url.toString();
-  };
+  const withParams = (entries) => buildFormPaymentReturnUrl(baseUrl, return_path, entries);
   let session;
   try {
     const { findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
@@ -1328,10 +1317,15 @@ async function handleCreate(req, res, supabase, tenantData) {
     });
   }
   const trustedBase = getTenantTrustedBaseUrl(req, tenantData);
-  const returnPath = sanitizeReturnPath(return_path);
-  const sep = returnPath.includes('?') ? '&' : '?';
-  const redirectUri = `${trustedBase}${returnPath}${sep}form_payment_submission=${encodeURIComponent(submissionRow.id)}&form_payment_provider=gocardless`;
-  const exitUri = `${trustedBase}${returnPath}${sep}form_payment_cancelled=1`;
+  const redirectUri = buildFormPaymentReturnUrl(trustedBase, return_path, [
+    ['form_payment_submission', submissionRow.id],
+    ['form_payment_provider', 'gocardless'],
+  ]);
+  const exitUri = buildFormPaymentReturnUrl(trustedBase, return_path, [
+    ['form_payment_submission', submissionRow.id],
+    ['form_payment_provider', 'gocardless'],
+    ['form_payment_cancelled', '1'],
+  ]);
 
   const billingRequest = await gc.createBillingRequest({
     idempotencyKey: buildIdempotencyKey('form-payment-br', submissionRow.id),
@@ -1556,12 +1550,7 @@ async function handleCreateMonthlyDirectDebit({
   }
 
   const trustedBase = getTenantTrustedBaseUrl(req, tenantData);
-  const safeReturnPath = sanitizeReturnPath(returnPath);
-  const withParams = (entries) => {
-    const url = new URL(safeReturnPath, trustedBase);
-    for (const [key, value] of entries) url.searchParams.set(key, value);
-    return url.toString();
-  };
+  const withParams = (entries) => buildFormPaymentReturnUrl(trustedBase, returnPath, entries);
 
   let billingRequest;
   let flow;

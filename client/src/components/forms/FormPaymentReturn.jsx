@@ -50,6 +50,7 @@ export function useFormPaymentReturn() {
       provider: null,
       error: null,
       canRecheck: false,
+      continuePath: null,
     };
   });
   const contextRef = useRef(null);
@@ -77,7 +78,20 @@ export function useFormPaymentReturn() {
       const provider = out.provider || null;
       const terminal = out.status === 'paid';
       if (terminal) {
-        try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
+        // Keep a short-lived, path-scoped receipt. Refreshing a verified
+        // success must never reveal the payment form or issue another confirm;
+        // this record contains only status/navigation metadata, never secrets.
+        try {
+          savePaymentSubmissionContext({
+            submissionId: context.submissionId,
+            // Preserve only the provider echoed by the authoritative confirm
+            // response; the pre-redirect hint remains client-controlled.
+            provider,
+            returnPath: context.returnPath,
+            continuePath: context.continuePath,
+            terminalStatus: 'paid',
+          });
+        } catch { /* ignore */ }
         contextRef.current = null;
       }
       setState({
@@ -86,6 +100,7 @@ export function useFormPaymentReturn() {
         provider,
         error: out.error || null,
         canRecheck: !terminal,
+        continuePath: context.continuePath || null,
       });
 
       const shouldPoll = !manual && out.retryable
@@ -116,6 +131,20 @@ export function useFormPaymentReturn() {
       storedSubmissionId: stored?.submissionId || null,
     });
     const isReturn = decision.kind !== 'none';
+    if (!isReturn && stored?.terminalStatus === 'paid') {
+      // A terminal receipt restores the status UI without calling confirm
+      // again. It remains bounded by loadPaymentSubmissionContext's scope and
+      // expiry checks.
+      setState({
+        active: true,
+        status: 'paid',
+        provider: stored.provider || null,
+        error: null,
+        canRecheck: false,
+        continuePath: stored.continuePath || null,
+      });
+      return undefined;
+    }
     const resumable = !isReturn && stored && !stored.legacy;
     if (!isReturn && !resumable) return undefined;
 
@@ -130,7 +159,7 @@ export function useFormPaymentReturn() {
 
     if (decision.kind === 'cancelled') {
       try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
-      setState({ active: true, status: 'cancelled', provider: stored?.provider || null, error: null, canRecheck: false });
+      setState({ active: true, status: 'cancelled', provider: stored?.provider || null, error: null, canRecheck: false, continuePath: stored?.continuePath || null });
       return undefined;
     }
     if (decision.kind === 'failed') {
@@ -141,13 +170,14 @@ export function useFormPaymentReturn() {
         provider: stored?.provider || null,
         error: 'Payment was not completed. Nothing has been confirmed as charged.',
         canRecheck: false,
+        continuePath: stored?.continuePath || null,
       });
       return undefined;
     }
     if (decision.kind === 'orphan') {
       // Params present but no submission id recoverable — the background
       // reconciliation still finalizes it; show the safe pending copy.
-      setState({ active: true, status: 'pending', provider: null, error: null, canRecheck: false });
+      setState({ active: true, status: 'pending', provider: null, error: null, canRecheck: false, continuePath: null });
       return undefined;
     }
 
@@ -158,13 +188,17 @@ export function useFormPaymentReturn() {
         paymentIntentId: resumable ? null : decision.paymentIntentId,
         provider: (resumable ? stored.provider : decision.provider) || stored?.provider || null,
         attempt: 0,
+        returnPath: stored?.returnPath || null,
+        continuePath: stored?.continuePath || null,
       };
     }
     if (!resumable) {
       try {
         savePaymentSubmissionContext({
           submissionId: decision.submissionId,
-          provider: decision.provider,
+            provider: decision.provider,
+            returnPath: stored?.returnPath || null,
+            continuePath: stored?.continuePath || null,
         });
       } catch { /* ignore */ }
     }
@@ -181,6 +215,7 @@ export function useFormPaymentReturn() {
     provider: null,
     error: null,
     canRecheck: false,
+    continuePath: null,
   }), []);
   const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
   return { ...state, dismiss, recheck };
@@ -250,6 +285,11 @@ const SCREENS = {
  *  - successMessage: the form's configured success copy (paid outcome)
  *  - onReturnToForm: dismiss back to the form (cancelled / error)
  *  - embedded: compact layout for the iframe page
+ *  - continueHref/continueLabel: a safe non-payment destination. In an
+ *    embedded form this stays inside the iframe, leaving the containing site's
+ *    own chrome and navigation intact.
+ *  - onContinue: optional same-origin parent navigation invoked by a user
+ *    click; when absent the safe href is used (including `_blank` embeds).
  */
 export function FormPaymentReturnScreen({
   status,
@@ -260,6 +300,11 @@ export function FormPaymentReturnScreen({
   onRecheck,
   canRecheck = false,
   embedded = false,
+  continueHref = '/',
+  continueLabel = 'Continue to site',
+  continueTarget,
+  continueRel,
+  onContinue,
 }) {
   const def = SCREENS[status] || SCREENS.confirming;
   const Icon = def.icon;
@@ -274,6 +319,9 @@ export function FormPaymentReturnScreen({
       ? error
       : status === 'pending' ? pendingBody : def.body;
   const showReturn = status === 'cancelled' && onReturnToForm;
+  // Never offer a completed, pending, or ambiguous payment back to the form:
+  // that page contains payment controls and could invite a second attempt.
+  const showContinue = status !== 'confirming' && status !== 'cancelled' && !!continueHref;
 
   const card = (
     <Card
@@ -297,6 +345,17 @@ export function FormPaymentReturnScreen({
           <Button className="mt-6" variant="outline" onClick={onRecheck} data-testid="button-payment-return-recheck">
             Check status again
           </Button>
+        )}
+        {showContinue && (
+          onContinue ? (
+            <Button className="mt-3" onClick={onContinue} data-testid="button-payment-return-continue">
+              {continueLabel}
+            </Button>
+          ) : (
+            <Button className="mt-3" asChild data-testid="button-payment-return-continue">
+              <a href={continueHref} target={continueTarget} rel={continueRel}>{continueLabel}</a>
+            </Button>
+          )
         )}
       </CardContent>
     </Card>
