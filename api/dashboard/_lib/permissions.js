@@ -58,3 +58,40 @@ export function tenantFilter(query, tenantId) {
   // shared/personal widgets stay scoped within that single tenant.
   return query.is('tenant_id', null);
 }
+
+/**
+ * Canvas dashboard blocks opt into the dashboard API explicitly.  This is
+ * intentionally narrower than the other embed signals used by public
+ * endpoints: a Canvas block must ask for the dashboard's shared-widget
+ * contract with ?embed=canvas.
+ */
+export function isCanvasDashboardEmbed(req) {
+  const value = req?.query?.embed;
+  if (Array.isArray(value)) {
+    return value.some(item => typeof item === 'string' && item.toLowerCase() === 'canvas');
+  }
+  return typeof value === 'string' && value.toLowerCase() === 'canvas';
+}
+
+/**
+ * Do not rely solely on the database filter when handling a Canvas
+ * reference.  Keeping this check beside tenantFilter means a forged row (or
+ * an incorrectly mocked/changed query) cannot turn a personal or
+ * cross-tenant widget into an embeddable one.
+ */
+export function isSharedTenantWidget(widget, actor) {
+  if (!widget || widget.scope !== 'shared' || !actor) return false;
+  if (actor.tenantId) return widget.tenant_id === actor.tenantId;
+  return widget.tenant_id === null || widget.tenant_id === undefined;
+}
+
+/**
+ * Canvas responses contain tenant data and must never be cached by a browser,
+ * CDN, or intermediary.  Set this before authentication/database checks so
+ * denied responses are not cached either.
+ */
+export function setCanvasDashboardNoStore(req, res) {
+  if (isCanvasDashboardEmbed(req)) {
+    res.setHeader('Cache-Control', 'private, no-store');
+  }
+}

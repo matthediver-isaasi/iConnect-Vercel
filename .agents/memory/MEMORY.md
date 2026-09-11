@@ -156,3 +156,4 @@
 - [Row-source answer semantics](form-row-source-answer-types.md) — projected distinct values are scalars, not record references, even when they share the legacy relationship dropdown type.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
 - [Temporal form validation](temporal-form-validation.md) — midnight must not invalidate accepted retries, provider callbacks, or unchanged historical answers.
+- [Canvas dashboard embedding](canvas-dashboard-embedding.md) — tenant-shared is not public; reuse dashboard authorization/presentation and keep viewer sizing inside the authored frame.

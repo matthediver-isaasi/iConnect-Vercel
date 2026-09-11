@@ -4,7 +4,7 @@
 // using TanStack Query. The same renderer is used in the editor and on the
 // public page; in the editor we add `data-canvas-editor` to suppress link
 // navigation. Skeleton/empty states and accessibility metadata are baked in.
-import { useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useRef, useId, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
@@ -65,6 +65,7 @@ import {
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useLayoutContext } from '@/contexts/LayoutContext';
 import { useArticleUrl } from '@/contexts/ArticleUrlContext';
 import { useMicrosite, usePublicChromeBranding } from '@/contexts/MicrositeContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
@@ -76,8 +77,21 @@ import {
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import ResourceCard from '@/components/resources/ResourceCard';
+import WidgetCard from '@/components/dashboard/WidgetCard';
 import { resolveResourceNewTab, TENANT_FORM_RESOURCE_TYPE } from '@/lib/resourcePresentation';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  canvasDashboardWidgetUrl,
+  canvasDynamicWidgetQueryScope,
+  collectCanvasDashboardWidgetPages,
+  canvasDynamicWidgetAuthoredFrame,
+  canvasDynamicWidgetDisplaySize,
+  canvasWidgetFromDetailResponse,
+  canvasDynamicWidgetResizeLimits,
+  normalizeCanvasDashboardWidgetsResponse,
+  normalizeCanvasDynamicWidgetContent,
+  resizeCanvasDynamicWidgetSize,
+} from '@/lib/canvasDynamicWidget';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
@@ -8041,7 +8055,507 @@ function FeaturedJobInspector({ block, update, breakpoint }) {
   );
 }
 
+// DASHBOARD WIDGET EMBED ----------------------------------------------------
+// Canvas stores only a shared dashboard-widget id plus the local resize
+// preference. The list request is used for the tenant palette; the detail
+// request is authoritative for the widget itself. Both requests intentionally
+// use the Canvas embed scope so this renderer never falls back to a dashboard
+// page's cached response.
+async function fetchCanvasWidgetJson(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('Dashboard widget unavailable');
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function sharedCanvasWidgetForId(widget, sharedWidgets, widgetId) {
+  if (!widget || !Array.isArray(sharedWidgets)) return null;
+  const isSharedByDetail = widget.scope == null || widget.scope === 'shared';
+  const isSharedByList = sharedWidgets.some(
+    (candidate) => String(candidate?.id) === String(widgetId),
+  );
+  return isSharedByDetail && isSharedByList ? widget : null;
+}
+
+function CanvasWidgetSafeState({ kind = 'unavailable', asEditor = false }) {
+  const message = kind === 'loading'
+    ? 'Loading widget…'
+    : kind === 'empty' && asEditor
+      ? 'Choose a dashboard widget in the Inspector.'
+      : 'This widget is unavailable.';
+  return (
+    <div
+      className="flex h-full min-h-0 w-full items-center justify-center border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-sm text-slate-500"
+      data-testid={`canvas-dynamic-widget-${kind}`}
+      role={kind === 'unavailable' ? 'status' : undefined}
+    >
+      {message}
+    </div>
+  );
+}
+
+function DynamicWidgetRender({ block, asEditor = false, breakpoint = 'desktop' }) {
+  const content = normalizeCanvasDynamicWidgetContent(block?.content);
+  const widgetId = content.widgetId;
+  const mountId = useId();
+  const {
+    memberInfo,
+    memberRole,
+    sessionValidated,
+    authResolved,
+  } = useLayoutContext();
+  const authScope = [
+    authResolved ? 'resolved' : 'pending',
+    sessionValidated ? 'validated' : 'unvalidated',
+    memberInfo?.id || memberInfo?.member_id || '',
+    memberInfo?.tenant_id || memberInfo?.tenantId || '',
+    memberRole?.id || '',
+    JSON.stringify(memberRole?.excluded_features || []),
+  ].join(':');
+  const instanceScope = useMemo(
+    () => canvasDynamicWidgetQueryScope(
+      `${block?.id || 'block'}:${mountId}`,
+      'instance',
+    ),
+    [block?.id, mountId],
+  );
+  const frameRef = useRef(null);
+  const authoredFrame = canvasDynamicWidgetAuthoredFrame(block, breakpoint);
+  const authoredWidth = authoredFrame.width;
+  const authoredHeight = authoredFrame.height;
+  const [frameSize, setFrameSize] = useState(() => ({
+    width: authoredWidth,
+    height: authoredHeight,
+  }));
+  const [localSize, setLocalSize] = useState(() => ({
+    width: authoredWidth,
+    height: authoredHeight,
+  }));
+  const hasLocalResizeRef = useRef(false);
+
+  // A viewer's local layout can become smaller than the authored frame. The
+  // frame is always mounted (including loading/denied states), so this effect
+  // observes it after the first commit and after an async renderer swap.
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return undefined;
+    const measure = (rect) => {
+      const width = Number(rect?.width) > 0
+        ? Number(rect.width)
+        : (Number(frame.offsetWidth) > 0 ? Number(frame.offsetWidth) : authoredWidth);
+      const height = Number(rect?.height) > 0
+        ? Number(rect.height)
+        : (Number(frame.offsetHeight) > 0 ? Number(frame.offsetHeight) : authoredHeight);
+      const nextFrame = { width, height };
+      setFrameSize((previous) => (
+        previous.width === nextFrame.width && previous.height === nextFrame.height
+          ? previous
+          : nextFrame
+      ));
+      setLocalSize((previous) => (
+        hasLocalResizeRef.current
+          ? resizeCanvasDynamicWidgetSize(
+            previous,
+            previous,
+            nextFrame.width,
+            nextFrame.height,
+          )
+          : nextFrame
+      ));
+    };
+    measure({
+      width: frame.offsetWidth,
+      height: frame.offsetHeight,
+    });
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => measure(entry?.contentRect));
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [authoredHeight, authoredWidth]);
+
+  const limits = canvasDynamicWidgetResizeLimits(frameSize.width, frameSize.height);
+  const setLocalDimension = (patch) => {
+    hasLocalResizeRef.current = true;
+    setLocalSize((previous) => resizeCanvasDynamicWidgetSize(
+      previous,
+      patch,
+      limits.maxWidth,
+      limits.maxHeight,
+    ));
+  };
+  const resetLocalSize = () => {
+    hasLocalResizeRef.current = false;
+    setLocalSize({
+      width: limits.maxWidth,
+      height: limits.maxHeight,
+    });
+  };
+  const pointerResizeRef = useRef(null);
+  const handleResizePointerDown = (event) => {
+    if (!content.allowUserResize || event.button !== 0) return;
+    event.preventDefault();
+    hasLocalResizeRef.current = true;
+    const start = {
+      x: event.clientX,
+      y: event.clientY,
+      width: localSize.width,
+      height: localSize.height,
+    };
+    const move = (nextEvent) => {
+      setLocalSize(resizeCanvasDynamicWidgetSize(
+        start,
+        {
+          width: start.width + (nextEvent.clientX - start.x),
+          height: start.height + (nextEvent.clientY - start.y),
+        },
+        limits.maxWidth,
+        limits.maxHeight,
+      ));
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      pointerResizeRef.current = null;
+    };
+    pointerResizeRef.current = finish;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish, { once: true });
+  };
+  useEffect(() => () => {
+    pointerResizeRef.current?.();
+  }, []);
+
+  const handleResizeKeyDown = (event) => {
+    if (!content.allowUserResize) return;
+    const step = event.shiftKey ? 32 : 16;
+    if (event.key === 'Home') {
+      event.preventDefault();
+      hasLocalResizeRef.current = true;
+      resetLocalSize();
+      return;
+    }
+    const widthDelta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+    const heightDelta = event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
+    if (!widthDelta && !heightDelta) return;
+    event.preventDefault();
+    hasLocalResizeRef.current = true;
+    setLocalSize((previous) => resizeCanvasDynamicWidgetSize(
+      previous,
+      {
+        width: previous.width + widthDelta,
+        height: previous.height + heightDelta,
+      },
+      limits.maxWidth,
+      limits.maxHeight,
+    ));
+  };
+
+  const listQuery = useQuery({
+    queryKey: ['canvas-dynamic-widget-list', instanceScope, authScope],
+    queryFn: () => collectCanvasDashboardWidgetPages(fetchCanvasWidgetJson),
+    enabled: !!widgetId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const detailQuery = useQuery({
+    queryKey: ['canvas-dynamic-widget-detail', instanceScope, authScope, widgetId],
+    queryFn: () => fetchCanvasWidgetJson(canvasDashboardWidgetUrl(widgetId)),
+    enabled: !!widgetId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const list = normalizeCanvasDashboardWidgetsResponse(
+    listQuery.isSuccess ? listQuery.data : null,
+  );
+  const detailWidget = detailQuery.isSuccess
+    ? sharedCanvasWidgetForId(
+      canvasWidgetFromDetailResponse(detailQuery.data),
+      list.shared,
+      widgetId,
+    )
+    : null;
+  const palette = list.palette.length > 0
+    ? list.palette
+    : (Array.isArray(detailQuery.data?.palette) ? detailQuery.data.palette : undefined);
+  const localResizeEnabled = content.allowUserResize && !asEditor && !!widgetId;
+  const innerSizeStyle = canvasDynamicWidgetDisplaySize(
+    content.allowUserResize,
+    asEditor,
+    localSize,
+  );
+
+  let body;
+  if (!widgetId) {
+    body = <CanvasWidgetSafeState kind="empty" asEditor={asEditor} />;
+  } else if (!authResolved) {
+    body = <CanvasWidgetSafeState kind="loading" asEditor={asEditor} />;
+  } else if (!sessionValidated) {
+    body = <CanvasWidgetSafeState kind="unavailable" asEditor={asEditor} />;
+  } else if (
+    listQuery.isLoading
+    || detailQuery.isLoading
+    || listQuery.isFetching
+    || detailQuery.isFetching
+  ) {
+    body = <CanvasWidgetSafeState kind="loading" asEditor={asEditor} />;
+  } else if (!detailWidget || detailQuery.isError || listQuery.isError) {
+    // Only render a widget from a successful detail response. React Query may
+    // retain stale data alongside an error; checking isSuccess prevents an
+    // authorization failure from painting a previous user's widget.
+    body = <CanvasWidgetSafeState kind="unavailable" asEditor={asEditor} />;
+  } else {
+    body = (
+      <WidgetCard
+        widget={detailWidget}
+        palette={palette}
+        embedded
+        queryScope={canvasDynamicWidgetQueryScope(
+          instanceScope,
+          `${authScope}:${widgetId}`,
+        )}
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={frameRef}
+      className="relative h-full min-h-0 w-full min-w-0 overflow-hidden"
+      data-testid={`canvas-dynamic-widget-${block.id}`}
+      data-canvas-widget-instance={instanceScope}
+      data-canvas-widget-local-width={Math.round(localSize.width)}
+      data-canvas-widget-local-height={Math.round(localSize.height)}
+      data-canvas-widget-authored-width={Math.round(frameSize.width)}
+      data-canvas-widget-authored-height={Math.round(frameSize.height)}
+      style={{
+        width: '100%',
+        height: '100%',
+        minWidth: 0,
+        minHeight: 0,
+      }}
+    >
+      <div
+        className="relative min-h-0 min-w-0 max-w-full max-h-full overflow-hidden"
+        style={innerSizeStyle}
+        data-testid={`canvas-dynamic-widget-instance-${block.id}`}
+      >
+        {body}
+      </div>
+      {localResizeEnabled && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="pointer-events-auto absolute right-1 top-1 z-20 rounded border border-slate-300 bg-white/95 px-1.5 py-0.5 text-[10px] text-slate-700 shadow-sm hover:bg-slate-100"
+              aria-label="Resize dashboard widget locally"
+              data-testid={`canvas-dynamic-widget-resize-controls-${block.id}`}
+            >
+              Resize
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="pointer-events-auto z-30 w-64 space-y-2 p-3 text-xs"
+            data-testid={`canvas-dynamic-widget-resize-popover-${block.id}`}
+          >
+            <div className="font-medium text-slate-700">Resize widget locally</div>
+            <label className="flex items-center gap-2">
+              <span className="w-12">Width</span>
+              <input
+                className="min-w-0 flex-1"
+                type="range"
+                min={limits.minWidth}
+                max={limits.maxWidth}
+                step="1"
+                value={Math.round(localSize.width)}
+                onChange={(event) => setLocalDimension({ width: Number(event.target.value) })}
+                aria-label="Dashboard widget width"
+                data-testid={`canvas-dynamic-widget-width-${block.id}`}
+              />
+              <output className="w-10 text-right">{Math.round(localSize.width)}px</output>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="w-12">Height</span>
+              <input
+                className="min-w-0 flex-1"
+                type="range"
+                min={limits.minHeight}
+                max={limits.maxHeight}
+                step="1"
+                value={Math.round(localSize.height)}
+                onChange={(event) => setLocalDimension({ height: Number(event.target.value) })}
+                aria-label="Dashboard widget height"
+                data-testid={`canvas-dynamic-widget-height-${block.id}`}
+              />
+              <output className="w-10 text-right">{Math.round(localSize.height)}px</output>
+            </label>
+            <button
+              type="button"
+              className="rounded border border-slate-300 px-1.5 py-0.5 hover:bg-slate-100"
+              onClick={resetLocalSize}
+              aria-label="Reset dashboard widget size"
+              data-testid={`canvas-dynamic-widget-reset-${block.id}`}
+            >
+              Reset
+            </button>
+          </PopoverContent>
+        </Popover>
+      )}
+      {localResizeEnabled && (
+        <button
+          type="button"
+          className="pointer-events-auto absolute bottom-1 right-1 z-20 h-5 w-5 cursor-se-resize rounded border border-slate-400 bg-white/95 text-slate-600 shadow-sm"
+          aria-label="Resize dashboard widget"
+          aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home"
+          title="Resize widget (arrow keys adjust; Home resets)"
+          onPointerDown={handleResizePointerDown}
+          onKeyDown={handleResizeKeyDown}
+          data-testid={`canvas-dynamic-widget-resize-handle-${block.id}`}
+        >
+          <span aria-hidden="true">↘</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function DynamicWidgetInspector({ block, update }) {
+  const content = normalizeCanvasDynamicWidgetContent(block?.content);
+  const {
+    memberInfo,
+    memberRole,
+    sessionValidated,
+    authResolved,
+  } = useLayoutContext();
+  const authScope = [
+    authResolved ? 'resolved' : 'pending',
+    sessionValidated ? 'validated' : 'unvalidated',
+    memberInfo?.id || memberInfo?.member_id || '',
+    memberInfo?.tenant_id || memberInfo?.tenantId || '',
+    memberRole?.id || '',
+    JSON.stringify(memberRole?.excluded_features || []),
+  ].join(':');
+  const instanceScope = useRef(
+    canvasDynamicWidgetQueryScope(block?.id || 'inspector', 'picker'),
+  ).current;
+  const listQuery = useQuery({
+    queryKey: ['canvas-dynamic-widget-picker', instanceScope, authScope],
+    queryFn: () => collectCanvasDashboardWidgetPages(fetchCanvasWidgetJson),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const widgets = normalizeCanvasDashboardWidgetsResponse(
+    listQuery.isSuccess ? listQuery.data : null,
+  ).shared;
+  const selectedDetailsQuery = useQuery({
+    queryKey: [
+      'canvas-dynamic-widget-picker-detail',
+      instanceScope,
+      authScope,
+      content.widgetId,
+    ],
+    queryFn: () => fetchCanvasWidgetJson(canvasDashboardWidgetUrl(content.widgetId)),
+    enabled: !!content.widgetId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const selectedWidget = selectedDetailsQuery.isSuccess
+    ? sharedCanvasWidgetForId(
+      canvasWidgetFromDetailResponse(selectedDetailsQuery.data),
+      widgets,
+      content.widgetId,
+    )
+    : widgets.find((widget) => String(widget?.id) === content.widgetId);
+  const setWidgetId = (widgetId) => update((current) => ({
+    ...current,
+    content: normalizeCanvasDynamicWidgetContent({
+      ...current.content,
+      widgetId,
+    }),
+  }));
+
+  if (!authResolved) {
+    return <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-loading">Loading dashboard widgets…</p>;
+  }
+  if (!sessionValidated) {
+    return <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-denied">Dashboard widgets are unavailable.</p>;
+  }
+  if (listQuery.isLoading || listQuery.isFetching) {
+    return <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-loading">Loading dashboard widgets…</p>;
+  }
+  if (listQuery.isError) {
+    return <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-denied">Dashboard widgets are unavailable.</p>;
+  }
+  return (
+    <div className="space-y-3" data-testid="canvas-dynamic-widget-inspector">
+      <SelectField
+        label="Shared dashboard widget"
+        value={content.widgetId || '__none__'}
+        onChange={(value) => { if (value !== '__none__') setWidgetId(value); }}
+        options={[
+          { value: '__none__', label: 'Choose a widget' },
+          ...widgets.map((widget) => ({
+            value: String(widget.id),
+            label: widget.title || String(widget.id),
+          })),
+        ]}
+        testId="select-canvas-dynamic-widget"
+        disabled={widgets.length === 0}
+        hint="Only shared tenant widgets are available to Canvas pages."
+      />
+      <ToggleField
+        label="Allow users to resize"
+        value={content.allowUserResize}
+        onChange={(value) => update((current) => ({
+          ...current,
+          content: normalizeCanvasDynamicWidgetContent({
+            ...current.content,
+            allowUserResize: value,
+          }),
+        }))}
+        testId="toggle-canvas-dynamic-widget-allow-user-resize"
+        hint="Resize controls stay local to this Canvas instance and never change the page or dashboard widget."
+      />
+      {widgets.length === 0 && (
+        <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-empty">
+          No shared dashboard widgets are available.
+        </p>
+      )}
+      {content.widgetId && selectedDetailsQuery.isError && (
+        <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-selection-unavailable">
+          The selected widget is unavailable.
+        </p>
+      )}
+      {selectedWidget && !selectedDetailsQuery.isError && (
+        <p className="text-xs text-slate-500" data-testid="canvas-dynamic-widget-picker-selection">
+          Selected: {selectedWidget.title || selectedWidget.id}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export const DYNAMIC_BLOCK_DEFINITIONS = {
+  [BLOCK_TYPES.DYNAMIC_WIDGET]: {
+    label: 'Dynamic Widget',
+    icon: LayoutGrid,
+    category: 'data',
+    Editor: (props) => <DynamicWidgetRender {...props} asEditor />,
+    Renderer: DynamicWidgetRender,
+    Inspector: DynamicWidgetInspector,
+    // The renderer's local viewer-resize policy lives in content.allowUserResize;
+    // Canvas authors still resize the authored block normally.
+    absoluteFill: true,
+  },
   [BLOCK_TYPES.AI_COMPOSITION]: {
     label: 'AI Composition (legacy)',
     icon: Sparkles,

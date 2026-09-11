@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,6 +113,121 @@ function drillKeyFromChartEntry(entry) {
   return null;
 }
 
+/**
+ * Canvas widgets intentionally use a different request URL and React Query
+ * identity from the dashboard card.  The endpoint applies the presentation
+ * policy server-side, and sharing the dashboard cache entry here could show
+ * data fetched for the previous presentation (or identity).
+ */
+export function widgetRequestUrl(path, embedded = false) {
+  if (!embedded) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}embed=canvas`;
+}
+
+export function widgetDataQueryKey(widgetId, embedded = false, queryScope = null) {
+  const key = ["/api/dashboard/widgets", widgetId, "data"];
+  if (!embedded) return key;
+  // A Canvas page may render the same widget more than once. Scope is also
+  // rotated by the Canvas host when its auth identity changes, so an old
+  // user's response cannot be painted while the new request is in flight.
+  if (queryScope === null || queryScope === undefined || queryScope === "") {
+    return [...key, "canvas"];
+  }
+  return [...key, "canvas", String(queryScope)];
+}
+
+/**
+ * Read the actual Canvas block box rather than using the dashboard's saved
+ * height preset.  A zero-sized initial value is intentional: Responsive-
+ * Container will settle as soon as the block has been laid out.
+ */
+function readElementContentSize(element) {
+  if (!element) return { width: 0, height: 0 };
+  return {
+    // offsetWidth/offsetHeight are untransformed layout pixels, unlike
+    // getBoundingClientRect (which includes editor zoom and transforms).
+    width: Number(element.offsetWidth) || 0,
+    height: Number(element.offsetHeight) || 0,
+  };
+}
+
+function useElementSize(enabled) {
+  const elementRef = useRef(null);
+  const observerRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const ref = useCallback((node) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    elementRef.current = node;
+    if (!enabled || !node) return;
+    const update = (next) => {
+      const width = Number(next?.width) || 0;
+      const height = Number(next?.height) || 0;
+      setSize((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    };
+    update(readElementContentSize(node));
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const contentRect = entries[0]?.contentRect;
+      if (contentRect) update(contentRect);
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+  }, [enabled]);
+
+  useEffect(() => () => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    elementRef.current = null;
+  }, []);
+
+  return [ref, size];
+}
+
+function embeddedChartHeight(size, reserved = 0) {
+  if (!size?.height) return undefined;
+  return Math.max(1, Math.floor(size.height - reserved));
+}
+
+function embeddedChartStyle(size, reserved = 0) {
+  const height = embeddedChartHeight(size, reserved);
+  return height ? { height: `${height}px` } : undefined;
+}
+
+function getEmbeddedBarProps(size, reserved = 28) {
+  const height = embeddedChartHeight(size, reserved);
+  const usableHeight = height || 176;
+  const width = size?.width || 0;
+  return {
+    className: "h-full min-h-0 w-full",
+    chartHeight: height,
+    // Keep labels readable at the actual block width/height without using
+    // the dashboard's persisted height option.
+    xAxisHeight: Math.max(36, Math.min(110, Math.round(usableHeight * 0.3))),
+    angle: width > 0 && width < 360 ? -40 : usableHeight < 150 ? -18 : -25,
+  };
+}
+
+function getEmbeddedPieConfig(size) {
+  const chartHeight = embeddedChartHeight(size, 52);
+  const usableHeight = chartHeight || 176;
+  const usableWidth = size?.width || usableHeight;
+  const outerRadius = Math.max(
+    16,
+    Math.floor(Math.min(usableWidth, usableHeight) / 2) - 10,
+  );
+  return {
+    className: "h-full min-h-0 w-full",
+    style: chartHeight ? { height: `${chartHeight}px` } : undefined,
+    outerRadius,
+    innerRadius: Math.max(10, Math.floor(outerRadius * 0.58)),
+  };
+}
+
 const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
 const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
@@ -154,7 +269,7 @@ const STAT_HEIGHT_CLASS = {
 // payload. Returns an array of row arrays (first row is the header). Chart
 // widgets export one row per data point (Label,Value) plus a Total row when
 // the widget view shows one; stat widgets export a single metric row.
-function buildExportRows(widget, payload) {
+export function buildExportRows(widget, payload) {
   if (!payload) return [];
   const type = widget.widget_type;
   if (payload.type === "conversion") {
@@ -207,6 +322,8 @@ function buildExportRows(widget, payload) {
 export default function WidgetCard({
   widget,
   canEdit = false,
+  embedded = false,
+  queryScope = null,
   dragHandleProps = null,
   onEdit,
   onDelete,
@@ -217,16 +334,33 @@ export default function WidgetCard({
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [drillingKey, setDrillingKey] = useState(null);
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["/api/dashboard/widgets", widget.id, "data"],
+  const [contentRef, contentSize] = useElementSize(embedded);
+  const dataQueryKey = useMemo(
+    () => widgetDataQueryKey(widget.id, embedded, queryScope),
+    [widget.id, embedded, queryScope],
+  );
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    // Canvas and dashboard responses are deliberately never cache-compatible.
+    queryKey: dataQueryKey,
+    ...(embedded && {
+      // Embedded cards must not leave an identity-specific response behind
+      // after their Canvas instance/auth scope unmounts.
+      gcTime: 0,
+      staleTime: 0,
+      refetchOnMount: "always",
+    }),
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard/widgets/${widget.id}/data`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
+      const res = await fetch(
+        widgetRequestUrl(`/api/dashboard/widgets/${widget.id}/data`, embedded),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Request failed (${res.status})`);
@@ -234,6 +368,16 @@ export default function WidgetCard({
       return res.json();
     },
   });
+
+  useEffect(() => {
+    if (!embedded) return undefined;
+    return () => {
+      // Remove the exact scoped entry on scope changes and unmount. This is
+      // intentionally limited to Canvas cards; dashboard cache behaviour and
+      // its existing invalidation contract remain unchanged.
+      queryClient.removeQueries({ queryKey: dataQueryKey, exact: true });
+    };
+  }, [dataQueryKey, embedded, queryClient]);
 
   // Click-through: enabled by the widget's clickThrough flag for
   // organisation / member sourced group-by widgets. Clicking a bar,
@@ -249,12 +393,18 @@ export default function WidgetCard({
     if (!drillEnabled || drillingKey) return;
     setDrillingKey(key);
     try {
-      const res = await fetch(`/api/dashboard/widgets/${widget.id}/drilldown`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
-      });
+      const res = await fetch(
+        widgetRequestUrl(
+          `/api/dashboard/widgets/${widget.id}/drilldown`,
+          embedded,
+        ),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        },
+      );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error || `Request failed (${res.status})`);
@@ -281,7 +431,8 @@ export default function WidgetCard({
     }
   };
 
-  const canExport = !isLoading && !isError && !!data;
+  const cardLoading = isLoading || (embedded && isFetching && !!data);
+  const canExport = !cardLoading && !isError && !!data;
   const handleExportCsv = () => {
     if (!canExport) return;
     const exportRows = buildExportRows(widget, data.data);
@@ -297,11 +448,17 @@ export default function WidgetCard({
   return (
     <Card
       data-testid={`widget-card-${widget.id}`}
-      className={cn("flex h-full w-full flex-col")}
+      data-embedded={embedded ? "true" : undefined}
+      className={cn("flex h-full w-full flex-col", embedded && "min-h-0 overflow-hidden")}
     >
-      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
+      <CardHeader
+        className={cn(
+          "flex flex-row items-start justify-between gap-2 space-y-0 pb-2",
+          embedded && "shrink-0",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          {dragHandleProps && (
+          {dragHandleProps && !embedded && (
             <button
               type="button"
               aria-label="Drag widget"
@@ -345,7 +502,7 @@ export default function WidgetCard({
             </Popover>
           )}
         </div>
-        {canEdit && (onResize || onResizeHeight) && (
+        {!embedded && canEdit && (onResize || onResizeHeight) && (
           <TooltipProvider delayDuration={200}>
             <div className="flex items-center">
               {onResize && (
@@ -387,69 +544,86 @@ export default function WidgetCard({
             </div>
           </TooltipProvider>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Widget actions"
-              data-testid={`button-widget-menu-${widget.id}`}
-            >
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={handleExportCsv}
-              disabled={!canExport}
-              data-testid={`menuitem-export-csv-${widget.id}`}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </DropdownMenuItem>
-            {canEdit && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => onEdit?.(widget)}
-                  data-testid={`menuitem-edit-widget-${widget.id}`}
-                >
-                  <PencilLine className="mr-2 h-4 w-4" />
-                  Edit widget
-                </DropdownMenuItem>
-                {onDuplicate && (
+        {(!embedded || canExport) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Widget actions"
+                data-testid={`button-widget-menu-${widget.id}`}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={handleExportCsv}
+                disabled={!canExport}
+                data-testid={`menuitem-export-csv-${widget.id}`}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </DropdownMenuItem>
+              {!embedded && canEdit && (
+                <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onSelect={() => onDuplicate?.(widget)}
-                    data-testid={`menuitem-duplicate-widget-${widget.id}`}
+                    onSelect={() => onEdit?.(widget)}
+                    data-testid={`menuitem-edit-widget-${widget.id}`}
                   >
-                    <Copy className="mr-2 h-4 w-4" />
-                    Duplicate widget
+                    <PencilLine className="mr-2 h-4 w-4" />
+                    Edit widget
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => onDelete?.(widget)}
-                  className="text-destructive focus:text-destructive"
-                  data-testid={`menuitem-delete-widget-${widget.id}`}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete widget
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  {onDuplicate && (
+                    <DropdownMenuItem
+                      onSelect={() => onDuplicate?.(widget)}
+                      data-testid={`menuitem-duplicate-widget-${widget.id}`}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Duplicate widget
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => onDelete?.(widget)}
+                    className="text-destructive focus:text-destructive"
+                    data-testid={`menuitem-delete-widget-${widget.id}`}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete widget
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col">
-        {isLoading && (
-          <div className="space-y-2" data-testid={`widget-loading-${widget.id}`}>
+      <CardContent
+        ref={contentRef}
+        className={cn(
+          "flex flex-1 flex-col",
+          embedded && "min-h-0 overflow-hidden",
+        )}
+      >
+        {cardLoading && (
+          <div
+            className={cn(
+              "space-y-2",
+              embedded && "min-h-0 flex-1 overflow-hidden",
+            )}
+            data-testid={`widget-loading-${widget.id}`}
+          >
             <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-32 w-full" />
+            <Skeleton className={cn("h-32 w-full", embedded && "max-h-full")} />
           </div>
         )}
         {isError && (
           <div
-            className="flex flex-1 flex-col items-start justify-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className={cn(
+              "flex flex-1 flex-col items-start justify-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive",
+              embedded && "min-h-0 overflow-auto",
+            )}
             data-testid={`widget-error-${widget.id}`}
           >
             <div className="flex items-center gap-2">
@@ -467,12 +641,14 @@ export default function WidgetCard({
             </Button>
           </div>
         )}
-        {!isLoading && !isError && data && (
+        {!cardLoading && !isError && data && (
           <WidgetBody
             widget={widget}
             payload={data.data}
             onDrill={drillEnabled ? handleDrill : null}
             palette={palette}
+            embedded={embedded}
+            containerSize={contentSize}
           />
         )}
       </CardContent>
@@ -480,24 +656,90 @@ export default function WidgetCard({
   );
 }
 
-function WidgetBody({ widget, payload, onDrill = null, palette }) {
+function WidgetBody({
+  widget,
+  payload,
+  onDrill = null,
+  palette,
+  embedded = false,
+  containerSize,
+}) {
   if (!payload) return null;
   if (payload.type === "conversion") {
-    return <ConversionBody widget={widget} payload={payload} palette={palette} />;
+    return (
+      <ConversionBody
+        widget={widget}
+        payload={payload}
+        palette={palette}
+        embedded={embedded}
+      />
+    );
   }
   switch (widget.widget_type) {
     case "stat":
-      return <StatBody widget={widget} payload={payload} palette={palette} />;
+      return (
+        <StatBody
+          widget={widget}
+          payload={payload}
+          palette={palette}
+          embedded={embedded}
+        />
+      );
     case "bar":
-      return <BarBody payload={payload} widget={widget} onDrill={onDrill} palette={palette} />;
+      return (
+        <BarBody
+          payload={payload}
+          widget={widget}
+          onDrill={onDrill}
+          palette={palette}
+          embedded={embedded}
+          containerSize={containerSize}
+        />
+      );
     case "pie":
-      return <PieBody payload={payload} donut={false} widget={widget} onDrill={onDrill} palette={palette} />;
+      return (
+        <PieBody
+          payload={payload}
+          donut={false}
+          widget={widget}
+          onDrill={onDrill}
+          palette={palette}
+          embedded={embedded}
+          containerSize={containerSize}
+        />
+      );
     case "donut":
-      return <PieBody payload={payload} donut={true} widget={widget} onDrill={onDrill} palette={palette} />;
+      return (
+        <PieBody
+          payload={payload}
+          donut={true}
+          widget={widget}
+          onDrill={onDrill}
+          palette={palette}
+          embedded={embedded}
+          containerSize={containerSize}
+        />
+      );
     case "line":
-      return <LineBody payload={payload} widget={widget} palette={palette} />;
+      return (
+        <LineBody
+          payload={payload}
+          widget={widget}
+          palette={palette}
+          embedded={embedded}
+          containerSize={containerSize}
+        />
+      );
     case "list":
-      return <ListBody payload={payload} widget={widget} onDrill={onDrill} palette={palette} />;
+      return (
+        <ListBody
+          payload={payload}
+          widget={widget}
+          onDrill={onDrill}
+          palette={palette}
+          embedded={embedded}
+        />
+      );
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -507,10 +749,12 @@ function WidgetBody({ widget, payload, onDrill = null, palette }) {
   }
 }
 
-function StatBody({ widget, payload, palette }) {
+function StatBody({ widget, payload, palette, embedded = false }) {
   const value = payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
   const aggregator = widget.config?.measure?.aggregator || "count";
-  const minH = STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
+  const minH = embedded
+    ? "h-full min-h-0"
+    : STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
   return (
     <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
@@ -533,11 +777,13 @@ function StatBody({ widget, payload, palette }) {
 // BOTH forms, with the conversion % and the unique entity counts below.
 // Falls back to raw submission counts for cached payloads that predate
 // the entity-count fields.
-function ConversionBody({ widget, payload, palette }) {
+function ConversionBody({ widget, payload, palette, embedded = false }) {
   const rate = payload.conversionRate;
   const entityLabel =
     payload.matchBy === "member" ? "members" : "organisations";
-  const minH = STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
+  const minH = embedded
+    ? "h-full min-h-0"
+    : STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
   return (
     <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
@@ -570,7 +816,14 @@ function ConversionBody({ widget, payload, palette }) {
   );
 }
 
-function BarBody({ payload, widget, onDrill = null, palette }) {
+function BarBody({
+  payload,
+  widget,
+  onDrill = null,
+  palette,
+  embedded = false,
+  containerSize,
+}) {
   const rows = payload.rows || [];
   const colour = resolveDashboardWidgetColour(palette, widget?.config?.color);
   const chartColours = dashboardWidgetChartColours(palette);
@@ -600,15 +853,35 @@ function BarBody({ payload, widget, onDrill = null, palette }) {
     [rows],
   );
   const heightKey = widget.height || "medium";
-  const barProps = getBarHeightProps(heightKey);
+  const barProps = embedded
+    ? getEmbeddedBarProps(containerSize, categories ? 56 : 28)
+    : getBarHeightProps(heightKey);
+  const chartStyle = embedded
+    ? embeddedChartStyle(containerSize, categories ? 56 : 28)
+    : undefined;
   if (rows.length === 0) {
-    return <EmptyChart heightClass={barProps.className} />;
+    return (
+      <EmptyChart
+        heightClass={barProps.className}
+        style={chartStyle}
+        embedded={embedded}
+      />
+    );
   }
 
   if (categories) {
     return (
-      <div className="flex flex-1 flex-col gap-2">
-        <ChartContainer config={config} className={barProps.className}>
+      <div
+        className={cn(
+          "flex flex-1 flex-col gap-2",
+          embedded && "min-h-0 overflow-hidden",
+        )}
+      >
+        <ChartContainer
+          config={config}
+          className={barProps.className}
+          style={chartStyle}
+        >
           <BarChart data={rows} margin={BAR_CHART_MARGIN}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
@@ -661,8 +934,17 @@ function BarBody({ payload, widget, onDrill = null, palette }) {
     );
   }
   return (
-    <div className="flex flex-1 flex-col gap-2">
-      <ChartContainer config={config} className={barProps.className}>
+    <div
+      className={cn(
+        "flex flex-1 flex-col gap-2",
+        embedded && "min-h-0 overflow-hidden",
+      )}
+    >
+      <ChartContainer
+        config={config}
+        className={barProps.className}
+        style={chartStyle}
+      >
         <BarChart data={rows} margin={BAR_CHART_MARGIN}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
@@ -706,14 +988,25 @@ function BarBody({ payload, widget, onDrill = null, palette }) {
   );
 }
 
-function LineBody({ payload, widget, palette }) {
+function LineBody({ payload, widget, palette, embedded = false, containerSize }) {
   const rows = payload.rows || [];
   const colour = resolveDashboardWidgetColour(palette, widget?.config?.color);
   const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
-  const lineClass = LINE_HEIGHT_CLASS[widget.height] || LINE_HEIGHT_CLASS.medium;
-  if (rows.length === 0) return <EmptyChart heightClass={lineClass} />;
+  const lineClass = embedded
+    ? "h-full min-h-0 w-full"
+    : LINE_HEIGHT_CLASS[widget.height] || LINE_HEIGHT_CLASS.medium;
+  const lineStyle = embedded ? embeddedChartStyle(containerSize) : undefined;
+  if (rows.length === 0) {
+    return (
+      <EmptyChart
+        heightClass={lineClass}
+        style={lineStyle}
+        embedded={embedded}
+      />
+    );
+  }
   return (
-    <ChartContainer config={config} className={lineClass}>
+    <ChartContainer config={config} className={lineClass} style={lineStyle}>
       <LineChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis dataKey="key" tickLine={false} axisLine={false} />
@@ -731,7 +1024,15 @@ function LineBody({ payload, widget, palette }) {
   );
 }
 
-function PieBody({ payload, donut, widget, onDrill = null, palette }) {
+function PieBody({
+  payload,
+  donut,
+  widget,
+  onDrill = null,
+  palette,
+  embedded = false,
+  containerSize,
+}) {
   const rows = payload.rows || [];
   const chartColours = dashboardWidgetChartColours(palette);
   const config = useMemo(() => {
@@ -748,11 +1049,30 @@ function PieBody({ payload, donut, widget, onDrill = null, palette }) {
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
-  const pieCfg = PIE_HEIGHT_CONFIG[widget.height] || PIE_HEIGHT_CONFIG.medium;
-  if (rows.length === 0) return <EmptyChart heightClass={pieCfg.className} />;
+  const pieCfg = embedded
+    ? getEmbeddedPieConfig(containerSize)
+    : PIE_HEIGHT_CONFIG[widget.height] || PIE_HEIGHT_CONFIG.medium;
+  if (rows.length === 0) {
+    return (
+      <EmptyChart
+        heightClass={pieCfg.className}
+        style={pieCfg.style}
+        embedded={embedded}
+      />
+    );
+  }
   return (
-    <div className="flex flex-1 flex-col gap-2">
-      <ChartContainer config={config} className={pieCfg.className}>
+    <div
+      className={cn(
+        "flex flex-1 flex-col gap-2",
+        embedded && "min-h-0 overflow-hidden",
+      )}
+    >
+      <ChartContainer
+        config={config}
+        className={pieCfg.className}
+        style={pieCfg.style}
+      >
         <PieChart>
           <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
           <Pie
@@ -780,7 +1100,9 @@ function PieBody({ payload, donut, widget, onDrill = null, palette }) {
       <div
         className={cn(
           "grid grid-cols-1 gap-x-3 gap-y-1",
-          (widget?.width === "half" || widget?.width === "full") &&
+          (embedded
+            ? (containerSize?.width || 0) >= 400
+            : widget?.width === "half" || widget?.width === "full") &&
             "sm:grid-cols-2",
         )}
         data-testid={widget ? `widget-legend-${widget.id}` : undefined}
@@ -837,18 +1159,32 @@ function PieBody({ payload, donut, widget, onDrill = null, palette }) {
   );
 }
 
-function ListBody({ payload, widget, onDrill = null, palette }) {
+function ListBody({ payload, widget, onDrill = null, palette, embedded = false }) {
   const rows = payload.rows || [];
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
-  const listH = LIST_HEIGHT_CLASS[widget.height] || LIST_HEIGHT_CLASS.medium;
-  if (rows.length === 0) return <EmptyChart heightClass={listH.min} />;
+  const listH = embedded
+    ? { min: "min-h-0", max: "max-h-full" }
+    : LIST_HEIGHT_CLASS[widget.height] || LIST_HEIGHT_CLASS.medium;
+  if (rows.length === 0) {
+    return <EmptyChart heightClass={listH.min} embedded={embedded} />;
+  }
   return (
-    <div className="flex flex-1 flex-col gap-2">
+    <div
+      className={cn(
+        "flex flex-1 flex-col gap-2",
+        embedded && "min-h-0 overflow-hidden",
+      )}
+    >
       <div
-        className={cn("flex-1 overflow-y-auto rounded-md border", listH.min, listH.max)}
+        className={cn(
+          "flex-1 overflow-y-auto rounded-md border",
+          embedded && "min-h-0",
+          listH.min,
+          listH.max,
+        )}
         data-testid={`widget-list-${widget.id}`}
       >
         {rows.map((row, idx) => (
@@ -896,14 +1232,17 @@ function ListBody({ payload, widget, onDrill = null, palette }) {
   );
 }
 
-function EmptyChart({ heightClass }) {
+function EmptyChart({ heightClass, style, embedded = false }) {
   const cls = heightClass || STAT_HEIGHT_CLASS.medium;
   return (
     <div
       className={cn(
         "flex items-center justify-center text-sm text-muted-foreground",
+        embedded &&
+          "min-h-0 max-h-full flex-1 overflow-hidden",
         cls,
       )}
+      style={style}
     >
       No data yet.
     </div>

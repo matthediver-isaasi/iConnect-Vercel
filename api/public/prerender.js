@@ -615,6 +615,10 @@ function renderCanvasBlockHtml(block, opts) {
   const c = block.content || {};
   const parts = [];
   switch (block.type) {
+    case 'dynamic-widget':
+      // Tenant-shared dashboards are authenticated data, never public SEO
+      // content. Do not resolve the reference or trust cached content fields.
+      return '<p>Sign in with dashboard access to view this widget.</p>';
     case 'hero': {
       const lvl = clampHeadingLevel(c.headingLevel, 1);
       // Emit the hero background image as a real <img> with LCP priority

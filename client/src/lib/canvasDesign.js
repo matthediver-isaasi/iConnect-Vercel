@@ -6,6 +6,11 @@ import {
   resolveSelectedMemberGroupIds,
   resolveSelectedMemberGroupRoles,
 } from './memberGroupCards.js';
+import {
+  CANVAS_DYNAMIC_WIDGET_TYPE,
+  CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY,
+  normalizeCanvasDynamicWidgetContent,
+} from './canvasDynamicWidget.js';
 //
 // The canvas_design column on i_edit_page stores a versioned JSON document
 // describing a free-form page laid out by the Canvas Builder.
@@ -226,6 +231,10 @@ export const BLOCK_TYPES = {
   // (renderer_version 2). V1 `ai-composition` scene-graph blocks stay
   // renderable but read-only.
   AI_CODE_COMPOSITION: 'ai-code-composition',
+  // A tenant dashboard widget referenced by id. The block never stores a
+  // dashboard snapshot; both editor and public renderer resolve the reference
+  // through the dashboard API at render time.
+  DYNAMIC_WIDGET: CANVAS_DYNAMIC_WIDGET_TYPE,
   // Task #2558 — flow (auto-layout) layout containers. `row` lays its children
   // out horizontally as columns (the real Row/Columns primitive that replaces
   // expressing side-by-side layouts with X coordinates); `group` is a
@@ -484,6 +493,12 @@ export const BLOCK_DEFAULTS = {
     geom: { w: 200, h: 120 },
     style: { background: '#ffffff', borderWidth: 1 },
     content: {},
+  },
+  [BLOCK_TYPES.DYNAMIC_WIDGET]: {
+    name: 'Dynamic widget',
+    geom: { ...CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY },
+    style: { background: '#ffffff', borderWidth: 1 },
+    content: { widgetId: '', allowUserResize: false },
   },
   [BLOCK_TYPES.SECTION]: {
     name: 'Section',
@@ -2405,6 +2420,11 @@ export function createFlowNode(type = BLOCK_TYPES.BOX, overrides = {}) {
   const base = createBlock(type, overrides);
   const isContainer = isFlowContainerType(type);
   const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const flowDefaults = type === BLOCK_TYPES.DYNAMIC_WIDGET
+    ? { heightMode: 'fixed', height: CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY.h }
+    : {};
+  const flow = normalizeFlowProps({ ...flowDefaults, ...(overrides.flow || {}) });
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) flow.heightMode = 'fixed';
   const node = {
     ...base,
     layoutMode: isContainer
@@ -2412,7 +2432,7 @@ export function createFlowNode(type = BLOCK_TYPES.BOX, overrides = {}) {
         ? overrides.layoutMode
         : defaultMode)
       : LAYOUT_MODES.FLOW,
-    flow: normalizeFlowProps(overrides.flow),
+    flow,
     responsive: normalizeResponsive(overrides.responsive),
   };
   if (isContainer) {
@@ -2458,6 +2478,11 @@ function normalizeFlowNode(node) {
   if (!leaf) return null;
   const isContainer = isFlowContainerType(type);
   const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const flowDefaults = type === BLOCK_TYPES.DYNAMIC_WIDGET
+    ? { heightMode: 'fixed', height: CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY.h }
+    : {};
+  const flow = normalizeFlowProps({ ...flowDefaults, ...(node.flow || {}) });
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) flow.heightMode = 'fixed';
   const out = {
     ...leaf,
     layoutMode: isContainer
@@ -2465,7 +2490,7 @@ function normalizeFlowNode(node) {
         ? node.layoutMode
         : defaultMode)
       : LAYOUT_MODES.FLOW,
-    flow: normalizeFlowProps(node.flow),
+    flow,
     responsive: normalizeResponsive(node.responsive),
   };
   if (isContainer) {
@@ -2777,6 +2802,7 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     ...(defaults.bp?.desktop || {}),
     ...(overrides.desktop || {}),
   };
+  const content = buildBlockContent(type, defaults.content, overrides.content);
   return {
     id: overrides.id || generateId(),
     type,
@@ -2793,7 +2819,9 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     fullWidth: !!overrides.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(overrides.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(overrides.a11y || {}) },
-    content: deepClone(buildBlockContent(type, defaults.content, overrides.content)),
+    content: type === BLOCK_TYPES.DYNAMIC_WIDGET
+      ? normalizeCanvasDynamicWidgetContent(content)
+      : deepClone(content),
     bp: {
       desktop,
       tablet: { ...(defaults.bp?.tablet || {}), ...(overrides.tablet || {}) },
@@ -3317,6 +3345,14 @@ function normalizeBlock(block) {
     },
   };
 
+  // Dynamic widgets persist only the dashboard widget id and the explicit
+  // viewer-local resize preference. In particular, never retain a copied
+  // dashboard title/config/data payload in the Canvas document where it could
+  // outlive its authorization scope.
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) {
+    normalized.content = normalizeCanvasDynamicWidgetContent(block.content);
+  }
+
   // CARD compatibility shim: cards used to carry their inset as outer block
   // padding (old default 16 all round), which also pushed the header image
   // off the edges. The card now keeps the image full-bleed and insets only
@@ -3801,6 +3837,9 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.CAMPAIGN_EMBED:
       if (!c.campaignSlug) errors.push('Campaign embed requires a campaign.');
+      break;
+    case BLOCK_TYPES.DYNAMIC_WIDGET:
+      if (!c.widgetId) errors.push('Dashboard widget requires a shared widget.');
       break;
     case BLOCK_TYPES.AI_COMPOSITION:
       // An empty compositionId is a legitimate authoring state (the element
