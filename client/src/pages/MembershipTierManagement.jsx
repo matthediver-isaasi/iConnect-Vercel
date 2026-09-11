@@ -1765,8 +1765,8 @@ export default function MembershipTierManagement() {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <Label>Auto-renew by Direct Debit</Label>
-                        <p className="text-sm text-muted-foreground mt-0.5">Offer mandate reuse when the member renews next year.</p>
+                        <Label>Automatically renew monthly memberships</Label>
+                        <p className="text-sm text-muted-foreground mt-0.5">Automatically renew next year using the member’s saved Stripe card or GoCardless Direct Debit mandate. When disabled, renewal requires member confirmation.</p>
                       </div>
                       <Switch
                         checked={config.dd_auto_renew !== false}
