@@ -202,6 +202,22 @@ test('eligible discovery returns every active visible side with endpoint descrip
         plural_label: 'Units',
         primary_display_field_id: 'name-field',
         status: 'active',
+      }, {
+        id: 'object-2',
+        tenant_id: tenantId,
+        object_key: 'standalone',
+        singular_label: 'Standalone Object',
+        plural_label: 'Standalone Objects',
+        primary_display_field_id: 'standalone-name-field',
+        status: 'active',
+      }, {
+        id: 'foreign-object',
+        tenant_id: 'tenant-2',
+        object_key: 'foreign',
+        singular_label: 'Foreign Object',
+        plural_label: 'Foreign Objects',
+        primary_display_field_id: 'foreign-name-field',
+        status: 'active',
       }],
       preference_field: [{
         id: 'name-field',
@@ -221,6 +237,24 @@ test('eligible discovery returns every active visible side with endpoint descrip
         name: 'tags',
         label: 'Tags',
         field_type: 'picklist',
+      }, {
+        id: 'standalone-name-field',
+        tenant_id: tenantId,
+        custom_object_id: 'object-2',
+        entity_scope: 'custom_object',
+        is_active: true,
+        name: 'name',
+        label: 'Name',
+        field_type: 'text',
+      }, {
+        id: 'foreign-name-field',
+        tenant_id: 'tenant-2',
+        custom_object_id: 'foreign-object',
+        entity_scope: 'custom_object',
+        is_active: true,
+        name: 'name',
+        label: 'Name',
+        field_type: 'text',
       }],
       custom_object_role_permission: ['role-1', 'role-denied'].map(role_id => ({
         tenant_id: tenantId,
@@ -251,7 +285,8 @@ test('eligible discovery returns every active visible side with endpoint descrip
   assert.equal(result.data[1].relationship_definition_id, 'definition-1');
   assert.equal(result.data[1].related_custom_object_id, 'object-1');
   assert.equal(result.data[1].custom_object.object_key, 'units');
-  assert.deepEqual(result.custom_objects[0].fields.map(field => field.id), ['name-field']);
+  assert.deepEqual(result.custom_objects.map(object => object.id), ['object-2', 'object-1']);
+  assert.deepEqual(result.custom_objects.find(object => object.id === 'object-1').fields.map(field => field.id), ['name-field']);
   const noGrant = await service.eligibleDefinitions('form-1', {
     isTenantUser: false,
     roleId: 'role-without-grant',
@@ -269,6 +304,10 @@ test('eligible discovery returns every active visible side with endpoint descrip
   });
   assert.deepEqual(fieldDenied.custom_objects, []);
   assert.deepEqual(fieldDenied.data, []);
+  await assert.rejects(
+    () => service.eligibleDefinitions('foreign-form'),
+    (error) => error instanceof FormRelationshipError && error.status === 404,
+  );
 });
 
 test('saved relationship custom-object parents must match their persisted related descriptor', () => {

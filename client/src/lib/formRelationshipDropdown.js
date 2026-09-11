@@ -16,13 +16,14 @@ export {
   isCustomObjectRowSource,
   isDistinctRowSource,
   rowSourceDependencyIds,
-  validateRowSourceConfiguration,
 } from '../../../shared/formCustomObjectRowSources.js';
 import {
   isCustomObjectRowSource,
   isDistinctRowSource,
   rowSourceValueDomain,
+  validateRowSourceConfiguration,
 } from '../../../shared/formCustomObjectRowSources.js';
+export { validateRowSourceConfiguration };
 
 export function rowSourceObjectFieldDomain(field) {
   return rowSourceValueDomain(field?.field_type || field?.type);
@@ -54,6 +55,114 @@ export function compatibleRowSourceFilterPairs(objectFields, precedingFields, me
       .filter(input => rowSourceInputDomain(input, metadata) === domain)
       .map(input => ({ objectField, input, domain }));
   });
+}
+
+/**
+ * The row-source contract is intentionally strict on the server. While a
+ * builder draft is being filled in, however, the source is expected to be
+ * temporarily incomplete (the object and label field are selected in
+ * sequence). Keep that draft actionable without relabelling it malformed.
+ */
+export function validateRowSourceEditorConfiguration(child, siblings) {
+  const source = child?.option_source;
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    if (!source.custom_object_id) {
+      return {
+        valid: false,
+        incomplete: true,
+        errors: [{
+          code: 'incomplete_row_option_source',
+          child_id: child?.id,
+          message: 'Choose a custom object to configure this source.',
+        }],
+      };
+    }
+    if (!source.primary_display_field_id) {
+      return {
+        valid: false,
+        incomplete: true,
+        errors: [{
+          code: 'incomplete_row_option_source',
+          child_id: child?.id,
+          message: 'Choose a custom object before selecting its primary label field.',
+        }],
+      };
+    }
+    if (source.kind === 'distinct' && !source.value_field_id) {
+      return {
+        valid: false,
+        incomplete: true,
+        errors: [{
+          code: 'incomplete_row_option_source',
+          child_id: child?.id,
+          message: 'Choose the projected field for distinct values.',
+        }],
+      };
+    }
+    if (Array.isArray(source.filters)
+        && source.filters.some(filter => !filter?.field_id || !filter?.source_field_id)) {
+      return {
+        valid: false,
+        incomplete: true,
+        errors: [{
+          code: 'incomplete_row_option_source',
+          child_id: child?.id,
+          message: 'Complete or remove each equality filter before saving.',
+        }],
+      };
+    }
+  }
+
+  const validation = validateRowSourceConfiguration(child, siblings);
+  if (validation.valid) return validation;
+
+  // A distinct/constrained source becomes valid in stages: selecting the
+  // object may precede selecting its relationship parent. Give that draft
+  // specific guidance while preserving all strict validation for persistence.
+  if (
+    source
+    && typeof source === 'object'
+    && !Array.isArray(source)
+    && (source.kind === 'distinct'
+      || child?.parent_field_id
+      || child?.relationship_definition_id
+      || child?.relationship_parent_kind
+      || child?.relationship_parent_custom_object_id
+      || child?.parent_custom_object_id)
+    && (!child?.parent_field_id || !child?.relationship_definition_id)
+  ) {
+    return {
+      ...validation,
+      incomplete: true,
+      errors: [{
+        code: 'incomplete_row_option_source',
+        child_id: child?.id,
+        message: source.kind === 'distinct'
+          ? 'Choose an earlier relationship field and relationship for distinct values.'
+          : 'Choose an earlier relationship field and relationship, or remove the relationship constraint.',
+      }],
+    };
+  }
+
+  return validation;
+}
+
+export function eligibleRelationshipDiscoveryQueryKey({
+  tenantId,
+  formId,
+  principalId,
+  authorId,
+  roleId,
+  mode = 'admin',
+} = {}) {
+  return [
+    'eligible-form-relationships',
+    mode,
+    tenantId || null,
+    formId || null,
+    principalId || authorId || null,
+    roleId || null,
+  ];
 }
 
 export function getEligibleRelationshipParents(fields, fieldId) {

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { base44 } from "@/api/base44Client";
-import { publicClient } from "@/api/publicClient";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
+import { isTenantUuid, publicClient } from "@/api/publicClient";
 import { adminFetch } from "@/lib/adminFetch";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -56,10 +56,12 @@ import {
   normalizeEligibleRelationships,
   formBuilderRelationshipLabel,
   relationshipFieldConfig,
-  validateRowSourceConfiguration,
   compatibleRowSourceFilterPairs,
   rowSourceInputDomain,
   rowSourceObjectFieldDomain,
+  validateRowSourceConfiguration,
+  validateRowSourceEditorConfiguration,
+  eligibleRelationshipDiscoveryQueryKey,
 } from "@/lib/formRelationshipDropdown";
 import {
   relationshipEndpointDescriptor,
@@ -6051,6 +6053,11 @@ function RepeatableRowsSettings({
   originalIndex,
   updateField,
   eligibleRelationships = [],
+  relationshipsLoading = false,
+  relationshipsError = null,
+  relationshipsFetched = false,
+  retryRelationships = null,
+  formId = null,
   allFields = [],
   customFields = [],
   customObjects = [],
@@ -6222,7 +6229,7 @@ function RepeatableRowsSettings({
         const filterObjectFields = sourceObjectFields.filter(sourceField => (
           filterPairs.some(pair => pair.objectField.id === sourceField.id)
         ));
-        const rowSourceValidation = validateRowSourceConfiguration(child, children);
+        const rowSourceValidation = validateRowSourceEditorConfiguration(child, children);
         const containerIndex = allFields.findIndex(candidate => candidate?.id === field.id);
         const formPreceding = (containerIndex < 0 ? allFields : allFields.slice(0, containerIndex));
         const parentScope = rowSource ? 'row' : (child.parent_field_scope || 'row');
@@ -6419,6 +6426,15 @@ function RepeatableRowsSettings({
                 <div className="space-y-3 rounded border border-blue-200 bg-blue-50 p-3 md:col-span-2">
                   <div>
                     <Label className="text-xs font-medium">Option data source</Label>
+                    {!formId && (
+                      <p
+                        className="mt-1 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"
+                        data-testid={`repeatable-row-source-save-first-${field.id}-${child.id}`}
+                      >
+                        Save this form before choosing Records from a custom object or Distinct related values.
+                        Related records remains available while drafting.
+                      </p>
+                    )}
                     <Select
                       value={rowSource?.kind || 'relationship'}
                       onValueChange={kind => {
@@ -6461,13 +6477,52 @@ function RepeatableRowsSettings({
                       <SelectTrigger className="mt-1 h-9" data-testid={`select-row-option-source-${field.id}-${child.id}`}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="relationship">Related records (legacy)</SelectItem>
-                        <SelectItem value="records">Records from a custom object</SelectItem>
-                        <SelectItem value="distinct">Distinct related field values</SelectItem>
+                        <SelectItem value="records" disabled={!formId}>Records from a custom object</SelectItem>
+                        <SelectItem value="distinct" disabled={!formId}>Distinct related field values</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   {rowSource && (
                     <>
+                      {formId && relationshipsLoading && (
+                        <p
+                          className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"
+                          role="status"
+                          data-testid={`repeatable-row-source-loading-${field.id}-${child.id}`}
+                        >
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Loading eligible Custom Objects…
+                        </p>
+                      )}
+                      {formId && relationshipsError && (
+                        <div
+                          className="flex items-center justify-between gap-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800"
+                          role="alert"
+                          data-testid={`repeatable-row-source-error-${field.id}-${child.id}`}
+                        >
+                          <span>Unable to load eligible Custom Objects. Check your access and retry.</span>
+                          {retryRelationships && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 shrink-0 border-red-300 bg-white text-red-800"
+                              onClick={() => retryRelationships()}
+                            >
+                              Retry
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {formId && relationshipsFetched && !relationshipsLoading && !relationshipsError
+                        && customObjects.length === 0 && (
+                        <p
+                          className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"
+                          data-testid={`repeatable-row-source-empty-${field.id}-${child.id}`}
+                        >
+                          No eligible Custom Objects are available for this author.
+                        </p>
+                      )}
                       <p className="text-xs text-blue-800">
                         This publishes the selected object, label and filter field configuration to the public form.
                         Respondent answers are sent only for the equality filters listed below.
@@ -6475,7 +6530,10 @@ function RepeatableRowsSettings({
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="space-y-1">
                           <Label className="text-xs">Custom object</Label>
-                          <Select value={rowSource.custom_object_id || ''} onValueChange={custom_object_id => {
+                            <Select
+                              value={rowSource.custom_object_id || ''}
+                              disabled={!formId || relationshipsLoading || !!relationshipsError || !relationshipsFetched}
+                              onValueChange={custom_object_id => {
                             const object = customObjects.find(item => item.id === custom_object_id);
                              updateChild(childIndex, {
                                option_source: {
@@ -6502,8 +6560,22 @@ function RepeatableRowsSettings({
                                relationship_definition: undefined,
                                relationship_key: undefined,
                              });
-                          }}>
-                            <SelectTrigger className="h-9" data-testid={`select-row-source-object-${field.id}-${child.id}`}><SelectValue placeholder="Choose object…" /></SelectTrigger>
+                           }}>
+                             <SelectTrigger className="h-9" data-testid={`select-row-source-object-${field.id}-${child.id}`}>
+                               <SelectValue
+                                 placeholder={!formId
+                                   ? 'Save form first'
+                                   : relationshipsLoading
+                                     ? 'Loading objects…'
+                                     : relationshipsError
+                                       ? 'Unable to load objects'
+                                       : !relationshipsFetched
+                                         ? 'Loading objects…'
+                                         : customObjects.length === 0
+                                           ? 'No eligible objects'
+                                           : 'Choose object…'}
+                               />
+                             </SelectTrigger>
                             <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.name || object.object_key}</SelectItem>)}</SelectContent>
                           </Select>
                         </div>
@@ -6889,6 +6961,7 @@ function FieldCard({
   entityPipelines = { members: [], organisations: [] },
   fieldMappings = [],
   formConfig = null,
+  relationshipDiscoveryContext = {},
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isSurveyForm = formType === 'survey';
@@ -6919,10 +6992,23 @@ function FieldCard({
     data: relationshipDiscovery,
     isLoading: relationshipsLoading,
     isError: relationshipsError,
+    isFetched: relationshipsFetched,
+    refetch: retryRelationships,
   } = useQuery({
-    queryKey: ['eligible-form-relationships'],
-    queryFn: () => publicClient.listEligibleFormRelationships(formId),
-    enabled: (field.type === 'relationship_dropdown' || isRepeatableRowField(field)) && !!formId,
+    queryKey: eligibleRelationshipDiscoveryQueryKey({
+      tenantId: relationshipDiscoveryContext.tenantId,
+      formId,
+      principalId: relationshipDiscoveryContext.principalId,
+      authorId: relationshipDiscoveryContext.authorId,
+      roleId: relationshipDiscoveryContext.roleId,
+      mode: relationshipDiscoveryContext.mode,
+    }),
+    queryFn: () => publicClient.listEligibleFormRelationships(formId, {
+      tenantId: relationshipDiscoveryContext.tenantId,
+    }),
+    enabled: (field.type === 'relationship_dropdown' || isRepeatableRowField(field))
+      && !!formId
+      && relationshipDiscoveryContext.enabled !== false,
     staleTime: 5 * 60 * 1000,
   });
   const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
@@ -7498,6 +7584,11 @@ function FieldCard({
                   originalIndex={originalIndex}
                   updateField={updateField}
                   eligibleRelationships={eligibleRelationships}
+                  relationshipsLoading={relationshipsLoading}
+                  relationshipsError={relationshipsError}
+                  relationshipsFetched={relationshipsFetched}
+                  retryRelationships={retryRelationships}
+                  formId={formId}
                   customObjects={discoveredCustomObjects}
                   allFields={allFields}
                   customFields={customFields}
@@ -10181,6 +10272,36 @@ export default function FormBuilderPage() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const formId = urlParams.get('formId');
+  const [activeTenantId, setActiveTenantIdState] = useState(() => (
+    (isTenantUuid(getActiveTenantId()) && getActiveTenantId().trim())
+    || (isTenantUuid(memberInfo?.tenant_id) && memberInfo.tenant_id.trim())
+    || null
+  ));
+
+  // The admin tenant can change without unmounting this page. Keep the
+  // discovery query key and its explicit request header aligned with the
+  // currently displayed tenant rather than the public-client singleton's
+  // location-derived slug.
+  useEffect(() => {
+    const currentTenantId = getActiveTenantId();
+    setActiveTenantIdState(
+      (isTenantUuid(currentTenantId) && currentTenantId.trim())
+      || (isTenantUuid(memberInfo?.tenant_id) && memberInfo.tenant_id.trim())
+      || null,
+    );
+    return subscribeToActiveTenantId(tenantId => {
+      setActiveTenantIdState(isTenantUuid(tenantId) ? tenantId.trim() : null);
+    });
+  }, [memberInfo?.tenant_id]);
+
+  const relationshipDiscoveryContext = useMemo(() => ({
+    tenantId: activeTenantId,
+    principalId: memberInfo?.id || null,
+    authorId: memberInfo?.id || null,
+    roleId: memberInfo?.role_id || null,
+    mode: 'admin',
+    enabled: Boolean(isAccessReady && activeTenantId),
+  }), [activeTenantId, isAccessReady, memberInfo?.id, memberInfo?.role_id]);
 
   const { data: existingForm, isLoading: formLoading } = useQuery({
     queryKey: ['form', formId],
@@ -11229,6 +11350,26 @@ export default function FormBuilderPage() {
     if (!dynamicPrefillValidation.valid) {
       toast.error(dynamicPrefillValidation.errors[0]);
       return;
+    }
+
+    // Keep the client-side save gate aligned with the server's strict row
+    // source contract. This catches stale/incomplete drafts before the
+    // mutation, while the editor itself intentionally offers softer guidance
+    // as each source is configured.
+    for (const container of (formData.fields || []).filter(isRepeatableRowField)) {
+      const children = normalizeRepeatableRowField(container).children;
+      for (const child of children.filter(item => item?.option_source !== undefined)) {
+        const validation = validateRowSourceConfiguration(child, children);
+        if (validation.valid) continue;
+        const firstError = validation.errors?.[0];
+        const detail = firstError?.message
+          || 'Complete the custom object, label, projection, parent, and filter settings.';
+        toast.error(
+          `Row field "${child.label || 'Untitled field'}" has an invalid option source: ${detail} `
+          + 'Complete its source configuration before saving.',
+        );
+        return;
+      }
     }
 
     for (const rule of formData.visibility_rules || []) {
@@ -13586,6 +13727,7 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
                                        entityPipelines={formData.entity_pipelines}
@@ -13739,6 +13881,7 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
                                         entityPipelines={formData.entity_pipelines}
@@ -13809,6 +13952,7 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
                                        idealPostcodesAvailable={idealPostcodesAvailable}
                                        idealPostcodesLoading={idealPostcodesLoading}
                                         entityPipelines={formData.entity_pipelines}

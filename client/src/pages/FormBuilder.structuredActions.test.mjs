@@ -112,3 +112,30 @@ test('editor source selection emits valid static and resolved-label contracts wi
     }],
   }, []));
 });
+
+test('unsaved repeatable row editors keep strict custom-object sources disabled', () => {
+  const repeatableEditor = source.slice(
+    source.indexOf('function RepeatableRowsSettings'),
+    source.indexOf('function FieldCard'),
+  );
+  assert.match(
+    repeatableEditor,
+    /data-testid=\{`repeatable-row-source-save-first-\$\{field\.id\}-\$\{child\.id\}`\}/,
+  );
+  assert.match(
+    repeatableEditor,
+    /<SelectItem value="records" disabled=\{!formId\}>/,
+  );
+  assert.match(
+    repeatableEditor,
+    /<SelectItem value="distinct" disabled=\{!formId\}>/,
+  );
+  assert.match(
+    repeatableEditor,
+    /<SelectItem value="relationship">Related records \(legacy\)<\/SelectItem>/,
+  );
+  assert.match(
+    source,
+    /const validation = validateRowSourceConfiguration\(child, children\);[\s\S]*?Complete its source configuration before saving\./,
+  );
+});

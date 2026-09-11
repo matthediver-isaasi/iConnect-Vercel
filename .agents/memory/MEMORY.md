@@ -120,7 +120,7 @@
 - [Form answer-driven role assignment](form-answer-driven-role-assignment.md) — answers select only persisted role mappings; configuring them requires role-assignment authority, and they are create-only.
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
-- [Stable query fallbacks](usequery-default-array-loop.md) — disabled useQuery results used by sync effects need stable fallbacks and equality-preserving state updates or SPA navigation can freeze.
+- [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
 - [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
@@ -131,7 +131,6 @@
 - [PostgREST large IN filters](postgrest-large-in-filters.md) — hundreds of UUIDs in one `.in()` can fail at fetch/URL level; batch ID-filtered verification reads.
 - [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
 - [Paginated RPC exact totals](paginated-rpc-exact-totals.md) — window totals disappear on out-of-range pages; return the count independently of page rows.
-- [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — defer saved-ID reconciliation until authorized server metadata resolves; manual choices must outrank defaults.
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
@@ -152,7 +151,6 @@
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
-- [Pending detail queries](query-pending-lifecycle.md) — disabled queries stay pending; discovery needs a valid identity, and temporary tab content needs valid accessible labels.
 - [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Row-source answer semantics](form-row-source-answer-types.md) — projected distinct values are scalars, not record references, even when they share the legacy relationship dropdown type.

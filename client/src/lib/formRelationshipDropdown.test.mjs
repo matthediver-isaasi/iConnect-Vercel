@@ -13,6 +13,8 @@ import {
   isDistinctRowSource,
   rowSourceDependencyIds,
   validateRowSourceConfiguration,
+  validateRowSourceEditorConfiguration,
+  eligibleRelationshipDiscoveryQueryKey,
   compatibleRowSourceFilterPairs,
   rowSourceInputDomain,
   relationshipParentDescriptor,
@@ -129,6 +131,57 @@ test('distinct row source requires projection and relationship parent', () => {
   const validation = validateRowSourceConfiguration(field);
   assert.equal(validation.valid, false);
   assert.ok(validation.errors.some(error => error.code === 'invalid_row_option_source'));
+});
+
+test('incomplete row source drafts provide actionable guidance instead of malformed warnings', () => {
+  const draft = {
+    id: 'draft-source',
+    type: 'relationship_dropdown',
+    option_source: {
+      version: 1,
+      kind: 'records',
+      custom_object_id: '',
+      primary_display_field_id: '',
+      filters: [],
+    },
+  };
+  const validation = validateRowSourceEditorConfiguration(draft, [draft]);
+  assert.equal(validation.valid, false);
+  assert.equal(validation.incomplete, true);
+  assert.equal(validation.errors[0].code, 'incomplete_row_option_source');
+  assert.match(validation.errors[0].message, /custom object/i);
+  assert.doesNotMatch(validation.errors[0].message, /malformed/i);
+  // The persisted contract remains strict and rejects this same draft.
+  assert.equal(validateRowSourceConfiguration(draft, [draft]).errors[0].code, 'invalid_row_option_source');
+});
+
+test('relationship discovery cache keys include tenant, form, author, and role context', () => {
+  assert.deepEqual(
+    eligibleRelationshipDiscoveryQueryKey({
+      tenantId: 'tenant-bnms',
+      formId: 'form-equipment',
+      principalId: 'author-1',
+      roleId: 'role-author',
+      mode: 'admin',
+    }),
+    ['eligible-form-relationships', 'admin', 'tenant-bnms', 'form-equipment', 'author-1', 'role-author'],
+  );
+  assert.notDeepEqual(
+    eligibleRelationshipDiscoveryQueryKey({
+      tenantId: 'tenant-other',
+      formId: 'form-equipment',
+      principalId: 'author-1',
+      roleId: 'role-author',
+      mode: 'admin',
+    }),
+    eligibleRelationshipDiscoveryQueryKey({
+      tenantId: 'tenant-bnms',
+      formId: 'form-equipment',
+      principalId: 'author-1',
+      roleId: 'role-author',
+      mode: 'admin',
+    }),
+  );
 });
 
 test('distinct row source includes its parent among request dependencies', () => {

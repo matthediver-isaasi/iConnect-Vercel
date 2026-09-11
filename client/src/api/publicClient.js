@@ -67,6 +67,12 @@ function getTenantSlugFromSubdomain(hostname) {
   return null;
 }
 
+const TENANT_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isTenantUuid(value) {
+  return typeof value === 'string' && TENANT_UUID_PATTERN.test(value.trim());
+}
+
 /**
  * Extract tenant slug from the current hostname's subdomain
  * Tries multiple sources in priority order
@@ -80,6 +86,10 @@ function getTenantSlugFromSubdomain(hostname) {
  * @returns {string|null} The tenant slug or null if not determinable
  */
 export function getTenantSlugFromLocation() {
+  // Keep the singleton importable by node-based helper tests and server-side
+  // tooling. Public requests still require a browser location, but tenant
+  // discovery is allowed to fall back to the authenticated request context.
+  if (typeof window === 'undefined') return null;
   const hostname = window.location.hostname;
   
   // Subdomain detection is the authoritative source for production/preview.
@@ -128,6 +138,45 @@ export function getTenantSlugFromLocation() {
   
   console.warn('[publicClient] Could not determine tenant slug. Public API requests may fail.');
   return null;
+}
+
+/**
+ * The relationship discovery endpoint returns an object envelope:
+ * `{ data: [...], custom_objects: [...] }`. Keep the envelope intact for the
+ * builder, but fail loudly when an adapter/proxy drops it instead of turning
+ * an invalid response into a misleading empty picker.
+ *
+ * Some API adapters wrap the endpoint response in one additional `data`
+ * property. Accept that transport wrapper while still requiring both arrays
+ * from the actual endpoint envelope.
+ */
+export function normalizeEligibleFormRelationshipDiscovery(payload) {
+  let envelope = payload;
+  if (
+    payload
+    && typeof payload === 'object'
+    && !Array.isArray(payload)
+    && payload.data
+    && typeof payload.data === 'object'
+    && !Array.isArray(payload.data)
+    && (Array.isArray(payload.data.data) || Array.isArray(payload.data.custom_objects))
+  ) {
+    envelope = payload.data;
+  }
+
+  if (
+    !envelope
+    || typeof envelope !== 'object'
+    || Array.isArray(envelope)
+    || !Array.isArray(envelope.data)
+    || !Array.isArray(envelope.custom_objects)
+  ) {
+    throw new Error(
+      'Invalid relationship discovery response: expected data and custom_objects arrays',
+    );
+  }
+
+  return envelope;
 }
 
 /**
@@ -596,11 +645,19 @@ class PublicClient {
     });
   }
 
-  async listEligibleFormRelationships(formId) {
-    if (!formId) return [];
-    return this._fetch(`/api/forms/${encodeURIComponent(formId)}/relationship-definitions`, {
-      credentials: 'include'
-    });
+  async listEligibleFormRelationships(formId, { tenantId = null } = {}) {
+    if (!formId) {
+      throw new Error('A saved form is required to discover eligible relationships');
+    }
+    // This is an authenticated admin discovery request. Do not route it
+    // through this client's tenant-aware `_fetch`: that would append the
+    // singleton's stale slug as `?tenant=...`, which the server resolves
+    // before the explicit active-tenant header.
+    const response = await publicFetch(`/api/forms/${encodeURIComponent(formId)}/relationship-definitions`, {
+      credentials: 'include',
+      ...(isTenantUuid(tenantId) ? { headers: { 'X-Tenant-Id': tenantId.trim() } } : {}),
+    }, null);
+    return normalizeEligibleFormRelationshipDiscovery(response);
   }
 
   async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null, dependencyAnswers = null) {
