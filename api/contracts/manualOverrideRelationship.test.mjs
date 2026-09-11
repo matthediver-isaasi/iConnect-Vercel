@@ -43,18 +43,20 @@ test('manual override authorization denies members and permits admins', async ()
 test('manual overrides validate full answers against tenant-scoped saved contract fields', () => {
   assert.match(
     source,
-    /\.from\('form'\)[\s\S]*?\.select\('id, name, description, slug, contract_settings, fields'\)[\s\S]*?\.eq\('id', contractFormId\)[\s\S]*?\.eq\('tenant_id', tenantContext\.tenantId\)/,
+    /\.from\('form'\)[\s\S]*?\.select\('id, name, description, slug, contract_settings, fields, pages, visibility_rules'\)[\s\S]*?\.eq\('id', contractFormId\)[\s\S]*?\.eq\('tenant_id', tenantContext\.tenantId\)/,
   );
   assert.match(
     source,
-    /\.validateSubmission\(\{ form: contractForm, submissionData: fullSubmissionData \}\)/,
+    /\.validateSubmission\(\{[\s\S]*?form: contractForm,[\s\S]*?submissionData: fullSubmissionData,[\s\S]*?hiddenFieldIds,[\s\S]*?visibilityOptions,[\s\S]*?\}\)/,
   );
+  assert.match(source, /rulesUseLmicOperators\(contractForm\.visibility_rules\)/);
+  assert.match(source, /loadTenantLmicCodes\(supabase, tenantContext\.tenantId\)/);
 });
 
 test('manual override validation dominates the contract answer-data insert', () => {
   const fullData = source.indexOf('const fullSubmissionData = {');
   const validation = source.indexOf(
-    '.validateSubmission({ form: contractForm, submissionData: fullSubmissionData })',
+    '.validateSubmission({',
   );
   const answerInsert = source.indexOf('const { data: newSubmission, error: submissionError }');
   assert.ok(fullData > -1 && validation > fullData, 'full submission data must exist before validation');

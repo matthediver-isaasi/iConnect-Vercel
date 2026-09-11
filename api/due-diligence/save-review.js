@@ -9,6 +9,7 @@ import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { effectiveReviewSubmissionValues } from './reviewSubmissionValues.js';
+import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -74,6 +75,11 @@ export default async function handler(req, res) {
       const originalSubmissionValues = ddSubmission.original_form_values
         ?? ddSubmission.form_submission?.submission_data
         ?? {};
+      const previousReviewedFormValues = effectiveReviewSubmissionValues(
+        form,
+        originalSubmissionValues,
+        ddSubmission.reviewed_form_values || {},
+      );
       const mergedReviewedFormValues = {
         ...(ddSubmission.reviewed_form_values
           && typeof ddSubmission.reviewed_form_values === 'object'
@@ -104,6 +110,21 @@ export default async function handler(req, res) {
           submissionData,
           visibilityOptions,
         );
+        const futureDateErrors = validateFutureDateFields(
+          form.fields || [],
+          submissionData,
+          {
+            hiddenFieldIds,
+            previousValues: previousReviewedFormValues,
+          },
+        );
+        if (futureDateErrors.length) {
+          const error = new Error(futureDateErrors[0].message);
+          error.status = 400;
+          error.code = 'FUTURE_DATE_INVALID';
+          error.details = futureDateErrors;
+          throw error;
+        }
         await validateRepeatableRowSubmission({
           db: supabase,
           tenantId: tenantCtx.tenantId,
@@ -122,6 +143,13 @@ export default async function handler(req, res) {
           visibilityOptions,
         });
       } catch (error) {
+        if (error?.code === 'FUTURE_DATE_INVALID' && error.status < 500) {
+          return res.status(400).json({
+            error: 'Form answers failed validation',
+            code: error.code,
+            details: error.details,
+          });
+        }
         if (error instanceof FormRelationshipError && error.status < 500) {
           return res.status(400).json({ error: 'Invalid relationship selection' });
         }

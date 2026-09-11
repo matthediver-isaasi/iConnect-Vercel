@@ -4,6 +4,8 @@ import {
   containsFormNotListedValue,
   setFormNotListedText,
 } from '../../shared/formNotListedChoice.js';
+import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 export function effectiveSubmissionFieldEdit(
   submissionData,
@@ -62,6 +64,7 @@ export async function validateSubmissionFieldEditCandidates({
   value,
   hasNotListedText = false,
   notListedText,
+  visibilityOptions = {},
 }) {
   const updatedSubmissionData = effectiveSubmissionFieldEdit(
     submissionData,
@@ -77,6 +80,27 @@ export async function validateSubmissionFieldEditCandidates({
       { hasNotListedText, notListedText },
     )
     : null;
+
+  const validateFutureDates = (candidate, previous) => {
+    const errors = validateFutureDateFields(
+      form?.fields || [],
+      candidate,
+      {
+        hiddenFieldIds: computeHiddenFieldIds(form, candidate, visibilityOptions),
+        previousValues: previous,
+      },
+    );
+    if (!errors.length) return;
+    const error = new Error(errors[0].message);
+    error.status = 400;
+    error.code = 'FUTURE_DATE_INVALID';
+    error.details = errors;
+    throw error;
+  };
+  validateFutureDates(updatedSubmissionData, submissionData);
+  if (hasDueDiligenceRecord) {
+    validateFutureDates(updatedOriginalValues, originalFormValues ?? submissionData);
+  }
 
   await relationshipService.validateSubmission({
     form,

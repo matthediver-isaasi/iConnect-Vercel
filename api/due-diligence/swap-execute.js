@@ -3,6 +3,10 @@ import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { executeStageActions } from './_stageActions.js';
+import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -59,7 +63,7 @@ export default async function handler(req, res) {
 
     const { data: forms, error: formsError } = await supabase
       .from('form')
-      .select('id, name, fields, due_diligence_required')
+      .select('id, name, fields, pages, visibility_rules, due_diligence_required')
       .eq('tenant_id', tenantCtx.tenantId)
       .in('id', [sourceFormId, targetFormId]);
 
@@ -117,11 +121,37 @@ export default async function handler(req, res) {
       }
     });
 
+    const visibilityOptions = rulesUseLmicOperators(targetForm.visibility_rules)
+      ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantCtx.tenantId) }
+      : {};
+    const hiddenFieldIds = computeHiddenFieldIds(
+      targetForm,
+      newFormValues,
+      visibilityOptions,
+    );
+    const futureDateErrors = validateFutureDateFields(
+      targetFields,
+      newFormValues,
+      { hiddenFieldIds },
+    );
+    if (futureDateErrors.length) {
+      return res.status(400).json({
+        error: 'Form answers failed validation',
+        code: 'FUTURE_DATE_INVALID',
+        details: futureDateErrors,
+      });
+    }
+
     try {
       await createFormRelationshipService({
         db: supabase,
         tenantId: tenantCtx.tenantId,
-      }).validateSubmission({ form: targetForm, submissionData: newFormValues });
+      }).validateSubmission({
+        form: targetForm,
+        submissionData: newFormValues,
+        hiddenFieldIds,
+        visibilityOptions,
+      });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
         return res.status(400).json({ error: 'Invalid relationship selection' });

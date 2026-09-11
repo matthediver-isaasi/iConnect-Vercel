@@ -30,6 +30,8 @@ test('manual submissions snapshot repeatable not-listed labels before persistenc
     source,
     /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], submission_data \|\| \{\}\)/,
   );
+  assert.match(source, /rulesUseLmicOperators\(form\.visibility_rules\)/);
+  assert.match(source, /loadTenantLmicCodes\(supabase, tenantId\)/);
 });
 
 test('manual submission UI delegates address lookup to the shared structured renderer', async () => {

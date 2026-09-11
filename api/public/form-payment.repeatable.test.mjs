@@ -54,6 +54,20 @@ test('paid paths reuse one LMIC visibility context for validation and charge res
   }
 });
 
+test('payment idempotency race winners recheck answers before reusing the row', async () => {
+  const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
+  const monthlyRace = source.slice(
+    source.indexOf("if (error?.code === '23505' && idemKey)"),
+    source.indexOf('\n  if (submission.payment_provider', source.indexOf("if (error?.code === '23505' && idemKey)")),
+  );
+  const ordinaryRace = source.slice(
+    source.indexOf("if (insertError.code === '23505' && idemKey)"),
+    source.indexOf('\n      if (!submissionRow)', source.indexOf("if (insertError.code === '23505' && idemKey)")),
+  );
+  assert.match(monthlyRace, /samePaymentIdempotencyAnswers\(winner\.submission_data, values\)/);
+  assert.match(ordinaryRace, /samePaymentIdempotencyAnswers\(winner\.submission_data, values\)/);
+});
+
 test('paid validation rejects repeatable tampering before ordinary relationship database lookups', async () => {
   let queries = 0;
   const response = {
@@ -177,6 +191,67 @@ test('paid validation rejects an incomplete required address before provider wor
   assert.equal(response.statusCode, 400);
   assert.equal(response.payload.code, 'ADDRESS_COMPONENTS_REQUIRED');
   assert.deepEqual(response.payload.fields, ['address']);
+});
+
+test('paid validation rejects invalid future-only answers before any database lookup', async () => {
+  let queries = 0;
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [{
+      id: 'start_date',
+      type: 'date',
+      future_only: true,
+    }],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { queries += 1; throw new Error('future date must fail before database work'); } },
+    { id: 'tenant-1' },
+    form,
+    { start_date: '2020-01-01' },
+  );
+  assert.equal(valid, false);
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.payload.code, 'FUTURE_DATE_INVALID');
+  assert.equal(response.payload.details[0].field_id, 'start_date');
+  assert.equal(queries, 0);
+});
+
+test('paid validation skips hidden future-only repeatable dates while validating active rows', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        starts_hidden: true,
+        child_fields: [{
+          id: 'start_date',
+          type: 'date',
+          future_only: true,
+        }],
+      },
+    ],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('hidden repeatable date must not query'); } },
+    { id: 'tenant-1' },
+    form,
+    { rows: [{ start_date: '2020-01-01' }] },
+  );
+  assert.equal(valid, true);
+  assert.equal(response.statusCode, null);
 });
 
 test('provider discovery validates payment purpose and selects matching Stripe credentials', async () => {

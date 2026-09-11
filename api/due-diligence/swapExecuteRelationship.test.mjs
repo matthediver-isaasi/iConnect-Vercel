@@ -18,24 +18,26 @@ function assertOrdered(earlier, later, message) {
 test('DD swaps validate mapped values against tenant-scoped saved target fields', () => {
   assert.match(
     source,
-    /\.from\('form'\)[\s\S]*?\.select\('id, name, fields, due_diligence_required'\)[\s\S]*?\.eq\('tenant_id', tenantCtx\.tenantId\)[\s\S]*?\.in\('id', \[sourceFormId, targetFormId\]\)/,
+    /\.from\('form'\)[\s\S]*?\.select\('id, name, fields, pages, visibility_rules, due_diligence_required'\)[\s\S]*?\.eq\('tenant_id', tenantCtx\.tenantId\)[\s\S]*?\.in\('id', \[sourceFormId, targetFormId\]\)/,
   );
   assert.match(source, /const targetForm = forms\.find\(f => f\.id === targetFormId\)/);
   assert.match(source, /const targetFields = targetForm\.fields \|\| \[\]/);
   assert.match(
     source,
-    /\.validateSubmission\(\{ form: targetForm, submissionData: newFormValues \}\)/,
+    /\.validateSubmission\(\{[\s\S]*?form: targetForm,[\s\S]*?submissionData: newFormValues,[\s\S]*?hiddenFieldIds,[\s\S]*?visibilityOptions,[\s\S]*?\}\)/,
   );
+  assert.match(source, /rulesUseLmicOperators\(targetForm\.visibility_rules\)/);
+  assert.match(source, /loadTenantLmicCodes\(supabase, tenantCtx\.tenantId\)/);
 });
 
 test('DD swap validation dominates both mapped answer-data writes', () => {
   assertOrdered(
-    '.validateSubmission({ form: targetForm, submissionData: newFormValues })',
+    '.validateSubmission({',
     "const newFormSubmission = {",
     'validation must precede the target form submission payload',
   );
   assertOrdered(
-    '.validateSubmission({ form: targetForm, submissionData: newFormValues })',
+    '.validateSubmission({',
     'const newDDRecord = {',
     'validation must precede the due-diligence answer payload',
   );

@@ -35,6 +35,7 @@ import { useConditionalFormFieldPrefill, useFormFieldPrefill } from "@/lib/useFo
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
+import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -976,6 +977,12 @@ export default function EmbedFormPage() {
       if ((field.is_required || field.required) && !isFieldValueFilled(field, formValues[field.id])) {
         return false;
       }
+      if (validateFutureDateFields([field], formValues, {
+        now: new Date(),
+        hiddenFieldIds,
+      }).length > 0) {
+        return false;
+      }
       if (fieldValidity[field.id] === false) {
         return false;
       }
@@ -1025,6 +1032,27 @@ export default function EmbedFormPage() {
     }
     if (!validateCurrentPage()) {
       toast.error('Please fill in all required fields correctly');
+      return null;
+    }
+
+    const futureDateErrors = validateFutureDateFields(
+      form.fields || [],
+      formValues,
+      { now: new Date(), hiddenFieldIds },
+    );
+    if (futureDateErrors.length > 0) {
+      const labelsById = new Map((form.fields || []).map(field => [field.id, field.label || 'Date field']));
+      const messages = futureDateErrors.map(error => {
+        const label = labelsById.get(error.field_id) || 'Date field';
+        const childLabel = error.child_id
+          ? (form.fields || [])
+            .find(field => field.id === error.field_id)
+            ?.children?.find(child => child.id === error.child_id)?.label
+          : null;
+        return `${childLabel ? `${label} — ${childLabel}` : label}: ${error.message}`;
+      });
+      setSubmissionError(messages.join('\n'));
+      toast.error(`Please fix future-date errors: ${messages.join(', ')}`);
       return null;
     }
 

@@ -87,6 +87,10 @@ import { getSessionMember } from '../_lib/session.js';
 import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
 import { validateFormStripeAddressMappingConfig } from '../_lib/formStripeAddressMappingConfig.js';
 import {
+  sameFormAnswerValues,
+  validateFutureDateFields,
+} from '../../shared/formFutureDates.js';
+import {
   patchFormSubmissionPaymentMeta,
   retryPersistedStripeAddressMappings,
 } from '../_lib/formStripeAddressMappingProcessing.js';
@@ -96,6 +100,20 @@ import {
   verifiedStripeMonthlyCollection,
 } from '../_lib/formMonthlyConfirmLifecycle.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
+
+function normalizePaymentIdempotencyAnswers(values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
+  const normalized = { ...values };
+  delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  return normalized;
+}
+
+function samePaymentIdempotencyAnswers(existingValues, requestedValues) {
+  return sameFormAnswerValues(
+    normalizePaymentIdempotencyAnswers(existingValues),
+    normalizePaymentIdempotencyAnswers(requestedValues),
+  );
+}
 
 const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -250,7 +268,15 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
   return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess };
 }
 
-export async function validatePaymentRelationships(res, supabase, tenantData, form, values, visibilityOptions = null) {
+export async function validatePaymentRelationships(
+  res,
+  supabase,
+  tenantData,
+  form,
+  values,
+  visibilityOptions = null,
+  { skipFutureDateValidation = false } = {},
+) {
   try {
     const evalOptions = visibilityOptions || {};
     if (!visibilityOptions && rulesUseLmicOperators(form.visibility_rules)) {
@@ -269,6 +295,21 @@ export async function validatePaymentRelationships(res, supabase, tenantData, fo
         fields: invalidAddressFields,
       });
       return false;
+    }
+    if (!skipFutureDateValidation) {
+      const futureDateErrors = validateFutureDateFields(
+        form.fields || [],
+        values,
+        { hiddenFieldIds },
+      );
+      if (futureDateErrors.length) {
+        res.status(400).json({
+          error: 'Form answers failed validation',
+          code: 'FUTURE_DATE_INVALID',
+          details: futureDateErrors,
+        });
+        return false;
+      }
     }
     await validateRepeatableRowSubmission({
       db: supabase,
@@ -552,10 +593,65 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   const values = submission_data || {};
   const evalOptions = rulesUseLmicOperators(form.visibility_rules)
     ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
+  const browserAttemptKey = typeof idempotency_key === 'string' ? idempotency_key.trim() : '';
+  const legacyIdemKey = legacyFormMonthlyCardSubmissionKey(browserAttemptKey);
+  let existingLegacyMonthlyCard = null;
+  let existingVersionedMonthlyCard = null;
+  if (legacyIdemKey) {
+    const { data: legacyAttempt, error: legacyAttemptErr } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('tenant_id', tenantData.id)
+      .eq('form_id', form.id)
+      .eq('idempotency_key', legacyIdemKey)
+      .maybeSingle();
+    if (legacyAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
+    if (legacyAttempt && !samePaymentIdempotencyAnswers(legacyAttempt.submission_data, values)) {
+      return res.status(409).json({
+        error: 'This idempotency key was already used for different answers.',
+        code: 'IDEMPOTENCY_KEY_REUSED',
+      });
+    }
+    existingLegacyMonthlyCard = legacyAttempt || null;
+  }
+  const applicantEmailForRetry = extractMemberPipelineEmail(form, values);
+  if (browserAttemptKey && applicantEmailForRetry) {
+    const { data: versionedAttempts, error: versionedAttemptErr } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('tenant_id', tenantData.id)
+      .eq('form_id', form.id)
+      .eq('submitted_by_email', applicantEmailForRetry);
+    if (versionedAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
+    existingVersionedMonthlyCard = (versionedAttempts || []).find((attempt) => {
+      const membershipYear = attempt?.payment_meta?.membership?.quote?.membership_year;
+      if (!membershipYear) return false;
+      return formMonthlyCardSubmissionKey({
+        browserKey: browserAttemptKey,
+        email: applicantEmailForRetry,
+        membershipYear,
+      }) === attempt.idempotency_key;
+    }) || null;
+    const versionedRetry = existingVersionedMonthlyCard;
+    if (versionedRetry
+      && !samePaymentIdempotencyAnswers(versionedRetry.submission_data, values)) {
+      return res.status(409).json({
+        error: 'This idempotency key was already used for different answers.',
+        code: 'IDEMPOTENCY_KEY_REUSED',
+      });
+    }
+  }
+  const existingMonthlyCardRetry = existingLegacyMonthlyCard || existingVersionedMonthlyCard;
   const submitControl = resolveSubmitControl(form.visibility_rules, values, evalOptions);
   if (submitControl.disabled) return res.status(400).json({ error: submitControl.message || 'This form cannot be submitted with the current answers.' });
   if (!await validatePaymentRelationships(
-    res, supabase, tenantData, form, values, evalOptions,
+    res,
+    supabase,
+    tenantData,
+    form,
+    values,
+    evalOptions,
+    { skipFutureDateValidation: !!existingMonthlyCardRetry },
   )) return;
   const resolved = await resolvePayableCharge({ supabase, tenantData, form, paymentField, values, prefill_organization_id, evalOptions });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
@@ -581,7 +677,6 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   if (!creds?.secret_key || creds.is_enabled === false) {
     return res.status(400).json({ error: 'Card payment is not available for this organisation' });
   }
-  const browserAttemptKey = typeof idempotency_key === 'string' ? idempotency_key.trim() : '';
   if (!browserAttemptKey) {
     return res.status(400).json({ error: 'A payment attempt identifier is required. Refresh the form and try again.' });
   }
@@ -590,16 +685,14 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
     email: applicantEmail,
     membershipYear: quote.membership_year,
   });
-  const legacyIdemKey = legacyFormMonthlyCardSubmissionKey(browserAttemptKey);
   let submission = null;
   const { data: currentAttempt, error: currentAttemptErr } = await supabase.from('form_submission').select('*')
     .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', idemKey).maybeSingle();
   if (currentAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
   submission = currentAttempt || null;
   if (!submission && legacyIdemKey) {
-    const { data: legacyAttempt, error: legacyAttemptErr } = await supabase.from('form_submission').select('*')
-      .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', legacyIdemKey).maybeSingle();
-    if (legacyAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
+    const legacyAttempt = existingLegacyMonthlyCard || (await supabase.from('form_submission').select('*')
+      .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', legacyIdemKey).maybeSingle()).data;
     // Legacy per-fill rows are recoverable only for the identity that created
     // them. A changed applicant gets an independent v2 row and agreement.
     if (formMonthlyCardSubmissionMatchesApplicant(legacyAttempt, applicantEmail)) {
@@ -632,6 +725,12 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       const { data: winner, error: winnerErr } = await supabase.from('form_submission').select('*')
         .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', idemKey).maybeSingle();
       if (winnerErr || !winner) return res.status(500).json({ error: 'Failed to prepare payment' });
+      if (!samePaymentIdempotencyAnswers(winner.submission_data, values)) {
+        return res.status(409).json({
+          error: 'This idempotency key was already used for different answers.',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+      }
       submission = winner;
     } else if (error) {
       return res.status(500).json({ error: 'Failed to prepare payment' });
@@ -909,6 +1008,30 @@ async function handleCreate(req, res, supabase, tenantData) {
     return res.status(400).json({ error: 'This payment method is not enabled for this form' });
   }
   const values = submission_data || {};
+  const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim())
+    ? `pay:${idempotency_key.trim()}`.slice(0, 120)
+    : null;
+  let existingIdempotentPayment = null;
+  if (idemKey) {
+    const { data: existing, error: existingError } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('form_id', form.id)
+      .eq('tenant_id', tenantData.id)
+      .eq('idempotency_key', idemKey)
+      .maybeSingle();
+    if (existingError) {
+      console.error('[form-payment] Idempotency lookup failed:', existingError);
+      return res.status(500).json({ error: 'Failed to prepare payment' });
+    }
+    if (existing && !samePaymentIdempotencyAnswers(existing.submission_data, values)) {
+      return res.status(409).json({
+        error: 'This idempotency key was already used for different answers.',
+        code: 'IDEMPOTENCY_KEY_REUSED',
+      });
+    }
+    existingIdempotentPayment = existing || null;
+  }
 
   // Conditional-logic submit control FIRST (pre-existing ordering): a
   // matched disable rule blocks STARTING a payment exactly as it blocks a
@@ -925,7 +1048,13 @@ async function handleCreate(req, res, supabase, tenantData) {
     });
   }
   if (!await validatePaymentRelationships(
-    res, supabase, tenantData, form, values, evalOptions,
+    res,
+    supabase,
+    tenantData,
+    form,
+    values,
+    evalOptions,
+    { skipFutureDateValidation: !!existingIdempotentPayment },
   )) return;
 
   const resolved = await resolvePayableCharge({
@@ -978,20 +1107,16 @@ async function handleCreate(req, res, supabase, tenantData) {
 
   // Namespaced idempotency key: never collides with a normal submit's key,
   // so an abandoned payment can still fall back to a plain submission.
-  const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim())
-    ? `pay:${idempotency_key.trim()}`.slice(0, 120)
-    : null;
-
   // Reuse an existing pending row for the same key (retry / second tab).
   let submissionRow = null;
   if (idemKey) {
-    const { data: existing } = await supabase
+    const existing = existingIdempotentPayment || (await supabase
       .from('form_submission')
       .select('*')
       .eq('form_id', form.id)
       .eq('tenant_id', tenantData.id)
       .eq('idempotency_key', idemKey)
-      .maybeSingle();
+      .maybeSingle()).data;
     if (existing) {
       if (existing.payment_status === 'paid') {
         return res.status(200).json({ alreadyPaid: true, submissionId: existing.id });
@@ -1131,6 +1256,12 @@ async function handleCreate(req, res, supabase, tenantData) {
           .eq('idempotency_key', idemKey)
           .maybeSingle();
         if (winner) {
+          if (!samePaymentIdempotencyAnswers(winner.submission_data, values)) {
+            return res.status(409).json({
+              error: 'This idempotency key was already used for different answers.',
+              code: 'IDEMPOTENCY_KEY_REUSED',
+            });
+          }
           submissionRow = winner;
         }
       }

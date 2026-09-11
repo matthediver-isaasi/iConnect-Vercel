@@ -3,6 +3,8 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { validateSubmissionFieldEditCandidates } from './submissionFieldEdit.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -79,7 +81,7 @@ export default async function handler(req, res) {
     // Get the form to verify tenant ownership and validate field
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, fields')
+      .select('id, tenant_id, fields, pages, visibility_rules')
       .eq('id', submission.form_id)
       .eq('tenant_id', session.tenant_id)
       .single();
@@ -106,6 +108,16 @@ export default async function handler(req, res) {
     const nonEditableTypes = ['instructions', 'page_break', 'signature'];
     if (nonEditableTypes.includes(field.type)) {
       return res.status(400).json({ error: `Field type "${field.type}" cannot be edited` });
+    }
+
+    const visibilityOptions = {};
+    if (rulesUseLmicOperators(form.visibility_rules)) {
+      try {
+        visibilityOptions.lmicCodes = await loadTenantLmicCodes(supabase, session.tenant_id);
+      } catch (error) {
+        console.error('Failed to load authoritative LMIC codes:', error);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
     }
 
     // Read the due-diligence original before any mutation so both independently
@@ -144,9 +156,20 @@ export default async function handler(req, res) {
         value,
         hasNotListedText,
         notListedText: not_listed_text,
+        visibilityOptions,
       }));
     } catch (error) {
+      if (error?.code === 'FUTURE_DATE_INVALID' && error.status < 500) {
+        return res.status(400).json({
+          error: error.message || 'Invalid form field value',
+          code: error.code,
+          details: error.details,
+        });
+      }
       if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: error.message || 'Invalid form field value' });
+      }
+      if (error?.status < 500) {
         return res.status(400).json({ error: error.message || 'Invalid form field value' });
       }
       console.error('[Update Submission Field] Relationship selection validation failed:', error);

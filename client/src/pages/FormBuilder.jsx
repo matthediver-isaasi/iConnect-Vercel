@@ -133,6 +133,7 @@ import {
   repeatableRowFieldConfigUpdate,
   repeatableExclusionSourceFields,
 } from "../../../shared/formRepeatableRows.js";
+import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
 import {
   areFormTransitionFieldsCompatible,
   isFormTransitionField,
@@ -6289,6 +6290,7 @@ function RepeatableRowsSettings({
                 <Label className="text-xs">Type</Label>
                 <Select value={child.type} onValueChange={type => updateChild(childIndex, {
                   type,
+                  ...(type === 'date' ? { future_only: child.future_only === true } : {}),
                   parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
                   parent_field_scope: type === 'relationship_dropdown' ? child.parent_field_scope : undefined,
                   option_source: type === 'relationship_dropdown' ? child.option_source : undefined,
@@ -6338,6 +6340,19 @@ function RepeatableRowsSettings({
                   Unique across rows
                 </Label>
               </div>
+              {child.type === 'date' && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`repeatable-child-future-only-${child.id}`}
+                    checked={child.future_only === true}
+                    onCheckedChange={future_only => updateChild(childIndex, { future_only })}
+                    data-testid={`switch-repeatable-child-future-only-${child.id}`}
+                  />
+                  <Label htmlFor={`repeatable-child-future-only-${child.id}`} className="text-xs">
+                    Future dates only (UTC)
+                  </Label>
+                </div>
+              )}
             </div>
             {supportsFormNotListedChoice(child) && child.type !== 'relationship_dropdown' && (
               <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
@@ -7232,6 +7247,9 @@ function FieldCard({
                             updates.initial_row_required = false;
                             updates.add_row_label = 'Add row';
                             updates.layout = REPEATABLE_ROW_LAYOUT_CARDS;
+                          }
+                          if (value === 'date' && field.future_only === undefined) {
+                            updates.future_only = false;
                           }
                           if (value === 'address_lookup' && field.type !== 'address_lookup') {
                             Object.assign(updates, addressLookupDefaults);
@@ -10000,13 +10018,21 @@ function FieldCard({
                   
                   {/* Date field */}
                   {field.type === 'date' && (
-                    <Input
-                      type="date"
-                      value={field.default_value || ''}
-                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
-                      className="h-8 text-xs"
-                      data-testid={`input-default-value-${field.id}`}
-                    />
+                    <>
+                      <Input
+                        type="date"
+                        min={field.future_only === true ? tomorrowUtcDate() : undefined}
+                        value={field.default_value || ''}
+                        onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                        className="h-8 text-xs"
+                        data-testid={`input-default-value-${field.id}`}
+                      />
+                      {field.future_only === true && (
+                        <p className="text-xs text-slate-500" data-testid={`text-date-preview-${field.id}`}>
+                          Preview: respondents can choose dates from tomorrow onwards (UTC).
+                        </p>
+                      )}
+                    </>
                   )}
                   
                   {/* Time field */}
@@ -10128,6 +10154,19 @@ function FieldCard({
                           onCheckedChange={(checked) => updateField(originalIndex, { allow_other: checked })}
                         />
                         <Label htmlFor={`allow-other-${field.id}`} className="text-sm">Allow "Other"</Label>
+                      </div>
+                    )}
+                    {field.type === 'date' && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`future-only-${field.id}`}
+                          checked={field.future_only === true}
+                          onCheckedChange={(future_only) => updateField(originalIndex, { future_only })}
+                          data-testid={`switch-future-only-${field.id}`}
+                        />
+                        <Label htmlFor={`future-only-${field.id}`} className="text-sm">
+                          Future dates only (UTC)
+                        </Label>
                       </div>
                     )}
                     <div className="flex items-center gap-2">

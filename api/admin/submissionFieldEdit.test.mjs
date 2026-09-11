@@ -309,6 +309,112 @@ test('unrelated admin edits tolerate trusted legacy missing text while correctio
   });
 });
 
+test('future-only amendment validation rejects changed dates but preserves unchanged historical dates in both stores', async () => {
+  const futureForm = {
+    fields: [
+      { id: 'start_date', type: 'date', future_only: true },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        children: [{ id: 'child_date', type: 'date', future_only: true }],
+      },
+      { id: 'notes', type: 'text' },
+    ],
+  };
+  const oldAnswers = {
+    start_date: '2020-01-01',
+    rows: [{ _row_id: 'row-1', child_date: '2020-01-02' }],
+    notes: 'before',
+  };
+  const validated = [];
+  const relationshipService = {
+    async validateSubmission({ submissionData }) {
+      validated.push(submissionData);
+    },
+  };
+
+  await assert.rejects(
+    () => validateSubmissionFieldEditCandidates({
+      relationshipService,
+      form: futureForm,
+      submissionData: { ...oldAnswers, start_date: '2099-01-01' },
+      originalFormValues: { ...oldAnswers, start_date: '2099-01-01' },
+      hasDueDiligenceRecord: true,
+      fieldId: 'start_date',
+      value: '2020-01-03',
+    }),
+    (error) => error.code === 'FUTURE_DATE_INVALID'
+      && error.details?.[0]?.field_id === 'start_date',
+  );
+  assert.equal(validated.length, 0, 'invalid amendments must stop before relationship validation');
+
+  const unchanged = await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: futureForm,
+    submissionData: oldAnswers,
+    originalFormValues: {
+      ...oldAnswers,
+      rows: [{ _row_id: 'row-1', child_date: '2020-01-02' }],
+    },
+    hasDueDiligenceRecord: true,
+    fieldId: 'notes',
+    value: 'after',
+  });
+  assert.equal(validated.length, 2, 'both main and DD candidates are validated');
+  assert.equal(unchanged.updatedSubmissionData.start_date, oldAnswers.start_date);
+  assert.equal(unchanged.updatedOriginalValues.rows[0].child_date, '2020-01-02');
+});
+
+test('future-only amendment validation skips hidden dates and uses authoritative LMIC visibility options', async () => {
+  const hiddenForm = {
+    fields: [{
+      id: 'hidden_date',
+      type: 'date',
+      future_only: true,
+      starts_hidden: true,
+    }],
+  };
+  const relationshipService = { async validateSubmission() {} };
+  const hidden = await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: hiddenForm,
+    submissionData: { hidden_date: '2099-01-01' },
+    originalFormValues: { hidden_date: '2099-01-01' },
+    hasDueDiligenceRecord: true,
+    fieldId: 'hidden_date',
+    value: '2020-01-01',
+  });
+  assert.equal(hidden.updatedSubmissionData.hidden_date, '2020-01-01');
+
+  const lmicForm = {
+    fields: [
+      { id: 'country', type: 'country' },
+      { id: 'conditional_date', type: 'date', future_only: true, starts_hidden: true },
+    ],
+    visibility_rules: [{
+      conditions: [{ field_id: 'country', operator: 'is_not_lmic' }],
+      actions: [{
+        action_type: 'visibility',
+        field_states: { conditional_date: { visible: true } },
+      }],
+    }],
+  };
+  await assert.rejects(
+    () => validateSubmissionFieldEditCandidates({
+      relationshipService,
+      form: lmicForm,
+      submissionData: { country: 'US', conditional_date: '2099-01-01' },
+      originalFormValues: { country: 'US', conditional_date: '2099-01-01' },
+      hasDueDiligenceRecord: false,
+      fieldId: 'conditional_date',
+      value: '2020-01-01',
+      visibilityOptions: { lmicCodes: ['BD'] },
+    }),
+    (error) => error.code === 'FUTURE_DATE_INVALID'
+      && error.details?.[0]?.field_id === 'conditional_date',
+  );
+});
+
 test('update endpoint fetches DD and validates both candidates before any write', () => {
   const source = readFileSync(path.join(here, 'update-submission-field.js'), 'utf8');
   const accessCheck = source.indexOf("isResourceExcluded(exclusions, 'page_FormSubmissions')");

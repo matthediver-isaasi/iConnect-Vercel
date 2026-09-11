@@ -43,6 +43,7 @@ import {
   resetSetValueConvergence,
   setValueActionKey,
 } from "@/lib/formValueConvergence";
+import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -2249,6 +2250,27 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
         return null;
       }
+    }
+
+    const futureDateErrors = validateFutureDateFields(
+      form.fields || [],
+      formValues,
+      { now: new Date(), hiddenFieldIds },
+    );
+    if (futureDateErrors.length > 0) {
+      const labelsById = new Map((form.fields || []).map(field => [field.id, field.label || 'Date field']));
+      const messages = futureDateErrors.map(error => {
+        const label = labelsById.get(error.field_id) || 'Date field';
+        const childLabel = error.child_id
+          ? (form.fields || [])
+            .find(field => field.id === error.field_id)
+            ?.children?.find(child => child.id === error.child_id)?.label
+          : null;
+        return `${childLabel ? `${label} — ${childLabel}` : label}: ${error.message}`;
+      });
+      setSubmissionError(messages.join('\n'));
+      toast.error(`Please fix future-date errors: ${messages.join(', ')}`);
+      return null;
     }
 
     const invalidFields = visibleFields.filter(field => fieldValidity[field.id] === false);

@@ -9,6 +9,9 @@ import {
 } from '../_lib/formOrganisationGroups.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -76,7 +79,14 @@ export default async function handler(req, res) {
     if (formError || !form) {
       return res.status(404).json({ error: 'Form not found or not accessible' });
     }
-    const hiddenFieldIds = computeHiddenFieldIds(form, submission_data || {});
+    const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
+      ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantId) }
+      : {};
+    const hiddenFieldIds = computeHiddenFieldIds(
+      form,
+      submission_data || {},
+      visibilityOptions,
+    );
     const invalidAddressFields = invalidRequiredAddressLookupFields(
       form.fields || [],
       submission_data || {},
@@ -89,6 +99,18 @@ export default async function handler(req, res) {
         fields: invalidAddressFields,
       });
     }
+    const futureDateErrors = validateFutureDateFields(
+      form.fields || [],
+      submission_data || {},
+      { hiddenFieldIds },
+    );
+    if (futureDateErrors.length) {
+      return res.status(400).json({
+        error: 'Form answers failed validation',
+        code: 'FUTURE_DATE_INVALID',
+        details: futureDateErrors,
+      });
+    }
 
     try {
       await validateRepeatableRowSubmission({
@@ -96,10 +118,14 @@ export default async function handler(req, res) {
         tenantId,
         form,
         submissionData: submission_data || {},
+        visibilityOptions,
+        hiddenFieldIds,
       });
       await createFormRelationshipService({ db: supabase, tenantId }).validateSubmission({
         form,
         submissionData: submission_data || {},
+        visibilityOptions,
+        hiddenFieldIds,
       });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {

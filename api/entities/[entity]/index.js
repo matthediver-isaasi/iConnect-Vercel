@@ -64,7 +64,10 @@ import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../../_lib/formRepeatableRowValidation.js';
-import { snapshotFormNotListedLabels } from '../../../shared/formNotListedChoice.js';
+import {
+  FORM_NOT_LISTED_LABELS_KEY,
+  snapshotFormNotListedLabels,
+} from '../../../shared/formNotListedChoice.js';
 import {
   StructuredActionContractError,
   validateStructuredActionsContract,
@@ -76,6 +79,40 @@ import {
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
+import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
+import {
+  sameFormAnswerValues,
+  validateFutureDateFields,
+} from '../../../shared/formFutureDates.js';
+
+function normalizeIdempotencyAnswers(values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
+  const normalized = { ...values };
+  delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  return normalized;
+}
+
+function sameIdempotencyAnswers(existingValues, requestedValues) {
+  return sameFormAnswerValues(
+    normalizeIdempotencyAnswers(existingValues),
+    normalizeIdempotencyAnswers(requestedValues),
+  );
+}
+
+export function validateGenericFormSubmissionFutureDates({
+  form,
+  submissionData,
+  visibilityOptions = {},
+} = {}) {
+  const values = submissionData || {};
+  const hiddenFieldIds = computeHiddenFieldIds(form, values, visibilityOptions);
+  const errors = validateFutureDateFields(
+    form?.fields || [],
+    values,
+    { hiddenFieldIds },
+  );
+  return { hiddenFieldIds, errors };
+}
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1985,7 +2022,7 @@ export default async function handler(req, res) {
         // public endpoint before idempotency reads, inserts, or side effects.
         const { data: accessForm, error: accessFormError } = await supabase
           .from('form')
-          .select('id, tenant_id, is_active, deactivate_at, access_policy, visibility_rules, fields')
+          .select('id, tenant_id, is_active, deactivate_at, access_policy, visibility_rules, fields, pages, form_type, survey_settings')
           .eq('id', sanitizedBody.form_id)
           .eq('tenant_id', sanitizedBody.tenant_id)
           .eq('is_active', true)
@@ -2007,36 +2044,119 @@ export default async function handler(req, res) {
           policy: accessForm.access_policy,
         });
         if (!formAccess.allowed) return sendFormAccessDenied(res, formAccess);
-        formSubmissionForm = accessForm;
+        let effectiveAccessForm = accessForm;
+        if (accessForm.form_type === 'survey') {
+          if (accessForm.survey_settings?.status !== 'published') {
+            return res.status(403).json({ error: 'This survey is not accepting responses' });
+          }
+          const currentVersion = Number(accessForm.survey_settings?.current_version);
+          if (!Number.isInteger(currentVersion) || currentVersion <= 0) {
+            return res.status(404).json({ error: 'Form snapshot not found' });
+          }
+          const { data: surveySnapshot, error: surveySnapshotError } = await supabase
+            .from('survey_version')
+            .select('fields, pages, visibility_rules')
+            .eq('form_id', accessForm.id)
+            .eq('tenant_id', accessForm.tenant_id)
+            .eq('version_number', currentVersion)
+            .maybeSingle();
+          if (surveySnapshotError || !surveySnapshot) {
+            return res.status(404).json({ error: 'Form snapshot not found' });
+          }
+          effectiveAccessForm = { ...accessForm, ...surveySnapshot };
+        }
+        formSubmissionForm = effectiveAccessForm;
+
+        // Recover an existing same-key submission before answer validation so
+        // accepted historical dates remain retryable after midnight. A key
+        // cannot be reused for altered answers.
+        const rawIdempotencyKey = sanitizedBody.idempotency_key;
+        const earlyIdempotencyKey =
+          (typeof rawIdempotencyKey === 'string'
+            && rawIdempotencyKey.trim().length >= 8
+            && rawIdempotencyKey.trim().length <= 128)
+            ? rawIdempotencyKey.trim()
+            : null;
+        let existingIdempotentSubmission = null;
+        if (earlyIdempotencyKey) {
+          const { data: existing, error: idemErr } = await supabase
+            .from('form_submission')
+            .select('*')
+            .eq('form_id', sanitizedBody.form_id)
+            .eq('idempotency_key', earlyIdempotencyKey)
+            .eq('tenant_id', sanitizedBody.tenant_id)
+            .maybeSingle();
+          if (idemErr && idemErr.code !== '42703') {
+            console.error('[Entity POST] FormSubmission idempotency lookup failed:', idemErr);
+            return res.status(500).json({ error: 'Failed to validate submission' });
+          }
+          if (existing && !sameIdempotencyAnswers(
+            existing.submission_data,
+            sanitizedBody.submission_data || {},
+          )) {
+            return res.status(409).json({
+              error: 'This idempotency key was already used for different answers.',
+              code: 'IDEMPOTENCY_KEY_REUSED',
+            });
+          }
+          existingIdempotentSubmission = existing || null;
+        }
 
         // Authenticated Canvas/iEdit submissions use this generic route rather
         // than the dedicated public handler. Revalidate dependent relationship
-        // IDs here before idempotency reads, insertion, or any side effects.
-        try {
-          await validateRepeatableRowSubmission({
-            db: supabase,
-            tenantId: accessForm.tenant_id,
-            form: accessForm,
-            submissionData: sanitizedBody.submission_data || {},
-          });
-          await createFormRelationshipService({
-            db: supabase,
-            tenantId: accessForm.tenant_id,
-          }).validateSubmission({
-            form: accessForm,
-            submissionData: sanitizedBody.submission_data || {},
-          });
-        } catch (error) {
-          if (error instanceof FormRelationshipError && error.status < 500) {
-            return res.status(400).json({ error: 'Invalid relationship selection' });
-          }
-          console.error('[Entity POST] FormSubmission relationship validation failed:', error);
-          return res.status(500).json({ error: 'Failed to validate submission' });
+        // IDs here before insertion or any side effects.
+        const visibilityOptions = {};
+        if (rulesUseLmicOperators(effectiveAccessForm.visibility_rules)) {
+          const { loadTenantLmicCodes } = await import('../../_lib/tenantLmicCodes.js');
+          visibilityOptions.lmicCodes = await loadTenantLmicCodes(
+            supabase,
+            effectiveAccessForm.tenant_id,
+          );
         }
-        sanitizedBody.submission_data = snapshotFormNotListedLabels(
-          accessForm.fields || [],
-          sanitizedBody.submission_data || {},
-        );
+        if (!existingIdempotentSubmission) {
+          const { hiddenFieldIds, errors: futureDateErrors } =
+            validateGenericFormSubmissionFutureDates({
+              form: effectiveAccessForm,
+              submissionData: sanitizedBody.submission_data || {},
+              visibilityOptions,
+            });
+          try {
+            await validateRepeatableRowSubmission({
+              db: supabase,
+              tenantId: effectiveAccessForm.tenant_id,
+              form: effectiveAccessForm,
+              submissionData: sanitizedBody.submission_data || {},
+              hiddenFieldIds,
+              visibilityOptions,
+            });
+            await createFormRelationshipService({
+              db: supabase,
+              tenantId: effectiveAccessForm.tenant_id,
+            }).validateSubmission({
+              form: effectiveAccessForm,
+              submissionData: sanitizedBody.submission_data || {},
+              hiddenFieldIds,
+              visibilityOptions,
+            });
+          } catch (error) {
+            if (error instanceof FormRelationshipError && error.status < 500) {
+              return res.status(400).json({ error: 'Invalid relationship selection' });
+            }
+            console.error('[Entity POST] FormSubmission relationship validation failed:', error);
+            return res.status(500).json({ error: 'Failed to validate submission' });
+          }
+          if (futureDateErrors.length) {
+            return res.status(400).json({
+              error: 'Form answers failed validation',
+              code: 'FUTURE_DATE_INVALID',
+              details: futureDateErrors,
+            });
+          }
+          sanitizedBody.submission_data = snapshotFormNotListedLabels(
+            effectiveAccessForm.fields || [],
+            sanitizedBody.submission_data || {},
+          );
+        }
 
         // Payment lifecycle fields are server-owned. Public/generic form
         // submissions must never be able to forge the authorization proof
@@ -2401,6 +2521,15 @@ export default async function handler(req, res) {
             }
             const { data: winner, error: winnerErr } = await winnerLookup.maybeSingle();
             if (winner) {
+              if (!sameIdempotencyAnswers(
+                winner.submission_data,
+                sanitizedBody.submission_data || {},
+              )) {
+                return res.status(409).json({
+                  error: 'This idempotency key was already used for different answers.',
+                  code: 'IDEMPOTENCY_KEY_REUSED',
+                });
+              }
               console.log('[Entity POST] FormSubmission concurrent duplicate (unique violation) — returning original row', winner.id);
               // Same `duplicate: true` marker as the pre-check branch so the
               // client skips duplicate post-submit side effects.

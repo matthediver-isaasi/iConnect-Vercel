@@ -101,6 +101,8 @@ function makePublicSubmissionBoundaryDb(
   form,
   {
     organization = null,
+    surveyVersion = null,
+    surveySnapshots = null,
     existingSubmission = null,
     failReadyOnce = false,
     failCheckpointOnce = false,
@@ -159,6 +161,15 @@ function makePublicSubmissionBoundaryDb(
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (this.table === 'survey_version') {
+        const snapshotId = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'id',
+        )?.[2];
+        return {
+          data: (snapshotId && surveySnapshots?.[snapshotId]) || surveyVersion,
+          error: null,
+        };
+      }
       if (this.table === 'form_submission' && submissionRow) {
         return { data: structuredClone(submissionRow), error: null };
       }
@@ -275,6 +286,132 @@ test('survey submissions validate repeatable rows against the published visibili
   const validation = source.slice(validationStart, validationEnd);
   assert.match(validation, /form: relationshipForm/);
   assert.match(validation, /hiddenFieldIds: hiddenRelationshipFieldIds/);
+});
+
+test('public submission rejects future-only dates before inserting and uses the published survey snapshot', async () => {
+  const liveDateField = {
+    id: 'future-date',
+    type: 'date',
+    future_only: false,
+  };
+  const snapshotDateField = {
+    ...liveDateField,
+    future_only: true,
+  };
+  const form = {
+    ...affectedFormFixture(),
+    fields: [liveDateField],
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+    form_type: 'survey',
+    survey_settings: {
+      status: 'published',
+      current_version: 3,
+      response_identity: 'identified',
+    },
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    surveyVersion: {
+      id: 'survey-version-3',
+      version_number: 3,
+      fields: [snapshotDateField],
+      pages: [],
+      visibility_rules: [],
+      survey_settings: form.survey_settings,
+    },
+  });
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      submission_data: { [snapshotDateField.id]: '2020-01-01' },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.code, 'FUTURE_DATE_INVALID');
+  assert.equal(response.body.details[0].field_id, snapshotDateField.id);
+  assert.equal(db.insertedSubmissions.length, 0);
+});
+
+test('anonymous survey retries after republish use the original redaction snapshot', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    fields: [
+      { id: 'respondent-email', type: 'email' },
+      { id: 'answer', type: 'text' },
+    ],
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+    form_type: 'survey',
+    survey_settings: {
+      status: 'published',
+      current_version: 5,
+      response_identity: 'anonymous',
+    },
+  };
+  const originalSurveyVersion = {
+    id: 'survey-version-4',
+    version_number: 4,
+    fields: form.fields,
+    pages: [],
+    visibility_rules: [],
+    survey_settings: {
+      ...form.survey_settings,
+      current_version: 4,
+    },
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    existingSubmission: {
+      id: 'anonymous-survey-submission',
+      is_anonymous: true,
+      survey_version_id: 'survey-version-4',
+      submission_data: { answer: 'same' },
+      communication_finalization_state: null,
+      processing_notes: [],
+    },
+    surveyVersion: {
+      id: 'survey-version-5',
+      version_number: 5,
+      fields: [
+        { id: 'respondent-email', type: 'text' },
+        { id: 'answer', type: 'text' },
+      ],
+      pages: [],
+      visibility_rules: [],
+      survey_settings: form.survey_settings,
+    },
+    surveySnapshots: { 'survey-version-4': originalSurveyVersion },
+  });
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'anonymous-survey-retry-key',
+      submission_data: {
+        'respondent-email': 'new-private@example.test',
+        answer: 'same',
+      },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.duplicate, true);
+  assert.equal(response.body.id, 'anonymous-survey-submission');
+  assert.equal(db.insertedSubmissions.length, 0);
 });
 
 test('public submissions normalize not-listed organisation targets before UUID-backed use', async () => {
@@ -629,8 +766,8 @@ test('cached embed retries invoke the server sender with persisted tenant-scoped
       tenant: 'attacker-controlled-tenant',
       idempotency_key: 'cached-client-idempotency-key',
       submission_data: {
-        student_email: 'changed@example.test',
-        student_first_name: 'Changed',
+        student_email: 'persisted@example.test',
+        student_first_name: 'Persisted',
       },
     },
   }, res, {
@@ -655,6 +792,50 @@ test('cached embed retries invoke the server sender with persisted tenant-scoped
   assert.deepEqual(capturedEmailCalls[0].formValues, existingSubmission.submission_data);
   assert.equal(capturedEmailCalls[0].form.tenant_id, form.tenant_id);
   assert.equal(capturedEmailCalls[0].baseUrl, 'https://student-join.dev.iconn.app');
+});
+
+test('a public idempotency key cannot recover a row for altered answers', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const existingSubmission = {
+    id: 'existing-idempotency-submission',
+    submission_data: { student_email: 'persisted@example.test' },
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, { existingSubmission });
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'altered-client-idempotency-key',
+      submission_data: { student_email: 'changed@example.test' },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, emails: [] }),
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.body.code, 'IDEMPOTENCY_KEY_REUSED');
+  assert.equal(db.insertedSubmissions.length, 0);
+});
+
+test('public idempotency race winners recheck the submitted payload before replay', async () => {
+  const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+  const raceStart = source.indexOf("if (insertError && insertError.code === '23505' && idemKey)");
+  const raceBlock = source.slice(raceStart, raceStart + 1400);
+  assert.match(raceBlock, /if \(winner\)/);
+  assert.match(raceBlock, /sameIdempotencyAnswers\(/);
+  assert.match(source, /anonymousSurveyIdempotency/);
+  assert.match(source, /redactIdentityAnswers\(surveyFields, requestedValues \|\| \{\}\)/);
 });
 
 test('a duplicate embed request cannot send while original post-processing is pending', async () => {
@@ -687,7 +868,7 @@ test('a duplicate embed request cannot send while original post-processing is pe
       form_id: form.id,
       form_name: form.name,
       idempotency_key: 'pending-client-idempotency-key',
-      submission_data: { student_email: 'changed@example.test' },
+      submission_data: { student_email: 'persisted@example.test' },
     },
   }, res, {
     supabase: db.client,

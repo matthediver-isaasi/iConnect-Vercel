@@ -78,6 +78,8 @@ import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../
 import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
+import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
+import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -837,7 +839,7 @@ export default async function handler(req, res) {
         if (subRow?.form_id) {
           const { data: subForm, error: subFormError } = await supabase
             .from('form')
-            .select('id, tenant_id, form_type, fields')
+            .select('id, tenant_id, form_type, fields, pages, visibility_rules')
             .eq('id', subRow.form_id)
             .eq('tenant_id', tenantCtx.tenantId)
             .maybeSingle();
@@ -861,12 +863,45 @@ export default async function handler(req, res) {
                 || Array.isArray(effectiveSubmissionData)) {
               return res.status(400).json({ error: 'Invalid relationship selection' });
             }
+            const visibilityOptions = {};
+            if (subForm.form_type !== 'survey') {
+              const { rulesUseLmicOperators } = await import('../../_lib/formLmicConditions.js');
+              if (rulesUseLmicOperators(subForm.visibility_rules)) {
+                const { loadTenantLmicCodes } = await import('../../_lib/tenantLmicCodes.js');
+                visibilityOptions.lmicCodes = await loadTenantLmicCodes(
+                  supabase,
+                  subForm.tenant_id,
+                );
+              }
+            }
+            const hiddenFieldIds = computeHiddenFieldIds(
+              subForm,
+              effectiveSubmissionData,
+              visibilityOptions,
+            );
+            const futureDateErrors = validateFutureDateFields(
+              subForm.fields || [],
+              effectiveSubmissionData,
+              {
+                hiddenFieldIds,
+                previousValues: subRow.submission_data,
+              },
+            );
+            if (futureDateErrors.length) {
+              return res.status(400).json({
+                error: 'Form answers failed validation',
+                code: 'FUTURE_DATE_INVALID',
+                details: futureDateErrors,
+              });
+            }
             try {
               await validateRepeatableRowSubmission({
                 db: supabase,
                 tenantId: subForm.tenant_id,
                 form: subForm,
                 submissionData: effectiveSubmissionData,
+                hiddenFieldIds,
+                visibilityOptions,
               });
               await createFormRelationshipService({
                 db: supabase,
@@ -874,6 +909,8 @@ export default async function handler(req, res) {
               }).validateSubmission({
                 form: subForm,
                 submissionData: effectiveSubmissionData,
+                hiddenFieldIds,
+                visibilityOptions,
               });
             } catch (error) {
               if (error instanceof FormRelationshipError && error.status < 500) {

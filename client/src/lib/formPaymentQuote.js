@@ -46,6 +46,7 @@ function validationFieldIds(form) {
     if (!field?.id) continue;
     if (['organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'].includes(field.type)
         || field.type === 'address_lookup'
+        || (field.type === 'date' && field.future_only === true)
         || supportsFormNotListedChoice(field)
         || field.conditional_filters) {
       ids.add(field.id);

@@ -36,6 +36,7 @@ import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../../../shared/formNoRelationshipChoice.js";
+import { validateFutureDateFields } from "../../../../../shared/formFutureDates.js";
 
 const formQuillModules = {
   toolbar: [
@@ -1679,6 +1680,27 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       const errors = missingFields.map(f => `Please fill in the required field: ${f.label}`);
       setValidationErrors(errors);
       toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
+    const futureDateErrors = validateFutureDateFields(
+      form.fields || [],
+      formValues,
+      { now: new Date(), hiddenFieldIds },
+    );
+    if (futureDateErrors.length > 0) {
+      const labelsById = new Map((form.fields || []).map(field => [field.id, field.label || 'Date field']));
+      const errors = futureDateErrors.map(error => {
+        const label = labelsById.get(error.field_id) || 'Date field';
+        const childLabel = error.child_id
+          ? (form.fields || [])
+            .find(field => field.id === error.field_id)
+            ?.children?.find(child => child.id === error.child_id)?.label
+          : null;
+        return `${childLabel ? `${label} — ${childLabel}` : label}: ${error.message}`;
+      });
+      setValidationErrors(errors);
+      toast.error(`Please fix future-date errors: ${errors.join(', ')}`);
       return;
     }
 

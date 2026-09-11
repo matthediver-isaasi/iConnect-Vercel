@@ -85,6 +85,11 @@ import {
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from "../../../../shared/formRepeatableRows.js";
+import {
+  ensureFutureDateRowIds,
+  futureDateError,
+  tomorrowUtcDate,
+} from "../../../../shared/formFutureDates.js";
 
 let organizationQueryInstanceSequence = 0;
 let relationshipQueryInstanceSequence = 0;
@@ -130,7 +135,9 @@ function RepeatableRowsField({
   const lastReportedValidity = useRef();
   const initializedRows = useRef(false);
   const controlledRows = useMemo(() => (Array.isArray(value) ? value : []), [value]);
-  const incomingRows = useMemo(() => ensureRepeatableRowIds(controlledRows).map(row => Object.fromEntries([
+  const incomingRows = useMemo(() => ensureRepeatableRowIds(
+    ensureFutureDateRowIds(controlledRows, field),
+  ).map(row => Object.fromEntries([
     ['_row_id', row._row_id],
     ...config.children.map(child => [
       child.id,
@@ -139,7 +146,7 @@ function RepeatableRowsField({
     ...(row[FORM_NOT_LISTED_TEXT_KEY] && typeof row[FORM_NOT_LISTED_TEXT_KEY] === 'object'
       ? [[FORM_NOT_LISTED_TEXT_KEY, row[FORM_NOT_LISTED_TEXT_KEY]]]
       : []),
-  ])), [controlledRows, config.children]);
+  ])), [controlledRows, config.children, field]);
   const latestRows = useRef(incomingRows);
   const pendingRows = useRef(null);
   const reconciledRows = reconcilePendingRepeatableRows(incomingRows, pendingRows.current);
@@ -261,7 +268,11 @@ function RepeatableRowsField({
           </>
         )}
       <FormRenderer
-        field={{ ...child, repeatable_container_field_id: field.id }}
+        field={{
+          ...child,
+          repeatable_container_field_id: field.id,
+          repeatable_row_id: rowId,
+        }}
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
         onFormNotListedTextChange={text => updateRowNotListedText(rowId, child.id, text)}
@@ -774,11 +785,86 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
+  const [futureDateNow, setFutureDateNow] = useState(() => new Date());
   const lastNotListedValidity = useRef();
+  const lastFutureDateValidity = useRef();
+  const futureDateValidityFieldId = useRef(field.id);
+  // Submission viewers render completed answers with disabled=true. Keep
+  // those historical values readable without presenting a new-entry error;
+  // locked fields in an editable form still validate because disabled is false.
+  const isFutureOnlyDate = !disabled && field.type === 'date' && field.future_only === true;
+  const dateElementId = field.repeatable_row_id
+    ? `${field.id}-${field.repeatable_row_id}`
+    : field.id;
+  const futureDateMinimum = isFutureOnlyDate ? tomorrowUtcDate(futureDateNow) : undefined;
+  const futureDateValidationError = isFutureOnlyDate
+    ? futureDateError(field, value, { now: futureDateNow })
+    : null;
   const conditionalResolution = useMemo(
     () => resolveConditionalFilters({ field, fields: allFields, values: allFormValues }),
     [field, allFields, allFormValues],
   );
+
+  // A date input's min boundary is a UTC calendar boundary. Schedule the
+  // refresh at the next boundary itself (rather than polling), and also
+  // refresh whenever a suspended tab becomes active again.
+  useEffect(() => {
+    if (!isFutureOnlyDate) return undefined;
+    const refreshBoundary = () => setFutureDateNow(new Date());
+    let boundaryTimer;
+    const scheduleBoundaryRefresh = () => {
+      if (boundaryTimer) clearTimeout(boundaryTimer);
+      const now = new Date();
+      const nextUtcMidnight = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+      ));
+      const delay = Math.max(100, nextUtcMidnight.getTime() - now.getTime());
+      boundaryTimer = setTimeout(() => {
+        refreshBoundary();
+        scheduleBoundaryRefresh();
+      }, delay);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshBoundary();
+        scheduleBoundaryRefresh();
+      }
+    };
+    const handleFocus = () => {
+      refreshBoundary();
+      scheduleBoundaryRefresh();
+    };
+    refreshBoundary();
+    scheduleBoundaryRefresh();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearTimeout(boundaryTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isFutureOnlyDate]);
+
+  useEffect(() => {
+    const fieldIdChanged = futureDateValidityFieldId.current !== field.id;
+    if (fieldIdChanged) {
+      futureDateValidityFieldId.current = field.id;
+      lastFutureDateValidity.current = undefined;
+    }
+    if (!isFutureOnlyDate) {
+      if (fieldIdChanged || lastFutureDateValidity.current !== undefined) {
+        lastFutureDateValidity.current = true;
+        onValidityChange?.(field.id, true);
+      }
+      return;
+    }
+    const valid = !futureDateValidationError;
+    if (lastFutureDateValidity.current === valid) return;
+    lastFutureDateValidity.current = valid;
+    onValidityChange?.(field.id, valid);
+  }, [field.id, futureDateValidationError, isFutureOnlyDate, onValidityChange]);
 
   useEffect(() => {
     if (resolvedFieldValue.needsCanonicalValue) {
@@ -1673,10 +1759,47 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       }
 
       case 'date':
+        return (
+          <div className="space-y-1">
+            <Input
+              id={`input-date-${dateElementId}`}
+              type="date"
+              value={value || ''}
+              min={futureDateMinimum}
+              onChange={(e) => onChange(e.target.value)}
+              required={field.required}
+              disabled={isFieldDisabled}
+              aria-invalid={futureDateValidationError ? 'true' : undefined}
+              aria-describedby={[
+                isFutureOnlyDate ? `help-date-${dateElementId}` : null,
+                futureDateValidationError ? `error-date-${dateElementId}` : null,
+              ].filter(Boolean).join(' ') || undefined}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${futureDateValidationError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+              data-testid={`input-date-${dateElementId}`}
+            />
+            {isFutureOnlyDate && (
+              <p id={`help-date-${dateElementId}`} className="text-xs text-slate-500">
+                Choose a date from tomorrow onwards (UTC).
+              </p>
+            )}
+            {futureDateValidationError && (
+              <p
+                id={`error-date-${dateElementId}`}
+                className="text-sm text-red-600"
+                role="alert"
+                aria-live="polite"
+                data-testid={`error-date-${dateElementId}`}
+              >
+                {futureDateValidationError}
+              </p>
+            )}
+          </div>
+        );
+
       case 'time':
         return (
           <Input
-            type={field.type}
+            type="time"
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             required={field.required}

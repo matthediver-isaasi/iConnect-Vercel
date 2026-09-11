@@ -29,6 +29,7 @@ import {
   safeSubscriptionDiagnostic,
 } from '../_lib/formCommunicationSubscriptions.js';
 import {
+  FORM_NOT_LISTED_LABELS_KEY,
   normalizeFormPrefillOrganizationId,
   snapshotFormNotListedLabels,
 } from '../../shared/formNotListedChoice.js';
@@ -42,6 +43,46 @@ import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPa
 import { getInternalApiBaseUrl, getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
+import { sameFormAnswerValues, validateFutureDateFields } from '../../shared/formFutureDates.js';
+
+function idempotencyAnswerValues(values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
+  const normalized = { ...values };
+  delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  return normalized;
+}
+
+function sameIdempotencyAnswers(existingValues, requestedValues, {
+  anonymousSurvey = false,
+  surveyFields = [],
+} = {}) {
+  const comparableRequestedValues = anonymousSurvey
+    ? redactIdentityAnswers(surveyFields, requestedValues || {}).data
+    : requestedValues;
+  return sameFormAnswerValues(
+    idempotencyAnswerValues(existingValues),
+    idempotencyAnswerValues(comparableRequestedValues),
+  );
+}
+
+async function loadSurveySubmissionSnapshot(supabase, {
+  formId,
+  tenantId,
+  submission,
+}) {
+  if (!submission?.survey_version_id) return null;
+  const { data, error } = await supabase
+    .from('survey_version')
+    .select('id, version_number, fields, pages, visibility_rules, survey_settings')
+    .eq('id', submission.survey_version_id)
+    .eq('form_id', formId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error || !data) {
+    throw new Error('The saved survey snapshot could not be loaded');
+  }
+  return data;
+}
 
 export default async function handler(req, res, dependencies = {}) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -234,6 +275,41 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
+    // Recover a same-key submission before answer validation. A successful
+    // submission may be retried after a UTC midnight without re-validating its
+    // now-historical date. The payload must still match exactly: an old key
+    // cannot be used to smuggle altered answers past validation.
+    const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim().length >= 8 && idempotency_key.trim().length <= 128)
+      ? idempotency_key.trim()
+      : null;
+    let existingIdempotentSubmission = null;
+    let anonymousSurveyIdempotency = false;
+    if (idemKey) {
+      const { data: existing, error: idemErr } = await supabase
+        .from('form_submission')
+        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes, is_anonymous, survey_version_id')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('idempotency_key', idemKey)
+        .maybeSingle();
+      if (idemErr && idemErr.code !== '42703') {
+        console.error('[Public Form Submission] Idempotency lookup failed:', idemErr);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+      // Published survey fields/settings are loaded below. Anonymous survey
+      // answer redaction is therefore deferred until that immutable snapshot
+      // is available; comparing raw identity values to a redacted row would
+      // make an otherwise safe same-key retry look like a different payload.
+      if (existing && form.form_type !== 'survey'
+          && !sameIdempotencyAnswers(existing.submission_data, submission_data || {})) {
+        return res.status(409).json({
+          error: 'This idempotency key was already used for different answers.',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+      }
+      existingIdempotentSubmission = existing || null;
+    }
+
     // --- Survey handling (Task #3330) -----------------------------------
     // For survey forms, answers are validated and scored server-side against
     // the PUBLISHED version snapshot — never client-supplied config. Weights,
@@ -266,7 +342,37 @@ export default async function handler(req, res, dependencies = {}) {
       }
       surveyVersion = versionRow;
       surveyScoring = scoreSubmission(surveyVersion, submission_data || {});
-      if (surveyScoring.errors.length > 0) {
+      if (existingIdempotentSubmission) {
+        if (!existingIdempotentSubmission.survey_version_id) {
+          return res.status(409).json({
+            error: 'The saved survey snapshot is unavailable for this retry.',
+            code: 'IDEMPOTENCY_SNAPSHOT_MISSING',
+          });
+        }
+        const idempotencySurveyVersion = await loadSurveySubmissionSnapshot(supabase, {
+          formId: form.id,
+          tenantId: tenantData.id,
+          submission: existingIdempotentSubmission,
+        });
+        const snapshotResponseIdentity = idempotencySurveyVersion.survey_settings?.response_identity
+          || 'identified';
+        anonymousSurveyIdempotency = existingIdempotentSubmission.is_anonymous === true
+          || snapshotResponseIdentity !== 'identified';
+        if (!sameIdempotencyAnswers(
+          existingIdempotentSubmission.submission_data,
+          submission_data || {},
+          {
+            anonymousSurvey: anonymousSurveyIdempotency,
+            surveyFields: idempotencySurveyVersion.fields || [],
+          },
+        )) {
+          return res.status(409).json({
+            error: 'This idempotency key was already used for different answers.',
+            code: 'IDEMPOTENCY_KEY_REUSED',
+          });
+        }
+      }
+      if (!existingIdempotentSubmission && surveyScoring.errors.length > 0) {
         return res.status(400).json({
           error: 'Survey answers failed validation',
           details: surveyScoring.errors
@@ -279,7 +385,7 @@ export default async function handler(req, res, dependencies = {}) {
     // the submitted answers BEFORE any submission row or side effect. The
     // client disables the Submit button with the same shared evaluator, so
     // this only fires when the UI was bypassed.
-    {
+    if (!existingIdempotentSubmission) {
       let submitControlRules = null;
       if (isSurvey) {
         submitControlRules = surveyVersion?.visibility_rules;
@@ -350,79 +456,97 @@ export default async function handler(req, res, dependencies = {}) {
       submission_data || {},
       submissionVisibilityOptions,
     );
-    const invalidAddressFields = invalidRequiredAddressLookupFields(
-      relationshipForm.fields || [],
-      submission_data || {},
-      hiddenRelationshipFieldIds,
-    );
-    if (invalidAddressFields.length) {
-      return res.status(400).json({
-        error: 'Required address information is missing',
-        code: 'ADDRESS_COMPONENTS_REQUIRED',
-        fields: invalidAddressFields,
-      });
+    if (!existingIdempotentSubmission) {
+      const invalidAddressFields = invalidRequiredAddressLookupFields(
+        relationshipForm.fields || [],
+        submission_data || {},
+        hiddenRelationshipFieldIds,
+      );
+      if (invalidAddressFields.length) {
+        return res.status(400).json({
+          error: 'Required address information is missing',
+          code: 'ADDRESS_COMPONENTS_REQUIRED',
+          fields: invalidAddressFields,
+        });
+      }
+      const futureDateErrors = validateFutureDateFields(
+        relationshipForm.fields || [],
+        submission_data || {},
+        { hiddenFieldIds: hiddenRelationshipFieldIds },
+      );
+      if (futureDateErrors.length) {
+        return res.status(400).json({
+          error: 'Form answers failed validation',
+          code: 'FUTURE_DATE_INVALID',
+          details: futureDateErrors,
+        });
+      }
     }
 
     // Relationship dropdowns store record IDs. Validate those IDs against the
     // saved field, its submitted organisation parent, active relationship edge,
     // and active related record before any duplicate handling or side effects.
-    try {
-      await validateRepeatableRowSubmission({
-        db: supabase,
-        tenantId: tenantData.id,
-        form: relationshipForm,
-        submissionData: submission_data || {},
-        visibilityOptions: submissionVisibilityOptions,
-        hiddenFieldIds: hiddenRelationshipFieldIds,
-      });
-      await createFormRelationshipService({
-        db: supabase,
-        tenantId: tenantData.id,
-      }).validateSubmission({
-        form: relationshipForm,
-        submissionData: submission_data || {},
-        hiddenFieldIds: hiddenRelationshipFieldIds,
-        visibilityOptions: submissionVisibilityOptions,
-      });
-    } catch (error) {
-      if (error instanceof FormRelationshipError && error.status < 500) {
-        if (error.details) {
-          return res.status(400).json({
-            error: 'Invalid repeatable row submission',
-            code: error.code,
-            details: error.details,
-          });
+    if (!existingIdempotentSubmission) {
+      try {
+        await validateRepeatableRowSubmission({
+          db: supabase,
+          tenantId: tenantData.id,
+          form: relationshipForm,
+          submissionData: submission_data || {},
+          visibilityOptions: submissionVisibilityOptions,
+          hiddenFieldIds: hiddenRelationshipFieldIds,
+        });
+        await createFormRelationshipService({
+          db: supabase,
+          tenantId: tenantData.id,
+        }).validateSubmission({
+          form: relationshipForm,
+          submissionData: submission_data || {},
+          hiddenFieldIds: hiddenRelationshipFieldIds,
+          visibilityOptions: submissionVisibilityOptions,
+        });
+      } catch (error) {
+        if (error instanceof FormRelationshipError && error.status < 500) {
+          if (error.details) {
+            return res.status(400).json({
+              error: 'Invalid repeatable row submission',
+              code: error.code,
+              details: error.details,
+            });
+          }
+          return res.status(400).json({ error: 'Invalid relationship selection' });
         }
-        return res.status(400).json({ error: 'Invalid relationship selection' });
+        console.error('[Public Form Submission] Relationship selection validation failed:', error);
+        return res.status(500).json({ error: 'Failed to validate submission' });
       }
-      console.error('[Public Form Submission] Relationship selection validation failed:', error);
-      return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
-    try {
-      await validateFormOrganisationGroupAnswers({
-        db: supabase,
-        tenantId: tenantData.id,
-        fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
-        submissionData: submission_data || {},
-        hiddenFieldIds: hiddenRelationshipFieldIds,
-      });
-      await validateOrganisationGroupDependentOrganizationAnswers({
-        db: supabase,
-        tenantId: tenantData.id,
-        fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
-        submissionData: submission_data || {},
-        hiddenFieldIds: hiddenRelationshipFieldIds,
-      });
-    } catch (error) {
-      if (error?.code === 'INVALID_ORGANISATION_GROUP') {
-        return res.status(400).json({ error: 'Invalid organisation group selection' });
+    if (!existingIdempotentSubmission) {
+      try {
+        await validateFormOrganisationGroupAnswers({
+          db: supabase,
+          tenantId: tenantData.id,
+          fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
+          submissionData: submission_data || {},
+          hiddenFieldIds: hiddenRelationshipFieldIds,
+        });
+        await validateOrganisationGroupDependentOrganizationAnswers({
+          db: supabase,
+          tenantId: tenantData.id,
+          fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
+          submissionData: submission_data || {},
+          hiddenFieldIds: hiddenRelationshipFieldIds,
+        });
+      } catch (error) {
+        if (error?.code === 'INVALID_ORGANISATION_GROUP') {
+          return res.status(400).json({ error: 'Invalid organisation group selection' });
+        }
+        if (error?.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION') {
+          return res.status(400).json({ error: 'Invalid organisation selection for the selected group' });
+        }
+        console.error('[Public Form Submission] Organisation group validation failed:', error);
+        return res.status(500).json({ error: 'Failed to validate submission' });
       }
-      if (error?.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION') {
-        return res.status(400).json({ error: 'Invalid organisation selection for the selected group' });
-      }
-      console.error('[Public Form Submission] Organisation group validation failed:', error);
-      return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
     // Extract the submitter's email from the submission_data by walking the
@@ -480,7 +604,7 @@ export default async function handler(req, res, dependencies = {}) {
     const surveyIdentityMode = isSurvey ? (snapshotSettings.response_identity || 'identified') : null;
     const surveyIsAnonymous = isSurvey && surveyIdentityMode !== 'identified';
     let surveyRespondentKey = null;
-    if (isSurvey) {
+    if (isSurvey && !existingIdempotentSubmission) {
       const respondentIdentity = sessionMemberEmail || canonicalSubmitterEmail || null;
       const wantsDedupe = surveyIdentityMode === 'anonymous_dedupe' ||
         (snapshotSettings.one_submission_per_respondent === true && surveyIdentityMode !== 'anonymous');
@@ -707,24 +831,10 @@ export default async function handler(req, res, dependencies = {}) {
     //    short-circuit with its success payload. A unique partial index on
     //    (form_id, idempotency_key) makes this race-proof — see the 23505
     //    handling on the insert below.
-    const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim().length >= 8 && idempotency_key.trim().length <= 128)
-      ? idempotency_key.trim()
-      : null;
     if (idemKey) {
-      const { data: existing, error: idemErr } = await supabase
-        .from('form_submission')
-        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes')
-        .eq('form_id', form_id)
-        .eq('tenant_id', tenantData.id)
-        .eq('idempotency_key', idemKey)
-        .maybeSingle();
-      if (idemErr && idemErr.code !== '42703') {
-        console.error('[Public Form Submission] Idempotency lookup failed:', idemErr);
-        return res.status(500).json({ error: 'Failed to validate submission' });
-      }
-      if (existing) {
-        console.log('[Public Form Submission] Duplicate idempotency key — returning original submission', existing.id);
-        return resumeDuplicateFinalization(existing);
+      if (existingIdempotentSubmission) {
+        console.log('[Public Form Submission] Duplicate idempotency key — returning original submission', existingIdempotentSubmission.id);
+        return resumeDuplicateFinalization(existingIdempotentSubmission);
       }
     }
 
@@ -952,12 +1062,42 @@ export default async function handler(req, res, dependencies = {}) {
       console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
       const { data: winner, error: winnerErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes')
+        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes, is_anonymous, survey_version_id')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
         .maybeSingle();
       if (winner) {
+        let winnerSurveyVersion = null;
+        let winnerAnonymousSurvey = false;
+        if (isSurvey) {
+          if (!winner.survey_version_id) {
+            return res.status(409).json({
+              error: 'The saved survey snapshot is unavailable for this retry.',
+              code: 'IDEMPOTENCY_SNAPSHOT_MISSING',
+            });
+          }
+          winnerSurveyVersion = await loadSurveySubmissionSnapshot(supabase, {
+            formId: form.id,
+            tenantId: tenantData.id,
+            submission: winner,
+          });
+          winnerAnonymousSurvey = winner.is_anonymous === true
+            || (winnerSurveyVersion?.survey_settings?.response_identity || 'identified') !== 'identified';
+        }
+        if (!sameIdempotencyAnswers(
+          winner.submission_data,
+          submission_data || {},
+          {
+            anonymousSurvey: winnerAnonymousSurvey,
+            surveyFields: winnerSurveyVersion?.fields || [],
+          },
+        )) {
+          return res.status(409).json({
+            error: 'This idempotency key was already used for different answers.',
+            code: 'IDEMPOTENCY_KEY_REUSED',
+          });
+        }
         return resumeDuplicateFinalization(winner);
       }
       console.error('[Public Form Submission] Unique violation but original row not found:', winnerErr);
