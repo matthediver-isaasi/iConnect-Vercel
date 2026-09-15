@@ -5,6 +5,12 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+MCP callback availability and project discovery are not reliable measures of destination database access.
+
+**Why:** A task agent reported an undefined Supabase callback before reaching the provider, while the main agent could invoke the discovered callback. Project listing omitted the documented destination, but a read-only query using its verified project ID succeeded.
+
+**How to apply:** Discover the current MCP callback names in the main agent and test a bounded read against the destination documented in `replit.md` before requesting reconnection. Do not infer revoked access from a callback ReferenceError or incomplete project listing.
+
 In this Replit workspace the runtime `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`
 (read by `api/_lib/database.js` → `export const supabase`) point at the **legacy
 SOURCE** project (`zkvgzcruhn…`, == `SOURCE_SUPABASE_URL`), NOT the multi-tenant

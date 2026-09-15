@@ -391,7 +391,9 @@ test("DEST Equipment cascade renders, isolates rows, clears downstream values, a
   await expect(row0.getByTestId(`select-relationship-${manufacturerField.id}`))
     .toContainText("Select an option");
   await expect(row0.getByTestId(`select-relationship-${modelField.id}`))
-    .toContainText("Select an option");
+    .toBeDisabled();
+  await expect(row0.getByTestId(`select-relationship-${modelField.id}`))
+    .not.toContainText(String(first.model.label));
   await expect(page.getByTestId(`repeatable-row-${container.id}-1`)
     .getByTestId(`select-relationship-${modelField.id}`)).toContainText(String(second.model.label));
 

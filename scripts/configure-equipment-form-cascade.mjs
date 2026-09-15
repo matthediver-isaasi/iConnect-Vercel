@@ -557,10 +557,6 @@ function assertNonFieldsUnchanged(before, after) {
 }
 
 async function applyCandidate(db, form, candidate) {
-  check(
-    own(form, 'updated_at'),
-    'Cannot apply safely: the destination form has no updated_at column, but CAS requires fields + updated_at',
-  );
   const backupDirectory = path.join(ROOT, '.local', 'backups');
   await mkdir(backupDirectory, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -574,19 +570,22 @@ async function applyCandidate(db, form, candidate) {
     form,
   }, null, 2)}\n`, 'utf8');
 
-  const now = new Date().toISOString();
-  let update = db.from('form')
-    .update({ fields: candidate.fields, updated_at: now })
+  const update = db.from('form')
+    .update({ fields: candidate.fields })
     .eq('id', FORM_ID)
     .eq('tenant_id', TENANT_ID)
     .eq('fields', JSON.stringify(form.fields))
-    .eq('updated_at', form.updated_at)
-    .select('id,fields,updated_at');
+    .eq('survey_settings', JSON.stringify(form.survey_settings))
+    .eq('structured_actions', JSON.stringify(form.structured_actions))
+    .eq('field_mappings', JSON.stringify(form.field_mappings))
+    .eq('entity_pipelines', JSON.stringify(form.entity_pipelines))
+    .eq('submission_count', 0)
+    .select('id,fields');
   const { data, error } = await update.maybeSingle();
   if (error) fail(`CAS form update failed: ${error.message || error}`);
   check(data, 'CAS lost a concurrent form update; no configuration was written');
   assert.equal(data.id, FORM_ID, 'CAS update returned the wrong form');
-  return { backupPath, updatedAt: data.updated_at };
+  return { backupPath };
 }
 
 async function main() {
@@ -605,7 +604,6 @@ async function main() {
 
   const options = await verifyCandidateOptions(db, candidate);
   const changed = !fieldsEqual(form.fields, candidate.fields);
-  const casReady = own(form, 'updated_at');
   const report = {
     dryRun: !APPLY,
     applyRequested: APPLY,
@@ -635,7 +633,7 @@ async function main() {
       modelSource: changed ? 'records + Manufacturer equality filter' : 'already configured',
       fieldsChanged: changed,
       casFields: true,
-      casUpdatedAt: casReady,
+      casDraftAndActions: true,
     },
   };
 
@@ -656,7 +654,6 @@ async function main() {
   const postOptions = await verifyCandidateOptions(db, reloaded);
   report.noOp = false;
   report.backupPath = path.relative(ROOT, applied.backupPath);
-  report.updatedAt = applied.updatedAt;
   report.postReloadOptions = postOptions;
   console.log(JSON.stringify(report, null, 2));
 }
