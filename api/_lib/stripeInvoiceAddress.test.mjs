@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   captureCheckoutBillingAddress,
   capturePaymentIntentBillingAddress,
+  hasStripeBillingAddressSnapshot,
   normalizeStripeBillingAddress,
+  stripeBillingAddressSnapshotFromMetadata,
+  stripeInvoiceAddressFromMetadata,
   stripeInvoiceAddressFromSnapshot,
 } from './stripeInvoiceAddress.js';
 
@@ -29,6 +32,77 @@ test('rejects an incomplete Stripe address instead of falling back', () => {
   assert.throws(
     () => normalizeStripeBillingAddress({ line1: '1 High Street', country: 'GB' }),
     /incomplete/,
+  );
+});
+
+test('agreement metadata uses the canonical Checkout snapshot and preserves its normalized shape', () => {
+  const canonical = {
+    line1: '1 Canonical Road',
+    city: 'London',
+    postal_code: 'SW1A 1AA',
+    country: 'GB',
+  };
+  assert.equal(
+    stripeInvoiceAddressFromMetadata({
+      card: {
+        billing_address: {
+          line1: '1 Legacy Road',
+          city: 'London',
+          postal_code: 'SW1A 1AA',
+          country: 'GB',
+        },
+      },
+      stripe_billing_address: canonical,
+    }),
+    '1 Canonical Road\nLondon\nSW1A 1AA\nGB',
+  );
+  assert.deepEqual(stripeBillingAddressSnapshotFromMetadata({
+    stripe_billing_address: canonical,
+  }), {
+    ...canonical,
+    line2: null,
+    state: null,
+    country: 'GB',
+    formatted: '1 Canonical Road\nLondon\nSW1A 1AA\nGB',
+  });
+  assert.equal(hasStripeBillingAddressSnapshot({ stripe_billing_address: canonical }), true);
+});
+
+test('agreement metadata validates the legacy card snapshot when canonical data is absent', () => {
+  const legacy = {
+    line1: '1 Legacy Road',
+    city: 'London',
+    postal_code: 'SW1A 1AA',
+    country: 'gb',
+  };
+  assert.equal(
+    stripeInvoiceAddressFromMetadata({ card: { billing_address: legacy } }),
+    '1 Legacy Road\nLondon\nSW1A 1AA\nGB',
+  );
+  assert.equal(hasStripeBillingAddressSnapshot({ card: { billing_address: legacy } }), true);
+});
+
+test('a present but invalid canonical snapshot fails closed and never falls back to legacy data', () => {
+  assert.throws(
+    () => stripeInvoiceAddressFromMetadata({
+      stripe_billing_address: { line1: '1 Canonical Road', country: 'GB' },
+      card: {
+        billing_address: {
+          line1: '1 Valid Legacy Road',
+          city: 'London',
+          postal_code: 'SW1A 1AA',
+          country: 'GB',
+        },
+      },
+    }),
+    /incomplete/,
+  );
+});
+
+test('agreement metadata with no address snapshot fails closed', () => {
+  assert.throws(
+    () => stripeInvoiceAddressFromMetadata({ card: {} }),
+    /snapshot is missing/,
   );
 });
 

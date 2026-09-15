@@ -1788,6 +1788,23 @@ test('processStripeCardPlanEvent: form-checkout membership conflict resolves via
   assert.equal(outcome.handled, true);
   assert.equal(outcome.conflict, true);
 
+  // The producer stores the verified Checkout address at the canonical
+  // agreement-metadata root while preserving the consent card snapshot.
+  const addressUpdate = db.updates.find(
+    (u) => u.table === 'membership_billing_agreements'
+      && u.payload.metadata?.stripe_billing_address,
+  );
+  assert.deepEqual(addressUpdate?.payload.metadata.stripe_billing_address, {
+    line1: '1 High Street',
+    line2: null,
+    city: 'London',
+    state: null,
+    postal_code: 'SW1A 1AA',
+    country: 'GB',
+    formatted: '1 High Street\nLondon\nSW1A 1AA\nGB',
+  });
+  assert.equal(addressUpdate?.payload.metadata.card.kind, CARD_PLAN_KIND);
+
   // The core contract: compensation ran (subscription cancelled, refund issued)
   // and NO membership_payment_plans row was ever inserted.
   assert.deepEqual(stripe.calls.subCancel.map((c) => c.id), ['sub_1']);
@@ -1806,7 +1823,12 @@ test('checkout boundary failure performs zero local initialization writes and re
         kind: CARD_PLAN_KIND,
         accepted_at: '2026-01-10T12:00:00.000Z',
         instalment_count: 12,
-        billing_address: { country: 'GB' },
+      },
+      stripe_billing_address: {
+        line1: '1 Checkout Road',
+        city: 'London',
+        postal_code: 'SW1A 1AA',
+        country: 'GB',
       },
     },
   };
@@ -1838,6 +1860,58 @@ test('checkout boundary failure performs zero local initialization writes and re
   );
   assert.deepEqual(db.updates, []);
   assert.deepEqual(db.inserts, []);
+});
+
+test('checkout completion fails closed on an invalid canonical address instead of using a valid legacy snapshot', async () => {
+  const agreement = {
+    id: 'a-invalid-address',
+    tenant_id: 't1',
+    provider: 'stripe',
+    status: 'payment_setup_required',
+    metadata: {
+      card: {
+        kind: CARD_PLAN_KIND,
+        accepted_at: '2026-01-10T12:00:00.000Z',
+        instalment_count: 12,
+        billing_address: {
+          line1: '1 Valid Legacy Road',
+          city: 'London',
+          postal_code: 'SW1A 1AA',
+          country: 'GB',
+        },
+      },
+      stripe_billing_address: {
+        line1: '1 Invalid Canonical Road',
+        country: 'GB',
+      },
+    },
+  };
+  const db = captureDb({
+    membership_billing_agreements: { data: agreement, error: null },
+  });
+  let stripeRequested = false;
+  await assert.rejects(
+    processStripeCardPlanEvent({
+      id: 'evt_invalid_address',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_invalid_address',
+          mode: 'subscription',
+          metadata: { kind: CARD_PLAN_KIND, agreement_id: agreement.id },
+        },
+      },
+    }, {
+      db,
+      getStripe: async () => {
+        stripeRequested = true;
+        throw new Error('Stripe must not be used for an invalid canonical snapshot');
+      },
+    }),
+    /incomplete/,
+  );
+  assert.equal(stripeRequested, false);
+  assert.deepEqual(db.updates, [], 'invalid immutable data must not start local lifecycle writes');
 });
 
 function statefulCheckoutDb(agreement) {
@@ -1931,7 +2005,12 @@ test('checkout processor retries failed latest-invoice retrieval and applies one
         activation_rule: 'first_payment',
         invoicing_mode: 'per_instalment',
       },
-      stripe_billing_address: { country: 'GB' },
+      stripe_billing_address: {
+        line1: '1 Checkout Road',
+        city: 'London',
+        postal_code: 'SW1A 1AA',
+        country: 'GB',
+      },
     },
   };
   const db = statefulCheckoutDb(agreement);
@@ -1940,6 +2019,13 @@ test('checkout processor retries failed latest-invoice retrieval and applies one
     subscriptionId: 'sub_checkout_replay',
     agreementId: agreement.id,
   });
+  let customerAddressUpdates = 0;
+  baseStripe.customers = {
+    async update() {
+      customerAddressUpdates += 1;
+      throw new Error('replay must not rewrite the customer address');
+    },
+  };
   const baseRetrieve = baseStripe.subscriptions.retrieve;
   let subscriptionRetrievals = 0;
   let failLatestOnce = true;
@@ -2030,6 +2116,18 @@ test('checkout processor retries failed latest-invoice retrieval and applies one
   assert.equal(db.state.membership_billing_agreements[0].status, 'active');
   assert.equal(db.state.member_membership_history[0].status, 'active');
   assert.equal(db.state.member_membership_history[0].payment_status, 'partial');
+  assert.equal(customerAddressUpdates, 0, 'replays reuse the persisted canonical snapshot');
+  assert.deepEqual(db.state.membership_billing_agreements[0].metadata.stripe_billing_address, {
+    line1: '1 Checkout Road',
+    city: 'London',
+    postal_code: 'SW1A 1AA',
+    country: 'GB',
+  });
+  assert.equal(
+    db.state.membership_billing_agreements[0].metadata.card.invoicing_mode,
+    'per_instalment',
+    'replays preserve the consent terms snapshot',
+  );
 });
 
 // ---------------------------------------------------------------------------

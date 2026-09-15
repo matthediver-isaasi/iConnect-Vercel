@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import MemberMembershipTab from "../MemberMembershipTab.jsx";
 import MemberMembershipInstalments, {
   MemberMembershipInstalmentsToggle,
+  getMembershipSource,
   isMonthlyMembershipRecord,
   normalizeCollection,
 } from "./MemberMembershipInstalments.jsx";
@@ -13,6 +16,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/member-detail",
 });
 Object.assign(globalThis, {
+  React,
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
@@ -52,6 +56,22 @@ test("monthly history predicate requires an agreement and excludes annual Direct
   assert.equal(isMonthlyMembershipRecord({
     billing_period: "monthly_direct_debit",
   }), false);
+});
+
+test("history source tags survive the summary-to-ledger handoff", () => {
+  assert.equal(getMembershipSource({
+    id: "personal-history",
+    membership_source: "personal",
+    organization_id: "org-1",
+  }), "personal");
+  assert.equal(getMembershipSource({
+    id: "organisation-history",
+    membership_source: "organisation",
+  }), "organisation");
+  assert.equal(getMembershipSource({
+    id: "legacy-organisation-history",
+    organization_id: "org-1",
+  }), "organisation");
 });
 
 test("confirmed GoCardless collection is not rendered as pending when sync is null", () => {
@@ -115,10 +135,97 @@ test("expanded details remain a table row and do not fetch while collapsed", () 
   assert.equal(html, "");
 });
 
+test("organisation history remains visible when the member has no personal config", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes("/api/membership/member-membership?memberId=")) {
+      return {
+        ok: true,
+        json: async () => ({
+          member: { id: "member-org-only", email: "org-only@example.test" },
+          config: null,
+          currentYearCost: null,
+          nextYearPreview: null,
+          history: [{
+            id: "org-only-history",
+            membership_source: "organisation",
+            organization_id: "org-1",
+            membership_year: "2027/2028",
+            tier_label: "Organisation tier",
+            annual_cost: 100,
+            final_cost: 100,
+            total_with_vat: 100,
+            currency: "GBP",
+            payment_method: "invoice",
+            billing_agreement_id: null,
+            status: "active",
+            payment_status: "paid",
+          }],
+        }),
+      };
+    }
+    if (requestUrl.includes("/api/membership/member-membership-invoicing")) {
+      return { ok: true, json: async () => ({ settings: {} }) };
+    }
+    if (requestUrl.includes("/api/membership/member-membership-override")) {
+      return { ok: true, json: async () => ({}) };
+    }
+    if (requestUrl.includes("/api/membership/membership-settings")) {
+      return { ok: true, json: async () => ({ require_approval: false }) };
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(MemberMembershipTab, {
+            memberId: "member-org-only",
+            memberEmail: "org-only@example.test",
+          }),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    assert.match(container.textContent, /No member-scoped membership tier structure has been configured/);
+    assert.match(container.textContent, /Membership Fee History/);
+    assert.match(container.textContent, /Organisation tier/);
+    assert.ok(container.querySelector('[data-testid="row-member-history-org-only-history"]'));
+    assert.equal(container.querySelector('[data-testid="text-member-no-current-tier"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-member-simulate-current-year"]'), null);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    queryClient.clear();
+    container.remove();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("collapsing an in-flight page clears its guard so re-expand retries", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
-  globalThis.fetch = () => new Promise((resolve) => requests.push(resolve));
+  globalThis.fetch = (url) => new Promise((resolve) => requests.push({
+    resolve,
+    url: String(url),
+  }));
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -127,13 +234,13 @@ test("collapsing an in-flight page clears its guard so re-expand retries", async
     payment_method: "monthly_card",
     billing_agreement_id: "agreement-pending",
   };
-  const renderDetails = (expanded) => React.createElement(
+  const renderDetails = (expanded, source = "personal") => React.createElement(
     "table",
     null,
     React.createElement(
       "tbody",
       null,
-      React.createElement(MemberMembershipInstalments, { record, expanded }),
+      React.createElement(MemberMembershipInstalments, { record, expanded, source }),
     ),
   );
 
@@ -153,9 +260,10 @@ test("collapsing an in-flight page clears its guard so re-expand retries", async
       await Promise.resolve();
     });
     assert.equal(requests.length, 2, "re-expanding must issue a fresh request");
+    assert.match(requests[0].url, /source=personal/);
 
     await act(async () => {
-      requests[1]({
+      requests[1].resolve({
         ok: true,
         json: async () => ({
           instalments: [],
@@ -166,6 +274,76 @@ test("collapsing an in-flight page clears its guard so re-expand retries", async
       await Promise.resolve();
     });
     assert.match(container.textContent, /No monthly collections recorded/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("changing membership source clears the page cache and requests the scoped ledger", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = (url) => {
+    requests.push({
+      url: String(url),
+      resolve: null,
+    });
+    return new Promise((resolve) => {
+      requests[requests.length - 1].resolve = resolve;
+    });
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const record = {
+    id: "history-shared-id",
+    membership_source: "personal",
+    payment_method: "monthly_card",
+    billing_agreement_id: "agreement-personal",
+  };
+  const renderDetails = (source) => React.createElement(
+    "table",
+    null,
+    React.createElement(
+      "tbody",
+      null,
+      React.createElement(MemberMembershipInstalments, {
+        record,
+        source,
+        expanded: true,
+      }),
+    ),
+  );
+
+  try {
+    await act(async () => {
+      root.render(renderDetails("personal"));
+      await Promise.resolve();
+    });
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].url, /source=personal/);
+
+    await act(async () => {
+      requests[0].resolve({
+        ok: true,
+        json: async () => ({
+          instalments: [],
+          ledger: { state: "empty", missing: false },
+          pagination: { page: 1, pageSize: 25, totalCount: 0, hasNextPage: false },
+        }),
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(renderDetails("organisation"));
+      await Promise.resolve();
+    });
+    assert.equal(requests.length, 2, "changing source must not reuse the personal ledger page");
+    assert.match(requests[1].url, /source=organisation/);
   } finally {
     await act(async () => {
       root.unmount();

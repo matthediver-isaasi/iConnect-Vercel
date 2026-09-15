@@ -98,6 +98,97 @@ function instalmentDb({
   return db;
 }
 
+function memberSummaryLedgerDb({
+  memberRow,
+  personalRows = [],
+  organisationRows = [],
+  agreements = {},
+  plans = {},
+  gcRows = [],
+  errors = {},
+} = {}) {
+  const calls = [];
+  const db = {
+    calls,
+    from(table) {
+      const state = {
+        table,
+        filters: {},
+        selected: null,
+        count: null,
+      };
+      calls.push(state);
+      const chain = {
+        select(columns, options) {
+          state.selected = columns;
+          state.count = options?.count || null;
+          return chain;
+        },
+        eq(column, value) {
+          state.filters[column] = value;
+          return chain;
+        },
+        in(column, values) {
+          state.filters[column] = values;
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        limit() {
+          return chain;
+        },
+        range() {
+          return chain;
+        },
+        maybeSingle() {
+          let data = null;
+          if (table === 'member') {
+            data = memberRow;
+          } else if (table === 'membership_billing_agreements') {
+            data = agreements[state.filters.id] || null;
+          } else if (
+            table === 'member_membership_history'
+            || table === 'organisation_membership_history'
+          ) {
+            const rows = table === 'member_membership_history'
+              ? personalRows
+              : organisationRows;
+            data = rows.find((row) => row.id === state.filters.id) || null;
+          }
+          return Promise.resolve({ data, error: errors[table] || null });
+        },
+        then(resolve, reject) {
+          let data = [];
+          if (table === 'member_membership_history') {
+            data = personalRows.filter((row) => (
+              row.tenant_id === state.filters.tenant_id
+              && row.member_id === state.filters.member_id
+            ));
+          } else if (table === 'organisation_membership_history') {
+            data = organisationRows.filter((row) => (
+              row.tenant_id === state.filters.tenant_id
+              && row.organization_id === state.filters.organization_id
+            ));
+          } else if (table === 'membership_payment_plans') {
+            data = (plans[state.filters.billing_agreement_id] || []).slice();
+          } else if (table === 'gocardless_payments') {
+            data = gcRows.filter((row) => (
+              row.tenant_id === state.filters.tenant_id
+              && state.filters.plan_id?.includes(row.plan_id)
+              && state.filters.status?.includes(row.status)
+            ));
+          }
+          const count = state.count === 'exact' ? data.length : null;
+          return Promise.resolve({ data, count, error: errors[table] || null }).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+  return db;
+}
+
 const member = {
   id: 'member-1',
   tenant_id: 'tenant-1',
@@ -114,12 +205,16 @@ function endpoint({
     roleId: 'member-role',
   },
   admin = false,
+  resolveConfig,
+  simulateMember,
 } = {}) {
   return createMemberMembershipHandler({
     db,
     getSessionMember: async () => sessionMember,
     getTenantContext: async () => context,
     hasAdminAccess: async () => admin,
+    getConfigForMember: resolveConfig,
+    simulateMembershipForMember: simulateMember,
   });
 }
 
@@ -436,6 +531,268 @@ test('an admin can read an organisation history row but still gets agreement own
   assert.equal(res.payload.ledger.provider, 'gocardless');
   assert.equal(res.payload.planCollectedCount, 1);
   assert.equal(res.payload.instalments[0].paymentRef, 'PM-1');
+  assert.match(res.payload.instalments[0].invoiceUrl, /source=organisation/);
+});
+
+test('an owning member can read an organisation history row when its source is explicit', async () => {
+  const history = {
+    id: 'org-history-member',
+    tenant_id: 'tenant-1',
+    member_id: null,
+    organization_id: 'org-1',
+    membership_year: '2026/2027',
+    billing_period: 'monthly_direct_debit',
+    billing_agreement_id: 'org-agreement-member',
+  };
+  const agreement = {
+    id: 'org-agreement-member',
+    tenant_id: 'tenant-1',
+    member_id: null,
+    organization_id: 'org-1',
+    provider: 'gocardless',
+    status: 'active',
+    metadata: { dd: { invoicing_mode: 'per_instalment' } },
+  };
+  const db = instalmentDb({
+    histories: { organisation_membership_history: { [history.id]: history } },
+    agreements: { [agreement.id]: agreement },
+    plans: {
+      [agreement.id]: [{
+        id: 'org-plan-member',
+        tenant_id: 'tenant-1',
+        billing_agreement_id: agreement.id,
+        member_id: null,
+        organization_id: 'org-1',
+        provider: 'gocardless',
+        currency: 'GBP',
+        instalments_total: 12,
+      }],
+    },
+    gcRows: [{
+      id: 'org-payment-member',
+      tenant_id: 'tenant-1',
+      plan_id: 'org-plan-member',
+      gocardless_payment_id: 'PM-org-member',
+      amount_minor: 1000,
+      currency: 'GBP',
+      status: 'confirmed',
+      accounting_provider: 'xero',
+      accounting_invoice_id: 'xero-org-member',
+      accounting_invoice_number: 'ORG-001',
+    }],
+  });
+  const res = response();
+
+  await endpoint({ db })({
+    method: 'GET',
+    query: {
+      recordId: history.id,
+      source: 'organisation',
+      instalments: 'true',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.record.source, 'organisation');
+  assert.equal(res.payload.record.organizationId, 'org-1');
+  assert.equal(res.payload.instalments[0].paymentRef, 'PM-org-member');
+  assert.match(res.payload.instalments[0].invoiceUrl, /source=organisation/);
+});
+
+test('an organisation history row is not disclosed to a member from another organisation', async () => {
+  const history = {
+    id: 'org-history-other',
+    tenant_id: 'tenant-1',
+    member_id: null,
+    organization_id: 'org-1',
+    billing_agreement_id: 'org-agreement-other',
+  };
+  const db = instalmentDb({
+    histories: { organisation_membership_history: { [history.id]: history } },
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    sessionMember: { ...member, organization_id: 'org-2' },
+  })({
+    method: 'GET',
+    query: {
+      recordId: history.id,
+      source: 'organisation',
+      instalments: 'true',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(db.calls.some((call) => call.table === 'membership_billing_agreements'), false);
+});
+
+test('summary history tags organisation rows for the UI detail request and keeps its invoice scope', async () => {
+  const organisationHistory = {
+    id: 'org-summary-history',
+    tenant_id: 'tenant-1',
+    member_id: null,
+    organization_id: 'org-1',
+    membership_year: '2027/2028',
+    billing_period: 'monthly_direct_debit',
+    billing_agreement_id: 'org-summary-agreement',
+  };
+  const personalSummaryHistory = {
+    ...personalHistory,
+    id: 'personal-summary-history',
+    billing_agreement_id: null,
+  };
+  const agreement = {
+    id: 'org-summary-agreement',
+    tenant_id: 'tenant-1',
+    member_id: null,
+    organization_id: 'org-1',
+    provider: 'gocardless',
+    status: 'active',
+    metadata: { dd: { invoicing_mode: 'per_instalment' } },
+  };
+  const db = memberSummaryLedgerDb({
+    memberRow: {
+      ...member,
+      first_name: 'Org',
+      last_name: 'Member',
+      email: 'org-member@example.test',
+    },
+    personalRows: [personalSummaryHistory],
+    organisationRows: [organisationHistory],
+    agreements: { [agreement.id]: agreement },
+    plans: {
+      [agreement.id]: [{
+        id: 'org-summary-plan',
+        tenant_id: 'tenant-1',
+        billing_agreement_id: agreement.id,
+        member_id: null,
+        organization_id: 'org-1',
+        provider: 'gocardless',
+        currency: 'GBP',
+      }],
+    },
+    gcRows: [{
+      id: 'org-summary-payment',
+      tenant_id: 'tenant-1',
+      plan_id: 'org-summary-plan',
+      gocardless_payment_id: 'PM-org-summary',
+      amount_minor: 1000,
+      currency: 'GBP',
+      status: 'confirmed',
+      accounting_provider: 'xero',
+      accounting_invoice_id: 'xero-org-summary',
+      accounting_invoice_number: 'ORG-SUMMARY-001',
+    }],
+  });
+  const handler = endpoint({
+    db,
+    resolveConfig: async () => null,
+  });
+  const summaryRes = response();
+
+  await handler({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, summaryRes);
+
+  assert.equal(summaryRes.statusCode, 200);
+  assert.equal(summaryRes.payload.config, null);
+  const returnedOrganisationRow = summaryRes.payload.history.find(
+    (row) => row.id === organisationHistory.id,
+  );
+  assert.equal(returnedOrganisationRow.membership_source, 'organisation');
+  assert.equal(summaryRes.payload.history[0].id, organisationHistory.id);
+  assert.equal(
+    summaryRes.payload.history.find((row) => row.id === personalSummaryHistory.id).membership_source,
+    'personal',
+  );
+  const organisationHistoryCall = db.calls.find(
+    (call) => call.table === 'organisation_membership_history',
+  );
+  assert.equal(organisationHistoryCall.filters.tenant_id, 'tenant-1');
+  assert.equal(organisationHistoryCall.filters.organization_id, 'org-1');
+
+  // This is the exact source/id pair the membership tab passes when it
+  // expands the returned organisation row.
+  const detailRes = response();
+  await handler({
+    method: 'GET',
+    query: {
+      recordId: returnedOrganisationRow.id,
+      source: returnedOrganisationRow.membership_source,
+      instalments: 'true',
+    },
+  }, detailRes);
+
+  assert.equal(detailRes.statusCode, 200);
+  assert.equal(detailRes.payload.record.source, 'organisation');
+  assert.equal(detailRes.payload.instalments[0].invoiceNumber, 'ORG-SUMMARY-001');
+  assert.match(detailRes.payload.instalments[0].invoiceUrl, /source=organisation/);
+});
+
+test('summary history surfaces operational organisation read failures instead of returning an empty ledger', async () => {
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    errors: {
+      organisation_membership_history: {
+        code: '42501',
+        message: 'permission denied',
+      },
+    },
+  });
+  const res = response();
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await endpoint({
+      db,
+      resolveConfig: async () => null,
+    })({
+      method: 'GET',
+      query: { memberId: member.id },
+    }, res);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(res.payload, { error: 'Internal server error' });
+});
+
+test('summary tolerates an explicitly missing organisation history table but keeps personal history', async () => {
+  const personalRow = {
+    ...personalHistory,
+    id: 'personal-schema-fallback',
+    billing_agreement_id: null,
+  };
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [personalRow],
+    errors: {
+      organisation_membership_history: {
+        code: '42P01',
+        message: 'relation does not exist',
+      },
+    },
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(
+    res.payload.history.map((row) => row.membership_source),
+    ['personal'],
+  );
 });
 
 test('selects only the owner column that exists on each history table', async () => {

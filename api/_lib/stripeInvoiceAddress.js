@@ -13,6 +13,13 @@ function clean(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+const CANONICAL_ADDRESS_KEY = 'stripe_billing_address';
+const LEGACY_ADDRESS_KEY = 'billing_address';
+
+function hasOwn(value, key) {
+  return !!value && Object.prototype.hasOwnProperty.call(value, key);
+}
+
 /**
  * Validate Stripe's structured address and produce an immutable, provider-ready
  * snapshot. City/state share a line so Xero's five-line parser retains both.
@@ -43,6 +50,36 @@ export function normalizeStripeBillingAddress(address) {
       normalized.country,
     ].filter(Boolean).join('\n'),
   };
+}
+
+/**
+ * Resolve the immutable Stripe address stored on a membership agreement.
+ *
+ * New monthly Checkout completions store the snapshot at
+ * metadata.stripe_billing_address. Older agreements stored it under
+ * metadata.card.billing_address. The canonical key is authoritative when it
+ * is present: an unreadable canonical value must not silently fall back to a
+ * legacy value, because that could invoice from a different snapshot.
+ */
+export function stripeBillingAddressSnapshotFromMetadata(metadata) {
+  if (hasOwn(metadata, CANONICAL_ADDRESS_KEY)) {
+    return normalizeStripeBillingAddress(metadata[CANONICAL_ADDRESS_KEY]);
+  }
+  if (hasOwn(metadata?.card, LEGACY_ADDRESS_KEY)) {
+    return normalizeStripeBillingAddress(metadata.card[LEGACY_ADDRESS_KEY]);
+  }
+  throw new StripeBillingAddressError('Stripe billing address snapshot is missing');
+}
+
+/** True when either the canonical or supported legacy snapshot is present. */
+export function hasStripeBillingAddressSnapshot(metadata) {
+  return hasOwn(metadata, CANONICAL_ADDRESS_KEY)
+    || hasOwn(metadata?.card, LEGACY_ADDRESS_KEY);
+}
+
+/** Resolve an agreement metadata object to the provider-ready invoice text. */
+export function stripeInvoiceAddressFromMetadata(metadata) {
+  return stripeBillingAddressSnapshotFromMetadata(metadata).formatted;
 }
 
 export function stripeInvoiceAddressFromSnapshot(snapshot) {

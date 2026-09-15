@@ -47,7 +47,11 @@ import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
 import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
-import { captureCheckoutBillingAddress } from './stripeInvoiceAddress.js';
+import {
+  captureCheckoutBillingAddress,
+  hasStripeBillingAddressSnapshot,
+  stripeBillingAddressSnapshotFromMetadata,
+} from './stripeInvoiceAddress.js';
 import { patchFormSubmissionPaymentMeta } from './formStripeAddressMappingProcessing.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
@@ -1376,6 +1380,16 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       }
     }
 
+    // A completed Checkout may be replayed after the address snapshot was
+    // persisted but before the rest of local finalisation finished. Reuse a
+    // validated immutable snapshot on every replay. In particular, a present
+    // but malformed canonical value must fail closed rather than falling back
+    // to the mutable Checkout object or a legacy value.
+    let billingAddress = null;
+    if (hasStripeBillingAddressSnapshot(agreement.metadata)) {
+      billingAddress = stripeBillingAddressSnapshotFromMetadata(agreement.metadata);
+    }
+
     // Checkout does not support subscription_data.cancel_at on the configured
     // Stripe API version. Establish or verify the immutable finite-plan
     // boundary directly on the created Subscription before any local state is
@@ -1388,8 +1402,8 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       stripe,
     });
 
-    if (!agreement.metadata?.stripe_billing_address) {
-      const billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
+    if (!billingAddress) {
+      billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
       const nextMetadata = {
         ...(agreement.metadata || {}),
         // Keep the consent/accounting card snapshot immutable. The
@@ -1411,12 +1425,12 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     // copying it to form_submission.
     const formSubmissionId = agreement.metadata?.form_submission_id
       || object.metadata?.form_submission_id;
-    if (formSubmissionId && agreement.metadata?.stripe_billing_address) {
+    if (formSubmissionId && billingAddress) {
       await patchFormSubmissionPaymentMeta({
         db,
         tenantId: agreement.tenant_id,
         submissionId: formSubmissionId,
-        patch: { stripe_billing_address: agreement.metadata.stripe_billing_address },
+        patch: { stripe_billing_address: billingAddress },
       });
     }
 

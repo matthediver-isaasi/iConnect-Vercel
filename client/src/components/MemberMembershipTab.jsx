@@ -34,6 +34,7 @@ import {
 import { toast } from "sonner";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import MemberMembershipInstalments, {
+  getMembershipSource,
   isMonthlyMembershipRecord,
   MemberMembershipInstalmentsToggle,
 } from "@/components/membership/MemberMembershipInstalments";
@@ -521,14 +522,27 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [pauseReason, setPauseReason] = useState('');
   const [pauseRestartDate, setPauseRestartDate] = useState('');
 
-  const handleRetryInvoice = async (recordId) => {
+  // The same detail component is reused while navigating between members.
+  // Never carry an expanded row (or its scoped ledger request) into the next
+  // member's history.
+  useEffect(() => {
+    setExpandedInstalmentHistoryId(null);
+  }, [memberId]);
+
+  const historyTableForSource = (source) => (
+    source === 'organisation'
+      ? 'organisation_membership_history'
+      : 'member_membership_history'
+  );
+
+  const handleRetryInvoice = async (recordId, source = 'personal') => {
     setRetryingInvoiceRecordId(recordId);
     try {
       const response = await fetch('/api/admin/membership-invoice-retry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ recordId, table: 'member_membership_history' }),
+        body: JSON.stringify({ recordId, table: historyTableForSource(source) }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
@@ -544,7 +558,13 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     }
   };
 
-  const handleViewInvoice = async (recordId, invoiceNumber, source = null, suppliedInvoiceUrl = null) => {
+  const handleViewInvoice = async (
+    recordId,
+    invoiceNumber,
+    source = null,
+    suppliedInvoiceUrl = null,
+    membershipSource = 'personal',
+  ) => {
     setLoadingInvoiceRecordId(recordId);
     try {
       let invoiceUrl = suppliedInvoiceUrl;
@@ -554,7 +574,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         if (source === 'instalment') {
           // The instalment endpoint returns this URL with ownership-scoped
           // source and paymentRef. This fallback is kept for older responses.
-          params.set('source', 'personal');
+          params.set('source', membershipSource === 'organisation' ? 'organisation' : 'personal');
           params.set('instalment', 'true');
           params.set('paymentRef', recordId);
         } else if (source) {
@@ -585,14 +605,20 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     }
   };
 
-  const handleDownloadInvoice = async (recordId, invoiceNumber, source = null, suppliedInvoiceUrl = null) => {
+  const handleDownloadInvoice = async (
+    recordId,
+    invoiceNumber,
+    source = null,
+    suppliedInvoiceUrl = null,
+    membershipSource = 'personal',
+  ) => {
     setLoadingInvoiceRecordId(recordId);
     try {
       let invoiceUrl = suppliedInvoiceUrl;
       if (!invoiceUrl) {
         const params = new URLSearchParams();
         if (source === 'instalment') {
-          params.set('source', 'personal');
+          params.set('source', membershipSource === 'organisation' ? 'organisation' : 'personal');
           params.set('instalment', 'true');
           params.set('paymentRef', recordId);
         } else if (source) {
@@ -636,14 +662,14 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     setInvoiceModalOpen(open);
   };
 
-  const handleReconcilePayment = async (recordId) => {
+  const handleReconcilePayment = async (recordId, source = 'personal') => {
     setReconcilingRecordId(recordId);
     try {
       const response = await fetch('/api/admin/membership-payment-reconcile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ recordId, table: 'member_membership_history' }),
+        body: JSON.stringify({ recordId, table: historyTableForSource(source) }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'Reconciliation failed');
@@ -1140,6 +1166,10 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   );
 
   const history = Array.isArray(data?.history) ? data.history : [];
+  // The summary/current-year cards are member-scoped. Organisation rows are
+  // displayed in the shared history ledger, but must not make a personal
+  // simulation appear recorded for the member.
+  const personalHistory = history.filter((record) => getMembershipSource(record) === 'personal');
   const currentYearData = data?.currentYearCost || null;
   const nextYearData = data?.nextYearPreview || null;
   const config = data?.config || null;
@@ -1147,10 +1177,10 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const periodLabel = config?.billing_period === 'monthly' ? 'Monthly' : config?.billing_period === 'quarterly' ? 'Quarterly' : 'Annual';
 
   const currentYearRecorded = currentYearData
-    ? history.find(h => h.membership_year === currentYearData.membershipYear)
+    ? personalHistory.find(h => h.membership_year === currentYearData.membershipYear)
     : null;
   const nextYearRecorded = nextYearData
-    ? history.find(h => h.membership_year === nextYearData.membershipYear)
+    ? personalHistory.find(h => h.membership_year === nextYearData.membershipYear)
     : null;
   const effectiveMemberEmail = data?.member?.email || memberEmail || '';
 
@@ -1172,21 +1202,6 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const overrideTargetData = overrideTargetYear === currentYearData?.membershipYear
     ? currentYearData
     : nextYearData;
-
-  if (!config && !isLoading) {
-    return (
-      <div className="space-y-4">
-        {pauseControls}
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p data-testid="text-member-no-config">No member-scoped membership tier structure has been configured</p>
-            <p className="text-sm mt-1">Set up member-scoped tier bands in Membership Tier Management to see pricing here</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   // An explicit manual/scheduled invoicing mode blocks the workflow's
   // Create Membership action for that year, so the year card must always
@@ -1238,6 +1253,16 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   return (
     <div className="space-y-4">
       {pauseControls}
+      {!config && !isLoading && (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
+            <p data-testid="text-member-no-config">No member-scoped membership tier structure has been configured</p>
+            <p className="text-sm mt-1">Set up member-scoped tier bands in Membership Tier Management to see pricing here.</p>
+            <p className="text-sm mt-1">Pricing controls are unavailable, but membership fee history remains visible below.</p>
+          </CardContent>
+        </Card>
+      )}
       {config && (
         <Card>
           <CardHeader>
@@ -1276,88 +1301,90 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <CalendarDays className="w-4 h-4" />
-              {currentYearData?.yearNumber ? `Year ${currentYearData.yearNumber}` : 'Current Year'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {currentYearData ? (
-              <MemberYearCostSection
-                yearData={currentYearData}
-                yearLabel={currentYearData?.yearNumber ? `Year ${currentYearData.yearNumber}` : 'Current Year'}
-                currency={currency}
-                periodLabel={periodLabel}
-                showRecordFee={true}
-                currentYearRecorded={currentYearRecorded}
-                memberEmail={effectiveMemberEmail}
-                onEmailFees={openEmailFeesDialog}
-                emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === currentYearData?.membershipYear}
-                testIdPrefix="current-year"
-                onManualRenewal={() => manualRenewalMutation.mutate({ membershipYear: currentYearData?.membershipYear })}
-                manualRenewalPending={manualRenewalMutation.isPending}
-                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[currentYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
-                simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearData?.membershipYear}
-                onOpenOverride={handleOpenOverrideModal}
-                hasOverride={hasOverrideForYear(currentYearData?.membershipYear)}
-                onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
-                removeOverridePending={removeOverrideMutation.isPending}
-                onlineCardPayment={!!config?.online_card_payment}
-                {...makeInvoicingHandlers(currentYearData, 'current-year')}
-              />
-            ) : (
-              <div className="text-center py-4 text-muted-foreground">
-                <p className="text-sm" data-testid="text-member-no-current-tier">No tier matched for the current year</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {config && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarDays className="w-4 h-4" />
+                {currentYearData?.yearNumber ? `Year ${currentYearData.yearNumber}` : 'Current Year'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {currentYearData ? (
+                <MemberYearCostSection
+                  yearData={currentYearData}
+                  yearLabel={currentYearData?.yearNumber ? `Year ${currentYearData.yearNumber}` : 'Current Year'}
+                  currency={currency}
+                  periodLabel={periodLabel}
+                  showRecordFee={true}
+                  currentYearRecorded={currentYearRecorded}
+                  memberEmail={effectiveMemberEmail}
+                  onEmailFees={openEmailFeesDialog}
+                  emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === currentYearData?.membershipYear}
+                  testIdPrefix="current-year"
+                  onManualRenewal={() => manualRenewalMutation.mutate({ membershipYear: currentYearData?.membershipYear })}
+                  manualRenewalPending={manualRenewalMutation.isPending}
+                  onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[currentYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
+                  simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearData?.membershipYear}
+                  onOpenOverride={handleOpenOverrideModal}
+                  hasOverride={hasOverrideForYear(currentYearData?.membershipYear)}
+                  onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+                  removeOverridePending={removeOverrideMutation.isPending}
+                  onlineCardPayment={!!config?.online_card_payment}
+                  {...makeInvoicingHandlers(currentYearData, 'current-year')}
+                />
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-sm" data-testid="text-member-no-current-tier">No tier matched for the current year</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <ArrowRight className="w-4 h-4" />
-              {nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {nextYearData ? (
-              <MemberYearCostSection
-                yearData={nextYearData}
-                yearLabel={nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
-                currency={currency}
-                periodLabel={periodLabel}
-                showRecordFee={true}
-                currentYearRecorded={nextYearRecorded}
-                memberEmail={effectiveMemberEmail}
-                onEmailFees={openEmailFeesDialog}
-                emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === nextYearData?.membershipYear}
-                testIdPrefix="next-year"
-                onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
-                  ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
-                  : null}
-                manualRenewalPending={manualRenewalMutation.isPending}
-                hideInvoicing={!nextYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
-                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
-                simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
-                onOpenOverride={handleOpenOverrideModal}
-                hasOverride={hasOverrideForYear(nextYearData?.membershipYear)}
-                onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
-                removeOverridePending={removeOverrideMutation.isPending}
-                onlineCardPayment={!!config?.online_card_payment}
-                {...makeInvoicingHandlers(nextYearData, 'next-year')}
-              />
-            ) : (
-              <div className="text-center py-4 text-muted-foreground">
-                <p className="text-sm" data-testid="text-member-no-next-tier">No tier matched for the next year</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ArrowRight className="w-4 h-4" />
+                {nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {nextYearData ? (
+                <MemberYearCostSection
+                  yearData={nextYearData}
+                  yearLabel={nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
+                  currency={currency}
+                  periodLabel={periodLabel}
+                  showRecordFee={true}
+                  currentYearRecorded={nextYearRecorded}
+                  memberEmail={effectiveMemberEmail}
+                  onEmailFees={openEmailFeesDialog}
+                  emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === nextYearData?.membershipYear}
+                  testIdPrefix="next-year"
+                  onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
+                    ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
+                    : null}
+                  manualRenewalPending={manualRenewalMutation.isPending}
+                  hideInvoicing={!nextYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
+                  onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
+                  simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
+                  onOpenOverride={handleOpenOverrideModal}
+                  hasOverride={hasOverrideForYear(nextYearData?.membershipYear)}
+                  onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+                  removeOverridePending={removeOverrideMutation.isPending}
+                  onlineCardPayment={!!config?.online_card_payment}
+                  {...makeInvoicingHandlers(nextYearData, 'next-year')}
+                />
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-sm" data-testid="text-member-no-next-tier">No tier matched for the next year</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1390,6 +1417,8 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 </thead>
                 <tbody>
                   {history.map((record) => {
+                    const membershipSource = getMembershipSource(record);
+                    const membershipRecordKey = `${membershipSource}:${record.id}`;
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
                     const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
                     const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
@@ -1401,9 +1430,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       && record.interval_unit !== 'monthly'
                       && record.payment_frequency !== 'monthly';
                     const isMonthlyRecord = isMonthlyMembershipRecord(record);
-                    const isInstalmentsExpanded = expandedInstalmentHistoryId === record.id;
+                    const isInstalmentsExpanded = expandedInstalmentHistoryId === membershipRecordKey;
                     return (
-                      <Fragment key={record.id}>
+                      <Fragment key={membershipRecordKey}>
                       <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">{record.membership_year}</td>
                         <td className="p-3">
@@ -1454,7 +1483,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                 record={record}
                                 expanded={isInstalmentsExpanded}
                                 onToggle={() => setExpandedInstalmentHistoryId((current) => (
-                                  current === record.id ? null : record.id
+                                  current === membershipRecordKey ? null : membershipRecordKey
                                 ))}
                               />
                             </div>
@@ -1468,7 +1497,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => handleRetryInvoice(record.id)}
+                                onClick={() => handleRetryInvoice(record.id, membershipSource)}
                                 disabled={retryingInvoiceRecordId === record.id}
                                 data-testid={`button-retry-invoice-${record.id}`}
                               >
@@ -1509,7 +1538,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    onClick={() => handleViewInvoice(record.id, invoiceNumber)}
+                                    onClick={() => handleViewInvoice(record.id, invoiceNumber, membershipSource)}
                                     title={`View invoice ${invoiceNumber || ''}`.trim()}
                                     data-testid={`button-view-invoice-${record.id}`}
                                   >
@@ -1518,7 +1547,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    onClick={() => handleDownloadInvoice(record.id, invoiceNumber)}
+                                    onClick={() => handleDownloadInvoice(record.id, invoiceNumber, membershipSource)}
                                     title={`Download invoice ${invoiceNumber || ''}`.trim()}
                                     data-testid={`button-download-invoice-${record.id}`}
                                   >
@@ -1527,7 +1556,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    onClick={() => handleReconcilePayment(record.id)}
+                                    onClick={() => handleReconcilePayment(record.id, membershipSource)}
                                     disabled={reconcilingRecordId === record.id}
                                     title="Check payment status now"
                                     data-testid={`button-reconcile-payment-${record.id}`}
@@ -1544,7 +1573,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               {canInspectSettlement && (
                                 <FormInvoiceSettlementControl
                                   recordId={record.id}
-                                  table="member_membership_history"
+                                  table={historyTableForSource(membershipSource)}
                                   onSettled={() => queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] })}
                                 />
                               )}
@@ -1557,6 +1586,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       {isMonthlyRecord && (
                         <MemberMembershipInstalments
                           record={record}
+                          source={membershipSource}
                           expanded={isInstalmentsExpanded}
                           onViewInvoice={handleViewInvoice}
                           onDownloadInvoice={handleDownloadInvoice}

@@ -9,6 +9,12 @@ Stripe membership payments started from forms must use a normalized, payment-tim
 
 **How to apply:** Annual PaymentIntents snapshot into Stripe payment metadata and form payment metadata where available; monthly Checkout snapshots live with the billing agreement. Initial invoicing, webhooks, reconciliation, renewal cron, instalment posting, and admin retries must recover the same snapshot and fail retryably if it cannot be established. Non-Stripe methods keep their existing resolver.
 
+Compatibility must not turn malformed canonical evidence into permission to use another snapshot. A legacy payment-time snapshot is acceptable only when the canonical snapshot is absent, not when it is present but invalid.
+
+**Why:** Choosing whichever address validates would silently change invoice authority on replay. Repair the consumer contract rather than backfilling immutable consent terms or copying a current Customer address.
+
+**How to apply:** Keep producer-to-consumer regression tests using real persisted metadata shapes, alongside invalid-canonical/valid-legacy cases; consumer-only fixtures can conceal a namespace mismatch.
+
 Form membership payments may not have a valid payer email before payment. A required Stripe Customer must still be created without email using a deterministic idempotency key; never pass the unvalidated source email as `receipt_email`.
 
 **Why:** Stripe Customers can collect the authoritative billing address without an email, while rejecting the payment before Elements opens would make otherwise valid public membership forms unpayable.

@@ -39,7 +39,7 @@
 import { supabase } from './database.js';
 import { getAccountingProvider, PROVIDER_NONE, PROVIDER_XERO } from './accountingProvider.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
-import { stripeInvoiceAddressFromSnapshot } from './stripeInvoiceAddress.js';
+import { stripeInvoiceAddressFromMetadata } from './stripeInvoiceAddress.js';
 
 export const INVOICING_MODES = ['annual', 'per_instalment'];
 
@@ -95,8 +95,9 @@ export async function shouldSuppressAnnualInvoice(row, { db: dbArg } = {}) {
 
 /**
  * Resolve the address for an annual membership invoice. Stripe monthly-card
- * rows use the immutable Checkout snapshot; other payment methods retain the
- * existing configurable entity-field resolver.
+ * rows use the immutable Checkout snapshot (canonical metadata root, with
+ * validated support for the legacy card namespace); other payment methods
+ * retain the existing configurable entity-field resolver.
  */
 export async function resolveMembershipInvoiceAddress({
   row,
@@ -122,7 +123,7 @@ export async function resolveStripeAgreementInvoiceAddress(row, { db: dbArg } = 
   if (error) throw new Error(`billing agreement address lookup failed: ${error.message}`);
   if (!agreement) throw new Error(`billing agreement ${row.billing_agreement_id} not found`);
   if (agreement.provider !== 'stripe') return null;
-  return stripeInvoiceAddressFromSnapshot(agreement.metadata?.card?.billing_address);
+  return stripeInvoiceAddressFromMetadata(agreement.metadata);
 }
 
 /**
@@ -226,7 +227,7 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
 
   let invoicingAddress = null;
   if (agreement.provider === 'stripe') {
-    invoicingAddress = stripeInvoiceAddressFromSnapshot(snapshot.billing_address);
+    invoicingAddress = stripeInvoiceAddressFromMetadata(agreement.metadata);
   } else {
     try {
       invoicingAddress = config ? await resolveInvoiceAddress(db, config, entityId, entityType) : null;

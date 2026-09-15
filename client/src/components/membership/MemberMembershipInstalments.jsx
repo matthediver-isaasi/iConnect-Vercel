@@ -23,6 +23,30 @@ import { Button } from "@/components/ui/button";
  */
 export const MEMBER_INSTALMENTS_ENDPOINT = "/api/membership/member-membership";
 export const MEMBER_INSTALMENTS_PAGE_SIZE = 25;
+export const MEMBER_MEMBERSHIP_SOURCES = new Set(["personal", "organisation"]);
+
+/**
+ * Membership history can contain rows from both ledgers.  Do not infer an
+ * organisation row from the member's current organisation alone: a personal
+ * membership can belong to a member who is currently assigned to an
+ * organisation.  The history endpoint marks rows explicitly, with the
+ * organisation_id fallback retained for older responses.
+ */
+export function getMembershipSource(record = {}) {
+  if (record.membership_source === "personal") return "personal";
+  if (
+    record.membership_source === "organisation"
+    || record.membership_source === "organization"
+  ) {
+    return "organisation";
+  }
+  return record.organization_id ? "organisation" : "personal";
+}
+
+function normalizeMembershipSource(value) {
+  if (value === "organization") return "organisation";
+  return MEMBER_MEMBERSHIP_SOURCES.has(value) ? value : "personal";
+}
 
 const STATUS_LABELS = {
   collected: "Collected",
@@ -84,7 +108,9 @@ function normalizeAccountingStatus(value) {
   if (["synced", "paid", "complete", "completed"].includes(status)) return "posted";
   if (["unpaid", "invoice_not_paid"].includes(status)) return "invoice_unpaid";
   if (["created", "invoice_created_payment_not_recorded"].includes(status)) return "invoice_created";
-  if (["no_accounting_provider", "no_accounting"].includes(status)) return "missing_accounting";
+  if (["no_accounting_provider", "no_accounting", "missing_provider"].includes(status)) {
+    return "missing_accounting";
+  }
   if (["not_applicable", "not_expected"].includes(status)) return "skipped";
   return status;
 }
@@ -164,6 +190,8 @@ export function normalizeCollection(item = {}) {
   const rawAccountingStatus = item.accountingStatus
     || item.accountingSyncStatus
     || item.accounting_sync_status
+    || item.accountingSyncState
+    || item.accounting_sync_state
     || item.syncStatus;
   let accountingStatus = normalizeAccountingStatus(rawAccountingStatus);
   const paymentRecorded = item.paymentRecorded ?? item.payment_recorded;
@@ -296,11 +324,22 @@ function formatDate(value) {
 
 function InvoiceButtons({
   item,
+  source,
   onViewInvoice,
   onDownloadInvoice,
   loadingInvoiceId,
 }) {
-  if (!item.invoiceRecordId) return null;
+  // A payment reference is useful for identifying a collection, but is not
+  // itself proof that an accounting invoice exists.  In particular, failed,
+  // pending, and skipped rows must not expose invoice actions that can only
+  // result in a confusing 404 from the scoped invoice endpoint.
+  const hasInvoice = !!(
+    item.invoiceUrl
+    || item.invoiceId
+    || item.accountingInvoiceId
+    || item.invoiceNumber
+  );
+  if (!item.invoiceRecordId || !hasInvoice) return null;
   const busy = loadingInvoiceId === item.invoiceRecordId || loadingInvoiceId === item.paymentRef;
 
   return (
@@ -312,7 +351,7 @@ function InvoiceButtons({
           <Button
             size="icon"
             variant="ghost"
-            onClick={() => onViewInvoice?.(item.paymentRef, item.invoiceNumber, "instalment", item.invoiceUrl)}
+            onClick={() => onViewInvoice?.(item.paymentRef, item.invoiceNumber, "instalment", item.invoiceUrl, source)}
             title={`View invoice ${item.invoiceNumber || ""}`.trim()}
             data-testid={`button-view-instalment-invoice-${item.invoiceRecordId}`}
           >
@@ -321,7 +360,7 @@ function InvoiceButtons({
           <Button
             size="icon"
             variant="ghost"
-            onClick={() => onDownloadInvoice?.(item.paymentRef, item.invoiceNumber, "instalment", item.invoiceUrl)}
+            onClick={() => onDownloadInvoice?.(item.paymentRef, item.invoiceNumber, "instalment", item.invoiceUrl, source)}
             title={`Download invoice ${item.invoiceNumber || ""}`.trim()}
             data-testid={`button-download-instalment-invoice-${item.invoiceRecordId}`}
           >
@@ -341,11 +380,13 @@ function InvoiceButtons({
 export default function MemberMembershipInstalments({
   record,
   expanded = false,
+  source = null,
   onViewInvoice,
   onDownloadInvoice,
   loadingInvoiceId,
 }) {
   const historyId = record?.id;
+  const membershipSource = normalizeMembershipSource(source || getMembershipSource(record));
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState({});
   const [loadingPage, setLoadingPage] = useState(null);
@@ -356,7 +397,7 @@ export default function MemberMembershipInstalments({
     setPages({});
     setLoadingPage(null);
     setError("");
-  }, [historyId]);
+  }, [historyId, membershipSource]);
 
   useEffect(() => {
     if (!expanded || !historyId || pages[page] || loadingPage === page) return undefined;
@@ -370,7 +411,7 @@ export default function MemberMembershipInstalments({
           recordId: String(historyId),
           instalments: "true",
           page: String(page),
-          source: "personal",
+          source: membershipSource,
         });
         const response = await fetch(`${MEMBER_INSTALMENTS_ENDPOINT}?${params.toString()}`, {
           credentials: "include",
@@ -400,7 +441,7 @@ export default function MemberMembershipInstalments({
   // of this request's lifecycle, and including it would run the cleanup,
   // deactivate the request, and leave the row loading forever before the
   // response can populate pages.
-  }, [expanded, historyId, page, pages]);
+  }, [expanded, historyId, membershipSource, page, pages]);
 
   if (!expanded) return null;
 
@@ -516,6 +557,7 @@ export default function MemberMembershipInstalments({
                             <span>{item.invoiceNumber || "—"}</span>
                             <InvoiceButtons
                               item={item}
+                                source={membershipSource}
                               onViewInvoice={onViewInvoice}
                               onDownloadInvoice={onDownloadInvoice}
                               loadingInvoiceId={loadingInvoiceId}

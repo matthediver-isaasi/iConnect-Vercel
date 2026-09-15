@@ -61,12 +61,13 @@ test('annual Stripe monthly-card invoice uses immutable Checkout address snapsho
         provider: 'stripe',
         metadata: {
           card: {
-            billing_address: {
-              line1: '1 Checkout Road',
-              city: 'London',
-              postal_code: 'SW1A 1AA',
-              country: 'GB',
-            },
+            invoicing_mode: 'annual',
+          },
+          stripe_billing_address: {
+            line1: '1 Checkout Road',
+            city: 'London',
+            postal_code: 'SW1A 1AA',
+            country: 'GB',
           },
         },
       },
@@ -81,6 +82,35 @@ test('annual Stripe monthly-card invoice uses immutable Checkout address snapsho
     entityType: 'member',
   });
   assert.equal(address, '1 Checkout Road\nLondon\nSW1A 1AA\nGB');
+});
+
+test('annual Stripe monthly-card invoice accepts a validated legacy card address snapshot', async () => {
+  const db = fakeDb({
+    membership_billing_agreements: () => ({
+      data: {
+        provider: 'stripe',
+        metadata: {
+          card: {
+            billing_address: {
+              line1: '1 Legacy Road',
+              city: 'London',
+              postal_code: 'SW1A 1AA',
+              country: 'GB',
+            },
+          },
+        },
+      },
+      error: null,
+    }),
+  });
+  const address = await resolveMembershipInvoiceAddress({
+    db,
+    row: { billing_agreement_id: 'ba_legacy' },
+    config: { invoice_address_field_id: 'mutable-field' },
+    entityId: 'member_1',
+    entityType: 'member',
+  });
+  assert.equal(address, '1 Legacy Road\nLondon\nSW1A 1AA\nGB');
 });
 
 test('annual Stripe monthly-card invoice fails closed without its snapshot', async () => {
@@ -102,10 +132,69 @@ test('annual Stripe monthly-card invoice fails closed without its snapshot', asy
   );
 });
 
+test('annual Stripe monthly-card invoice fails closed when canonical snapshot is invalid, even with valid legacy data', async () => {
+  const db = fakeDb({
+    membership_billing_agreements: () => ({
+      data: {
+        provider: 'stripe',
+        metadata: {
+          stripe_billing_address: { line1: '1 Canonical Road', country: 'GB' },
+          card: {
+            billing_address: {
+              line1: '1 Valid Legacy Road',
+              city: 'London',
+              postal_code: 'SW1A 1AA',
+              country: 'GB',
+            },
+          },
+        },
+      },
+      error: null,
+    }),
+  });
+  await assert.rejects(
+    resolveMembershipInvoiceAddress({
+      db,
+      row: { billing_agreement_id: 'ba_1' },
+      config: { invoice_address_field_id: 'mutable-field' },
+      entityId: 'member_1',
+      entityType: 'member',
+    }),
+    /incomplete/,
+  );
+});
+
+test('non-Stripe membership invoices retain the configurable address resolver', async () => {
+  const db = fakeDb({
+    membership_billing_agreements: () => ({
+      data: {
+        provider: 'gocardless',
+        metadata: {
+          stripe_billing_address: { line1: 'not a Stripe snapshot' },
+        },
+      },
+      error: null,
+    }),
+    member_preference_value: () => ({
+      data: { value: 'Mutable member address' },
+      error: null,
+    }),
+  });
+  const address = await resolveMembershipInvoiceAddress({
+    db,
+    row: { billing_agreement_id: 'ba_dd' },
+    config: { invoice_address_field_id: 'mutable-field' },
+    entityId: 'member_1',
+    entityType: 'member',
+  });
+  assert.equal(address, 'Mutable member address');
+});
+
 const perInstalmentAgreement = (extra = {}) => ({
   id: 'ba_1',
   tenant_id: 't1',
   member_id: 'm1',
+  provider: 'stripe',
   metadata: {
     card: {
       invoicing_mode: 'per_instalment',
@@ -115,6 +204,12 @@ const perInstalmentAgreement = (extra = {}) => ({
       membership_year: '2026-27',
       currency: 'GBP',
       monthly_amount_minor: 1000,
+    },
+    stripe_billing_address: {
+      line1: '1 Checkout Road',
+      city: 'London',
+      postal_code: 'SW1A 1AA',
+      country: 'GB',
     },
   },
   ...extra,
@@ -484,6 +579,7 @@ test('postStripeInstalmentInvoice: first attempt inserts claim row, mints invoic
   assert.equal(providerCalls.length, 1);
   assert.equal(providerCalls[0].finalCost, 10);
   assert.equal(providerCalls[0].markAsPaid, true);
+  assert.equal(providerCalls[0].invoicingAddress, '1 Checkout Road\nLondon\nSW1A 1AA\nGB');
   assert.equal(providerCalls[0].idempotencyKey, 'mii-stripe-in_123');
   assert.equal(providerCalls[0].paymentIdempotencyKey, 'mii-stripe-in_123-pay');
   assert.equal(store.row.accounting_sync_status, 'posted');

@@ -8,6 +8,7 @@ import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
 const INSTALMENT_TABLE_MISSING_CODES = new Set(['42P01', '42703']);
+const HISTORY_TABLE_MISSING_CODES = new Set(['42P01', 'PGRST205']);
 const VALID_HISTORY_SOURCES = new Set(['personal', 'organisation']);
 const GC_COLLECTED_STATUSES = ['confirmed', 'paid_out'];
 
@@ -553,6 +554,8 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const getContext = dependencies.getTenantContext || getTenantContext;
   const getMember = dependencies.getSessionMember || getSessionMember;
   const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
+  const resolveConfig = dependencies.getConfigForMember || getConfigForMember;
+  const simulateMember = dependencies.simulateMembershipForMember || simulateMembershipForMember;
 
   return async function handler(req, res) {
     if (!db) {
@@ -572,7 +575,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
 
       if (req.method === 'GET') {
         if (req.query?.recordId !== undefined) {
-          return handleInstalmentGet(req, res, {
+          return await handleInstalmentGet(req, res, {
             db,
             tenantId,
             tenantContext,
@@ -580,10 +583,12 @@ export function createMemberMembershipHandler(dependencies = {}) {
             checkAdmin,
           });
         }
-        return handleGet(req, res, tenantId, db, {
+        return await handleGet(req, res, tenantId, db, {
           tenantContext,
           getMember,
           checkAdmin,
+          resolveConfig,
+          simulateMember,
         });
       }
 
@@ -643,6 +648,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
   tenantContext = null,
   getMember = getSessionMember,
   checkAdmin = hasAdminAccess,
+  resolveConfig = getConfigForMember,
+  simulateMember = simulateMembershipForMember,
 } = {}) {
   const { memberId } = req.query;
 
@@ -714,42 +721,88 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
   }
 
-  const config = await getConfigForMember(tenantId, memberId);
+  let personalHistory = [];
+  let organisationHistory = [];
+  try {
+    const { data: historyRecords, error: historyError } = await db
+      .from('member_membership_history')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId)
+      .order('membership_year', { ascending: false });
+    if (historyError) throw historyError;
+    personalHistory = (historyRecords || []).map((record) => ({
+      ...record,
+      membership_source: 'personal',
+    }));
+  } catch (err) {
+    if (!HISTORY_TABLE_MISSING_CODES.has(err?.code)) throw err;
+    console.log('[Member Membership] Personal history table may not exist yet:', err.message);
+  }
 
+  // A member can have both a personal ledger and a ledger owned by their
+  // current organisation. Keep both rows in the member tab, but tag the
+  // source explicitly so monthly detail requests cannot accidentally resolve
+  // an organisation row against the personal history table (or vice versa).
+  // The organisation lookup is always constrained by the authenticated
+  // tenant and the organisation attached to the already-authorized member
+  // row. It never trusts an organisation id supplied by the caller.
+  if (member.organization_id) {
+    try {
+      const { data: historyRecords, error: historyError } = await db
+        .from('organisation_membership_history')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', member.organization_id)
+        .order('membership_year', { ascending: false });
+      if (historyError) throw historyError;
+      organisationHistory = (historyRecords || []).map((record) => ({
+        ...record,
+        membership_source: 'organisation',
+      }));
+    } catch (err) {
+      if (!HISTORY_TABLE_MISSING_CODES.has(err?.code)) throw err;
+      console.log('[Member Membership] Organisation history table may not exist yet:', err.message);
+    }
+  }
+  const history = [...personalHistory, ...organisationHistory].sort((left, right) => {
+    const leftYear = Number.parseInt(String(left.membership_year || ''), 10);
+    const rightYear = Number.parseInt(String(right.membership_year || ''), 10);
+    if (Number.isFinite(leftYear) && Number.isFinite(rightYear) && leftYear !== rightYear) {
+      return rightYear - leftYear;
+    }
+    // Keep personal rows first for a shared year, matching the pre-existing
+    // member-scoped history order while still returning one unified ledger.
+    if (left.membership_source !== right.membership_source) {
+      return left.membership_source === 'personal' ? -1 : 1;
+    }
+    return String(left.id || '').localeCompare(String(right.id || ''));
+  });
+
+  const config = await resolveConfig(tenantId, memberId);
   if (!config) {
     return res.json({
       member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
       config: null,
       currentYearCost: null,
       nextYearPreview: null,
-      history: [],
+      history,
       pause,
     });
   }
 
   const currentYear = calculateMembershipYearWindow(config);
   const nextYear = calculateNextMembershipYearWindow(config);
-
-  let history = [];
-  try {
-    const { data: historyRecords } = await db
-      .from('member_membership_history')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('member_id', memberId)
-      .order('membership_year', { ascending: false });
-    history = historyRecords || [];
-  } catch (err) {
-    console.log('[Member Membership] History table may not exist yet:', err.message);
-  }
-
   const currentYearStartDate = currentYear.start.toISOString().split('T')[0];
   const nextYearStartDate = nextYear.start.toISOString().split('T')[0];
 
   let currentYearCost = null;
   let nextYearPreview = null;
 
-  const currentYearRecord = history.find(h => h.membership_year === currentYear.label);
+  // Pricing and simulation remain member-scoped. Organisation history is
+  // included in the ledger display above, but must not make a member's
+  // personal year card appear recorded.
+  const currentYearRecord = personalHistory.find(h => h.membership_year === currentYear.label);
 
   if (currentYearRecord) {
     const recAnnual = parseFloat(currentYearRecord.annual_cost);
@@ -793,7 +846,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     };
   } else {
     try {
-      const simResult = await simulateMembershipForMember(tenantId, memberId, {
+      const simResult = await simulateMember(tenantId, memberId, {
         source: 'tab',
         targetYear: currentYear.label,
       });
@@ -806,7 +859,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   }
 
   try {
-    const nextSimResult = await simulateMembershipForMember(tenantId, memberId, {
+    const nextSimResult = await simulateMember(tenantId, memberId, {
       source: 'tab',
       targetYear: nextYear.label,
       asOfDate: nextYearStartDate,
