@@ -229,3 +229,17 @@ mtime_ms = 1789075420240
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17cdda71-1783-4a2b-b9e2-19ffb666927c/bfecf0fe-9526-4fec-ac5f-7d4634d28768"
 storage_version_token = "1789075438155280"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "KUcCFp9Q3wMQlldVEXVGX"
+uri = "file://.local/bnms-youtube-categorisation/approval-report.xlsx"
+type = "table"
+title = "BNMS categorisation approval report"
+description = "Row-level matches, current classifications, merged additions, blocked rows and Collection proposals. Read-only dry run."
+logical_id = "8612599a-886d-4d1d-8d1a-62b7b0ad1208"
+content_hash = "sha256:1cd3ccd90b8ce24a67bd698647568d7b77dee564e8c724b01683cfd380f4ab85"
+size = 717769
+mtime_ms = 1789472937540
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8612599a-886d-4d1d-8d1a-62b7b0ad1208/d6903755-0cce-4db4-9f29-9c8bbcc33e69"
+storage_version_token = "1789473036416681"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
