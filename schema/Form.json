@@ -23,6 +23,16 @@
       "default": "standard",
       "description": "Form layout: standard (all fields at once) or card_swipe (one field per card)"
     },
+    "form_width": {
+      "type": "string",
+      "enum": [
+        "narrow",
+        "medium",
+        "wide"
+      ],
+      "default": "narrow",
+      "description": "Maximum content width preset: narrow (48rem), medium (64rem), or wide (80rem)"
+    },
     "fields": {
       "type": "array",
       "items": {

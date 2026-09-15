@@ -134,6 +134,7 @@ import {
   repeatableExclusionSourceFields,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
+import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
   areFormTransitionFieldsCompatible,
   isFormTransitionField,
@@ -10196,6 +10197,7 @@ export default function FormBuilderPage() {
     description: "",
     slug: "",
     layout_type: "standard",
+    form_width: "narrow",
     fields: [],
     pages: [], // For standard layout pagination: [{id: 'page_xxx', title: 'Page 1'}]
     submit_button_text: "Submit",
@@ -10822,6 +10824,7 @@ export default function FormBuilderPage() {
         description: existingForm.description || "",
         slug: existingForm.slug || "",
         layout_type: existingForm.layout_type || "standard",
+        form_width: normalizeFormWidth(existingForm.form_width),
         fields: existingForm.fields ? existingForm.fields.map(field => ({
           ...field,
           allow_other: field.allow_other ?? false,
@@ -12062,6 +12065,26 @@ export default function FormBuilderPage() {
                     <SelectItem value="card_swipe">Card Swipe (One at a Time)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="form_width">Form width</Label>
+                <Select
+                  value={formData.form_width}
+                  onValueChange={(value) => setFormData({ ...formData, form_width: value })}
+                >
+                  <SelectTrigger id="form_width" aria-describedby="form-width-help" data-testid="select-form-width">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="narrow">Narrow (current)</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="wide">Wide</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p id="form-width-help" className="text-xs text-slate-500">
+                  Maximum widths: Narrow 768px, Medium 1024px, Wide 1280px. Forms shrink to fit the available screen or embedded frame.
+                </p>
               </div>
 
               <div className="space-y-2">

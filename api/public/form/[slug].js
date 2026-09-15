@@ -5,10 +5,11 @@ import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
+import { getPublicFormWidth } from '../../../shared/formWidth.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
-  'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
+  'layout_type', 'form_width', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source', 'prefill_source_field_id',
   'visibility_rules', 'pages',
   'deactivate_at', 'deactivate_timezone',
@@ -185,6 +186,7 @@ export default async function handler(req, res) {
         pages: form.pages || [],
         is_active: form.is_active,
         layout_type: form.layout_type,
+        form_width: getPublicFormWidth(form),
         submit_button_text: form.submit_button_text,
         require_authentication: true,
         access_policy_required: access.restricted,
@@ -198,6 +200,7 @@ export default async function handler(req, res) {
         publicForm[field] = form[field];
       }
     }
+    publicForm.form_width = getPublicFormWidth(form);
     publicForm.access_policy_required = access.restricted;
     publicForm.access = access;
 

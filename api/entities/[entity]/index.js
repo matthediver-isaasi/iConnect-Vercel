@@ -94,6 +94,7 @@ import {
   sameFormAnswerValues,
   validateFutureDateFields,
 } from '../../../shared/formFutureDates.js';
+import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
@@ -1495,6 +1496,11 @@ export default async function handler(req, res) {
         });
         if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
         sanitizedBody.access_policy = validation.policy;
+      }
+
+      if (entityNorm === 'form') {
+        const formWidthError = validateFormWidthPayload(sanitizedBody);
+        if (formWidthError) return res.status(422).json(formWidthError);
       }
 
       if (entityNorm === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'structured_actions')) {

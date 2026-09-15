@@ -6,6 +6,7 @@ import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
+import { getPublicFormWidth } from '../../../shared/formWidth.js';
 
 /**
  * Task #3331: serve a survey via its event-assignment token.
@@ -20,7 +21,7 @@ import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
  */
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active',
-  'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
+  'layout_type', 'form_width', 'submit_button_text', 'success_message', 'redirect_url',
   'visibility_rules', 'pages', 'blank_layout', 'updated_at',
   'form_type', 'survey_settings'
 ];
@@ -182,6 +183,7 @@ export default async function handler(req, res) {
     for (const field of PUBLIC_FORM_FIELDS) {
       if (form[field] !== undefined) publicForm[field] = form[field];
     }
+    publicForm.form_width = getPublicFormWidth(form);
 
     // Task #3477: LMIC conditional operators. When any snapshot rule uses
     // is_lmic / is_not_lmic, deliver the tenant's saved LMIC code list so the

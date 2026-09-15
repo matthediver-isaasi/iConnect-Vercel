@@ -36,6 +36,7 @@ import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
+import { getFormMaxWidth } from "../../../shared/formWidth.js";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -1338,7 +1339,7 @@ export default function EmbedFormPage() {
       <FormTransitionOverlay active={isTransitioning}>
       <div className="p-4" data-testid="embed-form-container">
         <Toaster />
-        <Card className="w-full">
+        <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
             <CardTitle data-testid="embed-form-title">{form.name}</CardTitle>
             {form.description && (
@@ -1461,7 +1462,7 @@ export default function EmbedFormPage() {
     <FormTransitionOverlay active={isTransitioning}>
     <div className="p-4" data-testid="embed-form-container">
       <Toaster />
-      <Card className="w-full">
+      <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <CardHeader>
           <CardTitle data-testid="embed-form-title">{form.name}</CardTitle>
           {form.description && (

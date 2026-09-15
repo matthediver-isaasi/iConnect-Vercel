@@ -91,6 +91,7 @@ import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConf
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
+import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
@@ -1111,6 +1112,11 @@ export default async function handler(req, res) {
         });
         if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
         sanitizedBody.access_policy = validation.policy;
+      }
+
+      if (entityNormalized === 'form') {
+        const formWidthError = validateFormWidthPayload(sanitizedBody);
+        if (formWidthError) return res.status(422).json(formWidthError);
       }
 
       if (entityNormalized === 'form'

@@ -3,10 +3,11 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveFormAccess } from '../_lib/formAccessPolicy.js';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
+import { getPublicFormWidth } from '../../shared/formWidth.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'is_active', 
-  'layout_type', 'submit_button_text', 'success_message',
+  'layout_type', 'form_width', 'submit_button_text', 'success_message',
   'require_authentication'
 ];
 
@@ -75,6 +76,7 @@ export default async function handler(req, res) {
           publicForm[field] = form[field];
         }
       }
+      publicForm.form_width = getPublicFormWidth(form);
       publicForm.access_policy_required = access.restricted;
       publicForm.access = access;
       return publicForm;

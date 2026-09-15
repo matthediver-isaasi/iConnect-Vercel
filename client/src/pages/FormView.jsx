@@ -44,6 +44,7 @@ import {
   setValueActionKey,
 } from "@/lib/formValueConvergence";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
+import { getFormMaxWidth } from "../../../shared/formWidth.js";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -2487,7 +2488,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Card className="max-w-2xl w-full border-slate-200">
+        <Card className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
@@ -2736,7 +2737,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
       <FormTransitionOverlay active={isTransitioning}>
-      <div className="max-w-3xl mx-auto">
+      <div className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
