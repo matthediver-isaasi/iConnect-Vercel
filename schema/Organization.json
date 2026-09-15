@@ -40,6 +40,19 @@
         "type": "boolean",
         "default": false,
         "description": "True if the org overrides the default to Unlimited (Permanent) guest access"
+      },
+      "member_login_blocked": {
+        "type": "boolean",
+        "default": false,
+        "description": "Server-managed manual member-login kill switch; only the dedicated admin endpoint may change it"
+      },
+      "member_login_blocked_at": {
+        "type": ["string", "null"],
+        "description": "Timestamp of the most recent manual member-login switch change"
+      },
+      "member_login_blocked_by": {
+        "type": ["string", "null"],
+        "description": "Tenant user or member identifier that last changed the manual member-login switch"
       }
     },
     "required": [

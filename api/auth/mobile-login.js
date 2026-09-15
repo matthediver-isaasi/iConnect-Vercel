@@ -1,7 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { createBearerSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
-import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateMemberOrganisationLoginAccess,
+} from '../_lib/organisationLoginGate.js';
 
 /**
  * Token-based login for native/mobile clients (e.g. the Event Check-in app).
@@ -257,9 +260,23 @@ export default async function handler(req, res) {
         });
       }
 
+      const organisationAccess = await evaluateMemberOrganisationLoginAccess({
+        supabase,
+        tenantId,
+        member,
+      });
+      if (organisationAccess.blocked) {
+        return res.status(403).json({
+          success: false,
+          error: organisationAccess.message,
+          organisationLoginGateBlocked: true,
+        });
+      }
+
       sessionData = {
         memberId: member.id,
         memberEmail: member.email,
+        organizationId: member.organization_id || null,
         tenantId,
         identityId: identity.id,
         membershipId: selectedMembership.id,

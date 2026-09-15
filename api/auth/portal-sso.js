@@ -1,6 +1,9 @@
 import { getSession, createSession, updateSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
-import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateMemberOrganisationLoginAccess,
+} from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -77,6 +80,16 @@ export default async function handler(req, res) {
     if (portalGateResult.blocked) {
       console.log('[Portal SSO] Member portal login unavailable for member:', member.id);
       return res.redirect('/login?error=member_portal_unavailable');
+    }
+
+    const organisationAccess = await evaluateMemberOrganisationLoginAccess({
+      supabase,
+      tenantId: sessionTenantId,
+      member,
+    });
+    if (organisationAccess.blocked) {
+      console.log('[Portal SSO] Organisation login access blocked for member:', member.id, organisationAccess.causes);
+      return res.redirect('/login?error=organisation_login_gate');
     }
 
     // Log member data for debugging handle generation
@@ -247,7 +260,8 @@ export default async function handler(req, res) {
         console.error(`[Portal SSO] FAILED to update session with member context for tenant_user ${existingSession.data.tenantUserId}`);
         // Fall back to creating a new session with preserved context
         console.log(`[Portal SSO] Falling back to createSession with preserved context`);
-        await createSession(res, updatedSessionData, { req, replaceSessionId: existingSession.id });
+        const created = await createSession(res, updatedSessionData, { req, replaceSessionId: existingSession.id });
+        if (!created) return res.status(403).json({ error: 'Member login is not currently available for this organisation' });
       } else {
         console.log(`[Portal SSO] Successfully updated session with member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
       }
@@ -296,7 +310,8 @@ export default async function handler(req, res) {
         console.log(`[Portal SSO] No tenant_user_id in token, admin context not available`);
       }
       
-      await createSession(res, sessionData, { req });
+      const created = await createSession(res, sessionData, { req });
+      if (!created) return res.status(403).json({ error: 'Member login is not currently available for this organisation' });
       console.log(`[Portal SSO] Created member session for ${member.id}`, 
         sessionData.preservedTenantUserId ? `with preserved admin context for tenant_user ${sessionData.preservedTenantUserId}` : '(no admin context)');
     }

@@ -2,7 +2,10 @@ import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateMemberOrganisationLoginAccess,
+} from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -422,7 +425,20 @@ export default async function handler(req, res) {
 
     // Create PostgreSQL-backed session (same format as login.js and portal-sso.js)
     // Prefer fullMember.identity_id (direct link) over identity?.id (email lookup)
-    await createSession(res, {
+    const organisationAccess = await evaluateMemberOrganisationLoginAccess({
+      supabase,
+      tenantId: sessionTenantId,
+      member: fullMember,
+    });
+    if (organisationAccess.blocked) {
+      return res.status(403).json({
+        success: false,
+        error: organisationAccess.message,
+        organisationLoginGateBlocked: true,
+      });
+    }
+
+    const createdSession = await createSession(res, {
       memberId: member.id,
       memberEmail: email.toLowerCase(),
       organizationId: fullMember?.organization_id || null,
@@ -431,6 +447,13 @@ export default async function handler(req, res) {
       identityId: fullMember?.identity_id || identity?.id || null,
       userType: 'member'
     }, { req });
+    if (!createdSession) {
+      return res.status(403).json({
+        success: false,
+        error: 'Login is not currently available for your organisation. Please contact your administrator.',
+        organisationLoginGateBlocked: true,
+      });
+    }
 
     console.log('[Auth] Password set for:', email);
     res.json({ success: true, member: fullMember });

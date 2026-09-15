@@ -3,6 +3,8 @@ import { getTenantContext, checkCrossOrgPermissions } from '../../_lib/tenantCon
 import { triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
 import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
+import { evaluateEffectiveOrganisationLoginAccess, loadOrganisationLoginGate } from '../../_lib/organisationLoginGate.js';
+import { invalidateOrganizationMemberSessions } from '../../_lib/session.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -85,6 +87,24 @@ export default async function handler(req, res) {
     }
 
     const storedValue = value !== undefined ? String(value) : '';
+
+    // Gate-controlled custom values have the same immediate lifecycle as the
+    // manual kill switch. The session validator remains authoritative if this
+    // bounded cleanup cannot run.
+    const gate = await loadOrganisationLoginGate({ supabase, tenantId: effectiveTenantId });
+    if (gate?.enabled && gate.fieldSource === 'custom' && gate.fieldKey === field_id) {
+      const access = await evaluateEffectiveOrganisationLoginAccess({
+        supabase,
+        tenantId: effectiveTenantId,
+        organizationId: targetOrgId,
+      });
+      if (access.blocked) {
+        await invalidateOrganizationMemberSessions({
+          tenantId: effectiveTenantId,
+          organizationId: targetOrgId,
+        });
+      }
+    }
 
     triggerZohoCrmSync(effectiveTenantId, 'organization', targetOrgId, { action: 'preference_change' });
 

@@ -1,6 +1,9 @@
 import { getSession, createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
-import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateMemberOrganisationLoginAccess,
+} from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -97,7 +100,8 @@ export default async function handler(req, res) {
       console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
       
       // Replace old session in one operation - domain uses host-based detection
-      await createSession(res, sessionData, { replaceSessionId: session.id, req });
+      const created = await createSession(res, sessionData, { replaceSessionId: session.id, req });
+      if (!created) return res.status(403).json({ error: 'Member login is not currently available for this organisation' });
 
       return res.json({
         success: true,
@@ -221,9 +225,23 @@ export default async function handler(req, res) {
         });
       }
 
+      const organisationAccess = await evaluateMemberOrganisationLoginAccess({
+        supabase,
+        tenantId: membership.tenant_id,
+        member,
+      });
+      if (organisationAccess.blocked) {
+        return res.status(403).json({
+          success: false,
+          error: organisationAccess.message,
+          organisationLoginGateBlocked: true,
+        });
+      }
+
       sessionData = {
         memberId: member.id,
         memberEmail: member.email,
+        organizationId: member.organization_id || null,
         tenantId: membership.tenant_id,
         identityId: membership.identity_id,
         membershipId: membership.id,
@@ -243,7 +261,8 @@ export default async function handler(req, res) {
     }
 
     console.log('[Tenant Switch] Creating session with tenantId:', membership.tenant_id, 'type:', sessionData.userType);
-    await createSession(res, sessionData, { req });
+    const created = await createSession(res, sessionData, { req });
+    if (!created) return res.status(403).json({ error: 'Member login is not currently available for this organisation' });
 
     console.log('[Tenant Switch] Switched to tenant:', membership.tenant?.name);
 

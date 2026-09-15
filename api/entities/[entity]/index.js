@@ -15,7 +15,15 @@ import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_
 import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
 import { resolveSubmitControl } from '../../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
-import { getSession } from '../../_lib/session.js';
+import {
+  getSession,
+  invalidateOrganizationMemberSessions,
+  revokeBlockedOrganisationMemberSessionsForTenant,
+} from '../../_lib/session.js';
+import {
+  evaluateEffectiveOrganisationLoginAccess,
+  loadOrganisationLoginGate,
+} from '../../_lib/organisationLoginGate.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -1402,16 +1410,30 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+      if (entityNorm === 'organization' && (
+        Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked')
+        || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_at')
+        || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_by')
+          || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_revocation_generation')
+          || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_revoked_at')
+      )) {
+        return res.status(403).json({
+          error: 'Member login access can only be changed through the organisation login-access endpoint',
+        });
+      }
       if (entityNorm === 'ieditpage' && sanitizedBody.canvas_design) {
         sanitizedBody.canvas_design = normalizeMemberOnlyFields(sanitizedBody.canvas_design);
       }
 
-      if (
-        entityNorm === 'systemsettings'
+      if (entityNorm === 'systemsettings'
         && sanitizedBody.setting_key === 'internal_event_types'
-        && !(isTenantAdmin || await hasAdminAccess(tenantCtx))
-      ) {
+        && !(isTenantAdmin || await hasAdminAccess(tenantCtx))) {
         return res.status(403).json({ error: 'Admin access required' });
+      }
+      if (entityNorm === 'systemsettings'
+        && sanitizedBody.setting_key === 'organization_login_gate'
+        && !(await hasAdminAccess(tenantCtx))) {
+        return res.status(403).json({ error: 'Administrator access required' });
       }
 
       if (entityNorm === 'gallery' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'access_policy')) {
@@ -2710,6 +2732,33 @@ export default async function handler(req, res) {
         }).catch(err => {
           console.error('[Entity POST] Brief comment notification error:', err);
         });
+      }
+
+      // A newly-created gate setting may deny sessions that were already
+      // issued. Reconcile them now; getSession independently enforces the
+      // current rule if cleanup is interrupted.
+      if (entityNorm === 'systemsettings'
+          && data?.setting_key === 'organization_login_gate'
+          && data?.tenant_id) {
+        await revokeBlockedOrganisationMemberSessionsForTenant(data.tenant_id);
+      }
+
+      if (entityNorm === 'organizationpreferencevalue' && data?.organization_id) {
+        const gateTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+        const gate = await loadOrganisationLoginGate({ supabase, tenantId: gateTenantId });
+        if (gateTenantId && gate?.enabled && gate.fieldSource === 'custom' && gate.fieldKey === data.field_id) {
+          const access = await evaluateEffectiveOrganisationLoginAccess({
+            supabase,
+            tenantId: gateTenantId,
+            organizationId: data.organization_id,
+          });
+          if (access.blocked) {
+            await invalidateOrganizationMemberSessions({
+              tenantId: gateTenantId,
+              organizationId: data.organization_id,
+            });
+          }
+        }
       }
 
       // Support ticket: auto-assign from area config, then notify

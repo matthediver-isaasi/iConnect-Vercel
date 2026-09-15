@@ -149,3 +149,4 @@
 - [Form author schema discovery](form-author-schema-discovery.md) — schema visibility is not record access; preserve author gates and explicit field denials in respondent-facing metadata.
 - [Paid form DD eligibility](paid-form-dd-eligibility.md) — prospective eligibility must survive checkout retries without backfilling historical submissions; ambiguous external effects cannot be blindly replayed.
 - [Canvas preview authorization](canvas-preview-authorization.md) — preview intent and absent member sessions cannot authorize cached editor content; verify either login system positively.
+- [Organisation access revocation](organisation-access-revocation.md) — restoration must not revive old sessions; fence concurrent member creation without revoking unrelated organisations.

@@ -9,7 +9,7 @@ import {
 } from '../_lib/memberLoginResolver.js';
 import {
   evaluateMemberPortalLoginGate,
-  evaluateOrganisationLoginGate,
+  evaluateMemberOrganisationLoginAccess,
 } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
@@ -478,29 +478,25 @@ export default async function handler(req, res) {
     // with no role-based bypass. Members without an organisation are
     // treated as failing the gate when it is enabled.
     if (sessionTenantId) {
-      try {
-        const gateResult = await evaluateOrganisationLoginGate({
-          supabase,
-          tenantId: sessionTenantId,
-          organizationId: member.organization_id || null,
+      const gateResult = await evaluateMemberOrganisationLoginAccess({
+        supabase,
+        tenantId: sessionTenantId,
+        member,
+      });
+      if (gateResult.blocked) {
+        console.log('[Auth Login] Organisation login access blocked:', email, 'org:', member.organization_id, gateResult.causes);
+        return res.status(403).json({
+          success: false,
+          error: gateResult.message,
+          organisationLoginGateBlocked: true,
         });
-        if (gateResult.blocked) {
-          console.log('[Auth Login] Organisation login gate blocked:', email, 'org:', member.organization_id);
-          return res.status(403).json({
-            success: false,
-            error: gateResult.message,
-            organisationLoginGateBlocked: true,
-          });
-        }
-      } catch (gateErr) {
-        console.error('[Auth Login] Organisation login gate evaluation failed:', gateErr);
       }
     }
 
     // Create PostgreSQL-backed session with tenant context
     // Include all required fields to match portal-sso session format
     // Prefer member.identity_id (direct link) over identity?.id (email lookup)
-    await createSession(res, {
+    const createdSession = await createSession(res, {
       memberId: member.id,
       memberEmail: member.email,
       organizationId: member.organization_id || null,
@@ -509,6 +505,13 @@ export default async function handler(req, res) {
       identityId: member.identity_id || identity?.id || null,
       userType: 'member'
     }, { req });
+    if (!createdSession) {
+      return res.status(403).json({
+        success: false,
+        error: 'Login is not currently available for your organisation. Please contact your administrator.',
+        organisationLoginGateBlocked: true,
+      });
+    }
 
     console.log('[Auth Login] Success for:', email);
     

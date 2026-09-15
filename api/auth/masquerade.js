@@ -1,6 +1,7 @@
 import { getSession, createSession } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
+import { evaluateMemberOrganisationLoginAccess } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -119,6 +120,18 @@ export default async function handler(req, res) {
       if (org?.tenant_id !== tenantId) {
         return res.status(403).json({ error: 'Cannot masquerade as a member from a different tenant' });
       }
+    }
+
+    const organisationAccess = await evaluateMemberOrganisationLoginAccess({
+      supabase,
+      tenantId,
+      member: targetMember,
+    });
+    if (organisationAccess.blocked) {
+      return res.status(403).json({
+        error: organisationAccess.message,
+        organisationLoginGateBlocked: true,
+      });
     }
 
     let adminName = 'Admin';

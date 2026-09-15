@@ -8,7 +8,7 @@ import {
 } from '../../_lib/memberLoginResolver.js';
 import {
   evaluateMemberPortalLoginGate,
-  evaluateOrganisationLoginGate,
+  evaluateMemberOrganisationLoginAccess,
 } from '../../_lib/organisationLoginGate.js';
 import { normalizeInternalReturnTo } from '../../../shared/safeReturnTo.js';
 
@@ -247,18 +247,14 @@ export default async function handler(req, res) {
     // surface a generic "login_disabled" reason — the email/password flow
     // displays the admin-configured copy.
     if (sessionTenantId) {
-      try {
-        const gateResult = await evaluateOrganisationLoginGate({
-          supabase,
-          tenantId: sessionTenantId,
-          organizationId: member.organization_id || null,
-        });
-        if (gateResult.blocked) {
-          console.log('[Google OAuth Callback] Organisation login gate blocked for member:', member.id);
-          return res.redirect(buildErrorRedirect(tenantSlug, 'organisation_login_gate', isProduction));
-        }
-      } catch (gateErr) {
-        console.error('[Google OAuth Callback] Organisation login gate evaluation failed:', gateErr);
+      const gateResult = await evaluateMemberOrganisationLoginAccess({
+        supabase,
+        tenantId: sessionTenantId,
+        member,
+      });
+      if (gateResult.blocked) {
+        console.log('[Google OAuth Callback] Organisation login gate blocked for member:', member.id);
+        return res.redirect(buildErrorRedirect(tenantSlug, 'organisation_login_gate', isProduction));
       }
     }
 
@@ -287,7 +283,7 @@ export default async function handler(req, res) {
 
     const cookieDomain = isProduction ? '.iconn.app' : undefined;
     
-    await createSession(res, {
+    const createdSession = await createSession(res, {
       userType: 'member',
       memberId: member.id,
       memberEmail: member.email,
@@ -296,6 +292,9 @@ export default async function handler(req, res) {
       roleId: member.role_id || null,
       identityId: identityId || null
     }, { cookieDomain, req });
+    if (!createdSession) {
+      return res.redirect(buildErrorRedirect(tenantSlug, 'organisation_login_gate', isProduction));
+    }
 
     const existingCookies = res.getHeader('Set-Cookie');
     const allCookies = Array.isArray(existingCookies) 

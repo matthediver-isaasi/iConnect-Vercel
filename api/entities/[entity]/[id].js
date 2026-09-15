@@ -1,6 +1,14 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
-import { invalidateMemberSessions } from '../../_lib/session.js';
+import {
+  invalidateMemberSessions,
+  invalidateOrganizationMemberSessions,
+  revokeBlockedOrganisationMemberSessionsForTenant,
+} from '../../_lib/session.js';
+import {
+  evaluateEffectiveOrganisationLoginAccess,
+  loadOrganisationLoginGate,
+} from '../../_lib/organisationLoginGate.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
@@ -1030,6 +1038,19 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNormalized === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+      // The organisation member-login kill switch has one audited write path.
+      // Generic entity mutation must never become an unscoped bypass.
+      if (entityNormalized === 'organization' && (
+        Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked')
+        || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_at')
+        || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_by')
+          || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_revocation_generation')
+          || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_revoked_at')
+      )) {
+        return res.status(403).json({
+          error: 'Member login access can only be changed through the organisation login-access endpoint',
+        });
+      }
       if (entityNormalized === 'ieditpage' && sanitizedBody.canvas_design) {
         sanitizedBody.canvas_design = normalizeMemberOnlyFields(sanitizedBody.canvas_design);
       }
@@ -1045,11 +1066,15 @@ export default async function handler(req, res) {
         const targetsInternalEventTypes =
           targetSetting?.setting_key === 'internal_event_types'
           || sanitizedBody.setting_key === 'internal_event_types';
-        if (
-          targetsInternalEventTypes
-          && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))
-        ) {
+        const targetsOrganisationLoginGate =
+          targetSetting?.setting_key === 'organization_login_gate'
+          || sanitizedBody.setting_key === 'organization_login_gate';
+        if (targetsInternalEventTypes
+          && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))) {
           return res.status(403).json({ error: 'Admin access required' });
+        }
+        if (targetsOrganisationLoginGate && !(await hasAdminAccess(tenantCtx))) {
+          return res.status(403).json({ error: 'Administrator access required' });
         }
       }
       const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
@@ -2061,6 +2086,55 @@ export default async function handler(req, res) {
         await invalidateMemberSessions(id);
       }
 
+      // A member moved between organisations must obtain a new session. This
+      // prevents an old session issued under a denied organisation from gaining
+      // access merely because the current assignment later becomes allowed.
+      if (entityNormalized === 'member'
+          && Object.prototype.hasOwnProperty.call(sanitizedBody, 'organization_id')
+          && beforeData?.organization_id !== data?.organization_id) {
+        await invalidateMemberSessions(id);
+      }
+
+      const loginAccessTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+      if (loginAccessTenantId && entityNormalized === 'organization') {
+        const gate = await loadOrganisationLoginGate({ supabase, tenantId: loginAccessTenantId });
+        const changedGateField = gate?.enabled
+          && gate.fieldSource === 'core'
+          && Object.prototype.hasOwnProperty.call(sanitizedBody, gate.fieldKey);
+        if (changedGateField) {
+          const access = await evaluateEffectiveOrganisationLoginAccess({
+            supabase,
+            tenantId: loginAccessTenantId,
+            organizationId: id,
+          });
+          if (access.blocked) {
+            await invalidateOrganizationMemberSessions({ tenantId: loginAccessTenantId, organizationId: id });
+          }
+        }
+      }
+
+      if (loginAccessTenantId && entityNormalized === 'organizationpreferencevalue') {
+        const gate = await loadOrganisationLoginGate({ supabase, tenantId: loginAccessTenantId });
+        if (gate?.enabled && gate.fieldSource === 'custom' && gate.fieldKey === data?.field_id) {
+          const access = await evaluateEffectiveOrganisationLoginAccess({
+            supabase,
+            tenantId: loginAccessTenantId,
+            organizationId: data.organization_id,
+          });
+          if (access.blocked) {
+            await invalidateOrganizationMemberSessions({
+              tenantId: loginAccessTenantId,
+              organizationId: data.organization_id,
+            });
+          }
+        }
+      }
+
+      if (loginAccessTenantId && entityNormalized === 'systemsettings'
+          && (beforeData?.setting_key === 'organization_login_gate' || data?.setting_key === 'organization_login_gate')) {
+        await revokeBlockedOrganisationMemberSessionsForTenant(loginAccessTenantId);
+      }
+
       // Mirror PO edits on Booking / ProgramTicketTransaction into the matching Xero invoice.
       let xeroPoSyncResult = null;
       const isBookingPoUpdate =
@@ -2444,6 +2518,12 @@ export default async function handler(req, res) {
           && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))
         ) {
           return res.status(403).json({ error: 'Admin access required' });
+        }
+        if (
+          targetSetting?.setting_key === 'organization_login_gate'
+          && !(await hasAdminAccess(tenantCtx))
+        ) {
+          return res.status(403).json({ error: 'Administrator access required' });
         }
       }
 

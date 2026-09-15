@@ -103,6 +103,7 @@ import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { adminFetch } from "@/lib/adminFetch";
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import { OrganisationCommercial } from "@/components/sales/SalesReportingWorkspace";
@@ -125,6 +126,35 @@ import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/Cust
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
 };
+
+async function parseOrganisationLoginAccessResponse(response, fallbackMessage) {
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    // The status-specific error below is more useful than a JSON parse error.
+  }
+  if (!response.ok) {
+    const error = new Error(body?.error || body?.message || fallbackMessage);
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body;
+}
+
+function formatLoginAccessActor(updatedBy) {
+  if (!updatedBy) return null;
+  if (typeof updatedBy === 'string') return updatedBy;
+  if (typeof updatedBy !== 'object') return String(updatedBy);
+  return updatedBy.name
+    || updatedBy.full_name
+    || updatedBy.display_name
+    || updatedBy.user_name
+    || updatedBy.email
+    || updatedBy.id
+    || null;
+}
 
 // --- List Field Editor Component for Organisations ---
 // Exported so the organisation-group detail view (Task #3601) can reuse it.
@@ -307,7 +337,8 @@ export default function OrganisationDetailView({
 
   useRealtimeSubscription('organization', [
     ['organizations-crm-paginated'],
-    ['organization-direct', organization?.id]
+    ['organization-direct', organization?.id],
+    ['organization-login-access', organization?.id]
   ], { 
     enabled: realtimeEnabled, 
     tenantId: memberInfo?.tenant_id 
@@ -315,10 +346,24 @@ export default function OrganisationDetailView({
 
   useRealtimeSubscription('organization_preference_value', [
     ['org-detail-preference-values', organization?.id],
-    ['all-org-preference-values-crm']
+    ['all-org-preference-values-crm'],
+    ['organization-login-access', organization?.id]
   ], { 
     enabled: realtimeEnabled && !!organization?.id,
     filter: organization?.id ? `organization_id=eq.${organization.id}` : null
+  });
+
+  // A gate change is tenant-wide, so listen for the system setting rather
+  // than relying on the organisation record to change as well.
+  useRealtimeSubscription('system_settings', [
+    ['organization-login-access', organization?.id]
+  ], {
+    enabled: realtimeEnabled && isAdmin,
+    tenantId: memberInfo?.tenant_id,
+    predicate: (payload) => (
+      payload?.new?.setting_key === 'organization_login_gate'
+      || payload?.old?.setting_key === 'organization_login_gate'
+    )
   });
 
   // Toast + refresh when this organisation is updated by an inbound Zoho sync.
@@ -329,6 +374,7 @@ export default function OrganisationDetailView({
     queryKeysToInvalidate: [
       ['organizations-crm-paginated'],
       ['organization-direct', organization?.id],
+      ['organization-login-access', organization?.id],
       ['org-detail-preference-values', organization?.id],
       ['all-org-preference-values-crm']
     ]
@@ -479,6 +525,114 @@ export default function OrganisationDetailView({
     }
   });
 
+  // Login access is an admin-only view of protected state. Keep its query
+  // disabled until the role has been resolved, and clear the cached state
+  // when the organisation or admin access changes.
+  const [loginAccessDenied, setLoginAccessDenied] = useState(false);
+  const [loginAccessConfirmation, setLoginAccessConfirmation] = useState(null);
+  const loginAccessQueryKey = ['organization-login-access', organization?.id];
+  const loginAccessEnabled = !isNew
+    && !!organization?.id
+    && isAccessReady
+    && isAdmin
+    && !loginAccessDenied;
+
+  useEffect(() => {
+    setLoginAccessDenied(false);
+    setLoginAccessConfirmation(null);
+  }, [organization?.id]);
+
+  useEffect(() => {
+    if (isAdmin && isAccessReady && !isNew && organization?.id) return;
+    setLoginAccessDenied(false);
+    setLoginAccessConfirmation(null);
+    queryClient.removeQueries({ queryKey: loginAccessQueryKey });
+  }, [isAdmin, isAccessReady, isNew, organization?.id, queryClient]);
+
+  const loginAccessQuery = useQuery({
+    queryKey: loginAccessQueryKey,
+    enabled: loginAccessEnabled,
+    queryFn: async () => {
+      const response = await adminFetch(
+        `/api/admin/organizations/${organization.id}/login-access`,
+        { credentials: 'include' }
+      );
+      return parseOrganisationLoginAccessResponse(
+        response,
+        'Failed to load organisation login access'
+      );
+    },
+    retry: (failureCount, error) => (
+      ![401, 403].includes(error?.status) && failureCount < 2
+    ),
+  });
+
+  useEffect(() => {
+    const status = loginAccessQuery.error?.status;
+    if (![401, 403].includes(status)) return;
+
+    // Do not leave a previously fetched manual/effective status visible after
+    // a session or role has lost access to this admin endpoint.
+    setLoginAccessDenied(true);
+    setLoginAccessConfirmation(null);
+    queryClient.removeQueries({ queryKey: loginAccessQueryKey });
+    toast.error('You no longer have permission to view member login access.');
+  }, [loginAccessQuery.error, queryClient, organization?.id]);
+
+  const loginAccessMutation = useMutation({
+    mutationFn: async (manualBlocked) => {
+      const response = await adminFetch(
+        `/api/admin/organizations/${organization.id}/login-access`,
+        {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blocked: !!manualBlocked }),
+        }
+      );
+      return parseOrganisationLoginAccessResponse(
+        response,
+        'Failed to update organisation login access'
+      );
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(loginAccessQueryKey, data);
+      setLoginAccessConfirmation(null);
+
+      if (data?.gateBlocked) {
+        toast.success(
+          data?.manualBlocked
+            ? 'Member login access is blocked. The organisation login gate is also blocking access.'
+            : 'Manual member login block removed, but access remains blocked by the organisation login gate.'
+        );
+      } else if (data?.blocked) {
+        toast.success('Member login access blocked. All linked member cookie and mobile sessions have ended.');
+      } else {
+        toast.success('Member login access restored.');
+      }
+    },
+    onError: (error) => {
+      setLoginAccessConfirmation(null);
+      if ([401, 403].includes(error?.status)) {
+        setLoginAccessDenied(true);
+        setLoginAccessConfirmation(null);
+        queryClient.removeQueries({ queryKey: loginAccessQueryKey });
+        toast.error('You no longer have permission to update member login access.');
+        return;
+      }
+      toast.error(error?.message || 'Failed to update member login access.');
+    },
+  });
+
+  const handleLoginAccessToggle = (manualBlocked) => {
+    if (loginAccessMutation.isPending) return;
+    if (manualBlocked) {
+      setLoginAccessConfirmation(true);
+      return;
+    }
+    loginAccessMutation.mutate(false);
+  };
+
   const { data: tenantGuestAccess = null } = useQuery({
     queryKey: ['tenant-guest-access-settings'],
     queryFn: async () => {
@@ -532,6 +686,7 @@ export default function OrganisationDetailView({
       queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
       toast.success('Guest Access updated');
     },
     onError: (error) => {
@@ -981,6 +1136,7 @@ export default function OrganisationDetailView({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
       toast.success('Organisation updated successfully');
       if (data?._zohoCrmSync) showZohoCrmSyncToast(data._zohoCrmSync);
       setIsEditing(false);
@@ -1047,6 +1203,7 @@ export default function OrganisationDetailView({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['org-detail-preference-values', organization?.id] });
       queryClient.invalidateQueries({ queryKey: ['all-org-preference-values-crm'] });
+      queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
       // Check for pending workflow confirmations
       checkForPendingWorkflows(data);
     }
@@ -2196,6 +2353,122 @@ export default function OrganisationDetailView({
                     </div>
                   </CardContent>
                 </Card>
+
+                {loginAccessEnabled && (
+                  <Card data-testid="card-organisation-login-access">
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-slate-600" />
+                        Member Login Access
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {loginAccessQuery.isPending ? (
+                        <div className="flex items-center gap-2 py-2 text-sm text-slate-500" role="status">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading member login access…
+                        </div>
+                      ) : loginAccessQuery.isError ? (
+                        <div className="space-y-3" role="alert" data-testid="status-organisation-login-access-error">
+                          <p className="text-sm text-red-700">
+                            {loginAccessQuery.error?.message || 'Member login access could not be loaded.'}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => loginAccessQuery.refetch()}
+                            data-testid="button-retry-organisation-login-access"
+                          >
+                            Try again
+                          </Button>
+                        </div>
+                      ) : loginAccessQuery.data ? (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <Label
+                                htmlFor="switch-organisation-login-manual-block"
+                                className="text-sm font-medium cursor-pointer"
+                              >
+                                Block member login access
+                              </Label>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                Controls this organisation&apos;s manual block independently of any organisation login gate.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className={`text-xs ${loginAccessQuery.data.manualBlocked ? 'text-red-600' : 'text-green-600'}`}>
+                                {loginAccessQuery.data.manualBlocked ? 'Blocked manually' : 'Not manually blocked'}
+                              </span>
+                              <Switch
+                                id="switch-organisation-login-manual-block"
+                                checked={!!loginAccessQuery.data.manualBlocked}
+                                onCheckedChange={handleLoginAccessToggle}
+                                disabled={loginAccessMutation.isPending || loginAccessQuery.isFetching}
+                                aria-label="Block member login access for this organisation"
+                                data-testid="switch-organisation-login-manual-block"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2" data-testid="organisation-login-access-effective-status">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-slate-700">Effective member login status</span>
+                              <Badge variant={loginAccessQuery.data.blocked ? 'destructive' : 'default'}>
+                                {loginAccessQuery.data.blocked ? 'Blocked' : 'Allowed'}
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-slate-500 space-y-1">
+                              <p>
+                                Manual block: {loginAccessQuery.data.manualBlocked ? 'on' : 'off'}
+                                {' · '}
+                                Organisation login gate: {loginAccessQuery.data.gateBlocked ? 'blocking' : 'not blocking'}
+                              </p>
+                              {loginAccessQuery.data.gateBlocked && (
+                                <p className="text-amber-700">
+                                  The organisation login gate is blocking access; removing the manual block will not restore member logins.
+                                </p>
+                              )}
+                              {Array.isArray(loginAccessQuery.data.causes) && loginAccessQuery.data.causes.length > 0 && (
+                                <ul className="list-disc pl-4" data-testid="organisation-login-access-causes">
+                                  {loginAccessQuery.data.causes.map((cause, index) => (
+                                    <li key={`${String(cause)}-${index}`}>{String(cause)}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+
+                          {loginAccessMutation.isPending && (
+                            <div className="flex items-center gap-2 text-xs text-slate-500" role="status" data-testid="status-organisation-login-access-pending">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Saving member login access…
+                            </div>
+                          )}
+                          {loginAccessMutation.isError && (
+                            <p className="text-sm text-red-700" role="alert" data-testid="status-organisation-login-access-mutation-error">
+                              {loginAccessMutation.error?.message || 'Member login access could not be updated.'}
+                            </p>
+                          )}
+
+                          {(loginAccessQuery.data.updatedAt || loginAccessQuery.data.updatedBy) && (
+                            <p className="text-xs text-slate-400" data-testid="organisation-login-access-audit">
+                              Last updated
+                              {loginAccessQuery.data.updatedAt ? ` ${formatDate(loginAccessQuery.data.updatedAt)}` : ''}
+                              {formatLoginAccessActor(loginAccessQuery.data.updatedBy)
+                                ? ` by ${formatLoginAccessActor(loginAccessQuery.data.updatedBy)}`
+                                : ''}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-500" role="status">
+                          Member login access is unavailable.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
           </div>
@@ -2915,6 +3188,46 @@ export default function OrganisationDetailView({
                 data-testid="button-confirm-delete-note"
               >
                 Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={!!loginAccessConfirmation}
+          onOpenChange={(open) => {
+            if (!open && !loginAccessMutation.isPending) {
+              setLoginAccessConfirmation(null);
+            }
+          }}
+        >
+          <AlertDialogContent data-testid="dialog-confirm-organisation-login-block">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Block member login access?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will block every member linked to this organisation from logging in.
+                All linked member cookie/mobile sessions will end. Members can only
+                sign in again after access is restored and no organisation login gate is
+                blocking them. This change is recorded in the audit history.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={loginAccessMutation.isPending}
+                data-testid="button-cancel-organisation-login-block"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={loginAccessMutation.isPending}
+                onClick={() => loginAccessMutation.mutate(true)}
+                className="bg-red-600 hover:bg-red-700"
+                data-testid="button-confirm-organisation-login-block"
+              >
+                {loginAccessMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : null}
+                Block member logins
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -2,11 +2,81 @@ import { parse, serialize } from 'cookie';
 import crypto from 'crypto';
 import cookieSignature from 'cookie-signature';
 import { supabase } from './database.js';
+import { evaluateMemberOrganisationLoginAccess } from './organisationLoginGate.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
 
 const SESSION_COOKIE_NAME = 'iconnect.sid';
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+function generation(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+/**
+ * Load the durable member and tenant-gate fences that make revoked sessions
+ * unusable even when best-effort deletion is interrupted. Legacy rows without
+ * a fence remain valid only while the corresponding generation is zero.
+ */
+async function getMemberSessionAccessFence(sessionData) {
+  const access = await evaluateMemberOrganisationLoginAccess({
+    supabase,
+    memberId: sessionData?.memberId,
+    tenantId: sessionData?.tenantId || null,
+  });
+  if (access.blocked) return { allowed: false, access };
+
+  let memberGeneration = 0;
+  const organizationGeneration = generation(access.organizationGeneration);
+  try {
+    const { data: memberFence, error: memberError } = await supabase
+      .from('member_login_session_revocation')
+      .select('generation')
+      .eq('member_id', sessionData.memberId)
+      .maybeSingle();
+    if (memberError) {
+      console.error('[Session] Unable to load member session revocation fence:', memberError);
+      return { allowed: false, access, reason: 'MEMBER_SESSION_FENCE_UNAVAILABLE' };
+    }
+    memberGeneration = generation(memberFence?.generation);
+  } catch (error) {
+    console.error('[Session] Unable to load member session revocation fence:', error);
+    return { allowed: false, access, reason: 'MEMBER_SESSION_FENCE_UNAVAILABLE' };
+  }
+  return {
+    allowed: true,
+    access,
+    memberGeneration,
+    organizationGeneration,
+    gateGeneration: 0,
+    tenantId: access.tenantId || sessionData?.tenantId || null,
+  };
+}
+
+export function isMemberSessionFenceRevoked(sessionData, fence) {
+  return generation(fence?.memberGeneration) > generation(sessionData?.memberLoginGeneration)
+    || generation(fence?.organizationGeneration) > generation(sessionData?.organizationLoginGeneration);
+}
+
+async function applyMemberSessionAccessFence(sessionData) {
+  if (!sessionData?.memberId) return { allowed: true, sessionData };
+  const fence = await getMemberSessionAccessFence(sessionData);
+  if (!fence.allowed) return fence;
+  return {
+    ...fence,
+    allowed: true,
+    sessionData: {
+      ...sessionData,
+      // Persist provenance with the actual session rather than trusting client
+      // state. These values are compared on every request.
+      memberLoginGeneration: fence.memberGeneration,
+      organizationLoginGeneration: fence.organizationGeneration,
+      organisationLoginGateGeneration: fence.gateGeneration,
+      memberLoginAccessTenantId: fence.tenantId,
+    },
+  };
+}
 
 function generateSessionId() {
   return crypto.randomBytes(32).toString('hex');
@@ -115,6 +185,19 @@ export async function getSession(req) {
       console.log('[Session] Bearer token did not resolve to a bearer session, rejecting');
       return null;
     }
+
+    // A session that carries member provenance is a member-derived session,
+    // even if it was later promoted to tenant_user access. Validate the
+    // current member/org state on every authenticated request so a block,
+    // gate change, or reassignment cannot wait for background cleanup.
+    if (sessData?.memberId) {
+      const fence = await getMemberSessionAccessFence(sessData);
+      if (!fence.allowed || isMemberSessionFenceRevoked(sessData, fence)) {
+        console.log('[Session] Member organisation access blocked or revoked, rejecting session:', sessData.memberId, fence.access?.causes);
+        await supabase.from('session').delete().eq('sid', sessionId);
+        return null;
+      }
+    }
     
     console.log('[Session] getSession: Session found, userType:', sessData?.userType);
     
@@ -133,6 +216,13 @@ const PRODUCTION_COOKIE_DOMAIN = '.iconn.app';
 
 export async function createSession(res, sessionData, options = {}) {
   if (!supabase) return null;
+
+  const fenced = await applyMemberSessionAccessFence(sessionData);
+  if (!fenced.allowed) {
+    console.log('[Session] Refusing member-derived session issuance:', sessionData?.memberId, fenced.access?.causes);
+    return null;
+  }
+  const fencedSessionData = fenced.sessionData;
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
@@ -166,7 +256,7 @@ export async function createSession(res, sessionData, options = {}) {
       sameSite: 'lax',
       domain: effectiveDomain
     },
-    ...sessionData
+    ...fencedSessionData
   };
   
   try {
@@ -179,6 +269,17 @@ export async function createSession(res, sessionData, options = {}) {
     if (insertError) {
       console.error('[Session] createSession: Database insert failed:', insertError.message);
       return null;
+    }
+
+    // Close the check/insert race with a second current-state check. Deleting
+    // this freshly issued row makes a concurrent organisation block durable;
+    // a later unblock can never resurrect it.
+    if (fencedSessionData?.memberId) {
+      const currentFence = await getMemberSessionAccessFence(fencedSessionData);
+      if (!currentFence.allowed || isMemberSessionFenceRevoked(fencedSessionData, currentFence)) {
+        await supabase.from('session').delete().eq('sid', sessionId);
+        return null;
+      }
     }
     
     console.log('[Session] createSession: Session inserted into database:', sessionId.substring(0, 8));
@@ -203,7 +304,7 @@ export async function createSession(res, sessionData, options = {}) {
     console.log('[Session] Created session with domain:', effectiveDomain || 'default');
     res.setHeader('Set-Cookie', cookie);
     
-    return { id: sessionId, data: sessionData };
+    return { id: sessionId, data: fencedSessionData };
   } catch (err) {
     console.error('Error creating session:', err);
     return null;
@@ -231,6 +332,10 @@ const BEARER_TOKEN_MAX_AGE = SESSION_MAX_AGE; // 7 days in milliseconds
 export async function createBearerSession(sessionData, options = {}) {
   if (!supabase) return null;
 
+  const fenced = await applyMemberSessionAccessFence(sessionData);
+  if (!fenced.allowed) return null;
+  const fencedSessionData = fenced.sessionData;
+
   const token = crypto.randomBytes(48).toString('hex');
   const maxAge = options.maxAge || BEARER_TOKEN_MAX_AGE;
   const expire = new Date(Date.now() + maxAge);
@@ -244,7 +349,7 @@ export async function createBearerSession(sessionData, options = {}) {
       path: '/',
       sameSite: 'lax'
     },
-    ...sessionData,
+    ...fencedSessionData,
     authMethod: 'bearer'
   };
 
@@ -260,7 +365,15 @@ export async function createBearerSession(sessionData, options = {}) {
       return null;
     }
 
-    console.log('[Session] createBearerSession: Bearer token issued:', token.substring(0, 8), 'userType:', sessionData?.userType);
+    if (fencedSessionData?.memberId) {
+      const currentFence = await getMemberSessionAccessFence(fencedSessionData);
+      if (!currentFence.allowed || isMemberSessionFenceRevoked(fencedSessionData, currentFence)) {
+        await supabase.from('session').delete().eq('sid', token);
+        return null;
+      }
+    }
+
+    console.log('[Session] createBearerSession: Bearer token issued:', token.substring(0, 8), 'userType:', fencedSessionData?.userType);
     return { token, expiresAt: expire.toISOString() };
   } catch (err) {
     console.error('[Session] createBearerSession error:', err);
@@ -310,7 +423,7 @@ export async function updateSession(sessionId, sessionData) {
     console.log('[Session] updateSession: Missing supabase or sessionId');
     return false;
   }
-  
+
   console.log('[Session] updateSession called:', {
     sessionId: sessionId.substring(0, 8),
     userType: sessionData?.userType,
@@ -337,6 +450,33 @@ export async function updateSession(sessionId, sessionData) {
     const existingSess = existing?.sess ? 
       (typeof existing.sess === 'string' ? JSON.parse(existing.sess) : existing.sess) : 
       {};
+
+    // Never restamp an existing member-derived lineage before checking its
+    // persisted generations. A block followed by restore must not let an
+    // in-memory promotion/update turn an old revoked row into a fresh session.
+    if (existingSess?.memberId) {
+      const existingFence = await getMemberSessionAccessFence(existingSess);
+      if (!existingFence.allowed || isMemberSessionFenceRevoked(existingSess, existingFence)) {
+        await supabase.from('session').delete().eq('sid', sessionId);
+        return false;
+      }
+      // Preserve original member provenance even when an update promotes it
+      // to tenant_user or otherwise omits member fields.
+      sessionData = {
+        ...sessionData,
+        memberId: existingSess.memberId,
+        memberLoginGeneration: existingSess.memberLoginGeneration,
+        organizationLoginGeneration: existingSess.organizationLoginGeneration,
+        memberLoginAccessTenantId: existingSess.memberLoginAccessTenantId,
+      };
+    }
+
+    const fenced = await applyMemberSessionAccessFence(sessionData);
+    if (!fenced.allowed) {
+      await supabase.from('session').delete().eq('sid', sessionId);
+      return false;
+    }
+    const fencedSessionData = fenced.sessionData;
     
     const sessObject = {
       cookie: existingSess.cookie || {
@@ -347,7 +487,7 @@ export async function updateSession(sessionId, sessionData) {
         path: '/',
         sameSite: 'lax'
       },
-      ...sessionData
+      ...fencedSessionData
     };
     
     // Update cookie expiry
@@ -390,23 +530,31 @@ export async function updateSession(sessionId, sessionData) {
       null;
     
     // Check if critical fields were persisted
-    const userTypePersisted = verifiedSess?.userType === sessionData?.userType;
-    const preservedIdPersisted = !sessionData?.preservedTenantUserId || 
-      verifiedSess?.preservedTenantUserId === sessionData?.preservedTenantUserId;
+    const userTypePersisted = verifiedSess?.userType === fencedSessionData?.userType;
+    const preservedIdPersisted = !fencedSessionData?.preservedTenantUserId ||
+      verifiedSess?.preservedTenantUserId === fencedSessionData?.preservedTenantUserId;
     const updateSuccessful = userTypePersisted && preservedIdPersisted;
     
     console.log('[Session] updateSession: Verification read:', {
       sessionId: sessionId.substring(0, 8),
       verifiedUserType: verifiedSess?.userType,
-      expectedUserType: sessionData?.userType,
+      expectedUserType: fencedSessionData?.userType,
       verifiedPreservedTenantUserId: verifiedSess?.preservedTenantUserId,
-      expectedPreservedTenantUserId: sessionData?.preservedTenantUserId,
+      expectedPreservedTenantUserId: fencedSessionData?.preservedTenantUserId,
       updateSuccessful
     });
     
     if (!updateSuccessful) {
       console.error('[Session] updateSession: VERIFICATION FAILED - session did not persist correctly');
       return false;
+    }
+
+    if (fencedSessionData?.memberId) {
+      const currentFence = await getMemberSessionAccessFence(fencedSessionData);
+      if (!currentFence.allowed || isMemberSessionFenceRevoked(fencedSessionData, currentFence)) {
+        await supabase.from('session').delete().eq('sid', sessionId);
+        return false;
+      }
     }
     
     return true;
@@ -579,7 +727,12 @@ async function tryPromoteMemberToTenantUser(session, req) {
       promotedFromMember: true
     };
     
-    await updateSession(session.id, upgradedSessionData);
+    const promotionUpdated = await updateSession(session.id, upgradedSessionData);
+    if (!promotionUpdated) {
+      // Do not grant this request an in-memory elevation when the durable
+      // member-provenance fence refused or lost the session update.
+      return null;
+    }
     
     console.log('[Session] Successfully promoted member session to include tenant_user access:', {
       identityId,
@@ -729,7 +882,12 @@ export async function getSessionTenantUser(req) {
       // so user can switch between admin and portal without losing context
     };
     
-    await updateSession(session.id, restoredSessionData);
+    const restorationUpdated = await updateSession(session.id, restoredSessionData);
+    if (!restorationUpdated) {
+      // A blocked/revoked member-derived session must not regain admin access
+      // from its preserved context just because persistence failed.
+      return null;
+    }
     console.log('[Session] Restored admin context from preserved session');
     
     // Now continue with normal tenant_user handling using the restored tenantUserId
@@ -968,57 +1126,173 @@ export async function invalidateMemberSessions(memberId) {
 }
 
 /**
+ * Revoke every member-derived session for an organisation.  Member IDs are
+ * read in pages rather than through a UI/list cap; each deletion is bounded
+ * and includes bearer, cookie, masquerade, and promoted sessions because all
+ * retain memberId provenance in their JSON session payload.
+ */
+export async function invalidateOrganizationMemberSessions({ tenantId, organizationId } = {}) {
+  if (!supabase || !tenantId || !organizationId) {
+    return { success: false, count: 0 };
+  }
+
+  const { data: organization, error: organizationError } = await supabase
+    .from('organization')
+    .select('id')
+    .eq('id', organizationId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (organizationError || !organization) {
+    return { success: false, count: 0 };
+  }
+
+  let offset = 0;
+  let count = 0;
+  let success = true;
+  const pageSize = 200;
+  try {
+    while (true) {
+      const { data: members, error } = await supabase
+        .from('member')
+        .select('id')
+        .eq('organization_id', organizationId)
+        // Legacy member rows may not have tenant_id populated. Include those
+        // only because their linked organisation was verified above; never
+        // revoke an explicitly other-tenant member due to corrupt linkage.
+        .or(`tenant_id.eq.${tenantId},tenant_id.is.null`)
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      if (!members?.length) break;
+
+      // Keep a fixed concurrency bound even for unusually large organisations.
+      for (let index = 0; index < members.length; index += 10) {
+        const results = await Promise.all(
+          members.slice(index, index + 10).map((member) => invalidateMemberSessions(member.id))
+        );
+        count += results.reduce((total, result) => total + (result.count || 0), 0);
+        if (results.some((result) => !result.success)) success = false;
+      }
+      if (members.length < pageSize) break;
+      offset += members.length;
+    }
+    return { success, count };
+  } catch (error) {
+    console.error('[Session] Failed to invalidate organisation member sessions:', error);
+    return { success: false, count };
+  }
+}
+
+/**
+ * Reconcile a tenant after an organisation-login rule changes. This deliberately
+ * does not depend on the normal session list limit: current effective access is
+ * evaluated per organisation/member and only denied member-derived sessions are
+ * removed. Validation in getSession remains the authoritative fail-closed path
+ * if this cleanup is interrupted.
+ */
+export async function revokeBlockedOrganisationMemberSessionsForTenant(tenantId) {
+  if (!supabase || !tenantId) return { success: false, count: 0 };
+  const pageSize = 100;
+  let offset = 0;
+  let count = 0;
+  let success = true;
+  try {
+    while (true) {
+      const { data: organizations, error } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      if (!organizations?.length) break;
+      for (const organization of organizations) {
+        const access = await evaluateMemberOrganisationLoginAccess({
+          supabase,
+          tenantId,
+          member: { id: '__organisation_check__', tenant_id: tenantId, organization_id: organization.id },
+        });
+        if (access.blocked) {
+          const result = await invalidateOrganizationMemberSessions({ tenantId, organizationId: organization.id });
+          count += result.count || 0;
+          if (!result.success) success = false;
+        }
+      }
+      if (organizations.length < pageSize) break;
+      offset += organizations.length;
+    }
+
+    // Explicitly configured gates also apply to members with no organisation.
+    offset = 0;
+    while (true) {
+      const { data: members, error } = await supabase
+        .from('member')
+        .select('id, tenant_id, organization_id')
+        .eq('tenant_id', tenantId)
+        .is('organization_id', null)
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      if (!members?.length) break;
+      for (const member of members) {
+        const access = await evaluateMemberOrganisationLoginAccess({ supabase, tenantId, member });
+        if (access.blocked) {
+          const result = await invalidateMemberSessions(member.id);
+          count += result.count || 0;
+          if (!result.success) success = false;
+        }
+      }
+      if (members.length < pageSize) break;
+      offset += members.length;
+    }
+    return { success, count };
+  } catch (error) {
+    console.error('[Session] Failed to reconcile organisation login sessions:', error);
+    return { success: false, count };
+  }
+}
+
+/**
  * Fallback method using JS filtering if JSONB filter doesn't work
  */
 async function invalidateMemberSessionsFallback(memberId) {
   console.log('[Session] Using fallback method for session invalidation');
   
   try {
-    const { data: sessions, error: fetchError } = await supabase
-      .from('session')
-      .select('sid, sess');
-    
-    if (fetchError) {
-      console.error('[Session] Fallback: Error fetching sessions:', fetchError);
-      return { success: false, count: 0 };
-    }
-    
-    console.log(`[Session] Fallback: Fetched ${sessions?.length || 0} total sessions`);
-    
-    // Filter sessions that belong to this member
-    const memberSessions = (sessions || []).filter(s => {
-      const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
-      const matches = sessData?.memberId === memberId;
-      if (matches) {
-        console.log('[Session] Fallback: Found matching session:', s.sid?.substring(0, 8) + '...');
+    const pageSize = 250;
+    let count = 0;
+    let cursor = null;
+    // Cursor pagination avoids the provider's default row cap and avoids
+    // offset drift while matching rows are deleted.
+    while (true) {
+      let query = supabase
+        .from('session')
+        .select('sid, sess')
+        .order('sid', { ascending: true })
+        .limit(pageSize);
+      if (cursor) query = query.gt('sid', cursor);
+      const { data: sessions, error: fetchError } = await query;
+      if (fetchError) {
+        console.error('[Session] Fallback: Error fetching sessions:', fetchError);
+        return { success: false, count };
       }
-      return matches;
-    });
-    
-    if (memberSessions.length === 0) {
-      console.log('[Session] Fallback: No sessions found for member:', memberId);
-      // Log what memberIds are in the sessions for debugging
-      const allMemberIds = (sessions || []).map(s => {
-        const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
-        return sessData?.memberId;
-      }).filter(Boolean);
-      console.log('[Session] Fallback: MemberIds in sessions:', [...new Set(allMemberIds)]);
-      return { success: true, count: 0 };
+      if (!sessions?.length) break;
+      cursor = sessions[sessions.length - 1].sid;
+
+      const sessionIds = sessions
+        .filter((session) => {
+          const data = typeof session.sess === 'string' ? JSON.parse(session.sess) : session.sess;
+          return data?.memberId === memberId;
+        })
+        .map((session) => session.sid);
+      if (sessionIds.length) {
+        const { error: deleteError } = await supabase.from('session').delete().in('sid', sessionIds);
+        if (deleteError) {
+          console.error('[Session] Fallback: Error deleting sessions:', deleteError);
+          return { success: false, count };
+        }
+        count += sessionIds.length;
+      }
+      if (sessions.length < pageSize) break;
     }
-    
-    const sessionIds = memberSessions.map(s => s.sid);
-    const { error: deleteError } = await supabase
-      .from('session')
-      .delete()
-      .in('sid', sessionIds);
-    
-    if (deleteError) {
-      console.error('[Session] Fallback: Error deleting sessions:', deleteError);
-      return { success: false, count: 0 };
-    }
-    
-    console.log(`[Session] Fallback: Invalidated ${sessionIds.length} session(s) for member:`, memberId);
-    return { success: true, count: sessionIds.length };
+    return { success: true, count };
   } catch (err) {
     console.error('[Session] Fallback: Error:', err);
     return { success: false, count: 0 };
