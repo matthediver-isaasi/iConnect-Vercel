@@ -4086,6 +4086,669 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// DIRECTORY CAROUSEL
+// ============================================================================
+// This intentionally shares the Sponsor Carousel's paging/interaction model,
+// but does not share its data hook: directory records are fetched one bounded
+// page at a time from the public carousel contract. In particular, a random
+// order is seeded once for this mounted block and the seed is reused for every
+// page and responsive resize.
+function DirectoryCarouselDetail({ record, websiteNewTab, showWebsite, asEditor }) {
+  if (!record) return null;
+  const websiteUrl = resolveDirectoryCarouselWebsiteUrl(record.website_url);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <div className="w-16 h-16 shrink-0 rounded-md border border-slate-200 bg-white flex items-center justify-center p-2 overflow-hidden">
+          {record.logo_url ? (
+            <img
+              src={record.logo_url}
+              alt={record.name || ''}
+              className="max-w-full max-h-full object-contain"
+            />
+          ) : (
+            <Building2 className="w-7 h-7 text-slate-300" aria-hidden="true" />
+          )}
+        </div>
+        <div className="min-w-0">
+          {record.name ? (
+            <h3 className="text-lg font-semibold text-slate-900 m-0" data-testid="text-directory-carousel-detail-name">
+              {record.name}
+            </h3>
+          ) : null}
+        </div>
+      </div>
+      {record.description ? (
+        <p className="text-sm text-slate-600 leading-relaxed m-0" data-testid="text-directory-carousel-detail-description">
+          {record.description}
+        </p>
+      ) : null}
+      {showWebsite && websiteUrl ? (
+        <a
+          href={asEditor ? undefined : websiteUrl}
+          target={!asEditor && websiteNewTab ? '_blank' : undefined}
+          rel={!asEditor && websiteNewTab ? 'noopener noreferrer' : undefined}
+          onClick={(event) => { if (asEditor) event.preventDefault(); }}
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+          data-testid="link-directory-carousel-detail-website"
+        >
+          Visit website <ExternalLink className="w-4 h-4" aria-hidden="true" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function DirectoryCarouselCard({
+  record,
+  showDescription,
+  showDetails,
+  showWebsite,
+  nameStyle,
+  descStyle,
+  onClick,
+}) {
+  const websiteUrl = resolveDirectoryCarouselWebsiteUrl(record.website_url);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      data-testid={`button-directory-carousel-${record.id}`}
+      aria-label={showDetails ? `View details for ${record.name || 'organisation'}` : (record.name || 'Organisation')}
+    >
+      <div className="aspect-[16/9] bg-white flex items-center justify-center p-4 border-b border-slate-100">
+        {record.logo_url ? (
+          <img
+            src={record.logo_url}
+            alt={record.name || ''}
+            className="max-w-full max-h-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <Building2 className="w-8 h-8 text-slate-300" aria-hidden="true" />
+        )}
+      </div>
+      <div className="p-3 flex flex-col gap-1">
+        {record.name ? (
+          <div
+            className="text-sm font-semibold text-slate-900"
+            style={nameStyle}
+            data-testid={`text-directory-carousel-name-${record.id}`}
+          >
+            {record.name}
+          </div>
+        ) : null}
+        {showDescription && record.description ? (
+          <div
+            className="text-xs text-slate-500"
+            style={descStyle}
+            data-testid={`text-directory-carousel-description-${record.id}`}
+          >
+            {record.description}
+          </div>
+        ) : null}
+        {showWebsite && websiteUrl ? (
+          <div className="text-xs text-blue-600 inline-flex items-center gap-1">
+            Visit website <ExternalLink className="w-3 h-3" aria-hidden="true" />
+          </div>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const directorySlug = c.directorySlug ? String(c.directorySlug) : '';
+  const randomiseOrder = c.randomiseOrder === true;
+  const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
+  const effBreakpoint = useCarouselBreakpoint(breakpoint);
+  const perView = Math.max(1, Math.floor(resolveResponsiveValue(c.perView, effBreakpoint) ?? 3));
+  const gap = Math.max(0, resolveResponsiveValue(c.gap, effBreakpoint) ?? 16);
+  const padTop = Math.max(0, resolveResponsiveValue(c.innerPaddingTop, effBreakpoint) ?? 16);
+  const padRight = Math.max(0, resolveResponsiveValue(c.innerPaddingRight, effBreakpoint) ?? 32);
+  const padBottom = Math.max(0, resolveResponsiveValue(c.innerPaddingBottom, effBreakpoint) ?? 16);
+  const padLeft = Math.max(0, resolveResponsiveValue(c.innerPaddingLeft, effBreakpoint) ?? 32);
+
+  // Do not create a seed for a non-random carousel. Once random ordering is
+  // enabled, this ref is the mounted-visit seed: it survives page navigation,
+  // responsive breakpoint changes and ordinary block rerenders.
+  const visitSeedRef = useRef(null);
+  if (randomiseOrder && !visitSeedRef.current) {
+    visitSeedRef.current = createDirectoryCarouselVisitSeed();
+  }
+  const visitSeed = randomiseOrder ? visitSeedRef.current : null;
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [direction, setDirection] = useState(1);
+  const [hovered, setHovered] = useState(false);
+  const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const touchStartRef = useRef(null);
+  const pageIdentity = `${directorySlug}|${randomiseOrder ? visitSeed || '' : ''}`;
+  const previousPageIdentityRef = useRef(pageIdentity);
+  const previousPerViewRef = useRef(perView);
+  const pageTotalsRef = useRef(new Map());
+  const identityChanged = previousPageIdentityRef.current !== pageIdentity;
+  const perViewChanged = !identityChanged && previousPerViewRef.current !== perView;
+  const requestPage = identityChanged
+    ? 1
+    : perViewChanged
+      ? Math.max(1, Math.floor(((currentPage - 1) * previousPerViewRef.current) / perView) + 1)
+      : currentPage;
+
+  const { data, isLoading, isFetching, isError, error } = useDirectoryCarouselRecords({
+    directorySlug,
+    page: requestPage,
+    limit: perView,
+    randomiseOrder,
+    seed: visitSeed,
+  });
+
+  // A query library may retain the previous key's data while a new directory
+  // request is pending. Do not render that data under the new directory; the
+  // identity check intentionally permits same-directory resize continuity.
+  const records = !identityChanged && Array.isArray(data?.records) ? data.records : [];
+  // TanStack Query has no data while a new page is settling. Keep the total
+  // for this directory/order identity so the navigation controls do not
+  // briefly collapse to one page and clamp the requested page back to page
+  // one. Values are keyed by identity, so switching directories cannot
+  // display or clamp against the previous directory's total.
+  useEffect(() => {
+    if (data === undefined || isFetching) return;
+    const responseTotal = Number(data?.total);
+    if (Number.isFinite(responseTotal)) {
+      pageTotalsRef.current.set(pageIdentity, Math.max(0, responseTotal));
+    }
+  }, [data, isFetching, pageIdentity]);
+
+  const total = pageTotalsRef.current.has(pageIdentity)
+    ? pageTotalsRef.current.get(pageIdentity)
+    : (!identityChanged && Number.isFinite(Number(data?.total)) ? Math.max(0, Number(data.total)) : 0);
+  const pageSize = !identityChanged && !isFetching && Number.isFinite(Number(data?.pageSize)) && Number(data.pageSize) > 0
+      ? Number(data.pageSize)
+      : perView;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, requestPage), pageCount);
+  const hasMany = pageCount > 1;
+  const transitionStyle = c.transition || 'slide';
+  const transitionMs = Math.max(100, Number(c.transitionMs) || 400);
+  const pauseOnHover = !!c.pauseOnHover;
+
+  // A directory or ordering change starts at its first page. A responsive
+  // per-view change keeps the first item's ordinal approximately fixed by
+  // translating the old server page offset into the new page size.
+  useEffect(() => {
+    const identity = `${directorySlug}|${randomiseOrder ? visitSeed || '' : ''}`;
+    if (previousPageIdentityRef.current !== identity) {
+      previousPageIdentityRef.current = identity;
+      previousPerViewRef.current = perView;
+      setCurrentPage(1);
+      setSelected(null);
+      return;
+    }
+    const previousPerView = previousPerViewRef.current;
+    if (previousPerView !== perView) {
+      previousPerViewRef.current = perView;
+      setCurrentPage((page) => (
+        Math.max(1, Math.floor(((page - 1) * previousPerView) / perView) + 1)
+      ));
+    }
+  }, [directorySlug, randomiseOrder, visitSeed, perView]);
+
+  useEffect(() => {
+    // Do not clamp from the temporary one-page fallback while a new query has
+    // no data. Clamp only after the current response has settled.
+    if (data !== undefined && !isFetching && requestPage > pageCount) {
+      setCurrentPage(pageCount);
+    }
+  }, [data, isFetching, requestPage, pageCount]);
+
+  useEffect(() => {
+    if (asEditor || !c.autoplay || pageCount < 2) return undefined;
+    if (selected) return undefined;
+    if (pauseOnHover && hovered) return undefined;
+    const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
+    const pauseMs = Math.max(ms, 4000);
+    const timer = setInterval(() => {
+      if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setDirection(1);
+      setCurrentPage((page) => (page >= pageCount ? 1 : page + 1));
+    }, ms);
+    return () => clearInterval(timer);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, pauseOnHover, hovered]);
+
+  const goPrev = () => {
+    setDirection(-1);
+    setCurrentPage((page) => (page <= 1 ? pageCount : page - 1));
+  };
+  const goNext = () => {
+    setDirection(1);
+    setCurrentPage((page) => (page >= pageCount ? 1 : page + 1));
+  };
+
+  const handleTouchStart = (event) => {
+    const touch = event.touches && event.touches[0];
+    if (touch) touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const handleTouchEnd = (event) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || !hasMany) return;
+    const touch = event.changedTouches && event.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) goNext(); else goPrev();
+    setAutoplayPausedAt(Date.now());
+  };
+  const handleKeyDown = (event) => {
+    if (!hasMany) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      goPrev();
+      setAutoplayPausedAt(Date.now());
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      goNext();
+      setAutoplayPausedAt(Date.now());
+    }
+  };
+
+  if (!directorySlug) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text="Pick an active organisation directory in the inspector." />;
+  }
+  if (isLoading || (identityChanged && !isError)) {
+    return (
+      <ListSkeleton
+        count={Math.min(perView, 4)}
+        columns={Math.min(perView, 4)}
+        gap={gap}
+      />
+    );
+  }
+  if (isError) {
+    return <ErrorState message={String(error?.message || "Couldn't load directory right now.")} />;
+  }
+  if (total === 0 || records.length === 0) {
+    return <EmptyState icon={Building2} text={c.emptyText || 'No organisations to show yet.'} />;
+  }
+
+  const showArrows = hasMany && c.showArrows !== false;
+  const showIndicators = hasMany && c.showIndicators !== false;
+  const indicatorItems = buildDirectoryCarouselIndicatorItems(pageCount, safePage);
+  const showDescription = c.showDescription !== false;
+  const showDetails = c.showDetails !== false;
+  const showWebsite = c.showWebsite !== false;
+  const centerAlign = c.centerAlign === true;
+  const isForcedPreview = !!breakpoint;
+  const nameFontSize = resolveResponsiveValue(c.nameFontSize, breakpoint);
+  const descFontSize = resolveResponsiveValue(c.descFontSize, breakpoint);
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+  const nameStyle = {};
+  const descStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(nameFontSize)) nameStyle.fontSize = `${nameFontSize}px`;
+    if (Number.isFinite(descFontSize)) descStyle.fontSize = `${descFontSize}px`;
+  } else {
+    const nameVar = cssVar(c.nameFontSize, '--cb-dirc-name-fs');
+    const descVar = cssVar(c.descFontSize, '--cb-dirc-desc-fs');
+    if (nameVar) nameStyle.fontSize = nameVar;
+    if (descVar) descStyle.fontSize = descVar;
+  }
+
+  const openRecord = (record) => {
+    setSelected(record);
+    setAutoplayPausedAt(Date.now());
+  };
+  const pageRecords = centerAlign
+    ? records
+    : perView > 1
+      ? Array.from({ length: perView }, (_, i) => records[i] || null)
+      : records;
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
+
+  return (
+    <div
+      className="relative w-full h-full overflow-hidden flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      aria-label={block.a11y?.ariaLabel || c.title || 'Organisation directory carousel'}
+      data-testid="directory-carousel"
+      role="region"
+      aria-roledescription="carousel"
+      tabIndex={hasMany ? 0 : -1}
+      onTouchStart={hasMany ? handleTouchStart : undefined}
+      onTouchEnd={hasMany ? handleTouchEnd : undefined}
+      onKeyDown={hasMany ? handleKeyDown : undefined}
+      onMouseEnter={pauseOnHover ? () => setHovered(true) : undefined}
+      onMouseLeave={pauseOnHover ? () => setHovered(false) : undefined}
+      style={hasMany ? { touchAction: 'pan-y' } : undefined}
+    >
+      {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
+      <div className="relative flex-1 min-h-0">
+        <CarouselStage
+          transition={transitionStyle}
+          durationMs={transitionMs}
+          direction={direction}
+          slideKey={safePage}
+        >
+          <div
+            className="w-full h-full flex items-stretch"
+            style={{
+              gap: `${gap}px`,
+              paddingTop: padTop,
+              paddingRight: padRight,
+              paddingBottom: padBottom,
+              paddingLeft: padLeft,
+              justifyContent: centerAlign && pageRecords.length < perView ? 'center' : undefined,
+              ...railStyle,
+            }}
+          >
+            {pageRecords.map((record, index) => (
+              <div
+                key={record?.id ?? `empty-${safePage}-${index}`}
+                style={centerAlign ? { flex: `0 0 calc((100% - ${(perView - 1) * gap}px) / ${perView})`, minWidth: 0 } : undefined}
+                className={centerAlign ? undefined : 'flex-1 min-w-0'}
+              >
+                {record ? (
+                  <DirectoryCarouselCard
+                    record={record}
+                    showDescription={showDescription}
+                    showDetails={showDetails}
+                    showWebsite={showWebsite}
+                    nameStyle={nameStyle}
+                    descStyle={descStyle}
+                    onClick={showDetails ? () => openRecord(record) : undefined}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </CarouselStage>
+
+        {showArrows ? (
+          <>
+            <button
+              type="button"
+              onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
+              disabled={isFetching}
+              className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+              style={{ left: Math.max(8, padLeft - 24) }}
+              aria-label="Previous organisations"
+              data-testid="button-directory-carousel-prev"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
+              disabled={isFetching}
+              className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+              style={{ right: Math.max(8, padRight - 24) }}
+              aria-label="Next organisations"
+              data-testid="button-directory-carousel-next"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+
+        <span className="sr-only" role="status" aria-live="polite" data-testid="directory-carousel-page-status">
+          Page {safePage} of {pageCount}
+        </span>
+        {showIndicators ? (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5"
+            style={{ bottom: Math.max(4, padBottom - 8) }}
+            data-testid="directory-carousel-indicators"
+          >
+            {indicatorItems.map((item, itemIndex) => {
+              const pageNumber = item.page;
+              const active = pageNumber === safePage;
+              return (
+                <button
+                  key={`${item.type}-${pageNumber}-${itemIndex}`}
+                  type="button"
+                  onClick={() => {
+                    setDirection(pageNumber >= safePage ? 1 : -1);
+                    setCurrentPage(pageNumber);
+                    setAutoplayPausedAt(Date.now());
+                  }}
+                  disabled={isFetching}
+                  aria-label={item.type === 'ellipsis' ? `Jump to page ${pageNumber}` : `Show page ${pageNumber} of ${pageCount}`}
+                  aria-current={item.type === 'page' && active ? 'page' : undefined}
+                  className={item.type === 'ellipsis'
+                    ? 'min-w-4 h-5 px-0.5 text-xs leading-none text-slate-600 hover:text-slate-900'
+                    : `w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
+                  data-testid={item.type === 'ellipsis'
+                    ? `button-directory-carousel-ellipsis-${itemIndex}`
+                    : `button-directory-carousel-indicator-${itemIndex}`}
+                >
+                  {item.type === 'ellipsis' ? '…' : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+
+      <Dialog open={showDetails && !!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-directory-carousel-detail">
+          <DialogHeader>
+            <DialogTitle>Organisation</DialogTitle>
+            <DialogDescription className="sr-only">Organisation details</DialogDescription>
+          </DialogHeader>
+          <DirectoryCarouselDetail
+            record={selected}
+            websiteNewTab={websiteNewTab}
+            showWebsite={showWebsite}
+            asEditor={asEditor}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function DirectoryCarouselInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <DirectoryPickerField
+        value={c.directorySlug}
+        onChange={(value) => set({ directorySlug: value })}
+        testId="select-directory-carousel-directory"
+        entityType="organization"
+        activeOnly
+      />
+      <TextField
+        label="Heading"
+        value={c.title}
+        onChange={(value) => set({ title: value })}
+        testId="input-directory-carousel-title"
+      />
+      <SelectField
+        label="Heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(value) => set({ headingLevel: Number(value) })}
+        options={[2, 3, 4].map((level) => ({ value: String(level), label: `H${level}` }))}
+        testId="select-directory-carousel-heading-level"
+      />
+      <ResponsiveNumberField
+        label="Items per view"
+        min={1}
+        max={6}
+        step={1}
+        value={c.perView ?? 3}
+        breakpoint={breakpoint}
+        onChange={(value) => set({ perView: value })}
+        testId="input-directory-carousel-per-view"
+        hint="How many organisation cards are shown in one slide. Set separate values on tablet and mobile."
+      />
+      <ResponsiveNumberField
+        label="Gap (px)"
+        min={0}
+        value={c.gap ?? 16}
+        breakpoint={breakpoint}
+        onChange={(value) => set({ gap: value })}
+        testId="input-directory-carousel-gap"
+      />
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Internal padding</Label>
+        <p className="text-xs text-slate-500 mt-0.5">Space between the block background and carousel content, in px. Set separate values per device.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          ['Top', 'innerPaddingTop'],
+          ['Right', 'innerPaddingRight'],
+          ['Bottom', 'innerPaddingBottom'],
+          ['Left', 'innerPaddingLeft'],
+        ].map(([label, key]) => (
+          <ResponsiveNumberField
+            key={key}
+            label={label}
+            min={0}
+            value={c[key]}
+            breakpoint={breakpoint}
+            onChange={(value) => set({ [key]: value })}
+            testId={`input-directory-carousel-${key}`}
+          />
+        ))}
+      </div>
+      <ToggleField
+        label="Show description"
+        value={c.showDescription !== false}
+        onChange={(value) => set({ showDescription: value })}
+        testId="toggle-directory-carousel-description"
+      />
+      <ToggleField
+        label="Show details"
+        value={c.showDetails !== false}
+        onChange={(value) => set({ showDetails: value })}
+        testId="toggle-directory-carousel-details"
+        hint="Let visitors open an organisation card to view its details and website link."
+      />
+      <ToggleField
+        label="Show website link"
+        value={c.showWebsite !== false}
+        onChange={(value) => set({ showWebsite: value })}
+        testId="toggle-directory-carousel-website"
+      />
+      <ToggleField
+        label="Open website in new tab"
+        value={resolveNewTab({ newTab: c.websiteNewTab }, true)}
+        onChange={(value) => set({ websiteNewTab: value })}
+        testId="toggle-directory-carousel-website-new-tab"
+      />
+      <ToggleField
+        label="Randomise order"
+        value={c.randomiseOrder === true}
+        onChange={(value) => set({ randomiseOrder: value === true })}
+        testId="toggle-directory-carousel-randomise-order"
+        hint="Uses one stable random order for this visitor's mounted carousel visit."
+      />
+      <ToggleField
+        label="Autoplay"
+        value={c.autoplay !== false}
+        onChange={(value) => set({ autoplay: value })}
+        testId="toggle-directory-carousel-autoplay"
+      />
+      <NumberField
+        label="Autoplay interval (ms)"
+        min={1500}
+        value={c.autoplayMs || 5000}
+        onChange={(value) => set({ autoplayMs: Math.max(1500, Number(value) || 5000) })}
+        testId="input-directory-carousel-autoplay-ms"
+      />
+      <ToggleField
+        label="Show prev/next arrows"
+        value={c.showArrows !== false}
+        onChange={(value) => set({ showArrows: value })}
+        testId="toggle-directory-carousel-arrows"
+      />
+      <ToggleField
+        label="Show slide indicators"
+        value={c.showIndicators !== false}
+        onChange={(value) => set({ showIndicators: value })}
+        testId="toggle-directory-carousel-indicators"
+      />
+      <SelectField
+        label="Slide transition"
+        value={c.transition || 'slide'}
+        onChange={(value) => set({ transition: value })}
+        options={[
+          { value: 'none', label: 'None' },
+          { value: 'slide', label: 'Slide' },
+          { value: 'fade', label: 'Fade' },
+        ]}
+        testId="select-directory-carousel-transition"
+      />
+      {(c.transition || 'slide') !== 'none' ? (
+        <NumberField
+          label="Transition duration (ms)"
+          min={100}
+          value={c.transitionMs ?? 400}
+          onChange={(value) => set({ transitionMs: Math.max(100, Number(value) || 400) })}
+          testId="input-directory-carousel-transition-ms"
+        />
+      ) : null}
+      <ToggleField
+        label="Pause on hover"
+        value={!!c.pauseOnHover}
+        onChange={(value) => set({ pauseOnHover: value })}
+        testId="toggle-directory-carousel-pause-hover"
+      />
+      <ToggleField
+        label="Center align"
+        value={c.centerAlign === true}
+        onChange={(value) => set({ centerAlign: value })}
+        testId="toggle-directory-carousel-center-align"
+        hint="Centers the last slide when it has fewer organisations than the configured items per view."
+      />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(value) => set({ fullBleed: value })}
+        testId="toggle-directory-carousel-full-bleed"
+      />
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Organisation name</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Name font size (px)"
+        min={1}
+        value={c.nameFontSize}
+        breakpoint={breakpoint}
+        onChange={(value) => set({ nameFontSize: value })}
+        testId="input-directory-carousel-name-font-size"
+      />
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Description</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Description font size (px)"
+        min={1}
+        value={c.descFontSize}
+        breakpoint={breakpoint}
+        onChange={(value) => set({ descFontSize: value })}
+        testId="input-directory-carousel-desc-font-size"
+      />
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(value) => set({ emptyText: value })}
+        testId="input-directory-carousel-empty-text"
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // SHOWCASE CARD SETTINGS (shared by the article/news list and resource
 // showcase blocks — same knobs the old iEdit Showcase exposed)
 // ============================================================================
@@ -6259,9 +6922,127 @@ function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterO
   });
 }
 
-function DirectoryPickerField({ value, onChange, testId, entityType }) {
-  const { data: directories, isLoading } = useQuery({
-    queryKey: ['canvas', 'directory-list', entityType || 'all'],
+// Directory Carousel deliberately uses a different, bounded contract from the
+// full directory embed. The API returns only the requested page of its
+// allow-listed public organisation fields; never fetch all directory records
+// to sort or randomise them in the browser.
+export function createDirectoryCarouselVisitSeed() {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint32Array(2);
+    globalThis.crypto.getRandomValues(bytes);
+    return `${bytes[0].toString(36)}-${bytes[1].toString(36)}`;
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function buildDirectoryCarouselQuery({ directorySlug, tenant, page = 1, limit, randomiseOrder = false, seed } = {}) {
+  const params = new URLSearchParams();
+  params.set('mode', 'carousel');
+  if (tenant) params.set('tenant', tenant);
+  params.set('slug', String(directorySlug || ''));
+  params.set('page', String(Math.max(1, Number(page) || 1)));
+  params.set('limit', String(Math.max(1, Math.min(Number(limit) || 1, 50))));
+  if (randomiseOrder && seed) params.set('seed', String(seed));
+  return params;
+}
+
+// Directory carousel indicator helper.
+// A directory may have hundreds or thousands of server pages. Rendering one
+// indicator per page makes the controls overflow and creates an enormous
+// keyboard tab sequence, so keep the first/last pages and a small window near
+// the current page. Ellipses are buttons (rather than inert text) so keyboard
+// users can jump across a collapsed range.
+export function buildDirectoryCarouselIndicatorItems(pageCount, currentPage, maxItems = 7) {
+  const total = Math.max(1, Math.floor(Number(pageCount) || 1));
+  const current = Math.min(total, Math.max(1, Math.floor(Number(currentPage) || 1)));
+  let max = Math.max(5, Math.floor(Number(maxItems) || 7));
+  // Keep the window symmetric around the current page when possible.
+  if (max % 2 === 0) max -= 1;
+  if (total <= max) {
+    return Array.from({ length: total }, (_, index) => ({ type: 'page', page: index + 1 }));
+  }
+
+  const items = [];
+  const page = (pageNumber) => items.push({ type: 'page', page: pageNumber });
+  const ellipsis = (jumpPage) => items.push({ type: 'ellipsis', page: jumpPage });
+  const edgePageCount = max - 2;
+  if (current <= edgePageCount - 1) {
+    for (let pageNumber = 1; pageNumber <= edgePageCount; pageNumber += 1) page(pageNumber);
+    ellipsis(total - 1);
+    page(total);
+    return items;
+  }
+  if (current >= total - edgePageCount + 2) {
+    page(1);
+    ellipsis(2);
+    for (let pageNumber = total - edgePageCount + 1; pageNumber <= total; pageNumber += 1) page(pageNumber);
+    return items;
+  }
+  const radius = Math.floor((max - 4) / 2);
+  page(1);
+  ellipsis(current - radius - 1);
+  for (let pageNumber = current - radius; pageNumber <= current + radius; pageNumber += 1) page(pageNumber);
+  ellipsis(current + radius + 1);
+  page(total);
+  return items;
+}
+
+// Directory data is tenant-controlled, but website_url is still untrusted
+// display data. Only absolute HTTP(S) URLs are valid link targets; in
+// particular, never pass javascript:, data: or protocol-relative values to an
+// href.
+export function resolveDirectoryCarouselWebsiteUrl(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+function useDirectoryCarouselRecords({ directorySlug, page, limit, randomiseOrder, seed, enabled }) {
+  const tenant = publicClient.getTenantSlug();
+  const query = buildDirectoryCarouselQuery({
+    directorySlug,
+    tenant,
+    page,
+    limit,
+    randomiseOrder,
+    seed,
+  });
+  return useQuery({
+    queryKey: [
+      'canvas',
+      'public-dynamic-directory-carousel',
+      tenant || '',
+      directorySlug || '',
+      Math.max(1, Number(page) || 1),
+      Math.max(1, Math.min(Number(limit) || 1, 50)),
+      randomiseOrder ? String(seed || '') : '',
+    ],
+    queryFn: async () => {
+      const res = await fetch(`/api/public/dynamic-directory?${query.toString()}`, { credentials: 'include' });
+      if (!res.ok) {
+        let message = 'Directory carousel fetch failed';
+        try {
+          const body = await res.json();
+          if (body?.error) message = body.error;
+        } catch {}
+        throw new Error(message);
+      }
+      return res.json();
+    },
+    enabled: !!directorySlug && enabled !== false,
+    staleTime: 60_000,
+  });
+}
+
+function DirectoryPickerField({ value, onChange, testId, entityType, activeOnly = false }) {
+  const { data: directories, isLoading, isError } = useQuery({
+    queryKey: ['canvas', 'directory-list', entityType || 'all', activeOnly ? 'active' : 'all'],
     queryFn: async () => {
       try {
         const dirs = await base44.entities.DynamicDirectory.list({ limit: 100 });
@@ -6272,15 +7053,25 @@ function DirectoryPickerField({ value, onChange, testId, entityType }) {
     },
     staleTime: 60_000,
   });
-  const filtered = (directories || []).filter((d) => !entityType || d.entity_type === entityType);
+  const filtered = (directories || [])
+    .filter((d) => !entityType || d.entity_type === entityType)
+    // The carousel is a public presentation block. Inactive directory
+    // configurations must never be selectable for it, while the existing
+    // directory embed keeps its legacy all-directories picker behaviour.
+    .filter((d) => !activeOnly || d.is_active === true);
   const options = filtered.map((d) => ({ value: d.slug, label: d.name || d.slug }));
   return (
-    <Field label="Directory" hint={isLoading ? 'Loading directories…' : null}>
+    <Field
+      label="Directory"
+      hint={isLoading ? 'Loading directories…' : isError ? 'Directories could not be loaded.' : null}
+    >
       <Select value={value || ''} onValueChange={onChange}>
         <SelectTrigger className="h-8" data-testid={testId}><SelectValue placeholder="Select a directory" /></SelectTrigger>
         <SelectContent>
           {options.length === 0 ? (
-            <SelectItem value="__none__" disabled>No directories configured</SelectItem>
+            <SelectItem value="__none__" disabled>
+              {activeOnly ? 'No active organisation directories' : 'No directories configured'}
+            </SelectItem>
           ) : options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
         </SelectContent>
       </Select>
@@ -8722,6 +9513,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <SponsorCarouselRender {...props} asEditor />,
     Renderer: SponsorCarouselRender,
     Inspector: SponsorCarouselInspector,
+  },
+  [BLOCK_TYPES.DIRECTORY_CAROUSEL]: {
+    label: 'Directory carousel',
+    icon: Building2,
+    category: 'data',
+    Editor: (props) => <DirectoryCarouselRender {...props} asEditor />,
+    Renderer: DirectoryCarouselRender,
+    Inspector: DirectoryCarouselInspector,
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
     label: 'Article / news list',

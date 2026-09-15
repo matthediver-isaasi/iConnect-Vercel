@@ -198,6 +198,7 @@ export const BLOCK_TYPES = {
   SPEAKER_GRID: 'speaker-grid',
   SPONSOR_GRID: 'sponsor-grid',
   SPONSOR_CAROUSEL: 'sponsor-carousel',
+  DIRECTORY_CAROUSEL: 'directory-carousel',
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
   RESOURCE_SHOWCASE: 'resource-showcase',
@@ -302,6 +303,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.TESTIMONIAL_GRID,
   BLOCK_TYPES.FORM_EMBED,
   BLOCK_TYPES.SPONSOR_CAROUSEL,
+  BLOCK_TYPES.DIRECTORY_CAROUSEL,
   BLOCK_TYPES.IMAGE,
   BLOCK_TYPES.FEATURED_JOB,
 ]);
@@ -1486,6 +1488,39 @@ export const BLOCK_DEFAULTS = {
       emptyCatMessage: '',
       emptyCatCtaLabel: '',
       emptyCatCtaHref: '',
+    },
+  },
+  [BLOCK_TYPES.DIRECTORY_CAROUSEL]: {
+    name: 'Directory carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      directorySlug: '',
+      title: '',
+      headingLevel: 2,
+      perView: 3,
+      gap: 16,
+      innerPaddingTop: 16,
+      innerPaddingRight: 32,
+      innerPaddingBottom: 16,
+      innerPaddingLeft: 32,
+      showDescription: true,
+      showDetails: true,
+      showWebsite: true,
+      websiteNewTab: true,
+      randomiseOrder: false,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      transition: 'slide',
+      transitionMs: 400,
+      pauseOnHover: false,
+      centerAlign: false,
+      fullBleed: false,
+      nameFontSize: null,
+      descFontSize: null,
+      emptyText: 'No organisations to show yet.',
     },
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
@@ -3838,6 +3873,9 @@ export function validateBlock(block) {
     case BLOCK_TYPES.SPONSOR_CAROUSEL:
       if (!c.eventId) errors.push('Sponsor carousel requires an event.');
       break;
+    case BLOCK_TYPES.DIRECTORY_CAROUSEL:
+      if (!c.directorySlug) errors.push('Directory carousel requires an organisation directory.');
+      break;
     case BLOCK_TYPES.FORM_EMBED:
       if (!c.formSlug) errors.push('Form embed requires a form.');
       break;
@@ -4486,6 +4524,10 @@ const RESPONSIVE_VAR_FIELDS = {
   [BLOCK_TYPES.SPONSOR_CAROUSEL]: [
     { contentKey: 'nameFontSize', varName: '--cb-spc-name-fs', unit: 'px' },
     { contentKey: 'descFontSize', varName: '--cb-spc-desc-fs', unit: 'px' },
+  ],
+  [BLOCK_TYPES.DIRECTORY_CAROUSEL]: [
+    { contentKey: 'nameFontSize', varName: '--cb-dirc-name-fs', unit: 'px' },
+    { contentKey: 'descFontSize', varName: '--cb-dirc-desc-fs', unit: 'px' },
   ],
   [BLOCK_TYPES.ICON]: [
     { contentKey: 'size', varName: '--cb-icon-size', unit: 'px' },
