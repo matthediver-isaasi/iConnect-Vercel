@@ -50,6 +50,26 @@ export async function checkBudgetReportAccess(req, res) {
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+export function normalizeInternalEventTypeFilter(value) {
+  const values = Array.isArray(value) ? value : value == null ? [] : [value];
+  const seen = new Set();
+  return values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || item.length > 200 || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    })
+    .slice(0, 100);
+}
+
+export function filterEventsByInternalType(events, selectedTypes) {
+  if (!selectedTypes.length) return events;
+  const selected = new Set(selectedTypes);
+  return events.filter((event) => selected.has(event.internal_event_type));
+}
+
 // Paginate defensively past PostgREST's 1000-row cap (ordered by id).
 async function fetchAllPaged(buildQuery) {
   const pageSize = 1000;
@@ -84,20 +104,21 @@ export default async function handler(req, res) {
   if (!tenantCtx) return;
   const tenantId = tenantCtx.tenantId;
 
-  const { eventDateFrom, eventDateTo } = req.query;
+  const { eventDateFrom, eventDateTo, internalEventType } = req.query;
+  const internalEventTypes = normalizeInternalEventTypeFilter(internalEventType);
 
   try {
     // ---- Events (simple) — budgeted columns may not exist yet in some DBs.
     let { data: regularEvents, error: eventsError } = await supabase
       .from('event')
-      .select('id, title, start_date, status, internal_reference, is_complex, pricing_config, is_unlimited_tickets, budgeted_income, budgeted_costs')
+      .select('id, title, start_date, status, internal_reference, internal_event_type, is_complex, pricing_config, is_unlimited_tickets, budgeted_income, budgeted_costs')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
     if (eventsError && /budgeted|is_unlimited_tickets/i.test(eventsError.message || '')) {
       console.warn('[Event Budget Report] event budget columns unavailable, retrying without them');
       const fallback = await supabase
         .from('event')
-        .select('id, title, start_date, status, internal_reference, is_complex, pricing_config')
+        .select('id, title, start_date, status, internal_reference, internal_event_type, is_complex, pricing_config')
         .eq('tenant_id', tenantId)
         .order('start_date', { ascending: false });
       regularEvents = fallback.data;
@@ -111,14 +132,14 @@ export default async function handler(req, res) {
     // ---- Complex events — internal_reference / budgeted columns drop-and-retry.
     let { data: complexEvents, error: complexError } = await supabase
       .from('complex_event')
-      .select('id, title, start_date, status, internal_reference, budgeted_income, budgeted_costs')
+      .select('id, title, start_date, status, internal_reference, internal_event_type, budgeted_income, budgeted_costs')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
     if (complexError && /budgeted|internal_reference/i.test(complexError.message || '')) {
       console.warn('[Event Budget Report] complex_event columns unavailable, retrying reduced select');
       const fallback = await supabase
         .from('complex_event')
-        .select('id, title, start_date, status')
+        .select('id, title, start_date, status, internal_event_type')
         .eq('tenant_id', tenantId)
         .order('start_date', { ascending: false });
       complexEvents = fallback.data;
@@ -133,6 +154,8 @@ export default async function handler(req, res) {
     // Event Registration Report.
     regularEvents = (regularEvents || []).filter((e) => e.status !== 'tbc');
     complexEvents = (complexEvents || []).filter((e) => e.status !== 'tbc');
+    regularEvents = filterEventsByInternalType(regularEvents, internalEventTypes);
+    complexEvents = filterEventsByInternalType(complexEvents, internalEventTypes);
 
     // ---- Event start-date range filter (whole days, inclusive).
     // Simple events use event.start_date; complex events use the earliest

@@ -13,6 +13,7 @@ export default function MultiSelectFilter({
   placeholder,
   className,
   "data-testid": testId,
+  ...buttonProps
 }) {
   const [open, setOpen] = useState(false);
 
@@ -48,6 +49,7 @@ export default function MultiSelectFilter({
             className
           )}
           data-testid={testId}
+          {...buttonProps}
         >
           <span className="truncate">{triggerLabel}</span>
           <div className="flex items-center gap-1 ml-1 shrink-0">

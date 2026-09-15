@@ -10,6 +10,9 @@ import { Download, Calendar, Loader2, Receipt, Banknote, Ticket, Users, Building
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
+import { buildEventBudgetReportParams, clearEventBudgetReportFilters } from "@/lib/eventBudgetReportFilters";
 import { toast } from "sonner";
 
 function money(v) {
@@ -213,8 +216,10 @@ export default function EventBudgetReport() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [selectedInternalEventTypes, setSelectedInternalEventTypes] = useState([]);
   const [appliedFilters, setAppliedFilters] = useState(null);
   const [costLinesTarget, setCostLinesTarget] = useState(null);
+  const { internalEventTypes, isLoading: internalEventTypesLoading } = useInternalEventTypes();
 
   useEffect(() => {
     if (isAccessReady) {
@@ -229,9 +234,7 @@ export default function EventBudgetReport() {
   const { data: reportData, isLoading, isFetching } = useQuery({
     queryKey: ["event-budget-report", appliedFilters],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (appliedFilters?.dateFrom) params.set("eventDateFrom", appliedFilters.dateFrom);
-      if (appliedFilters?.dateTo) params.set("eventDateTo", appliedFilters.dateTo);
+      const params = buildEventBudgetReportParams(appliedFilters);
       const response = await fetch(`/api/reports/event-budget-report?${params.toString()}`, { credentials: "include" });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -328,8 +331,20 @@ export default function EventBudgetReport() {
             <Label htmlFor="budget-date-to" className="text-xs">Events starting to</Label>
             <Input id="budget-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} data-testid="input-event-date-to" />
           </div>
+          <div className="space-y-1 min-w-[240px]">
+            <Label id="budget-internal-event-types-label" className="text-xs">Internal Event Type</Label>
+            <MultiSelectFilter
+              options={internalEventTypes.map((type) => ({ value: type, label: type }))}
+              selected={selectedInternalEventTypes}
+              onChange={setSelectedInternalEventTypes}
+              placeholder={internalEventTypesLoading ? "Loading event types…" : "All internal event types"}
+              className="w-full"
+              aria-labelledby="budget-internal-event-types-label"
+              data-testid="filter-internal-event-types"
+            />
+          </div>
           <Button
-            onClick={() => setAppliedFilters({ dateFrom, dateTo })}
+            onClick={() => setAppliedFilters({ dateFrom, dateTo, internalEventTypes: selectedInternalEventTypes })}
             disabled={isFetching}
             data-testid="button-generate-report"
           >
@@ -339,10 +354,16 @@ export default function EventBudgetReport() {
           {appliedFilters && (
             <Button
               variant="ghost"
-              onClick={() => { setDateFrom(""); setDateTo(""); setAppliedFilters({ dateFrom: "", dateTo: "" }); }}
+              onClick={() => {
+                const cleared = clearEventBudgetReportFilters();
+                setDateFrom(cleared.dateFrom);
+                setDateTo(cleared.dateTo);
+                setSelectedInternalEventTypes(cleared.internalEventTypes);
+                setAppliedFilters(cleared);
+              }}
               data-testid="button-clear-filters"
             >
-              Clear dates
+              Clear filters
             </Button>
           )}
         </CardContent>
