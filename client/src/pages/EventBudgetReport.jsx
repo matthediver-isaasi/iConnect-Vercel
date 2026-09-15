@@ -13,6 +13,17 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { buildEventBudgetReportParams, clearEventBudgetReportFilters } from "@/lib/eventBudgetReportFilters";
+import { adminFetch } from "@/lib/adminFetch";
+import {
+  getActiveTenantId,
+  setActiveTenantId as setGlobalActiveTenantId,
+  subscribeToActiveTenantId,
+} from "@/api/base44Client";
+import {
+  eventBudgetErrorMessage,
+  normalizeEventBudgetError,
+  readEventBudgetResponse,
+} from "@/lib/eventBudgetReportApi";
 import { toast } from "sonner";
 
 function money(v) {
@@ -41,30 +52,64 @@ function SummaryCard({ label, value, icon: Icon, tone, testId }) {
   );
 }
 
+function assertTenantContext(expectedTenantKey) {
+  const currentTenantKey = getActiveTenantId();
+  if (expectedTenantKey && currentTenantKey && expectedTenantKey !== currentTenantKey) {
+    const error = new Error(eventBudgetErrorMessage({ status: 409 }, "operate on this report"));
+    error.status = 409;
+    error.code = "TENANT_CONTEXT_CHANGED";
+    throw error;
+  }
+}
+
+function assertCostLineTargetContext(target, tenantContextRevision) {
+  if (target?.tenantContextRevision !== tenantContextRevision) {
+    const error = new Error(eventBudgetErrorMessage({ status: 409 }, "operate on this report"));
+    error.status = 409;
+    error.code = "TENANT_CONTEXT_CHANGED";
+    throw error;
+  }
+}
+
 // Inline dialog to view/add actual cost lines for an event (event_cost_line entity),
 // so ad-hoc actuals like venue hire can be captured straight from the report.
-function CostLinesDialog({ target, onClose, onChanged }) {
+function CostLinesDialog({ target, tenantKey, tenantContextRevision, onClose, onChanged }) {
   const queryClient = useQueryClient();
   const [newLine, setNewLine] = useState({ description: "", cost_type: "", quantity: "1", unit_cost: "" });
   const [saving, setSaving] = useState(false);
   const eventId = target?.event_id;
   const eventKind = target?.event_kind;
-  const linesQueryKey = ["event-cost-lines", eventKind, eventId];
+  const linesQueryKey = ["event-cost-lines", tenantKey, tenantContextRevision, eventKind, eventId];
 
-  const { data: costLines = [], isLoading } = useQuery({
+  const {
+    data: costLinesData,
+    isLoading,
+    isFetching,
+    isError,
+    error: costLinesError,
+    refetch: refetchCostLines,
+  } = useQuery({
     queryKey: linesQueryKey,
     queryFn: async () => {
+      assertCostLineTargetContext(target, tenantContextRevision);
+      assertTenantContext(tenantKey);
       const params = new URLSearchParams({ event_id: eventId, event_kind: eventKind });
-      const response = await fetch(`/api/reports/event-budget-report-cost-lines?${params.toString()}`, { credentials: "include" });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to load cost lines");
+      try {
+        const response = await adminFetch(`/api/reports/event-budget-report-cost-lines?${params.toString()}`, {
+          credentials: "include",
+        });
+        return (await readEventBudgetResponse(response, "load cost lines")).costLines || [];
+      } catch (error) {
+        throw normalizeEventBudgetError(error, "load cost lines");
       }
-      const data = await response.json();
-      return data.costLines || [];
     },
-    enabled: !!eventId,
+    enabled: !!eventId && !!tenantKey,
+    retry: false,
   });
+  // React Query retains the last successful value while a refetch fails. Do
+  // not display that value after a failed request: it may belong to another
+  // tenant or an earlier report context.
+  const costLines = isError ? [] : (costLinesData || []);
 
   const total = useMemo(
     () => costLines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_cost) || 0), 0),
@@ -78,7 +123,9 @@ function CostLinesDialog({ target, onClose, onChanged }) {
     }
     setSaving(true);
     try {
-      const response = await fetch(`/api/reports/event-budget-report-cost-lines`, {
+      assertCostLineTargetContext(target, tenantContextRevision);
+      assertTenantContext(tenantKey);
+      const response = await adminFetch(`/api/reports/event-budget-report-cost-lines`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -91,16 +138,14 @@ function CostLinesDialog({ target, onClose, onChanged }) {
           unit_cost: Number(newLine.unit_cost) || 0,
         }),
       });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to add cost line");
-      }
+      await readEventBudgetResponse(response, "add a cost line");
       setNewLine({ description: "", cost_type: "", quantity: "1", unit_cost: "" });
       await queryClient.invalidateQueries({ queryKey: linesQueryKey });
       onChanged?.();
       toast.success("Cost line added");
     } catch (error) {
-      toast.error("Failed to add cost line: " + (error.message || "Unknown error"));
+      const actionableError = normalizeEventBudgetError(error, "add a cost line");
+      toast.error(actionableError.message);
     } finally {
       setSaving(false);
     }
@@ -108,18 +153,18 @@ function CostLinesDialog({ target, onClose, onChanged }) {
 
   const deleteLine = async (lineId) => {
     try {
-      const response = await fetch(`/api/reports/event-budget-report-cost-lines?id=${encodeURIComponent(lineId)}`, {
+      assertCostLineTargetContext(target, tenantContextRevision);
+      assertTenantContext(tenantKey);
+      const response = await adminFetch(`/api/reports/event-budget-report-cost-lines?id=${encodeURIComponent(lineId)}`, {
         method: "DELETE",
         credentials: "include",
       });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to delete cost line");
-      }
+      await readEventBudgetResponse(response, "delete a cost line");
       await queryClient.invalidateQueries({ queryKey: linesQueryKey });
       onChanged?.();
     } catch (error) {
-      toast.error("Failed to delete cost line: " + (error.message || "Unknown error"));
+      const actionableError = normalizeEventBudgetError(error, "delete a cost line");
+      toast.error(actionableError.message);
     }
   };
 
@@ -135,6 +180,21 @@ function CostLinesDialog({ target, onClose, onChanged }) {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading cost lines…
+          </div>
+        ) : isError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert" data-testid="text-cost-lines-error">
+            <p>{costLinesError?.message || eventBudgetErrorMessage(null, "load cost lines")}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={() => refetchCostLines()}
+              disabled={isFetching}
+              data-testid="button-retry-cost-lines"
+            >
+              {isFetching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Retry
+            </Button>
           </div>
         ) : (
           <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -211,15 +271,54 @@ function CostLinesDialog({ target, onClose, onChanged }) {
 }
 
 export default function EventBudgetReport() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const {
+    memberInfo,
+    organizationInfo,
+    authResolved,
+    sessionValidated,
+    isFeatureExcluded,
+    isAccessReady,
+  } = useMemberAccess();
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
+  const [activeTenantId, setActiveTenantIdState] = useState(() => getActiveTenantId());
+  const [tenantContextRevision, setTenantContextRevision] = useState(0);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedInternalEventTypes, setSelectedInternalEventTypes] = useState([]);
   const [appliedFilters, setAppliedFilters] = useState(null);
   const [costLinesTarget, setCostLinesTarget] = useState(null);
   const { internalEventTypes, isLoading: internalEventTypesLoading } = useInternalEventTypes();
+  const tenantKey = activeTenantId || memberInfo?.tenant_id || organizationInfo?.tenant_id || null;
+  const reportReady = Boolean(
+    accessChecked
+    && isAccessReady
+    && authResolved
+    && sessionValidated
+    && tenantKey,
+  );
+
+  useEffect(() => {
+    const syncTenant = () => setActiveTenantIdState(getActiveTenantId());
+    syncTenant();
+    return subscribeToActiveTenantId((nextTenantId) => {
+      setActiveTenantIdState(nextTenantId);
+      setTenantContextRevision((revision) => revision + 1);
+    });
+  }, []);
+
+  // The standalone portal route can be reached by a member-admin without
+  // mounting AdminDashboard (the usual place that establishes the global
+  // tenant singleton). Once Layout has validated this member with the server,
+  // their tenant id is safe to use as the transport context and query scope.
+  // Never hydrate it from localStorage before auth validation: that could
+  // resurrect a stale tenant in a different session.
+  useEffect(() => {
+    if (authResolved && sessionValidated && !getActiveTenantId()) {
+      const authenticatedTenantId = memberInfo?.tenant_id || organizationInfo?.tenant_id;
+      if (authenticatedTenantId) setGlobalActiveTenantId(authenticatedTenantId);
+    }
+  }, [authResolved, sessionValidated, memberInfo?.tenant_id, organizationInfo?.tenant_id]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -231,26 +330,56 @@ export default function EventBudgetReport() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: reportData, isLoading, isFetching } = useQuery({
-    queryKey: ["event-budget-report", appliedFilters],
+  useEffect(() => {
+    // Closing the dialog on a tenant change prevents a stale row's event id
+    // from being reused against the newly active organisation.
+    setCostLinesTarget((previous) => {
+      if (
+        !previous
+        || (
+          previous.tenantKey === tenantKey
+          && previous.tenantContextRevision === tenantContextRevision
+        )
+      ) return previous;
+      return null;
+    });
+  }, [tenantKey, tenantContextRevision]);
+
+  const {
+    data: reportData,
+    isLoading,
+    isFetching,
+    isError,
+    error: reportError,
+    refetch: refetchReportQuery,
+  } = useQuery({
+    queryKey: ["event-budget-report", tenantKey, tenantContextRevision, appliedFilters],
     queryFn: async () => {
+      assertTenantContext(tenantKey);
       const params = buildEventBudgetReportParams(appliedFilters);
-      const response = await fetch(`/api/reports/event-budget-report?${params.toString()}`, { credentials: "include" });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to fetch report data");
+      try {
+        const response = await adminFetch(`/api/reports/event-budget-report?${params.toString()}`, {
+          credentials: "include",
+        });
+        return await readEventBudgetResponse(response, "load the Event Budget Report");
+      } catch (error) {
+        throw normalizeEventBudgetError(error, "load the Event Budget Report");
       }
-      return response.json();
     },
-    enabled: !!appliedFilters,
+    enabled: reportReady && !!appliedFilters,
     staleTime: 0,
     refetchOnMount: true,
+    retry: false,
   });
 
-  const rows = reportData?.rows || [];
-  const totals = reportData?.totals || null;
+  // React Query can retain data from a successful run when a refetch fails.
+  // Hide it (including CSV export) until the current request succeeds again.
+  const rows = !reportReady || isError ? [] : (reportData?.rows || []);
+  const totals = !reportReady || isError ? null : (reportData?.totals || null);
 
-  const refetchReport = () => queryClient.invalidateQueries({ queryKey: ["event-budget-report", appliedFilters] });
+  const refetchReport = () => queryClient.invalidateQueries({
+    queryKey: ["event-budget-report", tenantKey, tenantContextRevision, appliedFilters],
+  });
 
   const exportCsv = () => {
     if (rows.length === 0) {
@@ -345,7 +474,7 @@ export default function EventBudgetReport() {
           </div>
           <Button
             onClick={() => setAppliedFilters({ dateFrom, dateTo, internalEventTypes: selectedInternalEventTypes })}
-            disabled={isFetching}
+            disabled={!reportReady || isFetching}
             data-testid="button-generate-report"
           >
             {isFetching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
@@ -375,7 +504,26 @@ export default function EventBudgetReport() {
         </div>
       )}
 
-      {totals && !isLoading && (
+      {appliedFilters && isError && !isLoading && (
+        <Card className="border-red-200 bg-red-50" role="alert" data-testid="text-report-error">
+          <CardContent className="py-5 text-sm text-red-800">
+            <p>{reportError?.message || eventBudgetErrorMessage(null, "load the Event Budget Report")}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={() => refetchReportQuery()}
+              disabled={isFetching}
+              data-testid="button-retry-report"
+            >
+              {isFetching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {totals && !isLoading && !isError && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <SummaryCard label="Actual Income" value={money(totals.actual_income)} icon={Banknote} testId="card-total-actual-income" />
@@ -446,7 +594,16 @@ export default function EventBudgetReport() {
                       <td className="px-3 py-2 text-right">{r.attendees}</td>
                       <td className="px-3 py-2 text-right">{r.organisations}</td>
                       <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="outline" onClick={() => setCostLinesTarget(r)} data-testid={`button-cost-lines-${r.event_id}`}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setCostLinesTarget({
+                            ...r,
+                            tenantKey,
+                            tenantContextRevision,
+                          })}
+                          data-testid={`button-cost-lines-${r.event_id}`}
+                        >
                           Costs
                         </Button>
                       </td>
@@ -470,6 +627,8 @@ export default function EventBudgetReport() {
       {costLinesTarget && (
         <CostLinesDialog
           target={costLinesTarget}
+          tenantKey={costLinesTarget.tenantKey}
+          tenantContextRevision={tenantContextRevision}
           onClose={() => setCostLinesTarget(null)}
           onChanged={refetchReport}
         />

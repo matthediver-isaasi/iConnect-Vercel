@@ -8,3 +8,9 @@ Give independent, concurrent Playwright invocations distinct output directories,
 **Why:** Playwright cleans its output directory when a run starts. Two processes using the default directory can pass their browser assertions but fail during context teardown because the other process removed an active trace file.
 
 **How to apply:** Use distinct `--output` paths or per-config `outputDir` values for concurrent commands. Keep live-data screenshots and authentication state outside tracked project files.
+
+Browser fixtures must isolate direct Supabase REST and Realtime traffic as well as `/api/` routes.
+
+**Why:** Optional shell widgets can contact real services with fixture tenant IDs and raise unrelated runtime overlays that block report interactions.
+
+**How to apply:** Intercept those transports in fixture-based browser suites rather than dismissing error overlays. The workspace system Chromium can predate `URL.parse`, which newer Playwright websocket interception uses; use a compatible browser or a test-only standards-equivalent shim.
