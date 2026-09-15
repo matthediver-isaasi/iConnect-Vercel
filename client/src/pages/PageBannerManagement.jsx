@@ -71,6 +71,7 @@ const BUILT_IN_PUBLIC_PAGES = [
   { value: "PublicResources", label: "Public Resources" },
   { value: "PublicArticles", label: "Public Articles" },
   { value: "PublicNews", label: "Public News" },
+  { value: "portal_member_groups", label: "Member Groups (Directory)" },
   { value: "Login", label: "Login" },
   { value: "ResetPassword", label: "Reset Password" }
 ];
@@ -85,6 +86,7 @@ const BUILT_IN_PORTAL_PAGES = [
   { value: "portal_team", label: "Team" },
   { value: "portal_member_directory", label: "Member Directory" },
   { value: "portal_org_directory", label: "Organisation Directory" },
+  { value: "portal_member_groups", label: "Member Groups (Directory)" },
   { value: "portal_resources", label: "Resources" },
   { value: "portal_articles", label: "Articles" },
   { value: "portal_my_articles", label: "My Articles" },

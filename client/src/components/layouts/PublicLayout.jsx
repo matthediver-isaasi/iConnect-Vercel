@@ -32,6 +32,7 @@ const pageToPortalPageMap = {
   'BuyProgramTickets': 'portal_buy_tickets',
   'MemberDirectory': 'portal_member_directory',
   'OrganisationDirectory': 'portal_org_directory',
+  'MemberGroups': 'portal_member_groups',
   'Resources': 'portal_resources',
   'PublicResources': 'portal_resources',
   'Articles': 'portal_articles',
