@@ -70,7 +70,13 @@ export function useOrganisationDirectoryMetadata() {
       if (!payload || !Array.isArray(payload.fields)) {
         throw new Error("Invalid directory filters response");
       }
-      return payload;
+      return {
+        ...payload,
+        // The filters endpoint is the authoritative directory metadata
+        // source. Missing or malformed permission metadata must never expose
+        // an export control.
+        allowCsvDownload: payload.allowCsvDownload === true,
+      };
     },
     staleTime: 0,
     gcTime: 0,

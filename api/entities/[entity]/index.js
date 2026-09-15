@@ -86,6 +86,11 @@ import {
   validateFutureDateFields,
 } from '../../../shared/formFutureDates.js';
 
+const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
+  'org_directory_filterable_back_fields',
+  'org_directory_allow_csv_download',
+]);
+
 function normalizeIdempotencyAnswers(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
   const normalized = { ...values };
@@ -473,10 +478,10 @@ export default async function handler(req, res) {
   if (
     req.method === 'POST'
     && entityNorm === 'systemsettings'
-    && req.body?.setting_key === 'org_directory_filterable_back_fields'
+    && DEDICATED_ORGANISATION_DIRECTORY_SETTINGS.has(req.body?.setting_key)
   ) {
     return res.status(403).json({
-      error: 'Organisation directory filter settings must be managed through their dedicated endpoint',
+      error: 'Organisation directory settings must be managed through their dedicated endpoint',
     });
   }
 

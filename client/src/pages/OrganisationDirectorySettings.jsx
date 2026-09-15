@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Save, Settings, Search, Building, Filter, Shield, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -18,6 +19,7 @@ import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
 import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle";
 import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
+import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
 import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
 
 export default function OrganisationDirectorySettingsPage() {
@@ -42,6 +44,10 @@ export default function OrganisationDirectorySettingsPage() {
   const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
   const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
   const filterSettings = useOrganisationDirectoryFilterSettings({
+    enabled: accessChecked,
+    identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
+  });
+  const csvSettings = useOrganisationDirectoryCsvSettings({
     enabled: accessChecked,
     identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
   });
@@ -254,6 +260,7 @@ export default function OrganisationDirectorySettingsPage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!settings || !filterSettings.isSuccess || filterSettings.isFetching
+        || !csvSettings.isSuccess || csvSettings.isFetching
         || fieldsPending || fieldsError || fieldsFetching
         || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching) {
         throw new Error("Wait for directory settings and field metadata to load before saving");
@@ -445,6 +452,7 @@ export default function OrganisationDirectorySettingsPage() {
         });
       }
       await filterSettings.save();
+      await csvSettings.save();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
@@ -456,6 +464,10 @@ export default function OrganisationDirectorySettingsPage() {
       toast.error('Failed to save settings: ' + error.message);
     }
   });
+
+  const settingsSaveDisabled = saveMutation.isPending
+    || !csvSettings.isSuccess
+    || csvSettings.isFetching;
 
   const toggleOrganization = (orgId) => {
     setExcludedOrgIds((prev) =>
@@ -689,10 +701,40 @@ export default function OrganisationDirectorySettingsPage() {
               </Select>
             </div>
 
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div className="pr-4">
+                <Label htmlFor="allowCsvDownload" className="text-base font-medium cursor-pointer">
+                  Allow members to download directory as CSV
+                </Label>
+                <p className="text-sm text-slate-600 mt-1">
+                  Members can download full directory entries, including both front-of-card and back-of-card fields.
+                </p>
+              </div>
+              <Switch
+                id="allowCsvDownload"
+                checked={csvSettings.allowCsvDownload}
+                disabled={!csvSettings.isSuccess || csvSettings.isFetching || saveMutation.isPending}
+                onCheckedChange={csvSettings.setAllowCsvDownload}
+                aria-label="Allow members to download directory as CSV"
+                data-testid="switch-allow-csv-download"
+              />
+            </div>
+            {csvSettings.isPending && (
+              <p role="status" className="text-sm text-slate-600">
+                Loading CSV download setting…
+              </p>
+            )}
+            {csvSettings.isError && (
+              <div role="alert" className="text-sm text-red-700">
+                CSV download setting could not be loaded. Saving is unavailable until it loads.
+                <Button variant="link" onClick={() => csvSettings.refetch()}>Retry</Button>
+              </div>
+            )}
+
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700">
 
                 <Save className="w-4 h-4 mr-2" />
@@ -752,7 +794,7 @@ export default function OrganisationDirectorySettingsPage() {
               <div className="pt-4 border-t">
                 <Button
                   onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
+                  disabled={settingsSaveDisabled}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Save className="w-4 h-4 mr-2" />
@@ -813,7 +855,7 @@ export default function OrganisationDirectorySettingsPage() {
               <div className="pt-4 border-t">
                 <Button
                   onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
+                  disabled={settingsSaveDisabled}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Save className="w-4 h-4 mr-2" />
@@ -871,7 +913,7 @@ export default function OrganisationDirectorySettingsPage() {
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-reverse-card-roles"
               >
@@ -907,7 +949,7 @@ export default function OrganisationDirectorySettingsPage() {
               ))}
             </div>
             <div className="pt-4 border-t">
-              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-view-members-roles">
+              <Button onClick={() => saveMutation.mutate()} disabled={settingsSaveDisabled} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-view-members-roles">
                 <Save className="w-4 h-4 mr-2" />
                 {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
               </Button>
@@ -962,7 +1004,7 @@ export default function OrganisationDirectorySettingsPage() {
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !filterSettings.isSuccess || filterSettings.isFetching
+                disabled={settingsSaveDisabled || !filterSettings.isSuccess || filterSettings.isFetching
                   || fieldsPending || fieldsError || fieldsFetching
                   || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
                 className="bg-blue-600 hover:bg-blue-700"
@@ -999,7 +1041,7 @@ export default function OrganisationDirectorySettingsPage() {
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-custom-fields-label"
               >
@@ -1069,7 +1111,7 @@ export default function OrganisationDirectorySettingsPage() {
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700">
 
                 <Save className="w-4 h-4 mr-2" />

@@ -180,6 +180,14 @@ function baseSeed(overrides = {}) {
   };
 }
 
+function csvEnabledSettings(settings = []) {
+  return [{
+    tenant_id: tenantId,
+    setting_key: 'org_directory_allow_csv_download',
+    setting_value: 'true',
+  }, ...settings];
+}
+
 function service(seed, context = {}) {
   const db = database(seed);
   return {
@@ -290,6 +298,59 @@ test('metadata uses saved back order, explicit overrides, configured choices, an
   );
 });
 
+test('CSV service follows front-card settings and per-directory custom field ordering', async () => {
+  const later = customField('later', 'Later', {
+    directory_visibility: { ids: ['main'], display: { main: { back: true, order: 2 } } },
+  });
+  const first = customField('first', 'First', {
+    directory_visibility: { ids: ['main'], display: { main: { back: true, order: 1 } } },
+  });
+  const { service: directory } = service(baseSeed({
+    organization: [{
+      id: 'org-1', tenant_id: tenantId, name: 'Directory Org',
+      logo_url: 'https://cdn.example.test/logo.svg',
+    }],
+    preference_field: [later, first],
+    organization_preference_value: [
+      { organization_id: 'org-1', field_id: later.id, value: 'later' },
+      { organization_id: 'org-1', field_id: first.id, value: 'first' },
+    ],
+    system_settings: csvEnabledSettings(),
+  }));
+  const { csv } = await directory.csv();
+  assert.match(csv, /^\ufeffLogo,Organisation,Member count,First,Later\r\n/);
+  assert.match(csv, /https:\/\/cdn\.example\.test\/logo\.svg,Directory Org,0,first,later/);
+});
+
+test('CSV service omits Organisation when the card title is disabled', async () => {
+  const { service: directory } = service(baseSeed({
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'Not rendered' }],
+    system_settings: csvEnabledSettings([
+      { tenant_id: tenantId, setting_key: 'org_directory_show_logo', setting_value: 'false' },
+      { tenant_id: tenantId, setting_key: 'org_directory_show_title', setting_value: 'false' },
+    ]),
+  }));
+  const { csv } = await directory.csv();
+  assert.equal(csv, '\ufeffMember count\r\n0');
+  assert.equal(csv.includes('Not rendered'), false);
+});
+
+test('CSV service denies a disabled setting even when callers invoke it directly', async () => {
+  const { service: directory } = service(baseSeed({
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'No export' }],
+    system_settings: [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_allow_csv_download',
+      setting_value: 'false',
+    }],
+  }));
+  await assert.rejects(
+    () => directory.csv(),
+    (error) => error instanceof OrganisationDirectoryFilterError
+      && error.status === 403 && /disabled/.test(error.message),
+  );
+});
+
 test('saved exclusions/status/type policies retain the requester own-organization exception', async () => {
   const status = customField('status-field', 'application_status');
   const type = customField('type-field', 'org_type');
@@ -370,11 +431,11 @@ test('Data Studio filtering reads over 500 active links/records and rejects stal
     organization: organizations,
     custom_object_record: records,
     custom_object_relationship: edges,
-    system_settings: [{
+    system_settings: csvEnabledSettings([{
       tenant_id: tenantId,
       setting_key: 'org_directory_filterable_back_fields',
       setting_value: JSON.stringify({ [objectKey]: true }),
-    }],
+    }]),
   });
   const { service: directory } = service(seed);
   const result = await directory.search(request({
@@ -384,6 +445,13 @@ test('Data Studio filtering reads over 500 active links/records and rejects stal
   assert.equal(result.organizations[0].id, 'org-linked');
   assert.equal(JSON.stringify(result).includes('forged-target'), false);
   assert.equal(JSON.stringify(result).includes('data'), false);
+  const exported = await directory.csv();
+  assert.match(exported.csv, /Department: value \(Departments\)/);
+  assert.match(exported.csv, /Record 504: value-504/);
+  assert.equal(exported.csv.includes('forged-target'), false);
+  // All 505 relationship records must be present; this specifically exercises
+  // the export projection path rather than the filter-only source inventory.
+  assert.equal((exported.csv.match(/value-\d+/g) || []).length, 505);
   await assert.rejects(() => directory.search(request({
     [objectKey]: { operator: 'eq', value: 'forged-target' },
   })), (error) => error.status === 400 && /unavailable/.test(error.message));
@@ -415,7 +483,7 @@ test('member names are role-limited while safe counts include only directory-vis
   const organizations = [{ id: 'org-1', tenant_id: tenantId, name: 'One' }];
   const { service: directory } = service(baseSeed({
     organization: organizations,
-    system_settings: [
+    system_settings: csvEnabledSettings([
       {
         tenant_id: tenantId,
         setting_key: 'org_directory_filterable_back_fields',
@@ -424,9 +492,9 @@ test('member names are role-limited while safe counts include only directory-vis
       {
         tenant_id: tenantId,
         setting_key: 'org_directory_reverse_card_role_ids',
-        setting_value: '["public-role"]',
+        setting_value: '["public-role","second-public-role"]',
       },
-    ],
+    ]),
     member: [
       {
         id: 'member-1', tenant_id: tenantId, organization_id: 'org-1',
@@ -439,6 +507,13 @@ test('member names are role-limited while safe counts include only directory-vis
         email: 'secret@test', login_enabled: true, show_in_directory: true,
       },
       {
+        id: 'member-4', tenant_id: tenantId, organization_id: 'org-1',
+        // Alphabetically before Alice, but rendered after the first configured
+        // role group and therefore after Alice in the CSV.
+        role_id: 'second-public-role', first_name: 'Aaron', last_name: 'First',
+        email: 'aaron@test', login_enabled: true, show_in_directory: true,
+      },
+      {
         id: 'member-3', tenant_id: tenantId, organization_id: 'org-1',
         role_id: 'public-role', first_name: 'Hidden', last_name: 'Person',
         email: 'hidden@test', login_enabled: true, show_in_directory: false,
@@ -449,7 +524,11 @@ test('member names are role-limited while safe counts include only directory-vis
     org_members_list: { operator: 'eq', value: 'Alice Allowed' },
   }));
   assert.equal(allowed.total, 1);
-  assert.equal(allowed.organizations[0].member_count, 2);
+  assert.equal(allowed.organizations[0].member_count, 3);
+  const exported = await directory.csv();
+  assert.match(exported.csv, /Alice Allowed; Aaron First/);
+  assert.equal(exported.csv.includes('Secret Person'), false);
+  assert.equal(exported.csv.includes('Hidden Person'), false);
   await assert.rejects(() => directory.search(request({
     org_members_list: { operator: 'eq', value: 'Secret Person' },
   })), (error) => error.status === 400 && /unavailable/.test(error.message));
@@ -486,6 +565,7 @@ test('file sources expose only presence semantics and configured choices reject 
           title: 'File',
           value: {
             storage_path: `${tenantId}/custom-object-files/${objectId}/${objectFieldId}/private.pdf`,
+            file_url: 'https://storage.example.test/private.pdf?token=bearer-secret',
           },
         },
       },
@@ -504,11 +584,11 @@ test('file sources expose only presence semantics and configured choices reject 
         source_record_id: 'empty-record', target_record_id: 'without-file', archived_at: null,
       },
     ],
-    system_settings: [{
+    system_settings: csvEnabledSettings([{
       tenant_id: tenantId,
       setting_key: 'org_directory_filterable_back_fields',
       setting_value: JSON.stringify({ [objectKey]: true }),
-    }],
+    }]),
   });
   const { service: directory } = service(seed);
   const metadata = await directory.metadata();
@@ -520,6 +600,9 @@ test('file sources expose only presence semantics and configured choices reject 
   }));
   assert.deepEqual(present.organizations.map(({ id }) => id), ['with-file']);
   assert.equal(JSON.stringify(present).includes('storage_path'), false);
+  const exported = await directory.csv();
+  assert.match(exported.csv, /File: File/);
+  assert.doesNotMatch(exported.csv, /storage_path|private\.pdf|bearer-secret|file_url/);
   const absent = await directory.search(request({
     [objectKey]: { operator: 'absent', value: true },
   }));

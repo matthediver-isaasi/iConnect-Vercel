@@ -4,6 +4,8 @@ import {
   matchesOrganisationDirectoryFilter,
   OrganisationDirectoryFilterError,
   readCompleteOrganisationDirectoryPages,
+  readOrganisationDirectoryCsvSetting,
+  saveOrganisationDirectoryCsvSetting,
   saveOrganisationDirectoryFilterOverrides,
 } from './organisationDirectoryFilters.js';
 
@@ -144,6 +146,21 @@ function settingsDb(initialValue = undefined) {
     },
   };
 }
+
+test('CSV setting defaults closed and persists only explicit booleans', async () => {
+  const db = settingsDb();
+  assert.equal(await readOrganisationDirectoryCsvSetting({ db, tenantId: 'tenant-1' }), false);
+  assert.equal(await saveOrganisationDirectoryCsvSetting({
+    db, tenantId: 'tenant-1', allowCsvDownload: true,
+  }), true);
+  assert.equal(db.rows.length, 1);
+  assert.equal(db.rows[0].setting_key, 'org_directory_allow_csv_download');
+  assert.equal(db.rows[0].setting_value, 'true');
+  assert.equal(await readOrganisationDirectoryCsvSetting({ db, tenantId: 'tenant-1' }), true);
+  await assert.rejects(() => saveOrganisationDirectoryCsvSetting({
+    db, tenantId: 'tenant-1', allowCsvDownload: 'true',
+  }), (error) => error.status === 400);
+});
 
 test('settings merge preserves unknown entries and validates writable changes', async () => {
   const db = settingsDb('{"custom:known":false,"future:key":true}');

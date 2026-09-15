@@ -230,6 +230,7 @@ async function installFixtures(page, { failFirstValues = false, singleAarhusReco
     directoryPosts: [],
     optionsPosts: [],
     filterOverrides: initialFilterOverrides(),
+    allowCsvDownload: false,
     valuesAttempts: 0,
   };
   const sourceOptions = [
@@ -342,7 +343,7 @@ async function installFixtures(page, { failFirstValues = false, singleAarhusReco
         }
       }
       const fields = directoryFilterFields.filter(field => state.filterOverrides[field.key] === true);
-      if (method === "GET") return json({ fields });
+      if (method === "GET") return json({ fields, allowCsvDownload: state.allowCsvDownload });
       if (method === "POST") {
         const body = request.postDataJSON();
         if (body.action === "options") {
@@ -375,6 +376,15 @@ async function installFixtures(page, { failFirstValues = false, singleAarhusReco
           pageSize: body.pageSize,
           fields,
         });
+      }
+    }
+    if (path === "/api/organisation-directory/csv-settings") {
+      if (method === "GET") return json({ allowCsvDownload: state.allowCsvDownload });
+      if (method === "PUT") {
+        const body = request.postDataJSON();
+        state.allowCsvDownload = body.allowCsvDownload === true;
+        state.writes.push({ method, path, body });
+        return json({ allowCsvDownload: state.allowCsvDownload });
       }
     }
 

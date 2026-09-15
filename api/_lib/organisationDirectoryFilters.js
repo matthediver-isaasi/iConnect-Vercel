@@ -16,11 +16,16 @@ import {
   resolveBackFieldOrder,
 } from './directoryConfig.js';
 import { normalizeOrganizationPreferenceValues } from './organizationEligibility.js';
+import {
+  formatOrganisationDirectoryCsvValue,
+  projectOrganisationDirectoryCsv,
+} from './organisationDirectoryCsv.js';
 
 const PAGE_SIZE = 500;
 const MAX_PAGES = 200;
 const ID_CHUNK = 200;
 const MAX_FILTERS = 50;
+export const ORG_DIRECTORY_CSV_SETTING = 'org_directory_allow_csv_download';
 const CORE_FIELDS = Object.freeze([
   { key: 'org_member_count', label: 'Member count', field_type: 'number', control: 'number' },
   { key: 'org_members_list', label: 'Members / contacts list', field_type: 'text', control: 'source-choice', multi_select: false },
@@ -206,10 +211,12 @@ function publicMetadata(field) {
 async function loadSettings(db, tenantId) {
   const keys = [
     ORG_DIRECTORY_FILTER_SETTING,
+    ORG_DIRECTORY_CSV_SETTING,
     'org_directory_back_field_order',
     'org_directory_show_member_count',
     'org_directory_show_domains',
     'org_directory_show_logo',
+    'org_directory_show_title',
     'org_directory_reverse_card_role_ids',
     'org_directory_excluded_orgs',
     'org_directory_allowed_application_statuses',
@@ -224,7 +231,89 @@ async function loadSettings(db, tenantId) {
       'Multiple organisation directory filter settings exist for this tenant; resolve the duplicate configuration',
     );
   }
+  if (rows.filter(({ setting_key }) =>
+    setting_key === ORG_DIRECTORY_CSV_SETTING).length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      409,
+      'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+    );
+  }
   return new Map(rows.map((row) => [row.setting_key, row.setting_value]));
+}
+
+// This is deliberately strict.  An absent, malformed, or legacy truthy value
+// must never turn a data export on; only the explicit persisted true value does.
+export function organisationDirectoryCsvDownloadAllowed(value) {
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
+}
+
+function deterministicSettingId(tenantId, settingKey) {
+  const hex = createHash('sha256')
+    .update(`system_settings:${tenantId}:${settingKey}`)
+    .digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4];
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
+
+export async function readOrganisationDirectoryCsvSetting({ db, tenantId }) {
+  const rows = await checked(db.from('system_settings').select('id, setting_value')
+    .eq('tenant_id', tenantId).eq('setting_key', ORG_DIRECTORY_CSV_SETTING).limit(2),
+  'Failed to load organisation directory CSV setting');
+  if (rows.length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      409,
+      'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+    );
+  }
+  return organisationDirectoryCsvDownloadAllowed(rows[0]?.setting_value);
+}
+
+export async function saveOrganisationDirectoryCsvSetting({ db, tenantId, allowCsvDownload }) {
+  if (typeof allowCsvDownload !== 'boolean') {
+    throw new OrganisationDirectoryFilterError(400, 'allowCsvDownload must be a boolean');
+  }
+  const settingId = deterministicSettingId(tenantId, ORG_DIRECTORY_CSV_SETTING);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const rows = await checked(db.from('system_settings').select('id, setting_value')
+      .eq('tenant_id', tenantId).eq('setting_key', ORG_DIRECTORY_CSV_SETTING).limit(2),
+    'Failed to load organisation directory CSV setting');
+    if (rows.length > 1) {
+      throw new OrganisationDirectoryFilterError(
+        409,
+        'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+      );
+    }
+    const row = rows[0];
+    const settingValue = allowCsvDownload ? 'true' : 'false';
+    if (!row) {
+      const result = await db.from('system_settings').insert({
+        id: settingId,
+        tenant_id: tenantId,
+        setting_key: ORG_DIRECTORY_CSV_SETTING,
+        setting_value: settingValue,
+        setting_type: 'boolean',
+        description: 'Allow organisation directory CSV downloads',
+      }).select('id');
+      if (!result.error) return allowCsvDownload;
+      if (result.error.code === '23505') {
+        const conflicting = await checked(db.from('system_settings')
+          .select('tenant_id, setting_key').eq('id', settingId).limit(1),
+        'Failed to verify concurrent organisation directory CSV settings update');
+        if (conflicting[0]?.tenant_id === tenantId
+            && conflicting[0]?.setting_key === ORG_DIRECTORY_CSV_SETTING) continue;
+      }
+      throw new Error(result.error.message || 'Failed to create organisation directory CSV setting');
+    }
+    let update = db.from('system_settings').update({ setting_value: settingValue })
+      .eq('id', row.id).eq('tenant_id', tenantId);
+    update = row.setting_value === null
+      ? update.is('setting_value', null) : update.eq('setting_value', row.setting_value);
+    const result = await update.select('id');
+    if (result.error) throw new Error(result.error.message || 'Failed to update organisation directory CSV setting');
+    if (result.data?.length) return allowCsvDownload;
+  }
+  throw new OrganisationDirectoryFilterError(409, 'Organisation directory CSV setting changed concurrently; retry');
 }
 
 async function loadCustomFields(db, tenantId) {
@@ -266,6 +355,18 @@ async function buildInventory({
       ...field,
       ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
     }];
+  }).map((field, originalIndex) => {
+    const display = parseDirVis(field)?.display?.main;
+    const order = display && typeof display === 'object'
+      && display.order !== null && display.order !== '' && Number.isFinite(Number(display.order))
+      ? Number(display.order) : null;
+    return { ...field, _directoryOrder: order, _originalIndex: originalIndex };
+  }).sort((left, right) => {
+    if (left._directoryOrder !== null && right._directoryOrder !== null
+      && left._directoryOrder !== right._directoryOrder) return left._directoryOrder - right._directoryOrder;
+    if (left._directoryOrder !== null) return -1;
+    if (right._directoryOrder !== null) return 1;
+    return left._originalIndex - right._originalIndex;
   });
   const settingsCustomMetadata = customFields.map(metadataForField);
   const customMetadata = visibleCustom.map(metadataForField);
@@ -550,7 +651,7 @@ function sortedOptions(values) {
     .map((value) => ({ value, label: value }));
 }
 
-async function objectValuesByOrganization(db, context, metadata, organizationIds) {
+async function objectValuesByOrganization(db, context, metadata, organizationIds, display = false) {
   const source = metadata._source;
   const orgColumn = `${source.direction}_record_id`;
   const recordColumn = source.direction === 'source' ? 'target_record_id' : 'source_record_id';
@@ -573,13 +674,26 @@ async function objectValuesByOrganization(db, context, metadata, organizationIds
   'Failed to load Custom Object records');
   const recordsById = new Map(records.map((record) => [String(record.id), record]));
   const output = new Map();
+  const primaryField = metadata._source._fields?.find((field) =>
+    String(field.id) === String(metadata._source._definition?.primary_display_field_id));
   for (const edge of edges) {
     const record = recordsById.get(String(edge[recordColumn]));
     if (!record) continue;
     const raw = record.data?.[source._field?.name];
     // File/image filters expose presence only; storage descriptors never enter
     // metadata or the response projection.
-    const value = metadata.control === 'presence' ? (nonempty(raw) ? true : null) : raw;
+    const value = display
+      ? {
+        // The card presents a related-record label alongside its field value.
+        // Format both from the readable source record rather than the filter
+        // projection (whose file values intentionally collapse to presence).
+        label: primaryField
+          ? formatOrganisationDirectoryCsvValue(
+            record.data?.[primaryField.name], primaryField,
+          ) : '',
+        value: formatOrganisationDirectoryCsvValue(raw, source._field || metadata),
+      }
+      : (metadata.control === 'presence' ? (nonempty(raw) ? true : null) : raw);
     const id = String(edge[orgColumn]);
     output.set(id, [...(output.get(id) || []), value]);
   }
@@ -589,13 +703,14 @@ async function objectValuesByOrganization(db, context, metadata, organizationIds
 async function visibleMemberCore(db, context, settingMap, organizationIds) {
   const roleIds = parseRoleIdArray(settingMap.get('org_directory_reverse_card_role_ids'));
   const allowedListRoles = new Set(roleIds);
+  const roleOrder = new Map(roleIds.map((roleId, index) => [String(roleId), index]));
   const counts = new Map(organizationIds.map((id) => [String(id), 0]));
   const names = new Map(organizationIds.map((id) => [String(id), []]));
   if (!organizationIds.length) return { counts, names };
   for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
     const ids = organizationIds.slice(offset, offset + ID_CHUNK);
     const rows = await paged(() => db.from('member')
-      .select('id, organization_id, first_name, last_name, role_id').eq('tenant_id', context.tenantId)
+      .select('id, organization_id, first_name, last_name, email, role_id').eq('tenant_id', context.tenantId)
       .in('organization_id', ids)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .or('login_enabled.is.null,login_enabled.neq.false')
@@ -604,10 +719,26 @@ async function visibleMemberCore(db, context, settingMap, organizationIds) {
     for (const member of rows) {
       const organizationId = String(member.organization_id);
       counts.set(organizationId, (counts.get(organizationId) || 0) + 1);
-      if (!allowedListRoles.has(String(member.role_id))) continue;
+      // The reverse-card renderer only exposes contact names for configured
+      // roles with a usable email address.  Keep exports and filter options at
+      // precisely that visibility boundary.
+      if (!member.email || !allowedListRoles.has(String(member.role_id))) continue;
       const name = `${member.first_name || ''} ${member.last_name || ''}`.trim();
-      names.get(organizationId)?.push(name);
+      if (name) names.get(organizationId)?.push({
+        name,
+        firstName: String(member.first_name || ''),
+        lastName: String(member.last_name || ''),
+        roleOrder: roleOrder.get(String(member.role_id)) ?? Number.MAX_SAFE_INTEGER,
+      });
     }
+  }
+  for (const [organizationId, contacts] of names) {
+    names.set(organizationId, contacts
+      .sort((left, right) => left.roleOrder - right.roleOrder
+        || left.lastName.localeCompare(right.lastName, undefined, { sensitivity: 'base' })
+        || left.firstName.localeCompare(right.firstName, undefined, { sensitivity: 'base' })
+        || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+      .map((contact) => contact.name));
   }
   return { counts, names };
 }
@@ -747,9 +878,10 @@ function authorityToken(inventory, enabled, requiredKeys) {
 export function createOrganisationDirectoryFilters({ db, context, isAdmin = false }) {
   const enabledFields = (inventory) => inventory.fields.filter((field) =>
     isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
-  const revalidateAuthority = async (token, requiredKeys) => {
+  const revalidateAuthority = async (token, requiredKeys, allDirectoryFields = false) => {
     const current = await buildInventory({ db, context, settingsMode: false, isAdmin });
-    if (authorityToken(current, enabledFields(current), requiredKeys) !== token) {
+    const currentFields = allDirectoryFields ? current.fields : enabledFields(current);
+    if (authorityToken(current, currentFields, requiredKeys) !== token) {
       throw new OrganisationDirectoryFilterError(
         409,
         'Organisation directory authority changed; retry',
@@ -763,6 +895,9 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
       return {
         fields: enabled.map(publicMetadata),
+        allowCsvDownload: organisationDirectoryCsvDownloadAllowed(
+          inventory.settingMap.get(ORG_DIRECTORY_CSV_SETTING),
+        ),
         ...(settings ? { overrides: inventory.overrides } : {}),
       };
     },
@@ -907,6 +1042,58 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         unavailableSelected,
       };
     },
+
+    async csv() {
+      const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
+      // The route checks this before creating the service, but it may be
+      // disabled in that interval. Require the service's own initial
+      // settings snapshot to be explicitly opted in as well.
+      if (!organisationDirectoryCsvDownloadAllowed(
+        inventory.settingMap.get(ORG_DIRECTORY_CSV_SETTING),
+      )) {
+        throw new OrganisationDirectoryFilterError(
+          403,
+          'Organisation directory CSV download is disabled',
+        );
+      }
+      const authorityKeys = new Set(inventory.fields.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, inventory.fields, authorityKeys);
+      const customFieldIds = inventory.fields
+        .filter((field) => field._kind === 'custom').map((field) => field._field.id);
+      const population = await loadEligiblePopulation(db, context, inventory, customFieldIds);
+      const organizations = [...population.organizations].sort((left, right) => (
+        String(left.name || '').localeCompare(String(right.name || ''), undefined, {
+          sensitivity: 'base',
+        }) || String(left.id).localeCompare(String(right.id))
+      ));
+      const organizationIds = organizations.map((organization) => organization.id);
+      const includeMembersList = parseRoleIdArray(
+        inventory.settingMap.get('org_directory_reverse_card_role_ids'),
+      ).length > 0;
+      const memberValues = inventory.fields.some((field) => field._kind === 'core')
+        ? await visibleMemberCore(db, context, inventory.settingMap, organizationIds)
+        : { counts: new Map(), names: new Map() };
+      const objectValues = new Map();
+      for (const field of inventory.fields.filter((item) => item._kind === 'object')) {
+        objectValues.set(field.key, await objectValuesByOrganization(
+          db, context, field, organizationIds, true,
+        ));
+      }
+      // Do not send an attachment until every eligible row, readable source,
+      // and setting has been resolved and rechecked.
+      const csv = projectOrganisationDirectoryCsv({
+        organizations,
+        fields: inventory.fields,
+        preferences: population.preferences,
+        objectValues,
+        memberValues,
+        includeMembersList,
+        includeLogo: !savedFalse(inventory.settingMap.get('org_directory_show_logo')),
+        includeOrganisation: !savedFalse(inventory.settingMap.get('org_directory_show_title')),
+      });
+      await revalidateAuthority(initialAuthority, authorityKeys, true);
+      return { csv, total: organizations.length };
+    },
   };
 }
 
@@ -918,14 +1105,7 @@ export async function saveOrganisationDirectoryFilterOverrides({
         !writableKeys.has(key) || typeof value !== 'boolean')) {
     throw new OrganisationDirectoryFilterError(400, 'changes contains an unknown field or non-boolean value');
   }
-  const settingId = (() => {
-    const hex = createHash('sha256')
-      .update(`system_settings:${tenantId}:${ORG_DIRECTORY_FILTER_SETTING}`)
-      .digest('hex').slice(0, 32).split('');
-    hex[12] = '5';
-    hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4];
-    return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
-  })();
+  const settingId = deterministicSettingId(tenantId, ORG_DIRECTORY_FILTER_SETTING);
   // Optimistic compare-and-swap prevents two settings tabs from silently
   // discarding each other's changes. A deterministic primary key serializes
   // concurrent first inserts even though legacy schemas do not universally

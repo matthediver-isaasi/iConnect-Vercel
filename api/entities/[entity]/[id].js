@@ -82,6 +82,10 @@ import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConf
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
+const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
+  'org_directory_filterable_back_fields',
+  'org_directory_allow_csv_download',
+]);
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -356,21 +360,21 @@ export default async function handler(req, res) {
     ['PATCH', 'PUT', 'DELETE'].includes(req.method)
     && entityNorm === 'systemsettings'
   ) {
-    const { data: filterSetting, error: filterSettingError } = await supabase
+    const { data: directorySetting, error: directorySettingError } = await supabase
       .from('system_settings')
       .select('setting_key')
       .eq('id', id)
       .eq('tenant_id', tenantCtx.tenantId)
       .limit(1);
-    if (filterSettingError) {
+    if (directorySettingError) {
       return res.status(500).json({ error: 'Failed to validate directory setting ownership' });
     }
     if (
-      req.body?.setting_key === 'org_directory_filterable_back_fields'
-      || filterSetting?.[0]?.setting_key === 'org_directory_filterable_back_fields'
+      DEDICATED_ORGANISATION_DIRECTORY_SETTINGS.has(req.body?.setting_key)
+      || DEDICATED_ORGANISATION_DIRECTORY_SETTINGS.has(directorySetting?.[0]?.setting_key)
     ) {
       return res.status(403).json({
-        error: 'Organisation directory filter settings must be managed through their dedicated endpoint',
+        error: 'Organisation directory settings must be managed through their dedicated endpoint',
       });
     }
   }

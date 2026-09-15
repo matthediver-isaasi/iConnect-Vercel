@@ -4,7 +4,7 @@ import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, ExternalLink, ClipboardList, Mail, Copy } from "lucide-react";
+import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, Download, ExternalLink, ClipboardList, Mail, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -45,6 +45,7 @@ export default function OrganisationDirectoryPage() {
   const [editingOrg, setEditingOrg] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDownloadingCsv, setIsDownloadingCsv] = useState(false);
   const fileInputRef = useRef(null);
   
   // State for organization profile modal
@@ -387,6 +388,73 @@ export default function OrganisationDirectoryPage() {
     setShowDeleteConfirm(true);
   };
 
+  const canDownloadCsv = Boolean(
+    authResolved
+    && memberInfo?.id
+    && memberInfo?.tenant_id
+    && !isDirectoryEmbedLocation()
+    && directoryMetadataQuery.data?.allowCsvDownload === true
+  );
+
+  const handleDownloadCsv = async () => {
+    if (!canDownloadCsv || isDownloadingCsv) return;
+
+    setIsDownloadingCsv(true);
+    let objectUrl = null;
+    try {
+      const response = await fetch("/api/organisation-directory/export-csv", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        let message = "";
+        try {
+          const payload = JSON.parse(body);
+          message = payload?.error || payload?.message || "";
+        } catch {
+          message = body.trim();
+        }
+        throw new Error(message || "Failed to download directory CSV");
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!/^text\/csv(?:\s*;|$)/i.test(contentType)) {
+        throw new Error("Directory CSV export returned an unexpected content type");
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)|filename="([^"]+)"|filename=([^;]+)/i);
+      const rawFilename = filenameMatch?.[1] || filenameMatch?.[2] || filenameMatch?.[3];
+      let decodedFilename = rawFilename?.trim() || "organisation-directory.csv";
+      try {
+        decodedFilename = decodeURIComponent(decodedFilename);
+      } catch {
+        // Keep the server-provided name when it is not URI encoded.
+      }
+      const filename = decodedFilename
+        .replace(/[/\\?%*:|"<>]/g, "-");
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      toast.error(error?.message || "Failed to download directory CSV");
+    } finally {
+      setIsDownloadingCsv(false);
+      if (objectUrl) {
+        const urlToRelease = objectUrl;
+        window.setTimeout(() => URL.revokeObjectURL(urlToRelease), 0);
+      }
+    }
+  };
+
   if (isDirectoryEmbedLocation()) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
@@ -433,14 +501,31 @@ export default function OrganisationDirectoryPage() {
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Building2 className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{displaySettings?.header || 'Organisation Directory'}</h1>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <Building2 className="w-8 h-8 text-blue-600" />
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{displaySettings?.header || 'Organisation Directory'}</h1>
+            </div>
+            <p className="text-slate-600">
+              {totalOrganizations} {totalOrganizations === 1 ? 'organisation' : 'organisations'}
+            </p>
           </div>
-          <p className="text-slate-600">
-            {totalOrganizations} {totalOrganizations === 1 ? 'organisation' : 'organisations'}
-          </p>
+          {canDownloadCsv && (
+            <Button
+              variant="outline"
+              className="gap-2 shrink-0"
+              onClick={handleDownloadCsv}
+              disabled={isDownloadingCsv}
+              aria-busy={isDownloadingCsv}
+              data-testid="button-download-full-directory-csv"
+            >
+              {isDownloadingCsv
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Download className="w-4 h-4" />}
+              Download full directory CSV
+            </Button>
+          )}
         </div>
 
         <Card className="mb-6 border-slate-200">
