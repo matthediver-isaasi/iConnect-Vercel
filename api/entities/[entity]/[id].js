@@ -10,6 +10,7 @@ import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary
 import { rejectGenericServerOwnedEntity } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
+import { deleteOrDeactivateBadge } from '../../_lib/badgeDelete.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
@@ -2408,6 +2409,18 @@ export default async function handler(req, res) {
       return res.json(responseData);
 
     } else if (req.method === 'DELETE') {
+      if (entityNorm === 'badge') {
+        const result = await deleteOrDeactivateBadge(supabase, {
+          id,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+        });
+        if (!result.ok) {
+          console.error(`[Badge DELETE] Failed for id=${id}:`, result.error);
+          return res.status(result.status).json({ error: result.error });
+        }
+        return res.json(result);
+      }
+
       if (entityNorm === 'systemsettings') {
         const tenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
         let settingQuery = supabase

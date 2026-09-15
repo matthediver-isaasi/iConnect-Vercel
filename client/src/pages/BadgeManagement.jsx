@@ -90,8 +90,8 @@ export default function BadgeManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: (id) => base44.entities.Badge.delete(id),
-    onSuccess: () => {
-      toast.success("Badge deleted");
+    onSuccess: (result) => {
+      toast.success(result?.outcome === "deactivated" ? "Badge deactivated" : "Badge deleted");
       setDeleteTarget(null);
       invalidate();
     },
@@ -364,8 +364,8 @@ export default function BadgeManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete badge?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove "{deleteTarget?.name}" from the badge library. This
-              action cannot be undone.
+              This will permanently remove "{deleteTarget?.name}" if it has no assignment or CPD
+              history. Referenced badges will be preserved and marked inactive.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
