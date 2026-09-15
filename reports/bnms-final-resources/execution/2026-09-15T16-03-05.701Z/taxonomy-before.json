@@ -1,0 +1,161 @@
+[
+  {
+    "id": "0ca2d56b-a620-4545-a3ae-29ae81397018",
+    "name": "Events",
+    "description": "",
+    "subcategories": [
+      "BNMS event",
+      "Endorsed event",
+      "External event",
+      "Overseas event",
+      "Partner event",
+      "UK event",
+      "UKRG event",
+      "Webinar"
+    ],
+    "display_order": 4,
+    "is_active": true,
+    "applies_to_content_types": [
+      "Events"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  },
+  {
+    "id": "123457cf-2434-4138-a616-3ad20d713cfc",
+    "name": "Resource Type",
+    "description": "",
+    "subcategories": [
+      "Guidelines",
+      "Images",
+      "Newsletters",
+      "Posters",
+      "Presentation",
+      "Tests",
+      "Videos"
+    ],
+    "display_order": 0,
+    "is_active": true,
+    "applies_to_content_types": [
+      "Articles",
+      "Resources"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  },
+  {
+    "id": "75f5bcf0-e95d-40d0-ab70-a032d80d2cf3",
+    "name": "Subject",
+    "description": "",
+    "subcategories": [
+      "Diagnostics",
+      "Management",
+      "NM for patients and carers",
+      "Therapeutic",
+      "Working in NM"
+    ],
+    "display_order": 2,
+    "is_active": true,
+    "applies_to_content_types": [
+      "Articles",
+      "Resources"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  },
+  {
+    "id": "866372cd-c5ad-4d6a-a8fb-76e769afcf09",
+    "name": "Collection",
+    "description": "",
+    "subcategories": [
+      "Spring Meeting 2026",
+      "Events",
+      "Working in NM",
+      "Patient and Carers"
+    ],
+    "display_order": 5,
+    "is_active": true,
+    "applies_to_content_types": [
+      "Articles",
+      "Resources"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  },
+  {
+    "id": "9e6a7200-1194-4e75-98d1-25a29303e95e",
+    "name": "Focus Area",
+    "description": "",
+    "subcategories": [
+      "Artificial intelligence",
+      "Audit",
+      "Bone",
+      "Brain",
+      "Cameras",
+      "Cardiovascular",
+      "Careers",
+      "Case studies",
+      "Coding & HRGs",
+      "Diagnostics",
+      "Educational",
+      "Endocrinology",
+      "Equipment",
+      "Gastro",
+      "Haematology",
+      "Heart",
+      "Heart - CTA",
+      "Heart - Echo & Ivus",
+      "Infection",
+      "Lung",
+      "Management",
+      "Management & Workforce",
+      "Molecular Radiotherapy",
+      "Neurology",
+      "Oncology",
+      "Paediatrics",
+      "PET and PET-CT",
+      "Physics – dosimetry",
+      "Physics – imaging science",
+      "Physics – radiation protection",
+      "Radiopharmaceutical Development",
+      "Radiopharmacy",
+      "Renal",
+      "Therapeutic",
+      "Thyroid",
+      "Training",
+      "Working in NM"
+    ],
+    "display_order": 1,
+    "is_active": true,
+    "applies_to_content_types": [
+      "Articles",
+      "Resources"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  },
+  {
+    "id": "d0bbe87f-d84c-4196-83b1-b03d8b9933b7",
+    "name": "News",
+    "description": "",
+    "subcategories": [
+      "Industry news",
+      "Latest news",
+      "Press office",
+      "Radiopharmaceutical supply update"
+    ],
+    "display_order": 3,
+    "is_active": true,
+    "applies_to_content_types": [
+      "News"
+    ],
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "excluded_role_ids": [],
+    "subcategory_excluded_role_ids": {}
+  }
+]
