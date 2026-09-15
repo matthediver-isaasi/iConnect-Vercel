@@ -80,6 +80,82 @@ function configuredDirectorySources(definitions) {
   return output;
 }
 
+function displayLabel(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function objectLabel(definition) {
+  return displayLabel(definition?.singular_label)
+    || displayLabel(definition?.plural_label);
+}
+
+function fieldLabel(field) {
+  return displayLabel(field?.label)
+    || displayLabel(field?.name);
+}
+
+function relationshipLabel(relationship, direction) {
+  const oppositeDirection = direction === 'source' ? 'target' : 'source';
+  return displayLabel(relationship?.[`${direction}_label`])
+    || displayLabel(relationship?.[`${oppositeDirection}_label`]);
+}
+
+function compareLabelThenId(leftLabel, leftId, rightLabel, rightId) {
+  const left = displayLabel(leftLabel);
+  const right = displayLabel(rightLabel);
+  const leftSortValue = left || String(leftId || '');
+  const rightSortValue = right || String(rightId || '');
+  const labelComparison = leftSortValue.localeCompare(rightSortValue);
+  if (labelComparison) return labelComparison;
+  return String(leftId || '').localeCompare(String(rightId || ''));
+}
+
+function listFieldPosition(definition, fieldId) {
+  const fieldIds = definition?.configuration?.views?.list?.field_ids;
+  if (!Array.isArray(fieldIds)) return null;
+  const position = fieldIds.findIndex((id) => String(id) === String(fieldId));
+  return position < 0 ? null : position;
+}
+
+function compareDirectorySources(left, right) {
+  const objectComparison = compareLabelThenId(
+    objectLabel(left._definition),
+    left.object_id,
+    objectLabel(right._definition),
+    right.object_id,
+  );
+  if (objectComparison) return objectComparison;
+
+  const relationshipComparison = compareLabelThenId(
+    left.relationship_label,
+    left.relationship_id,
+    right.relationship_label,
+    right.relationship_id,
+  );
+  if (relationshipComparison) return relationshipComparison;
+
+  const leftPosition = listFieldPosition(left._definition, left.field_id);
+  const rightPosition = listFieldPosition(right._definition, right.field_id);
+  if (leftPosition !== null || rightPosition !== null) {
+    if (leftPosition === null) return 1;
+    if (rightPosition === null) return -1;
+    if (leftPosition !== rightPosition) return leftPosition - rightPosition;
+  }
+
+  const fieldComparison = compareLabelThenId(
+    left.field_label,
+    left.field_id,
+    right.field_label,
+    right.field_id,
+  );
+  if (fieldComparison) return fieldComparison;
+
+  // A relationship may legally be configured on both directions. The
+  // direction is not part of the human label, so keep that final tie-breaker
+  // deterministic without changing the stable source key.
+  return String(left.direction || '').localeCompare(String(right.direction || ''));
+}
+
 function parseArray(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === 'string' && item);
   if (typeof value !== 'string') return [];
@@ -334,7 +410,7 @@ export async function resolveCustomObjectDirectorySources({
   // PostgREST defaults to 1,000 rows. Page explicitly and deterministically so
   // opted-in objects above that boundary are not silently omitted.
   const definitions = await pagedRows(() => db.from('custom_object_definition')
-    .select('id, singular_label, primary_display_field_id, status, configuration')
+    .select('id, singular_label, plural_label, primary_display_field_id, status, configuration')
     .eq('tenant_id', context.tenantId).eq('status', 'active')
     .is('archived_at', null).order('id', { ascending: true }));
   const configured = configuredDirectorySources(definitions);
@@ -389,8 +465,11 @@ export async function resolveCustomObjectDirectorySources({
       || String(objectIsOpposite || '') !== objectId
       || String(field.custom_object_id) !== objectId) return [];
 
-    const hasActivePrimary = item.definition.primary_display_field_id
-      && fieldById.has(String(item.definition.primary_display_field_id));
+    const primaryField = item.definition.primary_display_field_id
+      ? fieldById.get(String(item.definition.primary_display_field_id))
+      : null;
+    const hasActivePrimary = primaryField
+      && String(primaryField.custom_object_id) === objectId;
     if (!settings && !hasActivePrimary) return [];
     if (!settings && !context.tenantUserId && !isAdmin) {
       if (!context.roleId || !resolveCustomObjectPermission({
@@ -409,20 +488,29 @@ export async function resolveCustomObjectDirectorySources({
       objectId,
       fieldId: field.id,
     });
-    const relationshipLabel = relationship[`${item.direction}_label`];
+    const sourceObjectLabel = objectLabel(item.definition) || objectId;
+    const sourceFieldLabel = fieldLabel(field) || String(field.id);
+    const sourceRelationshipLabel = relationshipLabel(relationship, item.direction);
     return [{
       key,
-      label: `${item.definition.singular_label}: ${field.label || field.name}${relationshipLabel ? ` (${relationshipLabel})` : ''}`,
+      label: `${sourceObjectLabel}: ${sourceFieldLabel}${sourceRelationshipLabel ? ` (${sourceRelationshipLabel})` : ''}`,
       object_id: objectId,
       field_id: String(field.id),
       relationship_id: String(relationship.id),
       direction: item.direction,
+      field_label: sourceFieldLabel,
+      object_label: sourceObjectLabel,
+      relationship_label: sourceRelationshipLabel,
+      is_primary_display_field: Boolean(
+        item.definition.primary_display_field_id
+        && String(item.definition.primary_display_field_id) === String(field.id),
+      ),
       field: minimalField(field),
       _definition: item.definition,
       _field: field,
       _fields: fields.filter((candidate) => String(candidate.custom_object_id) === objectId),
     }];
-  }).sort((a, b) => a.key.localeCompare(b.key));
+  }).sort(compareDirectorySources);
 }
 
 function publicSource(source) {
@@ -473,6 +561,7 @@ export function createCustomObjectDirectory({
       if (after) edgeQuery = edgeQuery.gt(recordColumn, after);
       const edges = await rows(edgeQuery);
       const pageEdges = edges.slice(0, CUSTOM_OBJECT_DIRECTORY_PAGE_SIZE);
+      const hasMultipleRecords = pageEdges.length > 1 || edges.length > 1 || Boolean(after);
       const recordIds = pageEdges.map((edge) => edge[recordColumn]);
       const records = recordIds.length ? await rows(db.from('custom_object_record')
         .select('id, data').eq('tenant_id', context.tenantId)
@@ -503,6 +592,7 @@ export function createCustomObjectDirectory({
       return {
         source: publicSource(source),
         items,
+        has_multiple_records: hasMultipleRecords,
         nextCursor: edges.length > CUSTOM_OBJECT_DIRECTORY_PAGE_SIZE && pageEdges.length
           ? encodeCustomObjectDirectoryCursor(pageEdges.at(-1)[recordColumn]) : null,
       };

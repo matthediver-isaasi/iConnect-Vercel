@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { AlertCircle, Database, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatRecordValue } from "@/pages/customObjects/recordHelpers";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -79,12 +80,48 @@ function PresentValue({ source, item }) {
   return <span>{displayValue}</span>;
 }
 
+export function getDirectoryObjectSourceContext(source) {
+  const labels = [source?.object_label, source?.relationship_label]
+    .filter(label => typeof label === "string" && label.trim());
+  return [...new Set(labels)].join(" · ");
+}
+
+export function getDirectoryObjectSourceGroupId(source) {
+  const relationshipId = source?.relationship_id || source?.relationship?.id;
+  const objectId = source?.object_id || source?.object?.id;
+  if (relationshipId || objectId) return `${relationshipId || ""}:${objectId || ""}:${source?.direction || ""}`;
+  return source?.key || "";
+}
+
+function FieldValueRow({ source, item, showRecordLabel, showFieldLabel = true }) {
+  const fieldLabel = source?.field_label || source?.field?.label || source?.label || "Field";
+  return (
+    <div className={showRecordLabel ? "rounded-md bg-slate-50 px-3 py-2.5" : ""}>
+      {showRecordLabel && (
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 break-words">
+          {item.label || "Related record"}
+        </p>
+      )}
+      <dl className={`grid grid-cols-1 gap-1.5 ${showFieldLabel ? "sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.7fr)] sm:gap-3" : ""}`}>
+        {showFieldLabel && <dt className="text-sm text-slate-600 break-words">{fieldLabel}</dt>}
+        <dd className="min-w-0 text-sm font-medium text-slate-900 break-words">
+          <PresentValue source={source} item={item} />
+        </dd>
+      </dl>
+    </div>
+  );
+}
+
 /** One orderable custom-object field on an organisation card back. */
 export function DirectoryObjectSourceField({
   source,
   organizationId,
   directoryId = "main",
   enabled = true,
+  showContext,
+  precedingContextSourceKeys = [],
+  visibleSourceKeys = {},
+  onVisibilityChange,
 }) {
   const { memberInfo, authResolved } = useMemberAccess();
   const isEmbedded = isDirectoryEmbedLocation();
@@ -130,33 +167,56 @@ export function DirectoryObjectSourceField({
     gcTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    // Requests never retry in the background. The explicit, one-click retry
+    // keeps failures bounded and prevents repeated work for every open card.
     retry: false,
   });
 
   const items = (query.data?.pages || []).flatMap(page => page.items || []);
   const resolvedSource = query.data?.pages?.[0]?.source || source;
+  const firstPage = query.data?.pages?.[0];
+  const hasMultipleRecords = Boolean(
+    firstPage?.values?.has_multiple_records
+    ?? firstPage?.has_multiple_records
+    ?? resolvedSource?.values?.has_multiple_records
+    ?? resolvedSource?.has_multiple_records,
+  );
   const isRevalidating = query.isFetching && !query.isPending && !query.isFetchingNextPage;
+  const context = getDirectoryObjectSourceContext(resolvedSource);
+  const accessRevoked = query.isError && [401, 403, 404].includes(query.error?.status);
+  const emptyTerminal = !query.isPending && !query.isError && !isRevalidating
+    && items.length === 0 && !query.hasNextPage;
+  const isVisible = !accessRevoked && !emptyTerminal;
+  const hasVisiblePredecessor = precedingContextSourceKeys.some(key => visibleSourceKeys[key]);
+  const shouldShowContext = showContext ?? !hasVisiblePredecessor;
+
+  useEffect(() => {
+    onVisibilityChange?.(source?.key, isVisible);
+    return () => onVisibilityChange?.(source?.key, false);
+  }, [isVisible, onVisibilityChange, source?.key]);
 
   // A removed or no-longer-authorized source is absent content. Infrastructure
   // failures remain explicit and retryable rather than masquerading as empty.
-  if (query.isError && [401, 403, 404].includes(query.error?.status)) return null;
+  if (accessRevoked) return null;
 
   // An empty terminal result is absent content, not a blank card-back section.
   // An empty page with a cursor remains visible so every subsequent page is
   // reachable without unbounded eager loading.
-  if (!query.isPending && !query.isError && !isRevalidating && items.length === 0 && !query.hasNextPage) {
+  if (emptyTerminal) {
     return null;
   }
 
   return (
-    <div className="space-y-3 pt-2 border-t" data-testid={`directory-object-source-${source.key}`}>
-      <div className="flex items-center gap-2">
-        <Database className="w-4 h-4 text-blue-600" />
-        <h4 className="font-medium text-slate-900">{source.label}</h4>
-      </div>
+    <section className="space-y-2.5 py-2" data-testid={`directory-object-source-${source.key}`}>
+      {shouldShowContext && context && (
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 break-words">
+          {context}
+        </p>
+      )}
       {query.isPending || isRevalidating ? (
-        <div className="flex justify-center py-3">
-          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+        <div className="flex items-center gap-2 py-1 text-sm text-slate-500" role="status">
+          <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+          Loading field…
         </div>
       ) : query.isError ? (
         <div className="flex items-center justify-between gap-3 text-sm text-red-700">
@@ -166,17 +226,20 @@ export function DirectoryObjectSourceField({
       ) : (
         <>
           {items.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2">
+              {hasMultipleRecords && (
+                <p className="text-sm text-slate-600 break-words">
+                  {resolvedSource?.field_label || resolvedSource?.field?.label || resolvedSource?.label || "Field"}
+                </p>
+              )}
               {items.map((item, index) => (
-                <div
+                <FieldValueRow
                   key={`${item.record_id}-${index}`}
-                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-4"
-                >
-                  <span className="text-sm text-slate-600 break-words">{item.label || "Record"}</span>
-                  <div className="min-w-0 text-sm font-medium text-slate-900 break-words">
-                    <PresentValue source={resolvedSource} item={item} />
-                  </div>
-                </div>
+                  source={resolvedSource}
+                  item={item}
+                  showRecordLabel={hasMultipleRecords}
+                  showFieldLabel={!hasMultipleRecords}
+                />
               ))}
             </div>
           )}
@@ -196,6 +259,6 @@ export function DirectoryObjectSourceField({
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }

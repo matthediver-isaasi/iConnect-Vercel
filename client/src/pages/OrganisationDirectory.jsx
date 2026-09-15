@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, useEffect, useRef } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,7 +16,7 @@ import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
-import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus } from "@/components/directory/DirectoryObjectSourceField";
+import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
 import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
 
@@ -49,9 +49,17 @@ export default function OrganisationDirectoryPage() {
   
   // State for organization profile modal
   const [selectedOrg, setSelectedOrg] = useState(null);
+  const [visibleObjectSourceKeys, setVisibleObjectSourceKeys] = useState({});
   const [directoryFilters, setDirectoryFilters] = useState({});
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const objectSourceQuery = useDirectoryObjectSources();
+  const handleObjectSourceVisibility = useCallback((key, visible) => {
+    if (!key) return;
+    setVisibleObjectSourceKeys(previous => previous[key] === visible
+      ? previous
+      : { ...previous, [key]: visible });
+  }, []);
+  useEffect(() => setVisibleObjectSourceKeys({}), [selectedOrg?.id]);
   const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
     ? []
     : (objectSourceQuery.data?.sources || []);
@@ -765,6 +773,8 @@ export default function OrganisationDirectoryPage() {
               const sections = [];
               let pendingCustoms = [];
               let batchIdx = 0;
+              let precedingObjectSourceGroup = null;
+              let precedingObjectSourceKeys = [];
               const flushCustoms = () => {
                 if (pendingCustoms.length === 0) return;
                 const batch = pendingCustoms;
@@ -836,6 +846,8 @@ export default function OrganisationDirectoryPage() {
               for (const key of resolvedOrder) {
                 if (key === 'org_member_count') {
                   if (!displaySettings?.showMemberCount) continue;
+                  precedingObjectSourceGroup = null;
+                  precedingObjectSourceKeys = [];
                   flushCustoms();
                   sections.push(
                     <div key={key} className="flex items-center gap-2 text-slate-600">
@@ -845,6 +857,8 @@ export default function OrganisationDirectoryPage() {
                   );
                 } else if (key === 'org_members_list') {
                   if (reverseCardContactGroups.length === 0) continue;
+                  precedingObjectSourceGroup = null;
+                  precedingObjectSourceKeys = [];
                   flushCustoms();
                   sections.push(
                     <Fragment key={key}>
@@ -931,16 +945,27 @@ export default function OrganisationDirectoryPage() {
                 } else if (key.startsWith('custom:')) {
                   const field = fieldById.get(key.slice(7));
                   if (!field || field._visBack === false) continue;
+                  precedingObjectSourceGroup = null;
+                  precedingObjectSourceKeys = [];
                   pendingCustoms.push(field);
                 } else if (key.startsWith('object-field:')) {
                   const source = objectSources.find(item => item.key === key);
                   if (!source) continue;
                   flushCustoms();
+                  const sourceGroup = getDirectoryObjectSourceGroupId(source);
+                  const precedingContextSourceKeys = sourceGroup === precedingObjectSourceGroup
+                    ? precedingObjectSourceKeys
+                    : [];
+                  precedingObjectSourceGroup = sourceGroup;
+                  precedingObjectSourceKeys = [...precedingContextSourceKeys, source.key];
                   sections.push(
                     <DirectoryObjectSourceField
                       key={key}
                       source={source}
                       organizationId={selectedOrg?.id}
+                      precedingContextSourceKeys={precedingContextSourceKeys}
+                      visibleSourceKeys={visibleObjectSourceKeys}
+                      onVisibilityChange={handleObjectSourceVisibility}
                     />
                   );
                 }

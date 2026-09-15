@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
@@ -24,7 +24,7 @@ import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/dir
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
-import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus } from "@/components/directory/DirectoryObjectSourceField";
+import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 
 export default function DynamicDirectoryView() {
   const { slug, organizationId: scopedOrganizationId } = useParams();
@@ -49,6 +49,7 @@ export default function DynamicDirectoryView() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [selectedOrg, setSelectedOrg] = useState(null);
+  const [visibleObjectSourceKeys, setVisibleObjectSourceKeys] = useState({});
   const [viewingMember, setViewingMember] = useState(null);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [emailCopied, setEmailCopied] = useState(false);
@@ -89,6 +90,13 @@ export default function DynamicDirectoryView() {
     directoryId: directory?.id,
     enabled: Boolean(directory?.id && directory.entity_type === 'organization' && !isGuest),
   });
+  const handleObjectSourceVisibility = useCallback((key, visible) => {
+    if (!key) return;
+    setVisibleObjectSourceKeys(previous => previous[key] === visible
+      ? previous
+      : { ...previous, [key]: visible });
+  }, []);
+  useEffect(() => setVisibleObjectSourceKeys({}), [selectedOrg?.id]);
   const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
     ? []
     : (objectSourceQuery.data?.sources || []);
@@ -1131,9 +1139,13 @@ export default function DynamicDirectoryView() {
                 };
 
                 const items = [];
+                let precedingObjectSourceGroup = null;
+                let precedingObjectSourceKeys = [];
                 for (const key of resolvedOrder) {
                   if (key === 'org_member_count') {
                     if (isGuest || !orgMemberCountVisible) continue;
+                    precedingObjectSourceGroup = null;
+                    precedingObjectSourceKeys = [];
                     items.push({ kind: 'block', node: (
                       <div key={key} className="flex items-center gap-2 text-slate-600">
                         <Users className="w-4 h-4" />
@@ -1142,6 +1154,8 @@ export default function DynamicDirectoryView() {
                     ) });
                   } else if (key === 'org_members_list') {
                     if (isGuest || reverseCardContactGroups.length === 0) continue;
+                    precedingObjectSourceGroup = null;
+                    precedingObjectSourceKeys = [];
                     items.push({ kind: 'block', node: (
                       <div key={key} className="space-y-3 pt-2 border-t">
                         <div className="flex items-center gap-2">
@@ -1224,16 +1238,27 @@ export default function DynamicDirectoryView() {
                   } else if (key.startsWith('custom:')) {
                     const field = fieldById.get(key.slice(7));
                     if (!field || field._visBack === false) continue;
+                    precedingObjectSourceGroup = null;
+                    precedingObjectSourceKeys = [];
                     items.push({ kind: 'custom', field });
                   } else if (key.startsWith('object-field:')) {
                     const source = objectSources.find(item => item.key === key);
                     if (!source) continue;
+                    const sourceGroup = getDirectoryObjectSourceGroupId(source);
+                    const precedingContextSourceKeys = sourceGroup === precedingObjectSourceGroup
+                      ? precedingObjectSourceKeys
+                      : [];
+                    precedingObjectSourceGroup = sourceGroup;
+                    precedingObjectSourceKeys = [...precedingContextSourceKeys, source.key];
                     items.push({ kind: 'block', node: (
                       <DirectoryObjectSourceField
                         key={key}
                         source={source}
                         organizationId={selectedOrg?.id}
                         directoryId={directory?.id}
+                        precedingContextSourceKeys={precedingContextSourceKeys}
+                        visibleSourceKeys={visibleObjectSourceKeys}
+                        onVisibilityChange={handleObjectSourceVisibility}
                       />
                     ) });
                   }

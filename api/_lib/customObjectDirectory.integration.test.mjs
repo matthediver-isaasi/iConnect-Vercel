@@ -241,6 +241,92 @@ test('metadata evaluates opt-in and active tenant-owned object, relationship, an
   assert.equal((await service(crossTenant).directory.metadata()).sources.length, 1);
 });
 
+test('metadata uses list-view field order and deterministic labels instead of checkbox or id order', async () => {
+  const alphaRelationshipId = '30000000-0000-4000-8000-000000000099';
+  const betaRelationshipId = '30000000-0000-4000-8000-000000000001';
+  const fallbackFieldId = '20000000-0000-4000-8000-000000000099';
+  const staleFieldId = '20000000-0000-4000-8000-000000000098';
+  const configured = definition({
+    configuration: {
+      views: {
+        // The directory picker/checkbox order is intentionally the reverse
+        // of the object list view order.
+        organisation_directory: {
+          enabled: true,
+          relationships: [
+            { relationship_id: betaRelationshipId, direction: 'target' },
+            { relationship_id: alphaRelationshipId, direction: 'target' },
+          ],
+          field_ids: [fallbackFieldId, staleFieldId, valueFieldId],
+        },
+        list: {
+          field_ids: [valueFieldId, staleFieldId],
+        },
+      },
+    },
+  });
+  const records = [
+    field(primaryFieldId, 'name', { label: 'Name' }),
+    field(valueFieldId, 'zebra', { label: 'Zebra' }),
+    field(fallbackFieldId, 'alpha', { label: 'Alpha' }),
+  ];
+  const { directory } = service(baseSeed({
+    custom_object_definition: [configured],
+    preference_field: records,
+    custom_object_relationship_definition: [
+      relationship({ id: alphaRelationshipId, target_label: 'Alpha links' }),
+      relationship({ id: betaRelationshipId, target_label: 'Beta links' }),
+    ],
+  }));
+
+  const metadata = await directory.metadata();
+  assert.deepEqual(
+    metadata.sources.map((source) => ({
+      relationship_id: source.relationship_id,
+      field_id: source.field_id,
+      field_label: source.field_label,
+      object_label: source.object_label,
+      relationship_label: source.relationship_label,
+      is_primary_display_field: source.is_primary_display_field,
+    })),
+    [
+      {
+        relationship_id: alphaRelationshipId,
+        field_id: valueFieldId,
+        field_label: 'Zebra',
+        object_label: 'Department',
+        relationship_label: 'Alpha links',
+        is_primary_display_field: false,
+      },
+      {
+        relationship_id: alphaRelationshipId,
+        field_id: fallbackFieldId,
+        field_label: 'Alpha',
+        object_label: 'Department',
+        relationship_label: 'Alpha links',
+        is_primary_display_field: false,
+      },
+      {
+        relationship_id: betaRelationshipId,
+        field_id: valueFieldId,
+        field_label: 'Zebra',
+        object_label: 'Department',
+        relationship_label: 'Beta links',
+        is_primary_display_field: false,
+      },
+      {
+        relationship_id: betaRelationshipId,
+        field_id: fallbackFieldId,
+        field_label: 'Alpha',
+        object_label: 'Department',
+        relationship_label: 'Beta links',
+        is_primary_display_field: false,
+      },
+    ],
+  );
+  assert.equal(metadata.sources.some((source) => source.field_id === staleFieldId), false);
+});
+
 test('metadata never substitutes cross-tenant relationships, fields, edges, or records', async () => {
   assert.equal((await service(baseSeed({
     custom_object_relationship_definition: [relationship({ tenant_id: otherTenantId })],
@@ -559,6 +645,28 @@ test('values retains meaningful zero and false values from multiple records', as
   );
 });
 
+test('values reports multiple linked records even when their selected values are empty', async () => {
+  const records = [
+    { id: recordId(1), tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'One', value: '' } },
+    { id: recordId(2), tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Two', value: null } },
+  ];
+  const edges = records.map((record) => ({
+    tenant_id: tenantId,
+    relationship_definition_id: relationshipId,
+    source_record_id: record.id,
+    target_record_id: organizationId,
+    archived_at: null,
+  }));
+  const { directory } = service(baseSeed({
+    custom_object_relationship: edges,
+    custom_object_record: records,
+  }));
+  const source = await sourceFor(directory);
+  const result = await directory.values({ organizationId, sourceKey: source.key });
+  assert.deepEqual(result.items, []);
+  assert.equal(result.has_multiple_records, true);
+});
+
 test('cursor pages more than 25 linked records deterministically without duplicates', async () => {
   const count = CUSTOM_OBJECT_DIRECTORY_PAGE_SIZE + 7;
   const records = Array.from({ length: count }, (_, index) => ({
@@ -582,6 +690,7 @@ test('cursor pages more than 25 linked records deterministically without duplica
   const source = await sourceFor(directory);
   const first = await directory.values({ organizationId, sourceKey: source.key });
   assert.equal(first.items.length, CUSTOM_OBJECT_DIRECTORY_PAGE_SIZE);
+  assert.equal(first.has_multiple_records, true);
   assert.ok(first.nextCursor);
   const second = await directory.values({
     organizationId,
@@ -592,6 +701,7 @@ test('cursor pages more than 25 linked records deterministically without duplica
   assert.equal(ids.length, count);
   assert.equal(new Set(ids).size, count);
   assert.deepEqual(ids, [...ids].sort());
+  assert.equal(second.has_multiple_records, true);
   assert.equal(second.nextCursor, null);
 });
 

@@ -67,6 +67,9 @@ async function mount(child) {
 const source = (fieldType = "text") => ({
   key: `object-field:relationship:source:object:${fieldType}`,
   label: "Related details",
+  field_label: "Office phone",
+  object_label: "People",
+  relationship_label: "Team members",
   field_id: fieldType,
   field: {
     field_type: fieldType,
@@ -155,7 +158,7 @@ test("keeps empty cursor pages reachable and loads the next page", async () => {
   assert.ok(button, `calls=${calls}; text=${view.container.textContent}`);
   await act(async () => button.click());
   await settle();
-  assert.match(view.container.textContent, /Record one/);
+  assert.doesNotMatch(view.container.textContent, /Record one/);
   assert.match(view.container.textContent, /0/);
   await view.cleanup();
 });
@@ -183,6 +186,55 @@ test("renders false and dropdown values with their field types", async () => {
   await view.cleanup();
 });
 
+test("uses concise source context and field label for a single linked record", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    source: { ...source(), field_label: "Name", object_label: "People", relationship_label: "Board" },
+    values: { has_multiple_records: false },
+    items: [{ record_id: "record-1", label: "Maya Chen", value: "Maya Chen" }],
+    nextCursor: null,
+  }), { status: 200 });
+  const view = await mount(<DirectoryObjectSourceField source={source()} organizationId="org-1" />);
+  assert.match(view.container.textContent, /People · Board/);
+  assert.match(view.container.textContent, /Name/);
+  assert.equal((view.container.textContent.match(/Maya Chen/g) || []).length, 1);
+  assert.equal(view.container.querySelectorAll("svg").length, 0);
+  await view.cleanup();
+});
+
+test("keeps every multiple-record value associated with its record, including equal labels", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    source: source(),
+    values: { has_multiple_records: true },
+    items: [
+      { record_id: "record-a", label: "Alex Kim", value: "Operations" },
+      { record_id: "record-b", label: "Alex Kim", value: "Finance" },
+    ],
+    nextCursor: null,
+  }), { status: 200 });
+  const view = await mount(<DirectoryObjectSourceField source={source()} organizationId="org-1" />);
+  const groups = view.container.querySelectorAll(".rounded-md");
+  assert.equal(groups.length, 2);
+  assert.match(groups[0].textContent, /Alex Kim[\s\S]*Operations/);
+  assert.match(groups[1].textContent, /Alex Kim[\s\S]*Finance/);
+  await view.cleanup();
+});
+
+test("can suppress only a repeated consecutive context without suppressing its field values", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    source: source(),
+    values: { has_multiple_records: false },
+    items: [{ record_id: "aarhus-office", label: "Aarhus office", value: "Mindet 6, 8000 Aarhus C" }],
+    nextCursor: null,
+  }), { status: 200 });
+  const view = await mount(
+    <DirectoryObjectSourceField source={source()} organizationId="org-1" showContext={false} />,
+  );
+  assert.doesNotMatch(view.container.textContent, /People · Team members/);
+  assert.match(view.container.textContent, /Office phone/);
+  assert.match(view.container.textContent, /Mindet 6, 8000 Aarhus C/);
+  await view.cleanup();
+});
+
 test("shows value errors and retries successfully", async () => {
   let calls = 0;
   globalThis.fetch = async () => {
@@ -202,7 +254,7 @@ test("shows value errors and retries successfully", async () => {
     .find(item => item.textContent.includes("Retry"));
   await act(async () => retry.click());
   await settle();
-  assert.match(view.container.textContent, /Recovered/);
+  assert.match(view.container.textContent, /value/);
   await view.cleanup();
 });
 

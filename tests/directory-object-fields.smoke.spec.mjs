@@ -2,9 +2,14 @@ import { test, expect } from "@playwright/test";
 
 const sourceKey =
   "object-field:11111111-1111-4111-8111-111111111111:source:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333";
+const addressSourceKey =
+  "object-field:11111111-1111-4111-8111-111111111111:source:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444";
 const source = {
   key: sourceKey,
   label: "Accreditations",
+  field_label: "Accreditation status",
+  object_label: "Accreditation",
+  relationship_label: "Organisation accreditations",
   object_id: "22222222-2222-4222-8222-222222222222",
   field_id: "33333333-3333-4333-8333-333333333333",
   relationship_id: "11111111-1111-4111-8111-111111111111",
@@ -14,6 +19,42 @@ const source = {
     label: "Accreditation status",
     field_type: "text",
   },
+};
+const addressSource = {
+  ...source,
+  key: addressSourceKey,
+  field_id: "44444444-4444-4444-8444-444444444444",
+  label: "Office street",
+  field_label: "Street",
+  field: {
+    id: "44444444-4444-4444-8444-444444444444",
+    label: "Aarhus address",
+    field_type: "text",
+  },
+};
+const aarhusNameSource = {
+  ...addressSource,
+  key: `${addressSourceKey}:name`,
+  field_id: "55555555-5555-4555-8555-555555555555",
+  field_label: "Name",
+  field: { id: "55555555-5555-4555-8555-555555555555", label: "Name", field_type: "text" },
+  object_label: "Aarhus location",
+  relationship_label: "Organisation offices",
+};
+const aarhusStreetSource = {
+  ...addressSource,
+  key: `${addressSourceKey}:street`,
+  object_label: "Aarhus location",
+  relationship_label: "Organisation offices",
+};
+const aarhusCitySource = {
+  ...addressSource,
+  key: `${addressSourceKey}:city`,
+  field_id: "66666666-6666-4666-8666-666666666666",
+  field_label: "City",
+  field: { id: "66666666-6666-4666-8666-666666666666", label: "City", field_type: "text" },
+  object_label: "Aarhus location",
+  relationship_label: "Organisation offices",
 };
 const member = {
   id: "smoke-member",
@@ -63,10 +104,12 @@ const standardOrder = [
   "org_member_count",
   "custom:org-field",
   sourceKey,
+  addressSourceKey,
   "org_members_list",
 ];
 const dynamicOrder = [
   sourceKey,
+  addressSourceKey,
   "custom:org-field",
   "org_member_count",
   "org_members_list",
@@ -157,7 +200,7 @@ function initialSettings() {
   }));
 }
 
-async function installFixtures(page, { failFirstValues = false } = {}) {
+async function installFixtures(page, { failFirstValues = false, singleAarhusRecord = false } = {}) {
   const state = {
     settings: initialSettings(),
     dynamicDirectory: {
@@ -250,19 +293,38 @@ async function installFixtures(page, { failFirstValues = false } = {}) {
     if (path === "/api/auth/logout") return json({ ok: true });
 
     if (path === "/api/organisation-directory/custom-object-fields") {
-      if (!url.searchParams.has("organization_id")) return json({ sources: [source] });
+      if (!url.searchParams.has("organization_id")) {
+        return json({ sources: singleAarhusRecord
+          ? [aarhusNameSource, aarhusStreetSource, aarhusCitySource]
+          : [source, addressSource] });
+      }
       state.valuesAttempts += 1;
       if (failFirstValues && state.valuesAttempts === 1) return json({ error: "fixture retry" }, 500);
       const cursor = url.searchParams.get("cursor");
+      const requestedKey = url.searchParams.get("source_key");
+      const requestedSource = singleAarhusRecord
+        ? [aarhusNameSource, aarhusStreetSource, aarhusCitySource].find(item => item.key === requestedKey)
+        : (requestedKey === addressSourceKey ? addressSource : source);
+      const aarhusValue = requestedSource?.field_label === "Name"
+        ? "Aarhus office"
+        : requestedSource?.field_label === "City" ? "8000 Aarhus C" : "Mindet 6";
       return json({
-        source,
-        items: cursor
+        source: requestedSource,
+        has_multiple_records: !singleAarhusRecord,
+        items: singleAarhusRecord
+          ? [{ record_id: "aarhus-office", label: "Aarhus office", value: aarhusValue }]
+          : requestedSource.key === addressSourceKey
+          ? [
+              { record_id: "record-1", label: "Record Alpha", value: "Mindet 6, 8000 Aarhus C" },
+              { record_id: "record-2", label: "Record Beta", value: "Sønder Allé 33, 8000 Aarhus C" },
+            ]
+          : cursor
           ? [{ record_id: "record-3", label: "Record Gamma", value: "Renewal pending" }]
           : [
               { record_id: "record-1", label: "Record Alpha", value: "Approved" },
               { record_id: "record-2", label: "Record Beta", value: "In review" },
             ],
-        nextCursor: cursor ? null : "fixture-page-2",
+        nextCursor: singleAarhusRecord || requestedSource.key === addressSourceKey || cursor ? null : "fixture-page-2",
       });
     }
     if (path === "/api/organisation-directory/filters") {
@@ -616,13 +678,16 @@ test("standard directory retries, renders multiple records, and paginates", asyn
   await page.getByTestId("card-organisation-smoke-org").click();
   await expect(page.getByText("Values unavailable")).toBeVisible();
   await page.getByRole("button", { name: "Retry" }).click();
-  await expect(page.getByText("Record Alpha", { exact: true })).toBeVisible();
-  await expect(page.getByTestId(`directory-object-source-${sourceKey}`).getByText("Approved", { exact: true })).toBeVisible();
-  await expect(page.getByText("Record Beta", { exact: true })).toBeVisible();
+  const accreditationSection = page.getByTestId(`directory-object-source-${sourceKey}`);
+  await expect(accreditationSection.getByText("Record Alpha", { exact: true })).toBeVisible();
+  await expect(accreditationSection.getByText("Approved", { exact: true })).toBeVisible();
+  await expect(accreditationSection.getByText("Record Beta", { exact: true })).toBeVisible();
+  await expect(page.getByText("Accreditation · Organisation accreditations", { exact: true })).toBeVisible();
+  await expect(page.getByText("Accreditation status", { exact: true })).toHaveCount(1);
 
   const memberTop = await textTop(page, "1 members");
   const customTop = await textTop(page, "Service region");
-  const objectTop = await textTop(page, "Accreditations");
+  const objectTop = await textTop(page, "Accreditation · Organisation accreditations");
   expect(memberTop).toBeLessThan(customTop);
   expect(customTop).toBeLessThan(objectTop);
 
@@ -637,12 +702,56 @@ test("standard directory retries, renders multiple records, and paginates", asyn
   await attachNetworkRecord(testInfo, state);
 });
 
+test("compact object-source card back remains legible on desktop and narrow mobile", async ({ page }, testInfo) => {
+  const state = await installFixtures(page, { singleAarhusRecord: true });
+  await page.goto("/OrganisationDirectory");
+  const acceptCookies = page.getByRole("button", { name: "Accept", exact: true });
+  if (await acceptCookies.isVisible()) await acceptCookies.click();
+  await page.getByTestId("card-organisation-smoke-org").click();
+
+  const sourceSection = page.getByTestId(`directory-object-source-${aarhusNameSource.key}`);
+  await expect(sourceSection.getByText("Aarhus location · Organisation offices", { exact: true })).toBeVisible();
+  await expect(page.getByText("Name", { exact: true })).toBeVisible();
+  await expect(page.getByText("Street", { exact: true })).toBeVisible();
+  await expect(page.getByText("City", { exact: true })).toBeVisible();
+  await expect(page.getByText("Aarhus office", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Mindet 6", { exact: true })).toBeVisible();
+  await expect(page.getByText("8000 Aarhus C", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/task-4386-compact-source-desktop.png", fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "/tmp/task-4386-compact-source-mobile.png", fullPage: true });
+  const mobileLayout = await sourceSection.evaluate((section) => {
+    const rect = section.getBoundingClientRect();
+    const dialog = section.closest('[role="dialog"]')?.getBoundingClientRect();
+    return {
+      sectionInsideDialog: Boolean(dialog && rect.left >= dialog.left && rect.right <= dialog.right),
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      repeatedContext: [...section.querySelectorAll("p")]
+        .filter(element => element.textContent === "Aarhus location · Organisation offices").length,
+      repeatedFieldLabel: [...section.querySelectorAll("p, dt")]
+        .filter(element => element.textContent === "Name").length,
+      dialogContextCount: [...(section.closest('[role="dialog"]')?.querySelectorAll("p") || [])]
+        .filter(element => element.textContent === "Aarhus location · Organisation offices").length,
+    };
+  });
+  expect(mobileLayout.sectionInsideDialog).toBe(true);
+  expect(mobileLayout.documentWidth).toBeLessThanOrEqual(mobileLayout.viewportWidth);
+  expect(mobileLayout.repeatedContext).toBe(1);
+  expect(mobileLayout.repeatedFieldLabel).toBe(1);
+  expect(mobileLayout.dialogContextCount).toBe(1);
+  expect(state.writes.some((write) => write.escaped)).toBeFalsy();
+  await attachNetworkRecord(testInfo, state);
+});
+
 test("dynamic directory uses per-directory interleaving and scoped values", async ({ page }, testInfo) => {
   const state = await installFixtures(page);
   await page.goto("/directory/smoke-directory");
   await page.getByTestId("card-organisation-smoke-org").click();
-  await expect(page.getByText("Record Alpha", { exact: true })).toBeVisible();
-  const objectTop = await textTop(page, "Accreditations");
+  await expect(page.getByTestId(`directory-object-source-${sourceKey}`).getByText("Record Alpha", { exact: true })).toBeVisible();
+  const objectTop = await textTop(page, "Accreditation · Organisation accreditations");
   const customTop = await textTop(page, "Service region");
   const memberTop = await textTop(page, "1 members");
   expect(objectTop).toBeLessThan(customTop);

@@ -123,6 +123,24 @@ test('empty/garbage saved lists treated as unset', () => {
   }
 });
 
+test('default metadata sequence appends only unsaved sources with client/server parity', () => {
+  // Deliberately neither UUID nor checkbox order: metadata owns the list default.
+  const keys = ['f9', 'f2', 'f7'].map(id => `object-field:rel:source:object:${id}`);
+  const objectSources = keys.map(key => ({ key }));
+  for (const resolve of [resolveBackFieldOrder, srvResolve]) {
+    const base = { defaultOrder: ORG_BACK_DEFAULT_ORDER, customFields: [{ id: 'native' }], objectSources };
+    assert.deepEqual(resolve(base), ['org_member_count', 'org_members_list', 'custom:native', ...keys]);
+    assert.deepEqual(resolve({ ...base, tenantOrder: [keys[2], 'org_members_list', 'custom:native', keys[0], 'org_member_count'] }),
+      [keys[2], 'org_members_list', 'custom:native', keys[0], 'org_member_count', keys[1]]);
+    assert.deepEqual(resolve({ ...base, tenantOrder: [keys[2], 'org_member_count'],
+      directoryOrder: ['custom:native', keys[1], 'org_members_list', keys[0]] }),
+    ['custom:native', keys[1], 'org_members_list', keys[0], 'org_member_count', keys[2]]);
+    // An override without object positions appends them using current list defaults.
+    assert.deepEqual(resolve({ ...base, directoryOrder: ['org_members_list'], tenantOrder: [keys[2]] }),
+      ['org_members_list', 'org_member_count', 'custom:native', ...keys]);
+  }
+});
+
 // Mirrors the detail-modal render pipeline: resolve order → map to item
 // kinds → group into sections. Proves a saved tenant default and a
 // per-directory override each change the visible section sequence.

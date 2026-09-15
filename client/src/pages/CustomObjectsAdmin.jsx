@@ -945,7 +945,7 @@ function PresentationEditor({ object, fields, relationshipPanels: panels = [], r
     })),
   ];
   return <><Card><CardHeader><CardTitle className="text-lg">Shared record presentation</CardTitle><CardDescription>Configure default list columns, responsive record cards, relationships, and conditional visibility.</CardDescription></CardHeader><CardContent className="space-y-6">
-    <section><h3 className="mb-2 text-sm font-semibold">Default list columns</h3><OrderedFieldPicker fields={active} value={list} onChange={setList} disabled={!canManage} /></section>
+    <section><h3 className="mb-2 text-sm font-semibold">Default list columns</h3><p className="mb-2 text-sm text-slate-600">Also sets the default sequence of enabled organisation-directory fields. Saved reverse-card positions take priority; selecting a list column does not enable directory access.</p><OrderedFieldPicker fields={active} value={list} onChange={setList} disabled={!canManage} /></section>
     <OrganisationDirectoryPresentationEditor object={object} fields={active} relationships={relationships} value={directory} onChange={setDirectory} disabled={!canManage} />
     <section className="rounded-lg border p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Record page cards</h3><p className="mt-1 text-xs text-slate-500">{layout.cards.length} cards · drag fields and relationship sides into up to three columns.</p></div><Button type="button" variant="outline" disabled={!canManage} onClick={() => setLayoutOpen(true)}>Edit layout</Button></div></section>
     <section className="space-y-3">
