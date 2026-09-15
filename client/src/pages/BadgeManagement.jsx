@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge as BadgeChip } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import BadgeImageLink from "@/components/badges/BadgeImageLink";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -225,7 +226,8 @@ export default function BadgeManagement() {
                       {badge.description}
                     </p>
                   )}
-                  <div className="flex gap-1 mt-2">
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    <BadgeImageLink badge={badge} />
                     <Button
                       variant="ghost"
                       size="icon"
