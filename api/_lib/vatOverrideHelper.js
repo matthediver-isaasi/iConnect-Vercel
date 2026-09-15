@@ -1,34 +1,5 @@
 import { supabase } from './database.js';
-
-function normalizeVatSelections(value) {
-  if (typeof value === 'string') {
-    const text = value.trim();
-    if (!text) return [];
-    try {
-      const parsed = JSON.parse(text);
-      value = typeof parsed === 'object' ? parsed : text;
-    } catch {
-      // Broken serialized selections must not activate a not-equals rule.
-      if (/^[\[{"]/.test(text)) return [];
-      value = text;
-    }
-  }
-  const selections = Array.isArray(value) ? value : [value];
-  // Reject objects/nested arrays rather than coercing them into matchable text.
-  if (selections.some(v => v != null && !['string', 'number', 'boolean'].includes(typeof v))) return [];
-  return selections
-    .filter(v => v != null)
-    .map(v => String(v).trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function matchesVatSelections(value, matchValue, condition) {
-  const selections = normalizeVatSelections(value);
-  const configuredSelections = normalizeVatSelections(matchValue);
-  if (!selections.length || !configuredSelections.length) return false;
-  const anyMatch = selections.some(v => configuredSelections.includes(v));
-  return condition === 'not_equals' ? !anyMatch : anyMatch;
-}
+import { matchesSelections } from './selectionMatcher.js';
 
 export async function evaluateVatOverrideForOrg(configId, tenantId, organizationId, fieldOverrides = {}) {
   try {
@@ -77,7 +48,7 @@ export async function evaluateVatOverrideForOrg(configId, tenantId, organization
 
     for (const rule of overrideRules) {
       const orgFieldValue = valueMap[rule.field_id];
-      const isMatch = matchesVatSelections(orgFieldValue, rule.match_value, rule.match_condition);
+      const isMatch = matchesSelections(orgFieldValue, rule.match_value, rule.match_condition);
 
       if (isMatch) {
         if (rule.vat_rate) {
@@ -181,7 +152,7 @@ export async function evaluateVatOverrideForMember(configId, tenantId, memberId,
 
     for (const rule of overrideRules) {
       const fieldValue = valueMap[rule.field_id];
-      const isMatch = matchesVatSelections(fieldValue, rule.match_value, rule.match_condition);
+      const isMatch = matchesSelections(fieldValue, rule.match_value, rule.match_condition);
 
       if (isMatch) {
         if (rule.vat_rate) {

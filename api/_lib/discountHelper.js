@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { matchesSelections } from './selectionMatcher.js';
 
 // Scope-aware discount evaluation: member-scoped structures store their
 // custom-field values in member_preference_value (keyed by member_id),
@@ -68,14 +69,7 @@ async function evaluateDiscountsInternal(configId, tenantId, entityId, fieldOver
       const orgFieldValue = valueMap[rule.field_id];
       if (orgFieldValue === undefined || orgFieldValue === null) continue;
 
-      const normalizedOrgValue = String(orgFieldValue).trim().toLowerCase();
-
-      let matchValues;
-      try { matchValues = JSON.parse(rule.match_value); } catch { matchValues = null; }
-      let isMatch = Array.isArray(matchValues)
-        ? matchValues.some(v => String(v).trim().toLowerCase() === normalizedOrgValue)
-        : normalizedOrgValue === String(rule.match_value).trim().toLowerCase();
-      if (rule.match_condition === 'not_equals') isMatch = !isMatch;
+      const isMatch = matchesSelections(orgFieldValue, rule.match_value, rule.match_condition);
 
       if (isMatch) {
         result.discountDetails.push({

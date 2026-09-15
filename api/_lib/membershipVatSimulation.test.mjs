@@ -12,6 +12,19 @@ const GOVERNANCE_FIELD_ID = 'governance-region';
 const GO_LIVE_FIELD_ID = 'go-live';
 const STANDARD_VAT = JSON.stringify({ taxType: 'OUTPUT2', name: '20% (VAT on Income)' });
 const ZERO_VAT = JSON.stringify({ taxType: 'ZERORATEDOUTPUT', name: 'Zero Rated Income' });
+const ROI_DISCOUNT = {
+  id: 'roi-thirty-percent',
+  config_id: CONFIG_ID,
+  tenant_id: TENANT_ID,
+  field_id: GOVERNANCE_FIELD_ID,
+  field_label: 'Governance region',
+  match_value: 'Republic of Ireland',
+  match_condition: 'equals',
+  discount_type: 'percentage',
+  discount_value: '30',
+  label: 'ROI 30% discount',
+  sort_order: 1,
+};
 const VAT_RATES = JSON.stringify({
   rates: [
     { taxType: 'OUTPUT2', effectiveRate: 20 },
@@ -59,10 +72,28 @@ function baseConfig(overrides = {}) {
   };
 }
 
-function makeTables({ governanceValue = '["Republic of Ireland"]', flat = false } = {}) {
+function makeTables({
+  governanceValue = '["Republic of Ireland"]',
+  flat = false,
+  annualCost = 1000,
+  discountRules = [],
+  organizationOverrides = [],
+} = {}) {
   const config = baseConfig(flat
-    ? { pricing_model: 'flat', flat_cost: 1000, flat_vat_rate: STANDARD_VAT }
+    ? { pricing_model: 'flat', flat_cost: annualCost, flat_vat_rate: STANDARD_VAT }
     : {});
+  const bands = flat ? [] : [{
+    id: 'band-standard',
+    config_id: CONFIG_ID,
+    tenant_id: TENANT_ID,
+    label: 'Standard',
+    min_value: 0,
+    max_value: null,
+    annual_cost: annualCost,
+    vat_rate: STANDARD_VAT,
+    nominal_code: '200',
+    display_order: 1,
+  }];
   return {
     organization: [{
       id: ORG_ID,
@@ -73,24 +104,13 @@ function makeTables({ governanceValue = '["Republic of Ireland"]', flat = false 
     }],
     organisation_membership_invoicing: [],
     membership_tier_config: [config],
-    membership_tier_band: flat ? [] : [{
-      id: 'band-standard',
-      config_id: CONFIG_ID,
-      tenant_id: TENANT_ID,
-      label: 'Standard',
-      min_value: 0,
-      max_value: null,
-      annual_cost: 1000,
-      vat_rate: STANDARD_VAT,
-      nominal_code: '200',
-      display_order: 1,
-    }],
+    membership_tier_band: bands,
     member: Array.from({ length: 10 }, (_, index) => ({
       id: `member-${index}`,
       tenant_id: TENANT_ID,
       organization_id: ORG_ID,
     })),
-    membership_tier_discount: [],
+    membership_tier_discount: discountRules,
     membership_tier_vat_override: [{
       id: 'roi-zero-rate',
       config_id: CONFIG_ID,
@@ -116,7 +136,7 @@ function makeTables({ governanceValue = '["Republic of Ireland"]', flat = false 
       label: 'Go live',
     }],
     organisation_membership_history: [],
-    organisation_membership_override: [],
+    organisation_membership_override: organizationOverrides,
     system_settings: [
       { tenant_id: TENANT_ID, setting_key: 'membership_nominal_ledger', setting_value: '200' },
       { tenant_id: TENANT_ID, setting_key: 'xero_invoice_status', setting_value: 'DRAFT' },
@@ -170,6 +190,7 @@ before(async () => {
   await cp(new URL('./membershipSimulation.js', import.meta.url), path.join(libRoot, 'membershipSimulation.js'), { recursive: true });
   for (const file of [
     'discountHelper.js',
+    'selectionMatcher.js',
     'vatOverrideHelper.js',
     'membershipConfigResolver.js',
     'invoiceAddressResolver.js',
@@ -205,8 +226,20 @@ after(async () => {
   if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
 });
 
-async function simulate({ governanceValue, flat = false } = {}) {
-  state.tables = makeTables({ governanceValue, flat });
+async function simulate({
+  governanceValue,
+  flat = false,
+  annualCost = 1000,
+  discountRules = [],
+  organizationOverrides = [],
+} = {}) {
+  state.tables = makeTables({
+    governanceValue,
+    flat,
+    annualCost,
+    discountRules,
+    organizationOverrides,
+  });
   return simulateMembershipForOrg(TENANT_ID, ORG_ID, {
     source: 'simulate',
     mode: 'manual',
@@ -260,9 +293,52 @@ test('scalar ROI remains a zero-rated control', async () => {
   assert.equal(result.totalWithVat, 1000);
 });
 
+test('simulation combines a 30% ROI discount with zero VAT and invoice preview', async () => {
+  const result = await simulate({
+    governanceValue: JSON.stringify(['Republic of Ireland']),
+    discountRules: [ROI_DISCOUNT],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.annualCostBeforeDiscounts, 1000);
+  assert.equal(result.annualCost, 700);
+  assert.equal(result.customDiscountTotal, 300);
+  assert.deepEqual(
+    result.customDiscountDetails.map(discount => ({
+      label: discount.label,
+      discount_type: discount.discount_type,
+      discount_value: discount.discount_value,
+      applied_amount: discount.applied_amount,
+    })),
+    [{
+      label: 'ROI 30% discount',
+      discount_type: 'percentage',
+      discount_value: 30,
+      applied_amount: 300,
+    }],
+  );
+  assert.equal(result.finalCost, 700);
+  assert.equal(result.vatOverrideApplied, true);
+  assert.equal(result.taxType, 'ZERORATEDOUTPUT');
+  assert.equal(result.vatAmount, 0);
+  assert.equal(result.totalWithVat, 700);
+  assert.equal(result.invoicePreview.lineItems[0].unitAmount, '700.00');
+  assert.equal(result.invoicePreview.lineItems[0].taxType, 'ZERORATEDOUTPUT');
+  assert.equal(result.invoicePreview.lineItems[0].taxLabel, 'Zero Rated Income');
+  assert.match(
+    result.steps.find(step => step.step === 'Custom Discounts')?.detail || '',
+    /1 discount\(s\) applied, total: 300\.00/,
+  );
+});
+
 test('unmatched region retains the tier band standard 20% VAT', async () => {
-  const result = await simulate({ governanceValue: 'Northern Ireland' });
+  const result = await simulate({
+    governanceValue: 'Northern Ireland',
+    discountRules: [ROI_DISCOUNT],
+  });
   assertScheduleAndInvoice(result);
+  assert.equal(result.customDiscountTotal, 0);
+  assert.deepEqual(result.customDiscountDetails, []);
   assert.equal(result.vatOverrideApplied, false);
   assert.equal(result.taxType, 'OUTPUT2');
   assert.equal(result.taxLabel, '20% (VAT on Income)');
@@ -271,6 +347,117 @@ test('unmatched region retains the tier band standard 20% VAT', async () => {
   assert.equal(result.totalWithVat, 1200);
   assert.equal(result.invoicePreview.lineItems[0].taxType, 'OUTPUT2');
   assert.equal(result.invoicePreview.lineItems[0].taxLabel, '20% (VAT on Income)');
+});
+
+test('stacked discounts round each line and the total before standard VAT', async () => {
+  const discountRules = [
+    {
+      ...ROI_DISCOUNT,
+      id: 'northern-ireland-12-34',
+      match_value: 'Northern Ireland',
+      discount_value: '12.34',
+      label: 'First stacked discount',
+      sort_order: 1,
+    },
+    {
+      ...ROI_DISCOUNT,
+      id: 'northern-ireland-8-76',
+      match_value: 'Northern Ireland',
+      discount_value: '8.76',
+      label: 'Second stacked discount',
+      sort_order: 2,
+    },
+    {
+      ...ROI_DISCOUNT,
+      id: 'northern-fixed-1-27',
+      match_value: 'Northern Ireland',
+      discount_type: 'fixed',
+      discount_value: '1.27',
+      label: 'Fixed stacked discount',
+      sort_order: 3,
+    },
+  ];
+  const result = await simulate({
+    governanceValue: 'Northern Ireland',
+    annualCost: 123.45,
+    discountRules,
+  });
+
+  assert.equal(result.annualCostBeforeDiscounts, 123.45);
+  assert.equal(result.customDiscountTotal, 27.32);
+  assert.deepEqual(
+    result.customDiscountDetails.map(discount => discount.applied_amount),
+    [15.23, 10.81, 1.27],
+  );
+  assert.equal(result.finalCost, 96.13);
+  assert.equal(result.invoicePreview.lineItems[0].unitAmount, '96.13');
+  assert.equal(result.vatRatePercent, 20);
+  assert.equal(result.vatAmount, 19.23);
+  assert.equal(result.totalWithVat, 115.36);
+});
+
+test('organisation price and discount overrides replace custom discount calculations', async () => {
+  const priceOverride = {
+    id: 'manual-price',
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
+    membership_year: '2026/2027',
+    override_type: 'price',
+    manual_price: '650',
+    note: 'Task 4380 price override',
+  };
+  const priced = await simulate({
+    governanceValue: JSON.stringify(['Republic of Ireland']),
+    discountRules: [ROI_DISCOUNT],
+    organizationOverrides: [priceOverride],
+  });
+  assert.equal(priced.overrideApplied, true);
+  assert.equal(priced.overrideType, 'price');
+  assert.equal(priced.annualCost, 650);
+  assert.equal(priced.customDiscountTotal, 0);
+  assert.deepEqual(priced.customDiscountDetails, []);
+  assert.equal(priced.finalCost, 650);
+  assert.equal(priced.vatOverrideApplied, true);
+  assert.equal(priced.totalWithVat, 650);
+  assert.equal(priced.invoicePreview.lineItems[0].unitAmount, '650.00');
+
+  const discountOverride = {
+    ...priceOverride,
+    id: 'manual-discount',
+    override_type: 'discount',
+    manual_price: null,
+    discount_type: 'percentage',
+    discount_value: '10',
+  };
+  const discounted = await simulate({
+    governanceValue: 'Northern Ireland',
+    discountRules: [{
+      ...ROI_DISCOUNT,
+      match_value: 'Northern Ireland',
+    }],
+    organizationOverrides: [discountOverride],
+  });
+  assert.equal(discounted.overrideApplied, true);
+  assert.equal(discounted.overrideType, 'discount');
+  assert.equal(discounted.customDiscountTotal, 100);
+  assert.deepEqual(
+    discounted.customDiscountDetails.map(detail => ({
+      label: detail.label,
+      discount_type: detail.discount_type,
+      discount_value: detail.discount_value,
+      applied_amount: detail.applied_amount,
+    })),
+    [{
+      label: 'Manual Discount Override',
+      discount_type: 'percentage',
+      discount_value: 10,
+      applied_amount: 100,
+    }],
+  );
+  assert.equal(discounted.finalCost, 900);
+  assert.equal(discounted.vatAmount, 180);
+  assert.equal(discounted.totalWithVat, 1080);
+  assert.equal(discounted.invoicePreview.lineItems[0].unitAmount, '900.00');
 });
 
 test('unmatched region retains flat-pricing VAT fallback', async () => {

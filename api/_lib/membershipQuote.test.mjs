@@ -46,6 +46,37 @@ test('percent incentive with pro-rata is proportional', () => {
   assert.equal(r.finalCost, r.prorataCost - 100);
 });
 
+test('ROI discount, pro-rata, and newcomer percentage incentive compound in order', () => {
+  const membershipYear = {
+    label: '2026/2027',
+    start: new Date(2026, 7, 1),
+    end: new Date(2027, 6, 31),
+  };
+  const annualBase = 3206;
+  const roiDiscount = parseFloat((annualBase * 30 / 100).toFixed(2));
+  const annualAfterRoi = parseFloat((annualBase - roiDiscount).toFixed(2));
+
+  const result = computeNewApplicantCost({
+    config: {
+      prorata_enabled: true,
+      free_period_amount: 30,
+      free_period_unit: 'percent',
+    },
+    annualCost: annualAfterRoi,
+    membershipYear,
+    joinDate: new Date(2026, 8, 15),
+  });
+
+  assert.equal(roiDiscount, 961.80);
+  assert.equal(annualAfterRoi, 2244.20);
+  assert.equal(result.totalDaysInYear, 365);
+  assert.equal(result.prorataDays, 320);
+  assert.equal(result.dailyCost, 6.1485);
+  assert.equal(result.prorataCost, 1967.52);
+  assert.equal(result.freeDiscount, 590.26);
+  assert.equal(result.finalCost, 1377.26);
+});
+
 test('percent incentive without pro-rata applies to annual cost', () => {
   const config = { free_period_amount: 25, free_period_unit: 'percent' };
   const r = computeNewApplicantCost({ config, annualCost: 400, membershipYear: year, joinDate: new Date(2026, 3, 1) });
