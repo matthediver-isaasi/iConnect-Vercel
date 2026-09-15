@@ -62,6 +62,7 @@ import EventEmailSettingsEditor, {
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import DeliveryModeCardSelector from "@/components/events/DeliveryModeCardSelector";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import {
   emptyEventCpdBadgeConfig,
@@ -4845,21 +4846,16 @@ export default function CreateComplexEvent() {
                   <p className="text-xs text-slate-500">Group events use a manual meeting link — Zoom is not available.</p>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label>Delivery Mode</Label>
-                <div className="flex items-center gap-3 pt-2">
-                  <Switch
-                    checked={sessionForm.is_online}
-                    onCheckedChange={(checked) =>
-                      setSessionForm((prev) => ({ ...prev, is_online: checked }))
-                    }
-                    data-testid="switch-session-is-online"
-                  />
-                  <span className="text-sm text-slate-600">
-                    {sessionForm.is_online ? "Virtual / Online" : "In-person"}
-                  </span>
-                </div>
-              </div>
+              <DeliveryModeCardSelector
+                label="Delivery Mode"
+                isOnline={sessionForm.is_online}
+                onChange={(checked) =>
+                  setSessionForm((prev) => ({ ...prev, is_online: checked }))
+                }
+                inPersonDescription="Session will be held at a physical location"
+                onlineDescription={isGroupLimited ? "Session will use your own meeting link" : "Session will be hosted via Zoom or Teams"}
+                testIdPrefix="session-delivery-mode"
+              />
             </div>
 
             {!isGroupLimited && (() => {

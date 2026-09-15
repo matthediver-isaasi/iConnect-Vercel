@@ -59,6 +59,7 @@ import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import DeliveryModeCardSelector from "@/components/events/DeliveryModeCardSelector";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventSurveysSection from "@/components/surveys/EventSurveysSection";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
@@ -4536,26 +4537,14 @@ export default function EditEvent() {
             </CardHeader>
             <CardContent className="space-y-4">
               {isGroupLimited && (
-                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Globe className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {isOnlineEvent ? 'Online Event' : 'In-Person Event'}
-                      </p>
-                      <p className="text-sm text-slate-600">
-                        {isOnlineEvent
-                          ? 'Event will be hosted via your own meeting link'
-                          : 'Event will be held at a physical location'}
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={isOnlineEvent}
-                    onCheckedChange={setIsOnlineEvent}
-                    data-testid="switch-delivery-mode"
-                  />
-                </div>
+                <DeliveryModeCardSelector
+                  label="Event Type"
+                  isOnline={isOnlineEvent}
+                  onChange={setIsOnlineEvent}
+                  inPersonDescription="Event will be held at a physical location"
+                  onlineDescription="Event will be hosted via your own meeting link"
+                  testIdPrefix="event-type"
+                />
               )}
               {isGroupLimited && isOnlineEvent && (
                 <div className="space-y-2">

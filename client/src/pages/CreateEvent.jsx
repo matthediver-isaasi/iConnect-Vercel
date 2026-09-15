@@ -55,6 +55,7 @@ import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import DeliveryModeCardSelector from "@/components/events/DeliveryModeCardSelector";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { reconcileSpeakerAwards } from "@/lib/speakerAwardLifecycle";
@@ -1563,31 +1564,14 @@ export default function CreateEvent() {
               <CardDescription>Choose whether this is an online or in-person event</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  {isOnline ? (
-                    <Video className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <Building className="h-5 w-5 text-blue-600" />
-                  )}
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {isOnline ? 'Online Event' : 'In-Person Event'}
-                    </p>
-                    <p className="text-sm text-slate-600">
-                      {isOnline 
-                        ? (isGroupLimited ? 'Event will be hosted via your own meeting link' : 'Event will be hosted via Zoom')
-                        : 'Event will be held at a physical location'
-                      }
-                    </p>
-                  </div>
-                </div>
-                <Switch
-                  checked={isOnline}
-                  onCheckedChange={handleDeliveryModeChange}
-                  data-testid="switch-delivery-mode"
-                />
-              </div>
+              <DeliveryModeCardSelector
+                label="Event Type"
+                isOnline={isOnline}
+                onChange={handleDeliveryModeChange}
+                inPersonDescription="Event will be held at a physical location"
+                onlineDescription={isGroupLimited ? "Event will be hosted via your own meeting link" : "Event will be hosted via Zoom"}
+                testIdPrefix="event-type"
+              />
 
               {!isOnline && !isGroupLimited && (
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
