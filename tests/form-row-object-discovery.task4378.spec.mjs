@@ -5,12 +5,21 @@ import {
 import {
   createFormRelationshipService,
 } from "../api/_lib/formRelationshipOptions.js";
+import {
+  validateFormRowSourceConfiguration,
+} from "../api/_lib/formRowSourceConfiguration.js";
+import {
+  resolveTrustedSchemaCapabilities,
+} from "../api/_lib/customObjectSchemaAccess.js";
+import {
+  validateRowSourceConfiguration,
+} from "../shared/formCustomObjectRowSources.js";
 
 // This suite is deliberately a browser-level harness, but discovery itself is
 // not stubbed. Each discovery request is dispatched through the production
 // route factory and the production relationship service against the fixture DB
 // below. The other FormBuilder requests remain local and read-only apart from
-// the form PATCH used to prove save/reopen.
+// the form POST/PATCH used to prove create/save and update/reopen.
 
 const id = {
   tenant: "81000000-0000-4000-8000-000000000001",
@@ -33,8 +42,8 @@ const id = {
 
 const tenant = {
   id: id.tenant,
-  slug: "task4378-member-admin",
-  name: "Task 4378 member-admin fixture",
+  slug: "task4378-schema-author",
+  name: "Task 4378 schema-author fixture",
 };
 
 function objectDefinition(objectId, objectKey, singularLabel, pluralLabel, primaryDisplayFieldId) {
@@ -64,13 +73,13 @@ function objectField(fieldId, objectId, name, label, fieldType = "text") {
   };
 }
 
-function memberAdminForm() {
+function schemaAuthorForm() {
   return {
     id: id.form,
     tenant_id: tenant.id,
-    slug: "task-4378-member-admin-form",
-    name: "Task 4378 member-admin form",
-    title: "Task 4378 member-admin form",
+    slug: "task-4378-schema-author-form",
+    name: "Task 4378 schema-author form",
+    title: "Task 4378 schema-author form",
     description: "",
     status: "published",
     is_active: true,
@@ -143,24 +152,11 @@ function fixtureSeed(form) {
       objectField(id.childValue, id.childObject, "model_value", "Model value"),
       objectField(id.hiddenLabel, id.hiddenObject, "model_name", "Hidden model name"),
     ],
-    // The member admin has schema features, so the real service may return
-    // every active, display-ready object. The third object is intentionally
-    // unrelated to the form and proves this is still a fixture-backed service
-    // response rather than a hand-written unrestricted envelope.
-    custom_object_role_permission: [
-      {
-        tenant_id: tenant.id,
-        custom_object_id: id.parentObject,
-        role_id: id.role,
-        can_view_records: true,
-      },
-      {
-        tenant_id: tenant.id,
-        custom_object_id: id.childObject,
-        role_id: id.role,
-        can_view_records: true,
-      },
-    ],
+    // This is deliberately empty. A schema-authorized member receives the
+    // catalogue from the trusted schema capabilities, not from record grants.
+    // Keeping the grant table empty prevents this representative test from
+    // accidentally proving the ordinary member-grant path instead.
+    custom_object_role_permission: [],
     custom_object_field_role_permission: [],
   };
 }
@@ -251,11 +247,15 @@ function objectFields(seed, objectId) {
   return seed.preference_field.filter(field => field.custom_object_id === objectId);
 }
 
-async function installMemberAdminHarness(page, form) {
+async function installSchemaAuthorHarness(page, form) {
   const seed = fixtureSeed(form);
   const db = fixtureDb(seed);
   const state = {
-    forms: [structuredClone(form)],
+    // The browser first creates the form, then reopens the returned ID for
+    // the schema-author configuration/update pass. The discovery service gets
+    // the same synthetic form from its fixture DB below.
+    forms: [],
+    creates: [],
     saves: [],
     discoveryRequests: [],
     discoveryResponses: [],
@@ -263,6 +263,7 @@ async function installMemberAdminHarness(page, form) {
     contexts: [],
     adminChecks: [],
     featureChecks: [],
+    validationResults: [],
     unexpectedWrites: [],
     pageErrors: [],
   };
@@ -271,7 +272,7 @@ async function installMemberAdminHarness(page, form) {
     id: id.member,
     tenant_id: tenant.id,
     role_id: id.role,
-    email: "task4378-member-admin@example.invalid",
+    email: "task4378-schema-author@example.invalid",
     first_name: "Task",
     last_name: "4378",
     is_team_member: true,
@@ -279,13 +280,70 @@ async function installMemberAdminHarness(page, form) {
   };
   const role = {
     id: id.role,
-    name: "Member Administrator",
+    name: "Schema Author",
     excluded_features: [],
   };
   const schemaFeatures = new Set([
     "admin.data-studio",
     "data.custom-objects.manage-data-model",
   ]);
+  const hasFeatureAccess = async (roleId, feature) => {
+    state.featureChecks.push({ roleId, feature });
+    return roleId === id.role && schemaFeatures.has(feature);
+  };
+  const authorContext = {
+    isAuthenticated: true,
+    tenantId: tenant.id,
+    tenantUserId: null,
+    memberId: member.id,
+    roleId: member.role_id,
+    memberExcludedFeatures: [],
+  };
+  const validateForm = async candidate => {
+    const schemaCapabilities = await resolveTrustedSchemaCapabilities(authorContext, {
+      hasFeatureAccess,
+    });
+    const structuralResult = { ok: true };
+    const validatorCandidate = structuredClone(candidate);
+    for (const field of validatorCandidate.fields || []) {
+      const childrenKey = Array.isArray(field.children)
+        ? "children"
+        : Array.isArray(field.child_fields)
+          ? "child_fields"
+          : Array.isArray(field.fields) ? "fields" : null;
+      if (!childrenKey) continue;
+      const children = field[childrenKey];
+      for (const child of children) {
+        if (child.option_source === undefined) continue;
+        const structural = validateRowSourceConfiguration(child, children);
+        if (!structural.valid) {
+          structuralResult.ok = false;
+          structuralResult.errors = structural.errors;
+        }
+      }
+    }
+    if (!structuralResult.ok) {
+      const result = {
+        ok: false,
+        status: 422,
+        code: "INVALID_ROW_OPTION_SOURCE",
+        error: structuralResult.errors[0]?.message || "Invalid row source",
+      };
+      state.validationResults.push({ result, structuralResult, schemaCapabilities });
+      return result;
+    }
+    const result = await validateFormRowSourceConfiguration({
+      db,
+      tenantId: tenant.id,
+      form: validatorCandidate,
+      canConfigure: true,
+      isTenantUser: false,
+      authorRoleId: member.role_id,
+      ...schemaCapabilities,
+    });
+    state.validationResults.push({ result, structuralResult, schemaCapabilities });
+    return result;
+  };
 
   const discoveryHandler = createFormRelationshipDiscoveryHandler({
     db,
@@ -305,10 +363,7 @@ async function installMemberAdminHarness(page, form) {
       state.adminChecks.push(context);
       return context.roleId === id.role && !context.tenantUserId;
     },
-    hasFeatureAccess: async (roleId, feature) => {
-      state.featureChecks.push({ roleId, feature });
-      return roleId === id.role && schemaFeatures.has(feature);
-    },
+    hasFeatureAccess,
     createService: options => {
       const service = createFormRelationshipService(options);
       return {
@@ -392,12 +447,28 @@ async function installMemberAdminHarness(page, form) {
     if (path === "/api/entities/Form" && method === "GET") {
       return json(route, state.forms);
     }
+    if (path === "/api/entities/Form" && method === "POST") {
+      const draft = request.postDataJSON();
+      const created = {
+        ...draft,
+        id: id.form,
+        tenant_id: tenant.id,
+      };
+      const validation = await validateForm(created);
+      if (!validation.ok) return json(route, validation, validation.status);
+      state.creates.push(structuredClone(draft));
+      state.forms.push(structuredClone(created));
+      return json(route, created);
+    }
     const formPatchMatch = path.match(/^\/api\/entities\/Form\/([^/]+)$/);
     if (formPatchMatch && method === "PATCH") {
       const formId = decodeURIComponent(formPatchMatch[1]);
       const patch = request.postDataJSON();
       const index = state.forms.findIndex(candidate => candidate.id === formId);
-      if (index >= 0) state.forms[index] = { ...state.forms[index], ...patch };
+      const candidate = index >= 0 ? { ...state.forms[index], ...patch } : { ...patch, id: formId };
+      const validation = await validateForm(candidate);
+      if (!validation.ok) return json(route, validation, validation.status);
+      if (index >= 0) state.forms[index] = candidate;
       state.saves.push(structuredClone(patch));
       return json(route, state.forms[index] || { ...patch, id: formId });
     }
@@ -451,11 +522,66 @@ async function installMemberAdminHarness(page, form) {
     return json(route, []);
   });
 
-  return { state, seed };
+  return { state, seed, db };
+}
+
+async function createFormBeforeDiscovery(page, state) {
+  await page.goto(`/FormBuilder?tenant=${tenant.slug}`);
+  await expect(page.getByRole("heading", { name: "Create Form" })).toBeVisible();
+
+  await page.getByTestId("tab-settings").click();
+  await page.locator("#name").fill("Task 4378 schema-author form");
+  await page.locator("#slug").fill("task-4378-schema-author-form");
+  await page.getByTestId("tab-builder").click();
+
+  await page.getByRole("button", { name: "Add Field" }).first().click();
+  const configureButton = page.locator('[data-testid^="button-configure-field-"]').last();
+  const fieldTestId = await configureButton.getAttribute("data-testid");
+  const fieldId = fieldTestId.replace("button-configure-field-", "");
+  await configureButton.click();
+  await page.getByTestId(`select-standard-type-${fieldId}`).click();
+  await page.getByRole("option", { name: "Repeatable Rows" }).click();
+
+  const addRowField = page.getByRole("button", { name: "Add field", exact: true });
+  await expect(addRowField).toBeVisible();
+  await addRowField.click();
+  await addRowField.click();
+  await addRowField.click();
+
+  const childTypeSelects = page.locator(
+    `[data-testid^="select-repeatable-child-type-${fieldId}-"]`,
+  );
+  await expect(childTypeSelects).toHaveCount(3);
+  for (const [index, label] of ["Manufacturer", "Model value", "Direct model"].entries()) {
+    await page.getByTestId(`repeatable-child-${fieldId}-${index}`)
+      .locator("input")
+      .first()
+      .fill(label);
+  }
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Save Form" }).click();
+  await expect.poll(() => state.creates.length).toBe(1);
+  await expect(page).toHaveURL(/\/FormManagement/);
+
+  const created = state.forms.find(candidate => candidate.id === id.form);
+  expect(created).toBeTruthy();
+  expect(created.fields).toHaveLength(1);
+  const createdChildren = created.fields[0].children
+    || created.fields[0].child_fields
+    || created.fields[0].fields;
+  expect(createdChildren.map(child => child.label)).toEqual([
+    "Manufacturer",
+    "Model value",
+    "Direct model",
+  ]);
+  return created;
 }
 
 async function configureDirectAndDistinct(page, form) {
-  const children = form.fields[0].children;
+  const children = form.fields[0].children
+    || form.fields[0].child_fields
+    || form.fields[0].fields;
   const parentChild = children[0];
   const distinctChild = children[1];
   const directChild = children[2];
@@ -522,10 +648,14 @@ async function configureDirectAndDistinct(page, form) {
   return { parentChild, distinctChild, directChild };
 }
 
-test("member admin discovers granted objects, configures labels and equality filters, then reopens", async ({ page }) => {
-  const form = memberAdminForm();
-  const { state, seed } = await installMemberAdminHarness(page, form);
+test("schema-author member creates, saves, updates record pickers, and reopens distinct filters", async ({ page }) => {
+  const discoveryFixtureForm = schemaAuthorForm();
+  const { state, seed, db } = await installSchemaAuthorHarness(page, discoveryFixtureForm);
+  const form = await createFormBeforeDiscovery(page, state);
 
+  // Creation is intentionally separate from discovery. The builder disables
+  // custom-object source kinds until the form has an ID; this second visit is
+  // the update/reopen path exercised by the representative member author.
   await page.goto(`/FormBuilder?tenant=${tenant.slug}&formId=${form.id}`);
   await expect(page.getByRole("heading", { name: form.name })).toBeVisible();
 
@@ -533,8 +663,10 @@ test("member admin discovers granted objects, configures labels and equality fil
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Save Form" }).click();
   await expect.poll(() => state.saves.length).toBeGreaterThan(0);
+  expect(state.creates).toHaveLength(1);
 
-  const savedChildren = state.saves.at(-1).fields[0].children;
+  const savedRow = state.saves.at(-1).fields[0];
+  const savedChildren = savedRow.children || savedRow.child_fields || savedRow.fields;
   const savedParent = savedChildren.find(child => child.id === parentChild.id);
   const savedDistinct = savedChildren.find(child => child.id === distinctChild.id);
   const savedDirect = savedChildren.find(child => child.id === directChild.id);
@@ -607,6 +739,27 @@ test("member admin discovers granted objects, configures labels and equality fil
       canManageSchema: true,
     }),
   ]));
+  // Schema capabilities are resolved by the production discovery route. No
+  // object-level record grants or live roles/data are needed in this fixture.
+  expect(state.authorAccess.every(access => (
+    access.isTenantUser === false
+    && access.roleId === id.role
+    && access.canViewSchema === true
+    && access.canManageSchema === true
+  ))).toBe(true);
+  expect(state.discoveryResponses.every(response => (
+    response.custom_objects.every(object => (
+      [id.parentObject, id.childObject, id.hiddenObject].includes(object.id)
+    ))
+  ))).toBe(true);
+  expect(state.validationResults).toHaveLength(2);
+  expect(state.validationResults.every(({ result, structuralResult, schemaCapabilities }) => (
+    result.ok === true
+    && structuralResult.ok === true
+    && schemaCapabilities.canViewSchema === true
+    && schemaCapabilities.canManageSchema === true
+  ))).toBe(true);
+  expect(db.queries.some(query => query.table === "custom_object_role_permission")).toBe(false);
   expect(state.unexpectedWrites).toEqual([]);
   expect(state.pageErrors).toEqual([]);
 
@@ -632,8 +785,8 @@ test("member admin discovers granted objects, configures labels and equality fil
     .toContainText(distinctChild.label);
 
   await page.screenshot({
-    path: "screenshots/task4378-member-admin-discovery.png",
+    path: "screenshots/task4378-schema-author-discovery.png",
     fullPage: true,
   });
-  expect(seed.custom_object_role_permission).toHaveLength(2);
+  expect(seed.custom_object_role_permission).toHaveLength(0);
 });

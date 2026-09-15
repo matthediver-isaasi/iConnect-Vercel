@@ -543,7 +543,7 @@ export function createFormRelationshipService({ db, tenantId }) {
       containerFieldId,
     });
     if (state.relationship) {
-      await validateRecordReferencePicker({
+      await validateRelationshipPickerMetadata({
         form: virtualForm,
         fieldId,
         rootForm: form,
@@ -744,6 +744,11 @@ export function createFormRelationshipService({ db, tenantId }) {
         };
       }
     }
+    return validateRelationshipPickerMetadata({ form, fieldId, rootForm, containerFieldId });
+  }
+  // Shared relationship topology checks also apply to distinct-value sources;
+  // those sources must still be rejected by record-reference resolvers above.
+  async function validateRelationshipPickerMetadata({ form, fieldId, rootForm, containerFieldId }) {
     const saved = savedRelationshipField(form, fieldId, {
       rootForm: rootForm || form,
       containerFieldId,

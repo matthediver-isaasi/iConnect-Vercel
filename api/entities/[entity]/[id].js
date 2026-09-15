@@ -79,6 +79,7 @@ import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../
 import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
+import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 const entityToTable = {
@@ -1118,6 +1119,7 @@ export default async function handler(req, res) {
             canConfigure: !!tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx),
             isTenantUser: !!tenantCtx.tenantUserId,
             authorRoleId: tenantCtx.roleId,
+            ...await resolveTrustedSchemaCapabilities(tenantCtx),
           });
           if (!rowSourceValidation.ok) {
             return res.status(rowSourceValidation.status).json(rowSourceValidation);

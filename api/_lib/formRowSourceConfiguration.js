@@ -21,6 +21,9 @@ export async function validateFormRowSourceConfiguration({
   canConfigure = true,
   isTenantUser = true,
   authorRoleId = null,
+  // Server-resolved authoring capabilities, never taken from the form payload.
+  canViewSchema = false,
+  canManageSchema = false,
 }) {
   const service = relationshipService || createFormRelationshipService({ db, tenantId });
   const hasConfiguredSource = (form?.fields || []).some(field => (
@@ -43,7 +46,10 @@ export async function validateFormRowSourceConfiguration({
     const objectId = source.custom_object_id;
     let access = accessCache.get(objectId);
     if (!access) {
-      const { data: permission, error: permissionError } = await db
+      const schemaAccess = Boolean(canViewSchema || canManageSchema);
+      const { data: permission, error: permissionError } = schemaAccess
+        ? { data: null, error: null }
+        : await db
         .from('custom_object_role_permission').select('custom_object_id')
         .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
         .eq('role_id', authorRoleId).eq('can_view_records', true).maybeSingle();
@@ -54,7 +60,7 @@ export async function validateFormRowSourceConfiguration({
         .eq('role_id', authorRoleId);
       if (restrictionError) throw restrictionError;
       access = {
-        canViewRecords: Boolean(permission),
+        canConfigureObject: schemaAccess || Boolean(permission),
         deniedFields: new Set((restrictions || [])
           .filter(row => row.access_level === 'none').map(row => String(row.field_id))),
       };
@@ -65,7 +71,7 @@ export async function validateFormRowSourceConfiguration({
       ...(source.kind === 'distinct' ? [source.value_field_id] : []),
       ...(source.filters || []).map(filter => filter.field_id),
     ];
-    return access.canViewRecords
+    return access.canConfigureObject
       && needed.every(fieldId => !access.deniedFields.has(String(fieldId)));
   }
   const rootSource = (form?.fields || []).find(field => (

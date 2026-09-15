@@ -16,3 +16,15 @@ visibility alone is not sufficient justification to ignore field denials.
 **How to apply:** Resolve schema capabilities from trusted server context, retain
 the form-author gate, and test object, primary-label, filter and relationship
 metadata independently of public options and submission policies.
+
+Apply the same trusted author policy when saving configuration, not only when
+listing metadata. Keep relationship-topology validation separate from
+record-reference eligibility.
+
+**Why:** A distinct-value source uses a relationship but returns a scalar.
+Reusing a record-reference-only guard for form saves rejects valid distinct
+sources; relaxing that guard instead would let scalars reach record resolvers.
+
+**How to apply:** Exercise discovery, save, and reopen with the full real source
+validator, including distinct values and filters. Never trim configurations in
+a test harness to make an authoring failure disappear.
