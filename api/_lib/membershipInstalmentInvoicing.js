@@ -252,7 +252,203 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
  * is forwarded to the provider (Xero Idempotency-Key / QBO requestid) so a
  * repeat of the same key can never create a second invoice.
  */
-export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, bankAccountSettingKey = null, strictBankAccount = false, idempotencyKey = null }) {
+export const isStripePaymentIntentId = (value) => /^pi_[A-Za-z0-9]+$/.test(String(value || ''));
+
+/**
+ * The arrears fan-out keeps its historic unique local key as
+ * `<Stripe invoice id>:arrears:<period id>`. Only this exact durable format
+ * may be mapped back to the source invoice for a read-only evidence lookup.
+ */
+export function stripeInvoiceIdForPaymentEvidence(externalPaymentId) {
+  const value = String(externalPaymentId || '');
+  const arrearsMatch = /^(in_[A-Za-z0-9]+):arrears:[^:]+$/.exec(value);
+  return arrearsMatch ? arrearsMatch[1] : value;
+}
+
+function paymentIntentValue(value) {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    return value.payment_intent || value.id || null;
+  }
+  return null;
+}
+
+/**
+ * Extract genuine PaymentIntent IDs from the documented Stripe Invoice shapes.
+ * Invoice IDs, charges, and arbitrary metadata are deliberately not candidates:
+ * they are not interchangeable payment identities.
+ */
+export function stripeInvoicePaymentIntentIds(invoice) {
+  const candidates = [];
+  const add = (value) => {
+    const id = paymentIntentValue(value);
+    if (isStripePaymentIntentId(id)) candidates.push(id);
+  };
+  if (!invoice || typeof invoice !== 'object') return [];
+  add(invoice.payment_intent);
+  add(invoice.payment?.payment_intent);
+  add(invoice.charge?.payment_intent);
+  add(invoice.latest_charge?.payment_intent);
+  const payments = Array.isArray(invoice.payments)
+    ? invoice.payments
+    : invoice.payments?.data;
+  for (const invoicePayment of payments || []) {
+    add(invoicePayment?.payment_intent);
+    add(invoicePayment?.payment?.payment_intent);
+    // Some Stripe API versions expose a PaymentRecord whose nested payment
+    // object is itself the PaymentIntent rather than a wrapper.
+    if (invoicePayment?.payment?.type === 'payment_intent') add(invoicePayment.payment);
+  }
+  return [...new Set(candidates)];
+}
+
+const stripeObjectId = (value) => (typeof value === 'string' ? value : value?.id || null);
+const normalizeCurrency = (value) => String(value || '').trim().toUpperCase();
+
+/**
+ * Prove the paid invoice belongs to the monthly plan before using any payment
+ * identity from it. The Stripe client is tenant-scoped by the caller; invoice
+ * metadata, when present, is an additional tenant assertion rather than a
+ * substitute for that scoped client.
+ *
+ * An arrears collection may pay several periods in one source invoice, so its
+ * accounting row amount is required to be no greater than amount_paid rather
+ * than exactly equal to it.
+ */
+export function assertStripeInvoicePaymentEvidence({
+  stripeInvoiceId, invoice, agreement = null, plan = null, amountMinor = null, currency = null,
+} = {}) {
+  if (!invoice || invoice.id !== stripeInvoiceId) {
+    throw new Error(`Stripe payment evidence does not match invoice ${stripeInvoiceId}`);
+  }
+  if (agreement?.tenant_id && plan?.tenant_id && agreement.tenant_id !== plan.tenant_id) {
+    throw new Error(`Stripe payment evidence plan tenant does not match the membership agreement`);
+  }
+  if (invoice.status !== 'paid' && invoice.paid !== true) {
+    throw new Error(`Stripe invoice ${stripeInvoiceId} is not confirmed paid`);
+  }
+  const expectedCurrency = normalizeCurrency(currency || agreement?.metadata?.card?.currency);
+  if (expectedCurrency && normalizeCurrency(invoice.currency) !== expectedCurrency) {
+    throw new Error(`Stripe invoice ${stripeInvoiceId} currency does not match the membership agreement`);
+  }
+  if (Number.isInteger(amountMinor) && amountMinor > 0) {
+    if (!Number.isInteger(invoice.amount_paid) || invoice.amount_paid < amountMinor) {
+      throw new Error(`Stripe invoice ${stripeInvoiceId} paid amount does not cover the accounting instalment`);
+    }
+  }
+  if (invoice.metadata?.tenant_id && invoice.metadata.tenant_id !== agreement?.tenant_id) {
+    throw new Error(`Stripe invoice ${stripeInvoiceId} tenant metadata does not match the membership agreement`);
+  }
+
+  const assertRelationship = (label, actual, expected) => {
+    if (!expected.length) return;
+    if (!actual || expected.some((id) => id !== actual)) {
+      throw new Error(`Stripe invoice ${stripeInvoiceId} ${label} does not match the membership plan`);
+    }
+  };
+  const expectedCustomerIds = [
+    stripeObjectId(plan?.stripe_customer_id),
+    stripeObjectId(agreement?.stripe_customer_id),
+  ].filter(Boolean);
+  const expectedSubscriptionIds = [
+    stripeObjectId(plan?.stripe_subscription_id),
+    stripeObjectId(agreement?.stripe_subscription_id),
+  ].filter(Boolean);
+  if ((agreement || plan) && (!expectedCustomerIds.length || !expectedSubscriptionIds.length)) {
+    throw new Error(`Stripe invoice ${stripeInvoiceId} cannot be bound to a Stripe customer and subscription`);
+  }
+  assertRelationship('customer', stripeObjectId(invoice.customer), expectedCustomerIds);
+  assertRelationship(
+    'subscription',
+    stripeObjectId(invoice.subscription || invoice.parent?.subscription_details?.subscription),
+    expectedSubscriptionIds,
+  );
+  return invoice;
+}
+
+/**
+ * Resolve a Stripe monthly invoice's actual PaymentIntent from tenant-scoped
+ * Stripe evidence. A signed webhook invoice can be used directly. Reconciliation
+ * retries re-read the invoice (and newer invoice-payment list when available).
+ * Never manufacture an identity from an `in_` ID or accept a guessed PI.
+ */
+export async function resolveStripeInvoicePaymentIntent({
+  stripeInvoiceId,
+  stripeInvoice = null,
+  stripe = null,
+  agreement = null,
+  plan = null,
+  amountMinor = null,
+  currency = null,
+} = {}) {
+  if (!stripeInvoiceId) throw new Error('Stripe invoice id is required to resolve payment evidence');
+  if (!stripe?.invoices?.retrieve || !stripe?.paymentIntents?.retrieve) {
+    throw new Error(`tenant-scoped Stripe invoice and PaymentIntent retrieval are required for invoice ${stripeInvoiceId}`);
+  }
+  const candidates = new Set();
+  const addInvoiceEvidence = (invoice) => {
+    assertStripeInvoicePaymentEvidence({
+      stripeInvoiceId, invoice, agreement, plan, amountMinor, currency,
+    });
+    for (const id of stripeInvoicePaymentIntentIds(invoice)) candidates.add(id);
+  };
+  // A webhook payload is useful corroborating evidence, but never the sole
+  // authority for settlement. Re-read the invoice and then the resulting PI
+  // through the tenant's Stripe client before any accounting write.
+  // Retain the signed event's PI candidate for newer API shapes, but bind all
+  // financial/relationship assertions to the authoritative tenant-scoped
+  // invoice reread below. A historical retry may only have a skeletal event
+  // object, which must not prevent that recovery read.
+  if (stripeInvoice?.id === stripeInvoiceId) {
+    for (const id of stripeInvoicePaymentIntentIds(stripeInvoice)) candidates.add(id);
+  }
+  const evidence = await stripe.invoices.retrieve(stripeInvoiceId);
+  addInvoiceEvidence(evidence);
+
+  // Stripe's newer Invoice Payment API keeps the PI below
+  // invoice_payment.payment.payment_intent. It is tenant-scoped because it is
+  // queried with the same Stripe client which retrieved the invoice.
+  if (stripe?.invoicePayments?.list) {
+    const result = await stripe.invoicePayments.list({ invoice: stripeInvoiceId, limit: 100 });
+    if (result?.has_more) {
+      throw new Error(`Stripe Invoice Payment evidence is truncated for invoice ${stripeInvoiceId}; refusing ambiguous settlement`);
+    }
+    for (const payment of result?.data || []) {
+      const status = payment?.status || payment?.payment?.status || null;
+      if (!['paid', 'succeeded'].includes(status)) {
+        throw new Error(`Stripe Invoice Payment evidence is ${status || 'unknown'} for invoice ${stripeInvoiceId}; refusing settlement`);
+      }
+      for (const id of stripeInvoicePaymentIntentIds({ payments: [payment] })) candidates.add(id);
+    }
+  }
+  const ids = [...candidates];
+  if (ids.length > 1) throw new Error(`ambiguous Stripe PaymentIntent evidence for invoice ${stripeInvoiceId}`);
+  if (ids.length !== 1) {
+    throw new Error(`Stripe PaymentIntent evidence is missing for paid invoice ${stripeInvoiceId}; accounting posting can be retried after Stripe evidence is available`);
+  }
+  const paymentIntent = await stripe.paymentIntents.retrieve(ids[0]);
+  if (!paymentIntent || paymentIntent.id !== ids[0] || paymentIntent.status !== 'succeeded') {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} is not confirmed succeeded for invoice ${stripeInvoiceId}`);
+  }
+  if (!Number.isInteger(evidence.amount_paid) || !Number.isInteger(paymentIntent.amount)
+      || paymentIntent.amount !== evidence.amount_paid) {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} amount does not match invoice ${stripeInvoiceId}`);
+  }
+  if (!normalizeCurrency(evidence.currency) || !normalizeCurrency(paymentIntent.currency)
+      || normalizeCurrency(paymentIntent.currency) !== normalizeCurrency(evidence.currency)) {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} currency does not match invoice ${stripeInvoiceId}`);
+  }
+  if (!stripeObjectId(evidence.customer) || !stripeObjectId(paymentIntent.customer)
+      || stripeObjectId(paymentIntent.customer) !== stripeObjectId(evidence.customer)) {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} customer does not match invoice ${stripeInvoiceId}`);
+  }
+  if (paymentIntent.metadata?.tenant_id && paymentIntent.metadata.tenant_id !== agreement?.tenant_id) {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} tenant metadata does not match the membership agreement`);
+  }
+  return ids[0];
+}
+
+export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, stripePaymentIntentId = null, bankAccountSettingKey = null, strictBankAccount = false, idempotencyKey = null }) {
   return provider.createMembershipInvoice({
     appTenantId: tenantId,
     organizationName: context.contactName,
@@ -266,7 +462,10 @@ export async function createInstalmentInvoice({ provider, tenantId, context, amo
     vatRate: context.vatRate,
     nominalCode: context.nominalCode,
     markAsPaid: true,
-    stripePaymentIntentId: paymentReference,
+    // `paymentReference` is an accounting-facing provider reference (and may
+    // be a Stripe Invoice or GoCardless ID). It is never a PaymentIntent.
+    paymentReference,
+    stripePaymentIntentId,
     invoiceDescription: 'Monthly membership instalment ({year})',
     bankAccountSettingKey,
     // strict: never fall back to the Stripe bank account for another rail —
@@ -289,7 +488,7 @@ export function invoicePaymentRecorded(result) {
  * only (re-)apply the payment against it. Returns
  * { invoiceId, invoiceNumber, paymentRecorded }.
  */
-export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, db }) {
+export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, stripePaymentIntentId = null, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, db }) {
   if (existingInvoiceId) {
     const result = await provider.applyStripePaymentToInvoice({
       appTenantId: agreement.tenant_id,
@@ -297,6 +496,8 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
       xeroInvoiceId: existingInvoiceId,
       amount: amountMinor / 100,
       reference: paymentReference,
+      paymentReference,
+      stripePaymentIntentId,
       bankAccountSettingKey,
       strictBankAccount,
       // Same deterministic per-collection payment key as the create path —
@@ -317,6 +518,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     amount: amountMinor / 100,
     reference,
     paymentReference,
+    stripePaymentIntentId,
     bankAccountSettingKey,
     strictBankAccount,
     idempotencyKey,
@@ -385,7 +587,14 @@ async function updateInstalmentRow(db, rowId, patch) {
  *
  * @returns {Promise<{status:'posted'|'skipped'|'failed', reason?:string}>}
  */
-export async function postStripeInstalmentInvoice({ agreement, plan, stripeInvoiceId, amountMinor, currency = null }, deps = {}) {
+export async function postStripeInstalmentInvoice({
+  agreement, plan, stripeInvoiceId, stripeInvoice = null,
+  // Arrears period rows deliberately append their period ID to the local
+  // ledger key. Keep that historical uniqueness key separate from the Stripe
+  // invoice that supplies payment evidence.
+  stripePaymentEvidenceInvoiceId = null,
+  amountMinor, currency = null,
+}, deps = {}) {
   const db = deps.db || supabase;
   const getProvider = deps.getProvider || getAccountingProvider;
   const reclaimStale = deps.reclaimStale === true;
@@ -422,6 +631,28 @@ export async function postStripeInstalmentInvoice({ agreement, plan, stripeInvoi
 
   let row = null;
   if (insErr) {
+    // A prior inner instalment post may have succeeded just before an arrears
+    // fan-out crash. Return its durable linkage as an explicit posted replay,
+    // never as an unverified generic `skipped` result, so the outer arrears
+    // row can be repaired without minting another provider invoice.
+    const { data: existing, error: existingErr } = await db
+      .from('membership_instalment_invoices')
+      .select('*')
+      .eq('provider', 'stripe')
+      .eq('external_payment_id', stripeInvoiceId)
+      .maybeSingle();
+    if (existingErr) return { status: 'failed', reason: `load existing instalment row failed: ${existingErr.message}` };
+    if (existing?.accounting_sync_status === 'posted') {
+      if (!existing.accounting_invoice_id) {
+        return { status: 'failed', reason: 'posted instalment row has no accounting invoice linkage' };
+      }
+      return {
+        status: 'posted',
+        replayed: true,
+        invoiceId: existing.accounting_invoice_id,
+        invoiceNumber: existing.accounting_invoice_number || null,
+      };
+    }
     // Row already existed — atomically claim it. Only one concurrent caller
     // wins this CAS; losers (and already-posted rows) bail out here.
     const { data: claimed, error: claimErr } = await db
@@ -446,6 +677,21 @@ export async function postStripeInstalmentInvoice({ agreement, plan, stripeInvoi
   }
 
   try {
+    // A Stripe invoice ID is the ledger/idempotency identity, not a PI. Resolve
+    // the latter only from the tenant's signed invoice evidence before any
+    // accounting-provider write. Legacy failed rows can therefore recover
+    // safely, while missing/ambiguous evidence remains visibly retryable.
+    const stripe = deps.stripe || (deps.getStripe ? await deps.getStripe() : null);
+    const paymentEvidenceInvoiceId = stripePaymentEvidenceInvoiceId || stripeInvoice?.id || stripeInvoiceId;
+    const stripePaymentIntentId = await resolveStripeInvoicePaymentIntent({
+      stripeInvoiceId: paymentEvidenceInvoiceId,
+      stripeInvoice,
+      stripe,
+      agreement,
+      plan,
+      amountMinor: amt,
+      currency: currency || snapshot?.currency || 'GBP',
+    });
     const provider = await getProvider(agreement.tenant_id);
     if (!provider || provider.name === PROVIDER_NONE) {
       await updateInstalmentRow(db, row.id, { accounting_sync_status: 'skipped', accounting_sync_error: 'no accounting provider connected' });
@@ -457,7 +703,8 @@ export async function postStripeInstalmentInvoice({ agreement, plan, stripeInvoi
       snapshot,
       amountMinor: amt,
       reference: `Membership ${snapshot?.membership_year || ''} - card instalment ${stripeInvoiceId}`.trim(),
-      paymentReference: stripeInvoiceId,
+      paymentReference: `Stripe invoice: ${paymentEvidenceInvoiceId}`,
+      stripePaymentIntentId,
       existingInvoiceId: row.accounting_invoice_id || null,
       existingInvoiceNumber: row.accounting_invoice_number || null,
       idempotencyKey: `mii-stripe-${stripeInvoiceId}`,
@@ -466,8 +713,13 @@ export async function postStripeInstalmentInvoice({ agreement, plan, stripeInvoi
     });
     await updateInstalmentRow(db, row.id, buildInstalmentOutcomePatch({ providerName: provider.name, ...outcome }));
     return outcome.paymentRecorded
-      ? { status: 'posted' }
-      : { status: 'invoice_unpaid', reason: 'invoice created but payment not recorded' };
+      ? { status: 'posted', invoiceId: outcome.invoiceId, invoiceNumber: outcome.invoiceNumber }
+      : {
+        status: 'invoice_unpaid',
+        invoiceId: outcome.invoiceId,
+        invoiceNumber: outcome.invoiceNumber,
+        reason: 'invoice created but payment not recorded',
+      };
   } catch (err) {
     console.error('[instalmentInvoicing] stripe instalment posting failed:', err.message);
     await updateInstalmentRow(db, row.id, {

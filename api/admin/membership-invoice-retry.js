@@ -18,6 +18,7 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import {
   resolveStripeAgreementInvoiceAddress,
   shouldSuppressAnnualInvoice,
+  isStripePaymentIntentId,
 } from '../_lib/membershipInstalmentInvoicing.js';
 import { retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
 import { recoverPaymentIntentInvoiceAddress } from '../_lib/stripeInvoiceAddress.js';
@@ -54,14 +55,20 @@ export default async function handler(req, res) {
   }
   if (!row) return res.status(404).json({ error: 'Record not found' });
   if (row.tenant_id !== appTenantId) return res.status(403).json({ error: 'Cross-tenant access denied' });
+  if (row.stripe_payment_intent_id && !isStripePaymentIntentId(row.stripe_payment_intent_id)) {
+    return res.status(409).json({
+      error: 'This retry has a Stripe invoice/reference rather than a verified PaymentIntent. No accounting invoice was created; recover it through the monthly Stripe reconciliation flow.',
+      retryable: true,
+      recovery: 'stripe_monthly_reconciliation',
+    });
+  }
 
   // One-off Stripe memberships created by a paid form must be repaired from
   // their immutable form quote/payment evidence. The generic path below
   // re-simulates current pricing and rebuilds contact/address details, so it
   // must never handle these rows.
   let formSubmission = null;
-  if (typeof row.stripe_payment_intent_id === 'string'
-      && row.stripe_payment_intent_id.startsWith('pi_')) {
+  if (row.stripe_payment_intent_id) {
     const { data, error: formLookupError } = await supabase
       .from('form_submission')
       .select('id,payment_meta')

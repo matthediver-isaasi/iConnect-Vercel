@@ -10,6 +10,9 @@ import {
   resolveMembershipInvoiceAddress,
   shouldSuppressAnnualInvoice,
   annualInvoiceSuppressionDecision,
+  resolveStripeInvoicePaymentIntent,
+  assertStripeInvoicePaymentEvidence,
+  stripeInvoiceIdForPaymentEvidence,
   postStripeInstalmentInvoice,
   buildInstalmentOutcomePatch,
   claimableStatuses,
@@ -195,6 +198,8 @@ const perInstalmentAgreement = (extra = {}) => ({
   tenant_id: 't1',
   member_id: 'm1',
   provider: 'stripe',
+  stripe_customer_id: 'cus_monthly',
+  stripe_subscription_id: 'sub_monthly',
   metadata: {
     card: {
       invoicing_mode: 'per_instalment',
@@ -234,6 +239,28 @@ function fakeProvider(calls, { paymentRecorded = true, applyCalls = [] } = {}) {
       applyCalls.push(args);
       return { invoice_id: args.invoiceId, invoice_number: 'INV-001', payment_recorded: true, raw: { payment_recorded: true } };
     },
+  };
+}
+
+function stripeEvidence(invoiceId, paymentIntentId = 'pi_monthly123') {
+  return {
+    id: invoiceId, paid: true, status: 'paid', payment_intent: paymentIntentId,
+    amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly', subscription: 'sub_monthly',
+  };
+}
+
+function stripeEvidenceClient(invoice, { invoicePayments = null } = {}) {
+  return {
+    invoices: { async retrieve(id) { return { ...invoice, id }; } },
+    paymentIntents: {
+      async retrieve(id) {
+        return {
+          id, status: 'succeeded', amount: invoice.amount_paid,
+          currency: invoice.currency, customer: invoice.customer,
+        };
+      },
+    },
+    ...(invoicePayments ? { invoicePayments } : {}),
   };
 }
 
@@ -291,6 +318,141 @@ test('buildInstalmentOutcomePatch: posted only when payment recorded', () => {
   assert.equal(unpaid.accounting_sync_status, 'invoice_unpaid');
   assert.match(unpaid.accounting_sync_error, /payment not recorded/);
   assert.equal(unpaid.accounting_invoice_id, 'i2', 'linkage kept for the payment-application retry');
+});
+
+test('resolveStripeInvoicePaymentIntent accepts only documented Stripe invoice payment shapes', async () => {
+  const legacy = stripeEvidence('in_legacy', 'pi_legacy123');
+  assert.equal(await resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: 'in_legacy',
+    stripeInvoice: legacy, stripe: stripeEvidenceClient(legacy),
+  }), 'pi_legacy123');
+  const modern = {
+    id: 'in_new', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    payments: { data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_new123' } }] },
+  };
+  assert.equal(await resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: 'in_new', stripeInvoice: modern, stripe: stripeEvidenceClient(modern),
+  }), 'pi_new123');
+  const expanded = {
+    id: 'in_expanded', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    payment_intent: { id: 'pi_expanded123' },
+  };
+  assert.equal(await resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: 'in_expanded', stripeInvoice: expanded, stripe: stripeEvidenceClient(expanded),
+  }), 'pi_expanded123');
+});
+
+test('resolveStripeInvoicePaymentIntent fails closed for missing or ambiguous evidence', async () => {
+  const missing = { id: 'in_missing', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
+  await assert.rejects(
+    resolveStripeInvoicePaymentIntent({ stripeInvoiceId: 'in_missing', stripeInvoice: missing, stripe: stripeEvidenceClient(missing) }),
+    /evidence is missing/,
+  );
+  const ambiguous = {
+    id: 'in_ambiguous', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    payment_intent: 'pi_one', payments: { data: [{ payment_intent: 'pi_two' }] },
+  };
+  await assert.rejects(
+    resolveStripeInvoicePaymentIntent({
+      stripeInvoiceId: 'in_ambiguous', stripeInvoice: ambiguous, stripe: stripeEvidenceClient(ambiguous),
+    }),
+    /ambiguous/,
+  );
+});
+
+test('resolveStripeInvoicePaymentIntent retrieves tenant-scoped evidence for legacy failed rows', async () => {
+  const retrieved = [];
+  const stripe = {
+    invoices: {
+      async retrieve(id) {
+        retrieved.push(id);
+        return { id, payment_intent: 'pi_recovered123', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
+      },
+    },
+    paymentIntents: { async retrieve(id) { return { id, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+  };
+  assert.equal(await resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: 'in_legacy_failed',
+    stripeInvoice: { id: 'in_legacy_failed' },
+    stripe,
+  }), 'pi_recovered123');
+  assert.deepEqual(retrieved, ['in_legacy_failed']);
+});
+
+test('Stripe PaymentIntent evidence binds paid invoice fields to the tenant plan and agreement', () => {
+  const agreement = perInstalmentAgreement();
+  const plan = {
+    id: 'plan-1', tenant_id: 't1',
+    stripe_customer_id: 'cus_monthly', stripe_subscription_id: 'sub_monthly',
+  };
+  const evidence = stripeEvidence('in_bound');
+  assert.doesNotThrow(() => assertStripeInvoicePaymentEvidence({
+    stripeInvoiceId: 'in_bound', invoice: evidence, agreement, plan, amountMinor: 1000, currency: 'GBP',
+  }));
+  assert.throws(() => assertStripeInvoicePaymentEvidence({
+    stripeInvoiceId: 'in_bound', invoice: { ...evidence, customer: 'cus_other' }, agreement, plan, amountMinor: 1000, currency: 'GBP',
+  }), /customer does not match/);
+  assert.throws(() => assertStripeInvoicePaymentEvidence({
+    stripeInvoiceId: 'in_bound', invoice: { ...evidence, amount_paid: 999 }, agreement, plan, amountMinor: 1000, currency: 'GBP',
+  }), /paid amount does not cover/);
+  assert.throws(() => assertStripeInvoicePaymentEvidence({
+    stripeInvoiceId: 'in_bound', invoice: { ...evidence, metadata: { tenant_id: 'other-tenant' } }, agreement, plan, amountMinor: 1000, currency: 'GBP',
+  }), /tenant metadata does not match/);
+});
+
+test('resolveStripeInvoicePaymentIntent uses the tenant-scoped newer Invoice Payment API when needed', async () => {
+  const requested = [];
+  const stripe = {
+    invoices: { async retrieve(id) { return { id, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+    paymentIntents: { async retrieve(id) { return { id, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+    invoicePayments: {
+      async list(args) {
+        requested.push(args);
+        return { data: [{ status: 'paid', payment: { type: 'payment_intent', payment_intent: { id: 'pi_invoicepayment123' } } }] };
+      },
+    },
+  };
+  assert.equal(await resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: 'in_invoice_payment_api',
+    stripe,
+  }), 'pi_invoicepayment123');
+  assert.deepEqual(requested, [{ invoice: 'in_invoice_payment_api', limit: 100 }]);
+});
+
+test('resolveStripeInvoicePaymentIntent fails closed for truncated or failed Invoice Payment API evidence', async () => {
+  const invoice = stripeEvidence('in_invoice_payment_status');
+  for (const result of [
+    { data: [], has_more: true },
+    { data: [{ status: 'failed', payment: { type: 'payment_intent', payment_intent: 'pi_monthly123' } }] },
+  ]) {
+    await assert.rejects(resolveStripeInvoicePaymentIntent({
+      stripeInvoiceId: invoice.id, stripeInvoice: invoice,
+      stripe: stripeEvidenceClient(invoice, { invoicePayments: { async list() { return result; } } }),
+    }), /truncated|failed/);
+  }
+});
+
+test('resolveStripeInvoicePaymentIntent re-reads and rejects a non-succeeded PaymentIntent', async () => {
+  const invoice = stripeEvidence('in_pi_failed');
+  const stripe = stripeEvidenceClient(invoice);
+  stripe.paymentIntents.retrieve = async (id) => ({
+    id, status: 'processing', amount: 1000, currency: 'gbp', customer: 'cus_monthly',
+  });
+  await assert.rejects(resolveStripeInvoicePaymentIntent({
+    stripeInvoiceId: invoice.id, stripeInvoice: invoice, stripe,
+  }), /not confirmed succeeded/);
+});
+
+test('Stripe arrears retries retain historic ledger uniqueness but recover the source invoice only', () => {
+  assert.equal(
+    stripeInvoiceIdForPaymentEvidence('in_paid123:arrears:period-uuid'),
+    'in_paid123',
+  );
+  assert.equal(stripeInvoiceIdForPaymentEvidence('in_paid123'), 'in_paid123');
+  assert.equal(
+    stripeInvoiceIdForPaymentEvidence('not-an-invoice:arrears:period-uuid'),
+    'not-an-invoice:arrears:period-uuid',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -456,7 +618,7 @@ test('postDdInstalmentToAccounting: per-instalment mode mints a paid invoice wit
   const outcome = await postDdInstalmentToAccounting({
     agreement: gcAgreement,
     paymentRow: { id: 'pay_1', amount_minor: 1000, gocardless_payment_id: 'PM123', accounting_sync_status: null },
-  }, { db, getProvider: async () => fakeProvider(providerCalls) });
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_123')), getProvider: async () => fakeProvider(providerCalls) });
 
   assert.equal(outcome.status, 'posted');
   assert.equal(providerCalls.length, 1);
@@ -470,6 +632,8 @@ test('postDdInstalmentToAccounting: per-instalment mode mints a paid invoice wit
   assert.equal(args.idempotencyKey, 'mii-gc-PM123', 'provider-side idempotency key derived from the payment id');
   assert.equal(args.paymentIdempotencyKey, 'mii-gc-PM123-pay', 'separate deterministic key for the payment request');
   assert.equal(args.strictBankAccount, true, 'GC rail must never fall back to the Stripe bank account');
+  assert.equal(args.stripePaymentIntentId, null, 'GoCardless reference is not a Stripe PaymentIntent');
+  assert.equal(args.paymentReference, 'GoCardless DD: PM123');
   assert.equal(store.row.accounting_sync_status, 'posted');
   assert.equal(store.row.accounting_invoice_id, 'INV-ID-1');
   assert.equal(store.row.xero_invoice_number, 'INV-001');
@@ -571,9 +735,10 @@ test('postStripeInstalmentInvoice: first attempt inserts claim row, mints invoic
     agreement: perInstalmentAgreement(),
     plan: { id: 'plan1' },
     stripeInvoiceId: 'in_123',
+    stripeInvoice: stripeEvidence('in_123'),
     amountMinor: 1000,
     currency: 'GBP',
-  }, { db, getProvider: async () => fakeProvider(providerCalls) });
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_123')), getProvider: async () => fakeProvider(providerCalls) });
 
   assert.equal(outcome.status, 'posted');
   assert.equal(providerCalls.length, 1);
@@ -582,12 +747,28 @@ test('postStripeInstalmentInvoice: first attempt inserts claim row, mints invoic
   assert.equal(providerCalls[0].invoicingAddress, '1 Checkout Road\nLondon\nSW1A 1AA\nGB');
   assert.equal(providerCalls[0].idempotencyKey, 'mii-stripe-in_123');
   assert.equal(providerCalls[0].paymentIdempotencyKey, 'mii-stripe-in_123-pay');
+  assert.equal(providerCalls[0].stripePaymentIntentId, 'pi_monthly123');
+  assert.equal(providerCalls[0].paymentReference, 'Stripe invoice: in_123');
   assert.equal(store.row.accounting_sync_status, 'posted');
   assert.equal(store.row.accounting_invoice_id, 'INV-ID-1');
   assert.equal(store.row.external_payment_id, 'in_123');
 });
 
-test('postStripeInstalmentInvoice: replay of a posted instalment never re-mints (webhook redelivery / reconcile safe)', async () => {
+test('postStripeInstalmentInvoice: missing payment evidence is a recoverable failed row and never calls accounting', async () => {
+  const providerCalls = [];
+  const store = instalmentStore();
+  const db = fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler });
+  const outcome = await postStripeInstalmentInvoice({
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_no_pi',
+    stripeInvoice: stripeEvidence('in_no_pi', null), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_no_pi', null)), getProvider: async () => fakeProvider(providerCalls) });
+  assert.equal(outcome.status, 'failed');
+  assert.equal(providerCalls.length, 0);
+  assert.equal(store.row.accounting_sync_status, 'failed');
+  assert.match(store.row.accounting_sync_error, /PaymentIntent evidence is missing/);
+});
+
+test('postStripeInstalmentInvoice: replay of a posted instalment returns durable linkage without re-minting', async () => {
   const providerCalls = [];
   const store = instalmentStore();
   store.row = { id: 'row1', accounting_sync_status: 'posted', accounting_invoice_id: 'INV-ID-1' };
@@ -595,9 +776,12 @@ test('postStripeInstalmentInvoice: replay of a posted instalment never re-mints 
   const outcome = await postStripeInstalmentInvoice({
     agreement: perInstalmentAgreement(),
     stripeInvoiceId: 'in_123',
+    stripeInvoice: stripeEvidence('in_123'),
     amountMinor: 1000,
   }, { db, getProvider: async () => fakeProvider(providerCalls) });
-  assert.equal(outcome.status, 'skipped');
+  assert.equal(outcome.status, 'posted');
+  assert.equal(outcome.replayed, true);
+  assert.equal(outcome.invoiceId, 'INV-ID-1');
   assert.equal(providerCalls.length, 0);
 });
 
@@ -605,8 +789,11 @@ test('postStripeInstalmentInvoice: concurrent duplicate deliveries — only one 
   const providerCalls = [];
   const store = instalmentStore();
   const db = fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler });
-  const deps = { db, getProvider: async () => fakeProvider(providerCalls) };
-  const args = { agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_c1', amountMinor: 1000 };
+  const deps = { db, stripe: stripeEvidenceClient(stripeEvidence('in_c1')), getProvider: async () => fakeProvider(providerCalls) };
+  const args = {
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_c1',
+    stripeInvoice: stripeEvidence('in_c1'), amountMinor: 1000,
+  };
   const [a, b] = await Promise.all([
     postStripeInstalmentInvoice(args, deps),
     postStripeInstalmentInvoice(args, deps),
@@ -624,16 +811,16 @@ test('postStripeInstalmentInvoice: failed attempt stamps failed; retry succeeds 
 
   const failing = { name: 'xero', async createMembershipInvoice() { throw new Error('provider down'); } };
   const first = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_9', amountMinor: 1000,
-  }, { db, getProvider: async () => failing });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_9', stripeInvoice: stripeEvidence('in_9'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_9')), getProvider: async () => failing });
   assert.equal(first.status, 'failed');
   assert.equal(store.row.accounting_sync_status, 'failed');
   assert.match(store.row.accounting_sync_error, /provider down/);
 
   const calls = [];
   const second = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_9', amountMinor: 1000,
-  }, { db, getProvider: async () => fakeProvider(calls) });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_9', stripeInvoice: stripeEvidence('in_9'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_9')), getProvider: async () => fakeProvider(calls) });
   assert.equal(second.status, 'posted');
   assert.equal(calls.length, 1);
   assert.equal(store.row.accounting_sync_status, 'posted');
@@ -645,8 +832,8 @@ test('postStripeInstalmentInvoice: unpaid invoice → invoice_unpaid; retry appl
 
   const createCalls = [];
   const first = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_u1', amountMinor: 1000,
-  }, { db, getProvider: async () => fakeProvider(createCalls, { paymentRecorded: false }) });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_u1', stripeInvoice: stripeEvidence('in_u1'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_u1')), getProvider: async () => fakeProvider(createCalls, { paymentRecorded: false }) });
   assert.equal(first.status, 'invoice_unpaid');
   assert.equal(store.row.accounting_sync_status, 'invoice_unpaid');
   assert.equal(store.row.accounting_invoice_id, 'INV-ID-1');
@@ -654,13 +841,15 @@ test('postStripeInstalmentInvoice: unpaid invoice → invoice_unpaid; retry appl
   const applyCalls = [];
   const retryCreates = [];
   const second = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_u1', amountMinor: 1000,
-  }, { db, getProvider: async () => fakeProvider(retryCreates, { applyCalls }) });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_u1', stripeInvoice: stripeEvidence('in_u1'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_u1')), getProvider: async () => fakeProvider(retryCreates, { applyCalls }) });
   assert.equal(second.status, 'posted');
   assert.equal(retryCreates.length, 0, 'no second invoice created');
   assert.equal(applyCalls.length, 1, 'payment applied to the existing invoice');
   assert.equal(applyCalls[0].invoiceId, 'INV-ID-1');
   assert.equal(applyCalls[0].idempotencyKey, 'mii-stripe-in_u1-pay', 'payment retry carries the same deterministic key');
+  assert.equal(applyCalls[0].stripePaymentIntentId, 'pi_monthly123');
+  assert.equal(applyCalls[0].paymentReference, 'Stripe invoice: in_u1');
   assert.equal(store.row.accounting_sync_status, 'posted');
 });
 
@@ -670,13 +859,13 @@ test('postStripeInstalmentInvoice: stale posting row reclaimable only with recla
   const db = fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler });
   const calls = [];
   const held = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_s1', amountMinor: 1000,
-  }, { db, getProvider: async () => fakeProvider(calls) });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_s1', stripeInvoice: stripeEvidence('in_s1'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_s1')), getProvider: async () => fakeProvider(calls) });
   assert.equal(held.status, 'skipped');
   assert.equal(calls.length, 0);
   const reclaimed = await postStripeInstalmentInvoice({
-    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_s1', amountMinor: 1000,
-  }, { db, getProvider: async () => fakeProvider(calls), reclaimStale: true });
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_s1', stripeInvoice: stripeEvidence('in_s1'), amountMinor: 1000,
+  }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_s1')), getProvider: async () => fakeProvider(calls), reclaimStale: true });
   assert.equal(reclaimed.status, 'posted');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].idempotencyKey, 'mii-stripe-in_s1');

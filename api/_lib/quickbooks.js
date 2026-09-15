@@ -7,6 +7,34 @@ export function buildQuickBooksMembershipCustomerMemo(reference) {
   return { value: resolveMembershipInvoiceReference(reference) };
 }
 
+// QBO limits PaymentRefNum to 21 characters. A local arrears ledger key can
+// contain `:arrears:<period>` after that limit; never truncate any long value
+// into an ambiguous provider reference. The durable full key remains the
+// invoice idempotency identity and PrivateNote audit trail, so this guard does
+// not rewrite historical identities or attempt to merge old QBO records.
+export function quickBooksPaymentRefNum(reference) {
+  const value = String(reference || '');
+  return value && value.length <= 21 ? value : undefined;
+}
+
+/**
+ * QBO requestid is an idempotency identity, not a display field. Truncating a
+ * composite arrears key can make two different ledger rows replay each other.
+ * Keep existing safe keys byte-for-byte; reject unsafe new non-deferred keys
+ * so finance can reconcile the affected historical row explicitly.
+ */
+export function quickBooksMembershipOperationRequestId(operationKey, { deferred = false } = {}) {
+  if (!operationKey) return null;
+  const value = String(operationKey);
+  if (deferred) return accountingOperationIdentity(value, 'inv', 50);
+  if (value.length > 50) {
+    throw new Error(
+      'QuickBooks accounting operation key exceeds its safe requestid limit; no provider write was attempted. Use manual reconciliation.',
+    );
+  }
+  return value;
+}
+
 const validStripePaymentIntentId = (value) => /^pi_[A-Za-z0-9]+$/.test(String(value || ''));
 const containsExactStripePaymentIntent = (value, paymentIntentId) => {
   const escaped = String(paymentIntentId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -553,6 +581,7 @@ export async function createQuickBooksMembershipInvoice({
   finalCost,
   currency,
   reference,
+  paymentReference = null,
   vatRate,
   markAsPaid,
   deferStripeSettlement = false,
@@ -759,10 +788,16 @@ export async function createQuickBooksMembershipInvoice({
   // Task #3633: provider-side idempotency — QBO replays the original
   // response for a repeated requestid instead of creating a second invoice,
   // so a crash between create and our local linkage write cannot duplicate.
-  const requestIdParam = idempotencyKey
-    ? `&requestid=${encodeURIComponent(deferStripeSettlement
-      ? accountingOperationIdentity(idempotencyKey, 'inv', 50)
-      : String(idempotencyKey).slice(0, 50))}`
+  // Validate both request identities before minting the invoice. Otherwise a
+  // long composite payment key could fail only after a new invoice exists.
+  const invoiceOperationId = quickBooksMembershipOperationRequestId(idempotencyKey, {
+    deferred: deferStripeSettlement,
+  });
+  const paymentOperationId = markAsPaid && !deferStripeSettlement
+    ? quickBooksMembershipOperationRequestId(paymentIdempotencyKey)
+    : null;
+  const requestIdParam = invoiceOperationId
+    ? `&requestid=${encodeURIComponent(invoiceOperationId)}`
     : '';
   const url = `${base}/invoice?minorversion=${MINOR_VERSION}${requestIdParam}`;
   const invoiceResp = await qboFetch('invoice-create', accessToken, 'POST', url, invoicePayload);
@@ -782,8 +817,8 @@ export async function createQuickBooksMembershipInvoice({
           CustomerRef: { value: customerId },
           TotalAmt: Number(parseFloat(invoice.TotalAmt).toFixed(2)),
           DepositToAccountRef: { value: String(bankAccountId) },
-          PaymentRefNum: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}`.substring(0, 21) : undefined,
-          PrivateNote: stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment',
+          PaymentRefNum: quickBooksPaymentRefNum(paymentReference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : '')),
+          PrivateNote: paymentReference || (stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment'),
           Line: [
             {
               Amount: Number(parseFloat(invoice.TotalAmt).toFixed(2)),
@@ -796,8 +831,8 @@ export async function createQuickBooksMembershipInvoice({
         // Payment creation is a separate request — give it its own
         // idempotency requestid so a crash after the payment succeeded but
         // before our linkage write can't record a second payment on retry.
-        const payRequestId = paymentIdempotencyKey
-          ? `&requestid=${encodeURIComponent(String(paymentIdempotencyKey).slice(0, 50))}`
+        const payRequestId = paymentOperationId
+          ? `&requestid=${encodeURIComponent(paymentOperationId)}`
           : '';
         const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}${payRequestId}`;
         const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload);
@@ -861,6 +896,7 @@ export async function applyStripePaymentToQuickBooksInvoice({
   amount,
   paidAt,
   reference = null,
+  paymentReference = null,
   bankAccountSettingKey = null,
   strictBankAccount = false,
   idempotencyKey = null,
@@ -868,6 +904,10 @@ export async function applyStripePaymentToQuickBooksInvoice({
   if (!appTenantId) throw new Error('appTenantId is required');
   const qboInvoiceId = invoiceId || xeroInvoiceId;
   if (!qboInvoiceId) throw new Error('invoiceId is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  const paymentOperationId = quickBooksMembershipOperationRequestId(idempotencyKey);
 
   const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
   const { apiBaseUrl } = getIntuitEndpoints(environment);
@@ -897,10 +937,10 @@ export async function applyStripePaymentToQuickBooksInvoice({
         TotalAmt: payAmount,
         TxnDate: (paidAt ? new Date(paidAt) : new Date()).toISOString().split('T')[0],
         DepositToAccountRef: { value: String(bankAccountId) },
-        PaymentRefNum: reference
-          ? reference.substring(0, 21)
-          : (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}`.substring(0, 21) : undefined),
-        PrivateNote: reference || (stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment'),
+        PaymentRefNum: quickBooksPaymentRefNum(
+          paymentReference || reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : ''),
+        ),
+        PrivateNote: paymentReference || reference || (stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment'),
         Line: [
           {
             Amount: payAmount,
@@ -914,8 +954,8 @@ export async function applyStripePaymentToQuickBooksInvoice({
 
       // Idempotent payment create — QBO replays the original response for a
       // repeated requestid, so retries can't double-pay the invoice.
-      const payRequestId = idempotencyKey
-        ? `&requestid=${encodeURIComponent(String(idempotencyKey).slice(0, 50))}`
+      const payRequestId = paymentOperationId
+        ? `&requestid=${encodeURIComponent(paymentOperationId)}`
         : '';
       const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}${payRequestId}`;
       const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload);

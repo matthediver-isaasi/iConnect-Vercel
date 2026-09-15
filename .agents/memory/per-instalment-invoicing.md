@@ -18,3 +18,9 @@ One tier-level invoicing mode ('annual' default | 'per_instalment') applies to B
 **Why:** some clients require one accounting invoice per monthly collection; opt-in so the default annual-invoice + part-payments behaviour is untouched.
 
 **How to apply:** any new annual-invoice path must run the suppression check; any new monthly settle path must route through the shared posting helpers (claim + idempotency key + payment-recorded gating), never mint invoices ad hoc.
+
+Generic accounting references are not Stripe PaymentIntent identities. Keep the original invoice-based ledger and provider idempotency identities when repairing monthly accounting; resolve actual payment evidence separately.
+
+**Why:** stricter accounting-provider PaymentIntent validation exposed monthly callers passing Stripe invoice IDs (and the shared Direct Debit caller passing GoCardless references). Replacing historical invoice keys with PaymentIntent keys would bypass duplicate protection on recovery.
+
+**How to apply:** distinguish descriptive payment references from verified PaymentIntent IDs across both create and existing-invoice payment paths; missing evidence must remain recoverable rather than imply successful accounting.

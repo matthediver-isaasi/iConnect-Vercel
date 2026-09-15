@@ -25,7 +25,10 @@ import {
   CARD_PLAN_KIND,
   cardPlanNeedsSettlement,
 } from '../_lib/stripeMonthlyCard.js';
-import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoicing.js';
+import {
+  postStripeInstalmentInvoice,
+  stripeInvoiceIdForPaymentEvidence,
+} from '../_lib/membershipInstalmentInvoicing.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { releaseExpiredFormMonthlyCardCheckout } from '../_lib/formMonthlyCardCheckout.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
@@ -265,17 +268,45 @@ async function resetExpiredFormCheckout(agreement) {
 // Task #3633 — retry per-instalment accounting invoices that previously
 // failed (or were inserted but never attempted). The posting helper is
 // idempotent on the row's invoice linkage, so retries can never duplicate.
-async function retryFailedInstalmentInvoices(results) {
+/**
+ * Keep failed preflight rows moving through the ordered retry queue. This is
+ * deliberately conditional: a webhook which has freshly claimed a stale
+ * `posting` row must never be overwritten by the cron's failed lookup.
+ */
+export async function markInstalmentRetryFailed(db, row, reason, staleCutoff) {
+  const patch = {
+    accounting_sync_status: 'failed',
+    accounting_sync_error: String(reason || 'Stripe payment evidence recovery failed').slice(0, 500),
+    updated_at: new Date().toISOString(),
+  };
+  let query = db.from('membership_instalment_invoices').update(patch).eq('id', row.id);
+  if (row.accounting_sync_status === 'posting') {
+    query = query.eq('accounting_sync_status', 'posting').lt('updated_at', staleCutoff);
+  } else {
+    query = query.in('accounting_sync_status', ['failed', 'pending', 'invoice_unpaid']);
+  }
+  const { error } = await query;
+  if (error) throw new Error(`rotate failed instalment retry row failed: ${error.message}`);
+}
+
+export async function retryFailedInstalmentInvoices(results, {
+  db = supabase,
+  getCreds = credsFor,
+  makeClients = stripeClients,
+  postInstalmentInvoice = postStripeInstalmentInvoice,
+  modeTolerant = withModeTolerance,
+  maxRows = MAX_ROWS_PER_GROUP,
+} = {}) {
   let rows = null;
+  const staleCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
   try {
-    const staleCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('membership_instalment_invoices')
       .select('*')
       .eq('provider', 'stripe')
       .or(`accounting_sync_status.in.(failed,pending,invoice_unpaid),and(accounting_sync_status.eq.posting,updated_at.lt.${staleCutoff})`)
       .order('updated_at', { ascending: true })
-      .limit(MAX_ROWS_PER_GROUP);
+      .limit(maxRows);
     if (error) {
       // Pre-migration — nothing to retry.
       if (error.code === '42P01') return;
@@ -290,19 +321,42 @@ async function retryFailedInstalmentInvoices(results) {
 
   for (const row of rows || []) {
     try {
-      const { data: agreement } = await supabase
+      const { data: agreement } = await db
         .from('membership_billing_agreements')
         .select('*')
         .eq('id', row.billing_agreement_id)
         .maybeSingle();
-      if (!agreement) { results.skipped++; continue; }
-      const outcome = await postStripeInstalmentInvoice({
+      if (!agreement) throw new Error('membership agreement no longer exists for instalment retry');
+      if (!row.plan_id) throw new Error('instalment retry has no payment-plan linkage for Stripe evidence validation');
+      const { data: plan } = await db
+        .from('membership_payment_plans')
+        .select('id, tenant_id, stripe_customer_id, stripe_subscription_id')
+        .eq('id', row.plan_id)
+        .eq('tenant_id', row.tenant_id)
+        .maybeSingle();
+      if (!plan) throw new Error('payment plan no longer exists for instalment retry');
+      // Legacy failed rows only retain the Stripe invoice ID. Re-read that
+      // invoice with this tenant's Stripe client before retrying so a Stripe
+      // Invoice identifier can never be misused as a PaymentIntent ID.
+      const paymentEvidenceInvoiceId = stripeInvoiceIdForPaymentEvidence(row.external_payment_id);
+      const clients = makeClients(await getCreds(row.tenant_id));
+      if (!clients.length) throw new Error('Stripe credentials unavailable for payment-evidence recovery');
+      const { client, result: stripeInvoice } = await modeTolerant(
+        clients,
+        (candidate) => candidate.invoices.retrieve(paymentEvidenceInvoiceId),
+      );
+      if (!stripeInvoice || (stripeInvoice.status !== 'paid' && stripeInvoice.paid !== true)) {
+        throw new Error(`Stripe invoice ${paymentEvidenceInvoiceId} is not confirmed paid; accounting retry deferred`);
+      }
+      const outcome = await postInstalmentInvoice({
         agreement,
-        plan: row.plan_id ? { id: row.plan_id } : null,
+        plan,
         stripeInvoiceId: row.external_payment_id,
+        stripePaymentEvidenceInvoiceId: paymentEvidenceInvoiceId,
+        stripeInvoice,
         amountMinor: row.amount_minor,
         currency: row.currency,
-      }, { reclaimStale: true });
+      }, { db, reclaimStale: true, stripe: client });
       if (outcome.status === 'posted') {
         results.repaired++;
         results.details.push({ instalmentInvoice: row.id, repaired: 'per-instalment invoice posted on retry' });
@@ -315,6 +369,12 @@ async function retryFailedInstalmentInvoices(results) {
     } catch (err) {
       results.errors++;
       results.details.push({ instalmentInvoice: row.id, error: err.message });
+      try {
+        await markInstalmentRetryFailed(db, row, err.message, staleCutoff);
+      } catch (markErr) {
+        results.errors++;
+        results.details.push({ instalmentInvoice: row.id, error: markErr.message });
+      }
     }
   }
 }

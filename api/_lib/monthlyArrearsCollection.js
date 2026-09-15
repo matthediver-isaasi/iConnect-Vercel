@@ -89,6 +89,10 @@ export async function postSettledArrearsPeriods({
         amountMinor: period.amount_minor,
         externalReference: `${providerReference}:arrears:${period.id}`,
       });
+      if (outcome?.status !== 'posted' || !outcome.invoiceId) {
+        throw new Error(outcome?.reason
+          || `arrears accounting period was not posted (${outcome?.status || 'no outcome'})`);
+      }
       const { error: postedError } = await db.from('membership_monthly_arrears_accounting')
         .update({ accounting_status: 'posted', accounting_invoice_id: outcome?.invoiceId || null, updated_at: new Date().toISOString() })
         .eq('id', claimed.id);

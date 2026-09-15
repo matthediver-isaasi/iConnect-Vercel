@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import handler, {
   reconcilePostGraceCatchUps,
   reconcileStalePlans,
+  retryFailedInstalmentInvoices,
 } from './reconcile-stripe-card-plans.js';
 
 function responseRecorder() {
@@ -40,6 +41,45 @@ test('cron rejects an invalid authorization header before processing', async () 
     if (prior === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = prior;
   }
+});
+
+function instalmentRetryDb({ agreement = null } = {}) {
+  const writes = [];
+  const row = {
+    id: 'retry-row', tenant_id: 'tenant-1', billing_agreement_id: 'agreement-missing',
+    plan_id: 'plan-missing', provider: 'stripe', external_payment_id: 'in_failed',
+    amount_minor: 1000, currency: 'GBP', accounting_sync_status: 'failed',
+  };
+  return {
+    writes,
+    from(table) {
+      const q = {
+        update(patch) { writes.push({ table, patch }); return q; },
+        select() { return q; }, eq() { return q; }, in() { return q; }, or() { return q; },
+        order() { return q; }, limit() { return q; }, lt() { return q; },
+        maybeSingle: async () => ({ data: table === 'membership_billing_agreements' ? agreement : null, error: null }),
+        then(resolve) {
+          return Promise.resolve({
+            data: table === 'membership_instalment_invoices' && !writes.length ? [row] : null,
+            error: null,
+          }).then(resolve);
+        },
+      };
+      return q;
+    },
+  };
+}
+
+test('failed instalment retry preflight rotates an unresolvable oldest row instead of starving later retries', async () => {
+  const db = instalmentRetryDb();
+  const results = reconciliationResults();
+  await retryFailedInstalmentInvoices(results, { db, maxRows: 1 });
+  assert.equal(results.errors, 1);
+  assert.equal(db.writes.length, 1);
+  assert.equal(db.writes[0].table, 'membership_instalment_invoices');
+  assert.equal(db.writes[0].patch.accounting_sync_status, 'failed');
+  assert.match(db.writes[0].patch.accounting_sync_error, /agreement no longer exists/);
+  assert.ok(db.writes[0].patch.updated_at, 'failed preflight moves the row behind later ordered retries');
 });
 
 function queryDb(plans) {

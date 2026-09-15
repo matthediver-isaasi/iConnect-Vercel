@@ -382,7 +382,7 @@ export async function createXeroSalesInvoice(appTenantId, invoice, dependencies 
 
 export async function createXeroMembershipInvoice({
   appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
-  tierLabel, finalCost, currency, reference, vatRate, markAsPaid,
+  tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
   deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
   extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
@@ -627,7 +627,7 @@ export async function createXeroMembershipInvoice({
             Account: { AccountID: bankAccount.AccountID },
             Date: new Date().toISOString().split('T')[0],
             Amount: parseFloat(invoice.Total),
-            Reference: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'
+            Reference: paymentReference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment')
           };
 
           console.log(`[Xero] Recording Stripe payment for membership invoice ${invoice.InvoiceNumber} - Amount: ${parseFloat(invoice.Total).toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
@@ -926,12 +926,16 @@ export async function applyStripePaymentToXeroInvoice({
   stripePaymentIntentId,
   amount = null,
   reference = null,
+  paymentReference = null,
   bankAccountSettingKey = 'xero_stripe_bank_account_code',
   strictBankAccount = false,
   idempotencyKey = null,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
 
   const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
 
@@ -995,7 +999,7 @@ export async function applyStripePaymentToXeroInvoice({
           Account: { AccountID: bankAccount.AccountID },
           Date: new Date().toISOString().split('T')[0],
           Amount: amount != null ? Number(parseFloat(amount).toFixed(2)) : parseFloat(invoice.Total),
-          Reference: reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'),
+          Reference: paymentReference || reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'),
         };
         // Idempotent payment create — Xero replays the original response for
         // a repeated Idempotency-Key, so retries can't double-pay the invoice.

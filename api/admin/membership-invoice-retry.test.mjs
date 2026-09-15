@@ -43,3 +43,9 @@ test('unlinked form memberships cannot fall through to generic invoice minting',
   assert.match(guardedSource, /recovery: 'form_membership_finalize'/);
   assert.doesNotMatch(guardedSource, /createMembershipInvoice/);
 });
+
+test('admin retry rejects a Stripe invoice/reference before it can reach the strict PaymentIntent provider contract', () => {
+  assert.match(source, /isStripePaymentIntentId/);
+  assert.match(source, /Stripe invoice\/reference rather than a verified PaymentIntent/);
+  assert.match(source, /stripe_monthly_reconciliation/);
+});

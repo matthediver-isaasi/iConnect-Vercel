@@ -1608,12 +1608,16 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
           agreement,
           plan,
           stripeInvoiceId: object.id,
+          // The signed Stripe invoice corroborates the event; the posting
+          // helper re-reads the invoice and its PaymentIntent through this
+          // tenant-scoped client before it writes to accounting.
+          stripeInvoice: object,
           // The ordinary current instalment keeps its existing invoice; the
           // arrears lines are fanned out separately below.
           amountMinor: hasCatchUpItem ? plan.amount_minor
             : (Number.isInteger(object.amount_paid) ? object.amount_paid : null),
           currency: (object.currency || '').toUpperCase() || null,
-        }, { db, getProvider: deps.getProvider });
+        }, { db, getProvider: deps.getProvider, getStripe });
       } catch (err) {
         console.error('[StripeCard] per-instalment invoice posting threw:', err.message);
       }
@@ -1634,9 +1638,10 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
         agreement, db,
         postPeriod: ({ amountMinor, externalReference }) =>
           (deps.postInstalmentInvoice || postStripeInstalmentInvoice)({
-            agreement, plan, stripeInvoiceId: externalReference, amountMinor,
+            agreement, plan, stripeInvoiceId: externalReference,
+            stripePaymentEvidenceInvoiceId: object.id, stripeInvoice: object, amountMinor,
             currency: (object.currency || '').toUpperCase() || null,
-          }, { db, getProvider: deps.getProvider }),
+          }, { db, getProvider: deps.getProvider, getStripe }),
       });
       await completeMonthlyCollectionIntent({ plan, intent: catchUpIntent, providerReference: catchUpIntent.provider_reference, db });
     }

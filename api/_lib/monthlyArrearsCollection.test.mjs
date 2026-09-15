@@ -9,6 +9,7 @@ import {
   completeMonthlyCollectionIntent,
   executePostGraceCollection,
   failMonthlyCollectionIntent,
+  postSettledArrearsPeriods,
 } from './monthlyArrearsCollection.js';
 
 const periods = [
@@ -26,6 +27,69 @@ test('partial catch-up never silently settles a period', () => {
   const result = allocateOldestFirst({ amountMinor: 1500, openPeriods: periods });
   assert.equal(result.settled.length, 1);
   assert.equal(result.remainingAmountMinor, 500);
+});
+
+function arrearsPostingDb(statusWrites) {
+  let claimRead = 0;
+  return {
+    from(table) {
+      const q = {
+        update(patch) {
+          if (table === 'membership_monthly_arrears_accounting') statusWrites.push(patch);
+          return q;
+        },
+        upsert() { return q; }, select() { return q; }, eq() { return q; }, not() { return q; },
+        in() { return q; }, maybeSingle: async () => {
+          claimRead += 1;
+          return { data: claimRead === 1 ? { id: 'accounting-row', accounting_status: 'pending' } : { id: 'accounting-row' }, error: null };
+        },
+        then(resolve) {
+          if (table === 'membership_monthly_arrears_period') {
+            return Promise.resolve({
+              data: [{ id: 'period-1', amount_minor: 1000, settled_at: '2026-03-01' }], error: null,
+            }).then(resolve);
+          }
+          return Promise.resolve({ data: null, error: null }).then(resolve);
+        },
+      };
+      return q;
+    },
+  };
+}
+
+test('arrears fan-out never marks a resolved but failed provider outcome as posted', async () => {
+  const writes = [];
+  await assert.rejects(postSettledArrearsPeriods({
+    tenantId: 't1', planId: 'p1', providerReference: 'in_source',
+    agreement: { metadata: { card: { invoicing_mode: 'per_instalment' } } },
+    db: arrearsPostingDb(writes),
+    postPeriod: async () => ({ status: 'failed', reason: 'PaymentIntent evidence is missing' }),
+  }), /PaymentIntent evidence is missing/);
+  assert.deepEqual(writes.map((write) => write.accounting_status), ['posting', 'failed']);
+});
+
+test('arrears fan-out never treats a generic skipped inner replay as posted', async () => {
+  const writes = [];
+  await assert.rejects(postSettledArrearsPeriods({
+    tenantId: 't1', planId: 'p1', providerReference: 'in_source',
+    agreement: { metadata: { card: { invoicing_mode: 'per_instalment' } } },
+    db: arrearsPostingDb(writes),
+    postPeriod: async () => ({ status: 'skipped', reason: 'another worker is posting' }),
+  }), /another worker is posting/);
+  assert.deepEqual(writes.map((write) => write.accounting_status), ['posting', 'failed']);
+});
+
+test('arrears fan-out records linkage only after an explicit posted provider outcome', async () => {
+  const writes = [];
+  const result = await postSettledArrearsPeriods({
+    tenantId: 't1', planId: 'p1', providerReference: 'in_source',
+    agreement: { metadata: { card: { invoicing_mode: 'per_instalment' } } },
+    db: arrearsPostingDb(writes),
+    postPeriod: async () => ({ status: 'posted', invoiceId: 'qbo-invoice-1' }),
+  });
+  assert.equal(result.posted, 1);
+  assert.equal(writes.at(-1).accounting_status, 'posted');
+  assert.equal(writes.at(-1).accounting_invoice_id, 'qbo-invoice-1');
 });
 
 test('continue policy projects normal month plus every open period', () => {

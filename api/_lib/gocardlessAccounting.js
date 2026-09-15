@@ -138,8 +138,13 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
         });
         await setSyncStatus(db, paymentRow.id, buildInstalmentOutcomePatch({ providerName: provider.name, ...outcome }));
         return outcome.paymentRecorded
-          ? { status: 'posted' }
-          : { status: 'invoice_unpaid', reason: 'invoice created but payment not recorded' };
+          ? { status: 'posted', invoiceId: outcome.invoiceId, invoiceNumber: outcome.invoiceNumber }
+          : {
+            status: 'invoice_unpaid',
+            invoiceId: outcome.invoiceId,
+            invoiceNumber: outcome.invoiceNumber,
+            reason: 'invoice created but payment not recorded',
+          };
       } catch (instErr) {
         console.error('[gocardlessAccounting] per-instalment posting failed:', instErr.message);
         await setSyncStatus(db, paymentRow.id, {

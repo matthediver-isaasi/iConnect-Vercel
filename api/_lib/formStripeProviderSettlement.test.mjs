@@ -2,14 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyStripePaymentToXeroInvoice,
   createXeroMembershipInvoice,
   findFormStripeXeroInvoice,
   settleFormStripeXeroInvoice,
 } from './xero.js';
 import {
+  applyStripePaymentToQuickBooksInvoice,
   createQuickBooksMembershipInvoice,
   findFormStripeQuickBooksInvoice,
   findOrCreateQuickBooksCustomer,
+  quickBooksPaymentRefNum,
+  quickBooksMembershipOperationRequestId,
   quickBooksSettlementRequestId,
   settleFormStripeQuickBooksInvoice,
 } from './quickbooks.js';
@@ -565,6 +569,36 @@ test('membership creation rejects provider-context mismatch before contact or in
     findOrCreateQuickBooksCustomer: async () => { qboCustomers += 1; return 'customer'; },
   }), /does not match/);
   assert.equal(qboCustomers, 0);
+});
+
+test('Xero and QuickBooks retain strict PaymentIntent validation on create and existing-invoice payment paths', async () => {
+  const invalid = {
+    appTenantId: 'tenant-1',
+    organizationName: 'Organisation',
+    stripePaymentIntentId: 'in_a_stripe_invoice_is_not_a_payment_intent',
+  };
+  await assert.rejects(createXeroMembershipInvoice(invalid), /full PaymentIntent identifier/);
+  await assert.rejects(createQuickBooksMembershipInvoice(invalid), /full PaymentIntent identifier/);
+  await assert.rejects(applyStripePaymentToXeroInvoice({
+    appTenantId: 'tenant-1', xeroInvoiceId: 'xero-invoice', stripePaymentIntentId: invalid.stripePaymentIntentId,
+  }), /full PaymentIntent identifier/);
+  await assert.rejects(applyStripePaymentToQuickBooksInvoice({
+    appTenantId: 'tenant-1', invoiceId: 'qbo-invoice', stripePaymentIntentId: invalid.stripePaymentIntentId,
+  }), /full PaymentIntent identifier/);
+});
+
+test('QuickBooks never truncates composite arrears identities into ambiguous PaymentRefNum values', () => {
+  assert.equal(quickBooksPaymentRefNum('short-reference'), 'short-reference');
+  assert.equal(quickBooksPaymentRefNum('in_source:arrears:period-uuid'), undefined);
+  assert.equal(quickBooksPaymentRefNum('Stripe invoice: in_very_long_source_invoice'), undefined);
+});
+
+test('QuickBooks rejects unsafe overlength non-deferred operation keys before provider writes', () => {
+  assert.equal(quickBooksMembershipOperationRequestId('mii-stripe-in_safe'), 'mii-stripe-in_safe');
+  assert.throws(
+    () => quickBooksMembershipOperationRequestId(`mii-stripe-in_source:arrears:${'period-uuid-'.repeat(5)}`),
+    /safe requestid limit.*manual reconciliation/,
+  );
 });
 
 test('QBO customer resolution validates its pinned connection before any request', async () => {
