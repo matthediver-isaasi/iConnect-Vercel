@@ -3,6 +3,7 @@ import { Copy, Link } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { resolveBadgeImageLink } from "@/lib/badgeImageLink";
 import {
   Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter, DialogClose,
@@ -11,7 +12,7 @@ import {
 export default function BadgeImageLink({ badge }) {
   const [feedback, setFeedback] = useState("");
   const [copying, setCopying] = useState(false);
-  const url = badge.image_url;
+  const url = resolveBadgeImageLink(badge.image_url, import.meta.env.VITE_SUPABASE_URL);
   const available = typeof url === "string" && url.trim().length > 0;
 
   async function copyLink() {
