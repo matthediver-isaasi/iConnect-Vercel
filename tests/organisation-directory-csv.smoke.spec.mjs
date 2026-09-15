@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { projectOrganisationDirectoryCsv } from "../api/_lib/organisationDirectoryCsv.js";
 
 const member = {
   id: "csv-smoke-member",
@@ -23,6 +25,80 @@ const organisation = {
   domain: "csv-smoke.invalid",
   logo_url: null,
   member_count: 2,
+};
+
+const organizations = [organisation];
+
+const departmentField = {
+  key: "object:department",
+  label: "Department",
+  field_type: "text",
+  _kind: "object",
+  _source: {
+    relationship_id: "csv-smoke-departments",
+    direction: "source",
+    object_id: "csv-smoke-department",
+    cardinality: "one_to_many",
+  },
+};
+
+const officeField = {
+  key: "object:office",
+  label: "Office",
+  field_type: "text",
+  _kind: "object",
+  _source: {
+    relationship_id: "csv-smoke-offices",
+    direction: "source",
+    object_id: "csv-smoke-office",
+    cardinality: "one_to_many",
+  },
+};
+
+const csvFields = [
+  { key: "org_member_count", label: "Member count", _kind: "core" },
+  departmentField,
+  officeField,
+  { key: "org_members_list", label: "Members / contacts list", _kind: "core" },
+];
+
+const csvObjectValues = new Map([
+  [
+    departmentField.key,
+    new Map([
+      [
+        organisation.id,
+        [
+          { recordId: "department-1", label: "Department", value: "Design" },
+          { recordId: "department-2", label: "Department", value: "Engineering" },
+        ],
+      ],
+    ]),
+  ],
+  [
+    officeField.key,
+    new Map([
+      [
+        organisation.id,
+        [
+          { recordId: "office-1", label: "Office", value: "Aarhus" },
+          { recordId: "office-2", label: "Office", value: "Copenhagen" },
+          { recordId: "office-3", label: "Office", value: "Odense" },
+        ],
+      ],
+    ]),
+  ],
+]);
+
+const csvMemberValues = {
+  counts: new Map([[organisation.id, 2]]),
+  recordCounts: new Map([
+    [`${organisation.id}:${departmentField._source.object_id}:department-1`, 1],
+    [`${organisation.id}:${departmentField._source.object_id}:department-2`, 1],
+    [`${organisation.id}:${officeField._source.object_id}:office-1`, 1],
+    [`${organisation.id}:${officeField._source.object_id}:office-2`, 1],
+    [`${organisation.id}:${officeField._source.object_id}:office-3`, 0],
+  ]),
 };
 
 const filterFields = [
@@ -126,8 +202,8 @@ async function installFixtures(page, {
         const body = request.postDataJSON();
         state.directoryPosts.push(body);
         return json({
-          organizations: [organisation],
-          total: 1,
+          organizations,
+          total: organizations.length,
           page: body.page,
           pageSize: body.pageSize,
           fields: filterFields,
@@ -148,11 +224,20 @@ async function installFixtures(page, {
       if (state.exportMode === "slow") {
         await new Promise(resolve => setTimeout(resolve, 150));
       }
+      const csv = projectOrganisationDirectoryCsv({
+        organizations,
+        fields: csvFields,
+        preferences: new Map(),
+        objectValues: csvObjectValues,
+        memberValues: csvMemberValues,
+        includeLogo: false,
+        includeOrganisation: true,
+      });
       return route.fulfill({
         status: 200,
         contentType: "text/csv; charset=utf-8",
         headers: { "content-disposition": 'attachment; filename="full-directory.csv"' },
-        body: "name,front_field,back_field\nCSV Smoke Organisation,Front,Back\n",
+        body: csv,
       });
     }
 
@@ -170,7 +255,7 @@ async function installFixtures(page, {
       state.writes.push({ method, path, body: patch });
       return json(setting || { id, ...patch });
     }
-    if (path === "/api/entities/Organization") return json([organisation]);
+    if (path === "/api/entities/Organization") return json(organizations);
     if (path === "/api/entities/Member") return json([member]);
     if (path === `/api/entities/Member/${member.id}`) return json(member);
     if (path === "/api/entities/Role") return json([role]);
@@ -230,7 +315,19 @@ test("directory downloads a real full CSV without filter query parameters", asyn
   await page.getByRole("button", { name: "Download full directory CSV", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("full-directory.csv");
-  expect(await download.path()).toBeTruthy();
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  if (!downloadPath) throw new Error("CSV download did not produce a file");
+  const downloadedBytes = await readFile(downloadPath);
+  expect(downloadedBytes.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+  const rows = downloadedBytes.toString("utf8").replace(/^\ufeff/, "").split("\r\n");
+  expect(rows[0]).toBe("Organisation,Number of members,Department,Office");
+  expect(rows.slice(1)).toHaveLength(5);
+  expect(rows.slice(1).filter(row => row.includes("Department:"))).toHaveLength(2);
+  expect(rows.slice(1).filter(row => row.includes("Office:"))).toHaveLength(3);
+  expect(rows.slice(1).map(row => row.split(",")[1])).toEqual(["1", "1", "1", "1", "0"]);
+  const memberNameCell = new RegExp(`(?:^|,)${member.first_name} ${member.last_name}(?:,|$)`);
+  expect(rows.slice(1).every(row => !memberNameCell.test(row))).toBe(true);
   expect(state.exportRequests).toEqual([
     `${await page.evaluate(() => window.location.origin)}/api/organisation-directory/export-csv`,
   ]);

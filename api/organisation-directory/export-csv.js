@@ -54,10 +54,21 @@ export function createHandler(dependencies = {}) {
         return res.status(403).json({ error: 'Organisation directory CSV download is disabled' });
       }
 
-      const service = serviceFactory({
-        db, context, isAdmin: await adminCheck(context),
-      });
+      const isAdmin = await adminCheck(context);
+      const service = serviceFactory({ db, context, isAdmin });
       const { csv } = await service.csv();
+      const currentContext = await getContext(req);
+      if (!currentContext?.isAuthenticated || currentContext.tenantMismatch
+        || currentContext.tenantId !== context.tenantId
+        || currentContext.roleId !== context.roleId
+        || currentContext.tenantUserId !== context.tenantUserId
+        || currentContext.memberId !== context.memberId
+        || currentContext.organizationId !== context.organizationId
+        || !await canView(currentContext)
+        || Boolean(await adminCheck(currentContext)) !== Boolean(isAdmin)
+        || !await readSetting({ db, tenantId: currentContext.tenantId })) {
+        return res.status(403).json({ error: 'Directory export access changed; retry' });
+      }
       // csv is complete before these headers are emitted: errors can always be
       // returned as JSON rather than an attachment with partial rows.
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');

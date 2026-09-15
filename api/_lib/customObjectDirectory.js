@@ -419,7 +419,7 @@ export async function resolveCustomObjectDirectorySources({
   const relationshipIds = [...new Set(configured.map((item) => item.relationshipId).filter(Boolean))];
   const relationships = await chunkedRows(relationshipIds, (ids) =>
     db.from('custom_object_relationship_definition')
-      .select('id, source_kind, target_kind, source_custom_object_id, target_custom_object_id, source_label, target_label, status, archived_at')
+      .select('id, source_kind, target_kind, source_custom_object_id, target_custom_object_id, cardinality, source_label, target_label, status, archived_at')
       .eq('tenant_id', context.tenantId).eq('status', 'active')
       .is('archived_at', null).in('id', ids));
   const relationshipById = new Map(relationships.map((item) => [String(item.id), item]));
@@ -498,6 +498,7 @@ export async function resolveCustomObjectDirectorySources({
       field_id: String(field.id),
       relationship_id: String(relationship.id),
       direction: item.direction,
+       cardinality: relationship.cardinality || null,
       field_label: sourceFieldLabel,
       object_label: sourceObjectLabel,
       relationship_label: sourceRelationshipLabel,

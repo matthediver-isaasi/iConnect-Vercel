@@ -18,8 +18,12 @@ import {
 import { normalizeOrganizationPreferenceValues } from './organizationEligibility.js';
 import {
   formatOrganisationDirectoryCsvValue,
+  countOrganisationDirectoryCsvRows,
   projectOrganisationDirectoryCsv,
 } from './organisationDirectoryCsv.js';
+import {
+  resolveOrganisationDirectoryMemberCounts,
+} from './organisationDirectoryMemberCounts.js';
 
 const PAGE_SIZE = 500;
 const MAX_PAGES = 200;
@@ -674,6 +678,7 @@ async function objectValuesByOrganization(db, context, metadata, organizationIds
   'Failed to load Custom Object records');
   const recordsById = new Map(records.map((record) => [String(record.id), record]));
   const output = new Map();
+  const recordsByOrganization = new Map();
   const primaryField = metadata._source._fields?.find((field) =>
     String(field.id) === String(metadata._source._definition?.primary_display_field_id));
   for (const edge of edges) {
@@ -694,13 +699,27 @@ async function objectValuesByOrganization(db, context, metadata, organizationIds
         value: formatOrganisationDirectoryCsvValue(raw, source._field || metadata),
       }
       : (metadata.control === 'presence' ? (nonempty(raw) ? true : null) : raw);
-    const id = String(edge[orgColumn]);
-    output.set(id, [...(output.get(id) || []), value]);
+    const organizationId = String(edge[orgColumn]);
+    const recordId = String(edge[recordColumn]);
+    if (!recordId) continue;
+    const records = recordsByOrganization.get(organizationId) || new Map();
+    // Relationship data can contain duplicate edges.  A directory value is
+    // record identity, not its display value, so deduplicate only by record
+    // ID and retain separate records even when every displayed value matches.
+    if (!records.has(recordId)) {
+      records.set(recordId, display ? { ...value, recordId } : value);
+    }
+    recordsByOrganization.set(organizationId, records);
+  }
+  for (const [organizationId, records] of recordsByOrganization) {
+    output.set(organizationId, [...records.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([, value]) => value));
   }
   return output;
 }
 
-async function visibleMemberCore(db, context, settingMap, organizationIds) {
+async function visibleMemberCore(db, context, settingMap, organizationIds, { includeNames = true } = {}) {
   const roleIds = parseRoleIdArray(settingMap.get('org_directory_reverse_card_role_ids'));
   const allowedListRoles = new Set(roleIds);
   const roleOrder = new Map(roleIds.map((roleId, index) => [String(roleId), index]));
@@ -709,8 +728,11 @@ async function visibleMemberCore(db, context, settingMap, organizationIds) {
   if (!organizationIds.length) return { counts, names };
   for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
     const ids = organizationIds.slice(offset, offset + ID_CHUNK);
+    const memberColumns = includeNames
+      ? 'id, organization_id, first_name, last_name, email, role_id'
+      : 'id, organization_id';
     const rows = await paged(() => db.from('member')
-      .select('id, organization_id, first_name, last_name, email, role_id').eq('tenant_id', context.tenantId)
+      .select(memberColumns).eq('tenant_id', context.tenantId)
       .in('organization_id', ids)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .or('login_enabled.is.null,login_enabled.neq.false')
@@ -719,6 +741,7 @@ async function visibleMemberCore(db, context, settingMap, organizationIds) {
     for (const member of rows) {
       const organizationId = String(member.organization_id);
       counts.set(organizationId, (counts.get(organizationId) || 0) + 1);
+      if (!includeNames) continue;
       // The reverse-card renderer only exposes contact names for configured
       // roles with a usable email address.  Keep exports and filter options at
       // precisely that visibility boundary.
@@ -862,6 +885,7 @@ function authorityToken(inventory, enabled, requiredKeys) {
         relationship_id: field._source.relationship_id,
         direction: field._source.direction,
         object_id: field._source.object_id,
+        cardinality: field._source.cardinality || null,
         field_id: field._source.field_id || field._source._field?.id,
       } : null,
       custom_field_id: field._field?.id || null,
@@ -881,7 +905,10 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
   const revalidateAuthority = async (token, requiredKeys, allDirectoryFields = false) => {
     const current = await buildInventory({ db, context, settingsMode: false, isAdmin });
     const currentFields = allDirectoryFields ? current.fields : enabledFields(current);
-    if (authorityToken(current, currentFields, requiredKeys) !== token) {
+    const currentKeys = allDirectoryFields
+      ? new Set(currentFields.map((field) => field.key))
+      : requiredKeys;
+    if (authorityToken(current, currentFields, currentKeys) !== token) {
       throw new OrganisationDirectoryFilterError(
         409,
         'Organisation directory authority changed; retry',
@@ -1067,18 +1094,29 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         }) || String(left.id).localeCompare(String(right.id))
       ));
       const organizationIds = organizations.map((organization) => organization.id);
-      const includeMembersList = parseRoleIdArray(
-        inventory.settingMap.get('org_directory_reverse_card_role_ids'),
-      ).length > 0;
-      const memberValues = inventory.fields.some((field) => field._kind === 'core')
-        ? await visibleMemberCore(db, context, inventory.settingMap, organizationIds)
-        : { counts: new Map(), names: new Map() };
+      // CSV exports are count-only.  In particular, never widen this query
+      // to the role-scoped name columns just because the reverse card shows
+      // contacts.
+      const memberValues = await visibleMemberCore(
+        db,
+        context,
+        inventory.settingMap,
+        organizationIds,
+        { includeNames: false },
+      );
       const objectValues = new Map();
       for (const field of inventory.fields.filter((item) => item._kind === 'object')) {
         objectValues.set(field.key, await objectValuesByOrganization(
           db, context, field, organizationIds, true,
         ));
       }
+      const { recordCounts } = await resolveOrganisationDirectoryMemberCounts({
+        db,
+        context,
+        organizationIds,
+        fields: inventory.fields,
+        objectValues,
+      });
       // Do not send an attachment until every eligible row, readable source,
       // and setting has been resolved and rechecked.
       const csv = projectOrganisationDirectoryCsv({
@@ -1086,13 +1124,17 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         fields: inventory.fields,
         preferences: population.preferences,
         objectValues,
-        memberValues,
-        includeMembersList,
+        memberValues: { ...memberValues, recordCounts },
         includeLogo: !savedFalse(inventory.settingMap.get('org_directory_show_logo')),
         includeOrganisation: !savedFalse(inventory.settingMap.get('org_directory_show_title')),
       });
       await revalidateAuthority(initialAuthority, authorityKeys, true);
-      return { csv, total: organizations.length };
+      const rowCount = countOrganisationDirectoryCsvRows({
+        organizations,
+        fields: inventory.fields,
+        objectValues,
+      });
+      return { csv, total: organizations.length, rowCount };
     },
   };
 }

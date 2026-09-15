@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectOrganisationDirectoryCsv } from './organisationDirectoryCsv.js';
+import {
+  projectOrganisationDirectoryCsv, countOrganisationDirectoryCsvRows,
+  organisationDirectoryCsvSourceExpands,
+} from './organisationDirectoryCsv.js';
 
 test('directory CSV projects renderer values and never serializes file descriptors', () => {
   const csv = projectOrganisationDirectoryCsv({
@@ -31,8 +34,9 @@ test('directory CSV projects renderer values and never serializes file descripto
     },
     includeMembersList: true,
   });
-  assert.match(csv, /^\ufeffOrganisation,Member count,Members \/ contacts list,Membership type,Proof,Project: Status\r\n/);
-  assert.match(csv, /'=Formula Org,2,Ada Lovelace; Grace Hopper,Associate,File,Project One: Live/);
+  assert.match(csv, /^\ufeffOrganisation,Number of members,Membership type,Proof,Project: Status\r\n/);
+  assert.match(csv, /'=Formula Org,2,Associate,File,Project One: Live/);
+  assert.doesNotMatch(csv, /Ada|Grace|contacts list/);
   assert.doesNotMatch(csv, /storage_path|private-uploads|secret\.pdf|signed_url/);
 });
 
@@ -55,7 +59,7 @@ test('directory CSV includes safe front-card logo and disambiguates duplicate la
     memberValues: { counts: new Map(), names: new Map() },
     includeLogo: true,
   });
-  assert.match(csv, /^﻿Logo,Organisation,Detail,Detail \(2\),Detail \(2\) \(2\)\r\n/);
+  assert.match(csv, /^﻿Logo,Organisation,Detail,Detail \(2\),Detail \(2\) \(2\),Number of members\r\n/);
   assert.match(csv, /Logo available,One,A,B,C/);
   assert.doesNotMatch(csv, /storage_path|private\/hidden/);
 });
@@ -74,7 +78,7 @@ test('only permanent credential-free public logo URLs are exported; title settin
     includeLogo: true,
     includeOrganisation: false,
   });
-  assert.match(csv, /^\ufeffLogo\r\nhttps:\/\/cdn\.example\.test\/logo\.svg\r\nLogo available\r\nLogo available$/);
+  assert.match(csv, /^\ufeffLogo,Number of members\r\nhttps:\/\/cdn\.example\.test\/logo\.svg,0\r\nLogo available,0\r\nLogo available,0$/);
   assert.doesNotMatch(csv, /token=private|user:secret/);
 });
 
@@ -87,5 +91,69 @@ test('directory CSV omits contacts when no reverse-card role is configured', () 
     memberValues: { counts: new Map(), names: new Map() },
     includeMembersList: false,
   });
-  assert.equal(csv, '\ufeffOrganisation\r\nOne');
+  assert.equal(csv, '\ufeffOrganisation,Number of members\r\nOne,0');
+});
+
+test('expansion interprets every cardinality from the organisation endpoint', () => {
+  for (const direction of ['source', 'target']) {
+    for (const cardinality of ['one_to_one', 'one_to_many', 'many_to_one', 'many_to_many']) {
+      assert.equal(organisationDirectoryCsvSourceExpands({
+        _kind: 'object', _source: { direction, cardinality },
+      }), cardinality === 'many_to_many'
+        || (direction === 'source' && cardinality === 'one_to_many')
+        || (direction === 'target' && cardinality === 'many_to_one'));
+    }
+  }
+  assert.equal(organisationDirectoryCsvSourceExpands({ _kind: 'custom', multi_select: true }), false);
+});
+
+test('additive rows align by record identity, dedupe edges, repeat single sources and omit identities', () => {
+  const field = (key, relationship_id, cardinality = 'one_to_many') => ({
+    key, label: key, _kind: 'object',
+    _source: { relationship_id, direction: 'source', object_id: relationship_id, cardinality },
+  });
+  const entry = (recordId, value, label = '') => ({ recordId, value, label });
+  const input = {
+    organizations: [{ id: 'org', name: 'One' }, { id: 'empty', name: 'Empty' }],
+    fields: [field('Dept', 'a'), field('Code', 'a'), field('Office', 'b'),
+      field('Single', 'c', 'one_to_one'), { key: 'org_members_list', _kind: 'core' }],
+    preferences: new Map(),
+    objectValues: new Map([
+      ['Dept', new Map([['org', [entry('d2', 'Same'), entry('d1', 'Same'), entry('d1', 'Same')]]])],
+      ['Code', new Map([['org', [entry('d1', ''), entry('d2', 'Code two')]]])],
+      ['Office', new Map([['org', [entry('o3', 'Third'), entry('o1', 'First'), entry('o2', 'Second')]]])],
+      ['Single', new Map([['org', [entry('s1', 'Shared')]]])],
+    ]),
+    memberValues: {
+      counts: new Map([['org', 9], ['empty', 4]]),
+      recordCounts: new Map([['org:a:d1', 2], ['org:a:d2', 0]]),
+      names: new Map([['org', ['SECRET NAME']]]),
+    },
+    includeMembersList: true,
+  };
+  const csv = projectOrganisationDirectoryCsv(input);
+  assert.deepEqual(csv.split('\r\n'), [
+    '\ufeffOrganisation,Dept,Code,Office,Single,Number of members',
+    'One,Same,,,Shared,2',
+    'One,Same,Code two,,Shared,0',
+    'One,,,First,Shared,',
+    'One,,,Second,Shared,',
+    'One,,,Third,Shared,',
+    'Empty,,,,,4',
+  ]);
+  assert.doesNotMatch(csv, /SECRET|d1|d2|o1|org/);
+  assert.equal(countOrganisationDirectoryCsvRows(input), 6);
+  assert.throws(() => projectOrganisationDirectoryCsv({ ...input, maxRows: 5 }), /row limit/);
+});
+
+test('one related entry and all-blank record fields still retain their row', () => {
+  const input = {
+    organizations: [{ id: 'org', name: 'One' }],
+    fields: [{ key: 'blank', label: 'Blank', _kind: 'object',
+      _source: { relationship_id: 'r', direction: 'target', object_id: 'obj', cardinality: 'many_to_one' } }],
+    preferences: new Map(),
+    objectValues: new Map([['blank', new Map([['org', [{ recordId: 'record', value: '', label: '' }]]])]]),
+    memberValues: { counts: new Map([['org', 8]]), recordCounts: new Map([['org:obj:record', 0]]) },
+  };
+  assert.equal(projectOrganisationDirectoryCsv(input), '\ufeffOrganisation,Blank,Number of members\r\nOne,,0');
 });

@@ -318,7 +318,7 @@ test('CSV service follows front-card settings and per-directory custom field ord
     system_settings: csvEnabledSettings(),
   }));
   const { csv } = await directory.csv();
-  assert.match(csv, /^\ufeffLogo,Organisation,Member count,First,Later\r\n/);
+  assert.match(csv, /^\ufeffLogo,Organisation,Number of members,First,Later\r\n/);
   assert.match(csv, /https:\/\/cdn\.example\.test\/logo\.svg,Directory Org,0,first,later/);
 });
 
@@ -331,7 +331,7 @@ test('CSV service omits Organisation when the card title is disabled', async () 
     ]),
   }));
   const { csv } = await directory.csv();
-  assert.equal(csv, '\ufeffMember count\r\n0');
+  assert.equal(csv, '\ufeffNumber of members\r\n0');
   assert.equal(csv.includes('Not rendered'), false);
 });
 
@@ -526,7 +526,7 @@ test('member names are role-limited while safe counts include only directory-vis
   assert.equal(allowed.total, 1);
   assert.equal(allowed.organizations[0].member_count, 3);
   const exported = await directory.csv();
-  assert.match(exported.csv, /Alice Allowed; Aaron First/);
+  assert.doesNotMatch(exported.csv, /Alice Allowed|Aaron First|Secret Person|Hidden Person/);
   assert.equal(exported.csv.includes('Secret Person'), false);
   assert.equal(exported.csv.includes('Hidden Person'), false);
   await assert.rejects(() => directory.search(request({
@@ -539,6 +539,180 @@ test('member names are role-limited while safe counts include only directory-vis
     fieldKey: 'org_members_list',
     selected: ['Alice Allowed', 'Another'],
   }), (error) => error.status === 400 && /only one/.test(error.message));
+});
+
+test('CSV related-record counts use distinct direct member edges in either direction', async () => {
+  const object = objectSeed();
+  const reverseMemberRelationshipId = '30000000-0000-4000-8000-000000000002';
+  const forwardMemberRelationshipId = '30000000-0000-4000-8000-000000000003';
+  const records = [
+    {
+      id: 'record-one', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: 'One', value: 'First' },
+    },
+    {
+      id: 'record-two', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: 'Two', value: 'Second' },
+    },
+  ];
+  const memberRelationship = {
+    tenant_id: tenantId,
+    target_custom_object_id: null,
+    cardinality: 'many_to_many',
+    status: 'active',
+    archived_at: null,
+  };
+  const seed = baseSeed({
+    ...object,
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'One' }],
+    custom_object_relationship_definition: [
+      { ...object.custom_object_relationship_definition[0], cardinality: 'many_to_many' },
+      {
+        ...memberRelationship,
+        id: forwardMemberRelationshipId,
+        source_kind: 'custom_object',
+        source_custom_object_id: objectId,
+        target_kind: 'member',
+      },
+      {
+        ...memberRelationship,
+        id: reverseMemberRelationshipId,
+        source_kind: 'member',
+        source_custom_object_id: null,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+      },
+    ],
+    custom_object_record: records,
+    custom_object_relationship: [
+      {
+        tenant_id: tenantId, relationship_definition_id: relationshipId,
+        source_record_id: 'record-one', target_record_id: 'org-1', archived_at: null,
+      },
+      {
+        tenant_id: tenantId, relationship_definition_id: relationshipId,
+        source_record_id: 'record-two', target_record_id: 'org-1', archived_at: null,
+      },
+      // The same member appears through duplicate edges and both direct
+      // relationship directions.  It must count once for record-one.
+      {
+        tenant_id: tenantId, relationship_definition_id: forwardMemberRelationshipId,
+        source_record_id: 'record-one', target_record_id: 'member-one', archived_at: null,
+      },
+      {
+        tenant_id: tenantId, relationship_definition_id: forwardMemberRelationshipId,
+        source_record_id: 'record-one', target_record_id: 'member-one', archived_at: null,
+      },
+      {
+        tenant_id: tenantId, relationship_definition_id: forwardMemberRelationshipId,
+        source_record_id: 'record-one', target_record_id: 'member-two', archived_at: null,
+      },
+      {
+        tenant_id: tenantId, relationship_definition_id: reverseMemberRelationshipId,
+        source_record_id: 'member-two', target_record_id: 'record-one', archived_at: null,
+      },
+      // The only member linked to record-two is hidden by directory policy.
+      {
+        tenant_id: tenantId, relationship_definition_id: forwardMemberRelationshipId,
+        source_record_id: 'record-two', target_record_id: 'member-hidden', archived_at: null,
+      },
+    ],
+    member: [
+      {
+        id: 'member-one', tenant_id: tenantId, organization_id: 'org-1',
+        first_name: 'One', last_name: 'Member', email: 'one@example.test',
+        login_enabled: true, show_in_directory: true,
+      },
+      {
+        id: 'member-two', tenant_id: tenantId, organization_id: 'org-1',
+        first_name: 'Two', last_name: 'Member', email: 'two@example.test',
+        login_enabled: true, show_in_directory: true,
+      },
+      {
+        id: 'member-hidden', tenant_id: tenantId, organization_id: 'org-1',
+        first_name: 'Hidden', last_name: 'Member', email: 'hidden@example.test',
+        login_enabled: true, show_in_directory: false,
+      },
+      {
+        id: 'member-deleted', tenant_id: tenantId, organization_id: 'org-1',
+        first_name: 'Deleted', last_name: 'Member', email: 'deleted_@deleted.local',
+        login_enabled: true, show_in_directory: true,
+      },
+      {
+        id: 'member-foreign', tenant_id: tenantId, organization_id: otherTenantId,
+        first_name: 'Foreign', last_name: 'Member', email: 'foreign@example.test',
+        login_enabled: true, show_in_directory: true,
+      },
+    ],
+    system_settings: csvEnabledSettings(),
+  });
+  const { service: directory } = service(seed);
+  const exported = await directory.csv();
+  assert.equal(exported.total, 1);
+  assert.equal(exported.rowCount, 2);
+  assert.match(exported.csv, /Organisation,Number of members,Department: value \(Departments\)/);
+  assert.match(exported.csv, /One,2,One: First/);
+  assert.match(exported.csv, /One,0,Two: Second/);
+  assert.doesNotMatch(exported.csv, /One Member|Two Member|Hidden Member|Foreign Member/);
+});
+
+test('CSV member count query failures fail closed instead of emitting false zeros', async () => {
+  const seed = baseSeed({
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'One' }],
+    system_settings: csvEnabledSettings(),
+  });
+  const db = database(seed, 'member');
+  const directory = createOrganisationDirectoryFilters({
+    db,
+    context: { tenantId, roleId },
+  });
+  await assert.rejects(
+    () => directory.csv(),
+    /Directory member inventory exceeds the supported size/,
+  );
+});
+
+test('CSV keeps fields from one configured relationship source on shared record rows', async () => {
+  const object = objectSeed();
+  object.custom_object_definition[0].configuration.views.organisation_directory.field_ids = [
+    primaryFieldId,
+    objectFieldId,
+  ];
+  const seed = baseSeed({
+    ...object,
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'Organisation' }],
+    custom_object_relationship_definition: [
+      { ...object.custom_object_relationship_definition[0], cardinality: 'many_to_many' },
+    ],
+    custom_object_record: [
+      {
+        id: 'record-one', tenant_id: tenantId, custom_object_id: objectId,
+        archived_at: null, data: { title: 'One', value: 'First' },
+      },
+      {
+        id: 'record-two', tenant_id: tenantId, custom_object_id: objectId,
+        archived_at: null, data: { title: 'Two', value: 'Second' },
+      },
+    ],
+    custom_object_relationship: [
+      {
+        tenant_id: tenantId, relationship_definition_id: relationshipId,
+        source_record_id: 'record-one', target_record_id: 'org-1', archived_at: null,
+      },
+      {
+        tenant_id: tenantId, relationship_definition_id: relationshipId,
+        source_record_id: 'record-two', target_record_id: 'org-1', archived_at: null,
+      },
+    ],
+    system_settings: csvEnabledSettings(),
+  });
+  const { service: directory } = service(seed);
+  const exported = await directory.csv();
+  assert.equal(exported.total, 1);
+  assert.equal(exported.rowCount, 2);
+  assert.match(exported.csv, /Department: title \(Departments\),Department: value \(Departments\)/);
+  assert.match(exported.csv, /Organisation,,One: One,One: First/);
+  assert.match(exported.csv, /Organisation,,Two: Two,Two: Second/);
 });
 
 test('file sources expose only presence semantics and configured choices reject arbitrary values/keys', async () => {
@@ -867,6 +1041,32 @@ test('authority revocation during paginated reads fails closed for results and o
       fieldKey: 'custom:source-race',
       selected: ['Visible'],
     }),
+    (error) => error.status === 409 && /authority changed/.test(error.message),
+  );
+});
+
+test('CSV revalidation compares the complete visible field inventory', async () => {
+  const initial = customField('initial', 'Initial');
+  const seed = baseSeed({
+    organization: [{ id: 'org-1', tenant_id: tenantId, name: 'One' }],
+    preference_field: [initial],
+    organization_preference_value: [{
+      organization_id: 'org-1', field_id: initial.id, value: 'initial',
+    }],
+    system_settings: csvEnabledSettings(),
+  });
+  let added = false;
+  const db = database(seed, null, {}, ({ table, tables }) => {
+    if (table !== 'organization' || added) return;
+    added = true;
+    tables.preference_field.push(customField('added', 'Added'));
+  });
+  const directory = createOrganisationDirectoryFilters({
+    db,
+    context: { tenantId, roleId },
+  });
+  await assert.rejects(
+    () => directory.csv(),
     (error) => error.status === 409 && /authority changed/.test(error.message),
   );
 });

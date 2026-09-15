@@ -79,21 +79,63 @@ function uniqueHeaders(columns) {
  * intentionally prevents a query/projection failure from becoming a successful
  * but truncated download.
  */
+export function organisationDirectoryCsvSourceKey(field) {
+  const source = field._source;
+  return source ? `${source.relationship_id}:${source.direction}:${source.object_id}` : null;
+}
+
+export function organisationDirectoryCsvSourceExpands(field) {
+  const source = field._source;
+  if (field._kind !== 'object' || !source) return false;
+  const cardinality = source.cardinality || 'many_to_many';
+  return cardinality === 'many_to_many'
+    || (cardinality === 'one_to_many' && source.direction === 'source')
+    || (cardinality === 'many_to_one' && source.direction === 'target');
+}
+
+function organizationRows(organization, fields, objectValues) {
+  const sources = new Map();
+  for (const field of fields) {
+    if (!organisationDirectoryCsvSourceExpands(field)) continue;
+    const sourceKey = organisationDirectoryCsvSourceKey(field);
+    if (!sources.has(sourceKey)) sources.set(sourceKey, new Map());
+    for (const entry of objectValues.get(field.key)?.get(String(organization.id)) || []) {
+      if (!entry.recordId) throw new Error('Directory export record identity is missing');
+      sources.get(sourceKey).set(String(entry.recordId), {
+        sourceKey, recordId: String(entry.recordId), objectId: field._source.object_id,
+      });
+    }
+  }
+  const rows = [...sources.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .flatMap(([, records]) => [...records.values()].sort((a, b) =>
+      a.recordId < b.recordId ? -1 : a.recordId > b.recordId ? 1 : 0));
+  return rows.length ? rows : [null];
+}
+
+export function countOrganisationDirectoryCsvRows({ organizations, fields, objectValues, maxRows = 100000 }) {
+  let count = 0;
+  for (const organization of organizations) {
+    count += organizationRows(organization, fields, objectValues).length;
+    if (count > maxRows) throw new Error('Organisation directory expanded export exceeds the supported row limit');
+  }
+  return count;
+}
+
 export function projectOrganisationDirectoryCsv({
   organizations,
   fields,
   preferences,
   objectValues,
   memberValues,
-  includeMembersList = false,
   includeLogo = false,
   includeOrganisation = true,
+  maxRows = 100000,
 }) {
-  const exportFields = fields.filter((field) => (
-    field._kind !== 'core'
-    || field.key !== 'org_members_list'
-    || includeMembersList
-  ));
+  const exportFields = fields.filter((field) => field.key !== 'org_members_list');
+  if (!exportFields.some((field) => field.key === 'org_member_count')) {
+    exportFields.push({ key: 'org_member_count', label: 'Number of members', _kind: 'core' });
+  }
+  countOrganisationDirectoryCsvRows({ organizations, fields: exportFields, objectValues, maxRows });
   // These are the actual front-card values in visual order (logo then title),
   // followed by the configured back-field order. Domains are searchable
   // directory metadata but are not rendered on this card, so are not exported.
@@ -101,32 +143,43 @@ export function projectOrganisationDirectoryCsv({
     ...(includeLogo ? [{ label: 'Logo', value: (organization) => safeLogoValue(organization.logo_url) }] : []),
     ...(includeOrganisation ? [{ label: 'Organisation', value: (organization) => String(organization.name || '') }] : []),
     ...exportFields.map((field) => ({
-      label: field.label,
-      value: (organization) => {
+      label: field.key === 'org_member_count' ? 'Number of members' : field.label,
+      value: (organization, row) => {
         if (field._kind === 'custom') {
           return formatOrganisationDirectoryCsvValue(
             preferences.get(`${organization.id}:${field._field.id}`) || [], field,
           );
         }
         if (field._kind === 'object') {
-          const entries = objectValues.get(field.key)?.get(String(organization.id)) || [];
+          let entries = objectValues.get(field.key)?.get(String(organization.id)) || [];
+          if (organisationDirectoryCsvSourceExpands(field)) {
+            if (!row || row.sourceKey !== organisationDirectoryCsvSourceKey(field)) return '';
+            entries = entries.filter((entry) => String(entry.recordId) === row.recordId);
+          }
+          const seen = new Set();
           return entries.map((entry) => {
+            if (entry.recordId && seen.has(String(entry.recordId))) return '';
+            if (entry.recordId) seen.add(String(entry.recordId));
             const value = String(entry?.value || '');
             const label = String(entry?.label || '').trim();
             return label && value ? `${label}: ${value}` : value;
           }).filter(Boolean).join('; ');
         }
         if (field.key === 'org_member_count') {
+          if (row) {
+            const count = memberValues.recordCounts?.get(`${organization.id}:${row.objectId}:${row.recordId}`);
+            return count === undefined || count === null ? '' : String(count);
+          }
           return String(memberValues.counts.get(String(organization.id)) || 0);
         }
-        return [...new Set(memberValues.names.get(String(organization.id)) || [])].join('; ');
+        return '';
       },
     })),
   ];
   const headers = uniqueHeaders(columns);
-  const rows = organizations.map((organization) => {
-    return columns.map((column) => column.value(organization));
-  });
+  const rows = organizations.flatMap((organization) =>
+    organizationRows(organization, exportFields, objectValues)
+      .map((row) => columns.map((column) => column.value(organization, row))));
   const text = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR);
   return `${CSV_BOM}${text}`;
 }

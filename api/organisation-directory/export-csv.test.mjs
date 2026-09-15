@@ -48,3 +48,31 @@ test('directory CSV export never starts an attachment when projection fails', as
   assert.equal(res.sent, false);
   assert.deepEqual(res.body, { error: 'Failed to export organisation directory CSV' });
 });
+
+test('export rechecks viewer access, admin bypass, tenant and opt-in before attachment', async () => {
+  for (const changed of ['feature', 'admin', 'tenant', 'setting', 'authenticated', 'role', 'organization']) {
+    let finished = false;
+    const handler = createHandler({
+      db: {},
+      getTenantContext: async () => ({
+        isAuthenticated: !(finished && changed === 'authenticated'),
+        tenantId: finished && changed === 'tenant' ? 'other' : 'tenant',
+        roleId: finished && changed === 'role' ? 'other' : 'role',
+        organizationId: finished && changed === 'organization' ? 'other' : 'org',
+      }),
+      hasFeatureAccess: async () => !(finished && changed === 'feature'),
+      resolveMemberExclusions: async () => [],
+      hasAdminAccess: async () => !(finished && changed === 'admin'),
+      readOrganisationDirectoryCsvSetting: async () => !(finished && changed === 'setting'),
+      createOrganisationDirectoryFilters: () => ({ csv: async () => {
+        finished = true;
+        return { csv: 'must not deliver' };
+      } }),
+    });
+    const res = response();
+    await handler({ method: 'GET', query: {}, headers: {} }, res);
+    assert.equal(res.statusCode, 403, changed);
+    assert.equal(res.sent, false);
+    assert.equal(res.headers['Content-Disposition'], undefined);
+  }
+});

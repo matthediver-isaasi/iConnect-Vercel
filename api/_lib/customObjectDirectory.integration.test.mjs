@@ -241,6 +241,14 @@ test('metadata evaluates opt-in and active tenant-owned object, relationship, an
   assert.equal((await service(crossTenant).directory.metadata()).sources.length, 1);
 });
 
+test('metadata carries organisation-side relationship cardinality for row expansion', async () => {
+  const source = await sourceFor(service(baseSeed({
+    custom_object_relationship_definition: [relationship({ cardinality: 'many_to_one' })],
+  })).directory);
+  assert.equal(source.direction, 'target');
+  assert.equal(source.cardinality, 'many_to_one');
+});
+
 test('metadata uses list-view field order and deterministic labels instead of checkbox or id order', async () => {
   const alphaRelationshipId = '30000000-0000-4000-8000-000000000099';
   const betaRelationshipId = '30000000-0000-4000-8000-000000000001';
