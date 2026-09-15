@@ -341,3 +341,17 @@ mtime_ms = 1789480386864
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/40b6acea-0fff-498e-9261-7000d2c52bcf/d57f8567-fcaf-4bb2-96d1-7d481d935c56"
 storage_version_token = "1789480407377101"
 content_type = "text/html"
+
+[[outputs]]
+id = "1NYnkZpyacDC91XvJJ4Us"
+uri = "file://reports/bnms-final-resources/2026-09-15T15-36-08.721Z/approval-report.xlsx"
+type = "table"
+title = "BNMS resources import review"
+description = "All 530 rows, proposed updates, held rows, duplicate links, and classification checks. No database changes made."
+logical_id = "78ab867e-9451-4165-a455-80a5d6817fb2"
+content_hash = "sha256:e9c57afd96994afda24e39b2fa25e715321de4b39fefb6afd8ba0e12b85f8993"
+size = 548223
+mtime_ms = 1789486568914
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/78ab867e-9451-4165-a455-80a5d6817fb2/d0d45155-2f89-4e99-8b8c-cd7f82ae4269"
+storage_version_token = "1789486608638014"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
