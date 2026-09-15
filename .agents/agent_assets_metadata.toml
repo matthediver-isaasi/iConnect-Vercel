@@ -369,3 +369,17 @@ mtime_ms = 1789488217806
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9141c73a-62b7-4ed1-8100-8343d6f1b06a/e5621811-b710-4c70-b983-76cbbbe4d564"
 storage_version_token = "1789488360868885"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "CaHw6C0cQ1ru2df6Q-ojf"
+uri = "file://reports/bnms-spring-2026-resources/execution/2026-09-15T16-46-42.963Z/execution-report.xlsx"
+type = "table"
+title = "BNMS 2026 import results"
+description = "Actual execution results and row-by-row audit, including the 135 unresolved rows."
+logical_id = "5f19d42f-f211-469a-b58e-3f44f592b706"
+content_hash = "sha256:852f29273b5336b86fc1a614e17e54bb3bf4320b06618195b33b46159ca7d9b0"
+size = 190738
+mtime_ms = 1789490827702
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5f19d42f-f211-469a-b58e-3f44f592b706/8fe02422-1a83-496b-beb3-3cd97c57d5bc"
+storage_version_token = "1789491076924002"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
