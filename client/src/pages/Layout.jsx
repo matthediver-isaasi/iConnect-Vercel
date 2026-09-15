@@ -2559,31 +2559,41 @@ useEffect(() => {
     return <>{children}</>;
   }
 
-  if (!chromeReady) {
-    return <div style={{ visibility: 'hidden' }}>{children}</div>;
-  }
-
   // Render public layout for truly public pages
   if (isPublicPage()) {
     const effectivePageName = getEffectivePageName();
+    // Keep the public layout and the child position stable while DynamicPage
+    // resolves page chrome. Toggling between a hidden div and PublicLayout
+    // remounted the form subtree when chromeReady changed, which could reset
+    // an iframe/return screen even though the route had not changed.
+    const publicVisibility = { visibility: chromeReady ? 'visible' : 'hidden' };
     if (bareLayoutPages.includes(currentPageName)) {
       return (
-        <BarePublicLayout>
-          {children}
-          {inboxUnreadPopupElement}
-        </BarePublicLayout>
+        <div style={publicVisibility}>
+          <BarePublicLayout>
+            {children}
+            {chromeReady ? inboxUnreadPopupElement : null}
+          </BarePublicLayout>
+        </div>
       );
     }
     return (
-      <PublicLayout currentPageName={effectivePageName}>
-        {children}
-        {inboxUnreadPopupElement}
-      </PublicLayout>
+      <div style={publicVisibility}>
+        <PublicLayout currentPageName={effectivePageName}>
+          {children}
+          {chromeReady ? inboxUnreadPopupElement : null}
+        </PublicLayout>
+      </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: portalRootFont }}>
+    <div style={{
+      fontFamily: portalRootFont,
+      // Keep the portal root mounted while auth/chrome settles; visibility
+      // replaces the old wrapper-type swap so form descendants preserve state.
+      visibility: chromeReady ? 'visible' : 'hidden',
+    }}>
       {/* Base font (Poppins) always loaded below; the tenant's installed google
           fonts are loaded dynamically (Task #2549), falling back to the curated
           set when no tenant resolves. */}
@@ -3313,7 +3323,7 @@ useEffect(() => {
         </>
       )}
 
-      {inboxUnreadPopupElement}
+      {chromeReady ? inboxUnreadPopupElement : null}
     </div>
   );
 }

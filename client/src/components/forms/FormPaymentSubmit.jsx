@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
@@ -9,6 +9,7 @@ import {
   getPaymentNavigationContext,
   navigateToPaymentProvider,
   savePaymentSubmissionContext,
+  loadPaymentSubmissionContext,
 } from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
@@ -93,6 +94,16 @@ export default function FormPaymentSubmit({
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const submissionIdRef = useRef(null);
+  const mountedRef = useRef(false);
+  const confirmSequenceRef = useRef(0);
+  const confirmInFlightRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      confirmSequenceRef.current += 1;
+    };
+  }, []);
 
   const fieldCurrency = (field?.payment_currency || 'GBP').toUpperCase();
   const derivedAmount = useMemo(() => derivePaymentAmountClient(field, formValues), [field, formValues]);
@@ -156,6 +167,13 @@ export default function FormPaymentSubmit({
   // a redirect return. This path only confirms the inline (non-redirect)
   // Stripe flow, through the same shared confirm helper.
   const confirmPayment = useCallback(async ({ submissionId, paymentIntentId = null }) => {
+    if (confirmInFlightRef.current) return false;
+    confirmInFlightRef.current = true;
+    const sequence = ++confirmSequenceRef.current;
+    const scope = { pathname: window.location.pathname, search: window.location.search };
+    const isCurrent = () => mountedRef.current
+      && sequence === confirmSequenceRef.current
+      && submissionIdRef.current === submissionId;
     setConfirming(true);
     setPaymentError(null);
     try {
@@ -164,7 +182,21 @@ export default function FormPaymentSubmit({
         paymentIntentId,
         provider: selectedProvider,
       });
+      if (!isCurrent()) return false;
       setPaymentStage(out.status);
+      // Inline Stripe and Drop-in completions need the same refresh receipt
+      // as hosted returns. Persist only the server-confirmed outcome.
+      try {
+        const stored = loadPaymentSubmissionContext(scope);
+        savePaymentSubmissionContext({
+          ...scope,
+          submissionId,
+          provider: out.provider,
+          status: out.status,
+          returnPath: stored?.submissionId === submissionId ? stored.returnPath : null,
+          continuePath: continueHref,
+        });
+      } catch { /* Storage may be unavailable; keep the in-memory result. */ }
       if (out.status !== 'paid') {
         setPaymentCaptured(true);
         setPaymentError(out.error || (
@@ -177,9 +209,10 @@ export default function FormPaymentSubmit({
       onPaid?.(submissionId);
       return true;
     } finally {
-      setConfirming(false);
+      confirmInFlightRef.current = false;
+      if (isCurrent()) setConfirming(false);
     }
-  }, [onPaid, selectedProvider]);
+  }, [onPaid, selectedProvider, continueHref]);
 
   const leaveForProvider = (url, paymentNavigation) => {
     // Stripe Checkout and some hosted mandate pages refuse to render in a
@@ -204,6 +237,7 @@ export default function FormPaymentSubmit({
     // provider return bound to that page and only let hosted flows leave via
     // the top window when the ancestor is readable/same-origin.
     const paymentNavigation = getPaymentNavigationContext();
+    const paymentScope = { pathname: window.location.pathname, search: window.location.search };
     setCreating(true);
     try {
       const res = await fetch('/api/public/form-payment', {
@@ -230,6 +264,17 @@ export default function FormPaymentSubmit({
         throw new Error(json.error || 'Failed to start payment');
       }
       if (json.alreadyPaid) {
+        if (!mountedRef.current) return;
+        try {
+          savePaymentSubmissionContext({
+            ...paymentScope,
+            submissionId: json.submissionId,
+            provider: json.provider || null,
+            status: 'paid',
+            returnPath: paymentNavigation.returnPath,
+            continuePath: continueHref,
+          });
+        } catch { /* Keep the verified result even without storage. */ }
         onPaid?.(json.submissionId);
         return;
       }

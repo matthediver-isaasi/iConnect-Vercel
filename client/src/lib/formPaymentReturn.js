@@ -167,6 +167,7 @@ export function savePaymentSubmissionContext({
   provider = null,
   returnPath = null,
   continuePath = null,
+  status = null,
   terminalStatus = null,
   pathname = typeof window !== 'undefined' ? window.location.pathname : '/',
   search = typeof window !== 'undefined' ? window.location.search : '',
@@ -177,6 +178,7 @@ export function savePaymentSubmissionContext({
   const scope = paymentContextScope(pathname, search);
   const normalizedReturnPath = normalizeRelativePath(returnPath);
   const normalizedContinuePath = sanitizePaymentContinuePath(continuePath);
+  const normalizedStatus = VERIFIED_PAYMENT_STATUSES.has(status) ? status : null;
   const context = {
     submissionId,
     provider: VERIFIED_PAYMENT_PROVIDERS.has(provider) ? provider : null,
@@ -187,7 +189,13 @@ export function savePaymentSubmissionContext({
     // form frame that created this submission; it is not an arbitrary URL.
     ...(normalizedReturnPath ? { returnPath: normalizedReturnPath } : {}),
     ...(continuePath && normalizedContinuePath ? { continuePath: normalizedContinuePath } : {}),
-    ...(terminalStatus === 'paid' ? { terminalStatus: 'paid' } : {}),
+    ...(normalizedStatus ? { status: normalizedStatus } : {}),
+    // A paid status is terminal even when callers only provide `status`.
+    // Keeping the marker explicit makes a refresh safe without trusting the
+    // status field alone.
+    ...(terminalStatus === 'paid' || normalizedStatus === 'paid'
+      ? { terminalStatus: 'paid' }
+      : {}),
   };
   storage.setItem(paymentContextKey(pathname, search), JSON.stringify(context));
   // Preserve the old key for redirects already in flight, but keep it equally
@@ -218,6 +226,7 @@ export function loadPaymentSubmissionContext({
         ? { returnPath: normalizeRelativePath(parsed.returnPath) }
         : {}),
       ...(parsed.continuePath ? { continuePath: sanitizePaymentContinuePath(parsed.continuePath) } : {}),
+      ...(VERIFIED_PAYMENT_STATUSES.has(parsed.status) ? { status: parsed.status } : {}),
       ...(parsed.terminalStatus === 'paid' ? { terminalStatus: 'paid' } : {}),
     };
   } catch {

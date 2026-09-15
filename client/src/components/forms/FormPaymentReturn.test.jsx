@@ -163,6 +163,219 @@ test('a paid confirmation writes the terminal receipt used by refresh', async ()
   container.remove();
 });
 
+test('a matching paid return receipt is synchronous and never re-confirms', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example?form_payment_submission=sub-returned&form_payment_provider=stripe');
+  savePaymentSubmissionContext({
+    submissionId: 'sub-returned',
+    provider: 'stripe',
+    terminalStatus: 'paid',
+    pathname: '/forms/example',
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error('a matching terminal return must not confirm again');
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  assert.equal(calls, 0);
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]')?.textContent,
+    'Payment received',
+    'the scoped receipt must initialize the visible outcome before any confirm can resolve',
+  );
+  assert.equal(window.location.search, '');
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('a resumed authoritative outcome remains visible while its recheck is pending', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'sub-resume-pending',
+    provider: 'gocardless',
+    status: 'pending',
+    pathname: '/forms/example',
+  });
+  let resolveFetch;
+  globalThis.fetch = () => new Promise((resolve) => {
+    resolveFetch = resolve;
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Checking payment status');
+  assert.match(container.textContent, /Direct Debit set-up is being confirmed/i);
+
+  await act(async () => {
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        provider: 'gocardless',
+        status: 'setup_complete',
+        paymentSucceeded: true,
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment setup complete');
+  assert.match(container.textContent, /first collection has not yet been confirmed/i);
+  assert.doesNotMatch(container.textContent, /submission is complete/i);
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('a stale confirmation cannot write a receipt after unmount', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'sub-stale',
+    provider: 'stripe',
+    pathname: '/forms/example',
+  });
+  let resolveFetch;
+  globalThis.fetch = () => new Promise((resolve) => {
+    resolveFetch = resolve;
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => root.unmount());
+  resolveFetch({
+    ok: true,
+    json: async () => ({ status: 'paid', provider: 'stripe' }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const receipt = window.sessionStorage.getItem('form_payment_pending_submission');
+  assert.doesNotMatch(receipt || '', /"terminalStatus":"paid"/);
+  container.remove();
+});
+
+test('accounting_pending polling keeps its authoritative title through each delayed fetch and is bounded', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'sub-accounting-poll',
+    provider: 'stripe',
+    pathname: '/forms/example',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const pollTimers = new Set();
+  const deferredResolvers = [];
+  const calls = [];
+  const accountingResponse = () => ({
+    ok: true,
+    json: async () => ({
+      provider: 'stripe',
+      status: 'accounting_pending',
+      paymentSucceeded: true,
+      pending: true,
+      retryable: true,
+    }),
+  });
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    if (calls.length === 1) return accountingResponse();
+    return new Promise((resolve) => deferredResolvers.push(resolve));
+  };
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if ([1500, 3000, 5000].includes(delay)) {
+      const timer = { callback, delay, args };
+      pollTimers.add(timer);
+      return timer;
+    }
+    return originalSetTimeout(callback, delay, ...args);
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (pollTimers.delete(timer)) return;
+    return originalClearTimeout(timer);
+  };
+
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const title = () => container.querySelector('[data-testid="payment-return-title"]')?.textContent;
+  const responseForPoll = async () => {
+    await act(async () => {
+      deferredResolvers.shift()?.(accountingResponse());
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+    });
+  };
+  const triggerPoll = async () => {
+    const timer = [...pollTimers][0];
+    assert.ok(timer, 'each retryable accounting response should schedule one bounded poll');
+    await act(async () => {
+      timer.callback(...timer.args);
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+    });
+  };
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(HookProbe));
+      await new Promise((resolve) => originalSetTimeout(resolve, 20));
+    });
+    assert.equal(title(), 'Payment received — finishing submission');
+    assert.equal(calls.length, 1);
+    assert.equal(pollTimers.size, 1);
+
+    // The delayed request is genuinely unresolved. Every render during it
+    // must retain the server-authoritative accounting outcome, not flash the
+    // generic "Confirming your payment…" state.
+    await triggerPoll();
+    assert.equal(calls.length, 2);
+    assert.equal(title(), 'Payment received — finishing submission');
+    await responseForPoll();
+    assert.equal(title(), 'Payment received — finishing submission');
+
+    await triggerPoll();
+    assert.equal(calls.length, 3);
+    assert.equal(title(), 'Payment received — finishing submission');
+    await responseForPoll();
+
+    await triggerPoll();
+    assert.equal(calls.length, 4);
+    assert.equal(title(), 'Payment received — finishing submission');
+    await responseForPoll();
+
+    assert.equal(calls.length, 4, 'polling must stop after the three configured retries');
+    assert.equal(pollTimers.size, 0, 'no fourth retry timer may be scheduled');
+    assert.ok(calls.every((body) => body.action === 'confirm'));
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    container.remove();
+  }
+});
+
 test('blocked screen has safe recheck but no return-to-payment affordance', async () => {
   const container = document.createElement('div');
   document.body.appendChild(container);

@@ -45,6 +45,7 @@ import {
 } from "@/lib/formValueConvergence";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 import { getFormMaxWidth } from "../../../shared/formWidth.js";
+import { schedulePaymentReturnScroll } from "@/lib/formPaymentReturnScroll";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -122,6 +123,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
   const [defaultsInitializedFormId, setDefaultsInitializedFormId] = useState(null);
+  const paymentReturnScrollTargetRef = useRef(null);
+  const paymentReturnScrollDoneRef = useRef(false);
 
   // Task #3501: page-level payment return-leg handling. Runs BEFORE any
   // wizard/step state matters — a GoCardless or Stripe 3DS redirect lands
@@ -207,7 +210,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // page_id — when the viewer has a valid session.
       return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
     },
-    enabled: !!formSlug || !!assignmentToken,
+    // Wait for the route's auth probe before loading the public form. This
+    // avoids racing an unauthenticated schema against the member-aware
+    // request, so the first mounted form tree has the correct access shape.
+    enabled: (!!formSlug || !!assignmentToken) && authResolved,
     retry: false
   });
 
@@ -247,6 +253,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // proof for already-started payments, so membership changes cannot strand
   // money after the provider redirect.
   const paymentReturn = useFormPaymentReturn();
+
+  useEffect(() => {
+    if (!paymentReturn.active || paymentReturnScrollDoneRef.current) return;
+    return schedulePaymentReturnScroll(paymentReturnScrollTargetRef.current, {
+      delay: 0,
+      onSettled: () => {
+        paymentReturnScrollDoneRef.current = true;
+      },
+    });
+  }, [paymentReturn.active]);
 
   // Task #3364: anonymous visitor on an auth-required form (or an
   // auth-required survey assignment) — send them through login and back to
@@ -2005,21 +2021,23 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // proof, not to whether the public form can still be loaded now.
   if (paymentReturn.active) {
     return (
-      <FormPaymentReturnScreen
-        status={paymentReturn.status}
-        provider={paymentReturn.provider}
-        error={paymentReturn.error}
-        successMessage={form ? surveySuccessMessage(form) : null}
-        onReturnToForm={paymentReturn.dismiss}
-        onRecheck={paymentReturn.recheck}
-        canRecheck={paymentReturn.canRecheck}
-        continueHref={memberInfo ? '/Dashboard' : '/'}
-        continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
-      />
+      <div ref={paymentReturnScrollTargetRef} data-testid="payment-return-scroll-target">
+        <FormPaymentReturnScreen
+          status={paymentReturn.status}
+          provider={paymentReturn.provider}
+          error={paymentReturn.error}
+          successMessage={form ? surveySuccessMessage(form) : null}
+          onReturnToForm={paymentReturn.dismiss}
+          onRecheck={paymentReturn.recheck}
+          canRecheck={paymentReturn.canRecheck}
+          continueHref={memberInfo ? '/Dashboard' : '/'}
+          continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
+        />
+      </div>
     );
   }
 
-  if (isLoading) {
+  if (!authResolved || isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />

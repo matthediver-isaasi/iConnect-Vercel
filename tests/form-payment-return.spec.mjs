@@ -40,6 +40,35 @@ async function fixtures(page, responses) {
   return { calls, escapedWrites };
 }
 
+test('/FormView: payment return scrolls a below-the-fold standalone status once', async ({ page }) => {
+  // Install layout space before React mounts so the effect measures the actual
+  // return target, rather than the click or the test harness moving the page.
+  await page.addInitScript(() => {
+    const style = document.createElement('style');
+    style.textContent = '#root { padding-top: 1800px !important; }';
+    const install = () => document.head?.appendChild(style);
+    if (document.head) install();
+    else document.addEventListener('DOMContentLoaded', install, { once: true });
+  });
+  const state = await fixtures(page, [
+    { success: true, provider: 'stripe', status: 'paid', paymentSucceeded: true },
+  ]);
+  await page.goto('/FormView?slug=return-fixture&form_payment_submission=return-fixture-submission&form_payment_provider=stripe&payment_intent_client_secret=must-be-removed');
+  await expect(page.getByTestId('payment-return-screen')).toHaveAttribute('data-payment-status', 'paid');
+  await page.waitForTimeout(80);
+  const scrollY = await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="payment-return-scroll-target"]');
+    const rect = target?.getBoundingClientRect();
+    return {
+      scrollY: window.scrollY,
+      targetTop: rect?.top,
+      targetBottom: rect?.bottom,
+    };
+  });
+  expect(scrollY.scrollY).toBeGreaterThan(500);
+  expect(state.escapedWrites).toEqual([]);
+});
+
 for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixture']) {
   const openReturn = async page => {
     const join = surface.includes('?') ? '&' : '?';

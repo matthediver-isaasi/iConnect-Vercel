@@ -37,6 +37,7 @@ import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 import { getFormMaxWidth } from "../../../shared/formWidth.js";
+import { PAYMENT_RETURN_READY_MESSAGE } from "@/lib/formPaymentReturnScroll";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -172,7 +173,10 @@ export default function EmbedFormPage() {
   const { data: loadedForm, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam, !!authMember],
     queryFn: async () => await publicClient.getForm(slug, { authenticated: !!authMember }) || null,
-    enabled: !!slug
+    // Do not race an anonymous schema against the member-aware request while
+    // the iframe's session probe is unresolved. Guests still make the same
+    // single request after the probe settles to 401/null.
+    enabled: !!slug && !authMemberLoading
   });
 
   const {
@@ -1131,6 +1135,32 @@ export default function EmbedFormPage() {
     notifyParentResize();
   }, [form, currentPageIndex, currentStep, submitted, hiddenFieldIds]);
 
+  const paymentReturnHasParams = useMemo(() => (
+    [
+      'form_payment_submission',
+      'form_payment_provider',
+      'form_payment_cancelled',
+      'payment_intent',
+      'redirect_status',
+    ].some((key) => searchParams.has(key))
+  ), [searchParams]);
+
+  useEffect(() => {
+    if (!paymentReturn.active || !paymentReturnHasParams) return;
+    try {
+      // Only a same-origin containing Canvas page may receive this signal.
+      // FormEmbedIframe separately verifies the exact submission/instance
+      // relay before it ever scrolls.
+      if (window.parent === window || window.parent.location.origin !== window.location.origin) return;
+      window.parent.postMessage(
+        { type: PAYMENT_RETURN_READY_MESSAGE },
+        window.location.origin,
+      );
+    } catch {
+      // Cross-origin hosts cannot be inspected or navigated automatically.
+    }
+  }, [paymentReturn.active, paymentReturnHasParams]);
+
   useEffect(() => {
     const resizeObserver = new ResizeObserver(() => {
       notifyParentResize();
@@ -1222,7 +1252,7 @@ export default function EmbedFormPage() {
     );
   }
 
-  if (isLoading) {
+  if (authMemberLoading || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

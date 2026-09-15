@@ -114,6 +114,33 @@ test('submission context is sanitized path/query-scoped, expiring and contains n
   assert.equal(values.size, 0);
 });
 
+test('authoritative setup status is retained in the scoped receipt without becoming paid', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  savePaymentSubmissionContext({
+    submissionId: 'sub-setup',
+    provider: 'stripe_monthly_card',
+    status: 'setup_complete',
+    pathname: '/forms/setup',
+    storage,
+    now: 100,
+  });
+  assert.deepEqual(loadPaymentSubmissionContext({
+    pathname: '/forms/setup',
+    storage,
+    now: 200,
+  }), {
+    submissionId: 'sub-setup',
+    provider: 'stripe_monthly_card',
+    status: 'setup_complete',
+  });
+  assert.doesNotMatch(values.get(SS_KEY), /terminalStatus/);
+});
+
 test('same-origin iframe navigation returns to its containing tenant page, external frames stay confined', () => {
   const ownLocation = { origin: 'https://tenant.example', pathname: '/embed/form/join', search: '?font=Inter' };
   const sameOrigin = {
@@ -443,7 +470,7 @@ test('both form pages mount the page-level return handler before wizard state', 
       : src.indexOf('return leg is scoped to an existing');
     assert.ok(
       returnBranch >= 0
-        && returnBranch < src.indexOf('if (isLoading)')
+        && returnBranch < src.search(/if \((?:!authResolved \|\| |authMemberLoading \|\| )?isLoading\)/)
         && returnBranch < src.indexOf('if (formAccess.restricted)')
         && returnBranch < src.indexOf('if (submitted)'),
       `${page}: payment return screen must render before the submitted branch`,

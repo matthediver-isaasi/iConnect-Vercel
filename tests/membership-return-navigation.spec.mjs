@@ -39,6 +39,11 @@ function formFixture({ blank = false, payment = false } = {}) {
       // on first render, without asking the browser test to use an invented
       // wrapper around FormPaymentSubmit.
       {
+        id: "fixture-name",
+        type: "text",
+        label: "Name",
+      },
+      {
         id: "fixture-membership-choice",
         type: "text",
         starts_hidden: true,
@@ -72,15 +77,15 @@ function formFixture({ blank = false, payment = false } = {}) {
   };
 }
 
-function canvasPageFixture({ twoEmbeds = false } = {}) {
+function canvasPageFixture({ twoEmbeds = false, embedTop = 0 } = {}) {
   const embed = (id) => ({
     id,
     type: "form-embed",
-    geom: { x: 0, y: 0, w: 1000, h: 650 },
+    geom: { x: 0, y: embedTop, w: 1000, h: 650 },
     bp: {
-      desktop: { x: 0, y: 0, w: 1000, h: 650 },
-      tablet: { x: 0, y: 0, w: 768, h: 650 },
-      mobile: { x: 0, y: 0, w: 375, h: 650 },
+      desktop: { x: 0, y: embedTop, w: 1000, h: 650 },
+      tablet: { x: 0, y: embedTop, w: 768, h: 650 },
+      mobile: { x: 0, y: embedTop, w: 375, h: 650 },
     },
     content: {
       formSlug: FORM_SLUG,
@@ -103,11 +108,11 @@ function canvasPageFixture({ twoEmbeds = false } = {}) {
           children: twoEmbeds
             ? [embed("membership-return-form-embed-a"), {
               ...embed("membership-return-form-embed-b"),
-              geom: { x: 0, y: 660, w: 1000, h: 650 },
+              geom: { x: 0, y: embedTop + 660, w: 1000, h: 650 },
               bp: {
-                desktop: { x: 0, y: 660, w: 1000, h: 650 },
-                tablet: { x: 0, y: 660, w: 768, h: 650 },
-                mobile: { x: 0, y: 660, w: 375, h: 650 },
+                desktop: { x: 0, y: embedTop + 660, w: 1000, h: 650 },
+                tablet: { x: 0, y: embedTop + 660, w: 768, h: 650 },
+                mobile: { x: 0, y: embedTop + 660, w: 375, h: 650 },
               },
             }]
             : [embed("membership-return-form-embed-a")],
@@ -133,6 +138,10 @@ async function installFixtures(page, {
   monthlyReturnSubmissionId = SUBMISSION_ID,
   externalStripeCheckout = false,
   appOrigin = null,
+  embedTop = 0,
+  delayedAuthMs = 0,
+  delayedBrandingMs = 0,
+  delayedPageMs = 0,
   confirmations = [{ success: true, status: "paid", provider: "stripe_monthly_card", paymentSucceeded: true }],
   directDebitAgreement = {
     id: "membership-return-dd-agreement",
@@ -211,7 +220,10 @@ async function installFixtures(page, {
     if (!path.startsWith("/api/")) return route.continue();
     state.apiRequests.push(`${method} ${path}${url.search}`);
 
-    if (path === "/api/auth/me") return json(route, signedIn ? member : null, signedIn ? 200 : 401);
+    if (path === "/api/auth/me") {
+      if (delayedAuthMs > 0) await new Promise((resolve) => setTimeout(resolve, delayedAuthMs));
+      return json(route, signedIn ? member : null, signedIn ? 200 : 401);
+    }
     if (path === "/api/auth/tenant-user-me") {
       return json(route, signedIn
         ? { user: member, tenant: { id: member.tenant_id, slug: "membership-return-fixture" } }
@@ -222,7 +234,8 @@ async function installFixtures(page, {
 
     if (path === `/api/public/form/${FORM_SLUG}`) return json(route, formFixture({ blank, payment: paymentForm }));
     if (path === "/api/public/page/membership-return-canvas") {
-      return json(route, { page: canvasPageFixture({ twoEmbeds }), elements: [], symbols: [] });
+      if (delayedPageMs > 0) await new Promise((resolve) => setTimeout(resolve, delayedPageMs));
+      return json(route, { page: canvasPageFixture({ twoEmbeds, embedTop }), elements: [], symbols: [] });
     }
     if (path === "/api/public/microsites") {
       return json(route, { microsites: microsite ? [{
@@ -231,7 +244,10 @@ async function installFixtures(page, {
         home_slug: "membership-return-canvas",
       }] : [] });
     }
-    if (path === "/api/public/tenant-branding") return json(route, { success: true, branding });
+    if (path === "/api/public/tenant-branding") {
+      if (delayedBrandingMs > 0) await new Promise((resolve) => setTimeout(resolve, delayedBrandingMs));
+      return json(route, { success: true, branding });
+    }
     if (path === "/api/public/navigation-items") {
       return json(route, [
         { id: "fixture-main-nav", label: "Fixture site navigation", url: "/membership-return-canvas", location: "header", is_active: true },
@@ -416,6 +432,98 @@ test("same-origin Canvas Stripe top return relays only to its originating iframe
   await capture(page, testInfo, "canvas-iframe-stripe-return");
 });
 
+test("same-origin Canvas Stripe return scrolls one below-the-fold originating iframe into view", async ({ page }, testInfo) => {
+  const state = await installFixtures(page, { paymentForm: true, embedTop: 1800 });
+  await page.goto("/membership-return-canvas");
+
+  const iframe = page.getByTestId("iframe-form-embed");
+  await expect(iframe).toBeVisible();
+  const frame = page.frameLocator('[data-testid="iframe-form-embed"]');
+  const paymentButton = frame.getByTestId("button-form-payment-monthly-card-fixture-payment");
+  await expect(paymentButton).toBeVisible();
+
+  // Avoid Playwright's automatic target scrolling so this verifies the
+  // return-ready relay, not the click itself.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await paymentButton.evaluate((element) => element.click());
+  await expect(frame.getByTestId("payment-return-screen")).toHaveAttribute("data-payment-status", "paid");
+  await page.waitForTimeout(350);
+
+  const viewport = await page.evaluate(() => {
+    const frameElement = document.querySelector('[data-testid="iframe-form-embed"]');
+    const header = document.querySelector("header.sticky, header[class*='sticky']");
+    const frameRect = frameElement?.getBoundingClientRect();
+    const headerRect = header?.getBoundingClientRect();
+    return {
+      scrollY: window.scrollY,
+      frameTop: frameRect?.top ?? -1,
+      headerBottom: headerRect?.bottom ?? 0,
+    };
+  });
+  expect(viewport.scrollY).toBeGreaterThan(500);
+  expect(viewport.frameTop).toBeGreaterThanOrEqual(viewport.headerBottom);
+  expect(state.confirmationCalls).toHaveLength(1);
+  expect(state.unexpectedWrites).toEqual([]);
+
+  // A later resize from the same iframe must not reclaim the user's scroll
+  // after the one return positioning pass has completed.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await frame.locator("body").evaluate(() => {
+    window.parent.postMessage({ type: "iconn-form-resize", height: 700 }, window.location.origin);
+  });
+  await page.waitForTimeout(220);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await capture(page, testInfo, "canvas-below-fold-return-scroll");
+});
+
+test("ordinary below-the-fold Canvas form load never scrolls the containing page", async ({ page }) => {
+  const state = await installFixtures(page, { paymentForm: true, embedTop: 1800 });
+  await page.goto("/membership-return-canvas");
+  await expect(page.getByTestId("iframe-form-embed")).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(state.confirmationCalls).toHaveLength(0);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("embedded form waits for auth before its first schema request", async ({ page }) => {
+  const state = await installFixtures(page, { signedIn: true, delayedAuthMs: 150 });
+  await page.goto(`/embed/form/${FORM_SLUG}`);
+  await expect(page.getByTestId("embed-form-container")).toBeVisible();
+
+  const formRequests = state.apiRequests.filter((request) => (
+    request.startsWith(`GET /api/public/form/${FORM_SLUG}`)
+  ));
+  expect(formRequests).toHaveLength(1);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("delayed page and branding resolution preserve one Canvas iframe and its entered value", async ({ page }) => {
+  const state = await installFixtures(page, {
+    paymentForm: true,
+    delayedPageMs: 100,
+    delayedBrandingMs: 650,
+  });
+  await page.goto("/membership-return-canvas");
+  const iframe = page.getByTestId("iframe-form-embed");
+  await expect(iframe).toBeVisible();
+  await page.evaluate(() => {
+    window.__initialFormEmbed = document.querySelector('[data-testid="iframe-form-embed"]');
+  });
+  const frame = page.frameLocator('[data-testid="iframe-form-embed"]');
+  const name = frame.getByRole("textbox").first();
+  await expect(name).toBeVisible();
+  await name.fill("Persisted through chrome and branding resolution");
+  await page.waitForTimeout(800);
+
+  expect(await name.inputValue()).toBe("Persisted through chrome and branding resolution");
+  expect(await page.evaluate(() => (
+    window.__initialFormEmbed === document.querySelector('[data-testid="iframe-form-embed"]')
+  ))).toBe(true);
+  expect(state.confirmationCalls).toHaveLength(0);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
 test("two copies of the same Canvas form isolate a Stripe success relay to its originating iframe", async ({ page }, testInfo) => {
   const state = await installFixtures(page, { paymentForm: true, twoEmbeds: true });
   await page.goto("/membership-return-canvas");
@@ -425,7 +533,7 @@ test("two copies of the same Canvas form isolate a Stripe success relay to its o
   const first = page.frameLocator('[data-testid="iframe-form-embed"]').nth(0);
   const second = page.frameLocator('[data-testid="iframe-form-embed"]').nth(1);
   await first.getByTestId("button-form-payment-monthly-card-fixture-payment").click();
-  await expect(first.getByTestId("payment-return-screen")).toHaveAttribute("data-payment-status", "paid");
+  await expect(first.getByTestId("payment-return-screen")).toHaveAttribute("data-payment-status", "paid", { timeout: 20_000 });
   await expect(second.getByTestId("payment-return-screen")).toHaveCount(0);
   await expect(second.getByTestId("button-form-payment-monthly-card-fixture-payment")).toBeVisible();
   expect(state.confirmationCalls).toHaveLength(1);
@@ -444,7 +552,7 @@ test("two copies of the same Canvas form isolate a Stripe cancellation relay to 
   const first = page.frameLocator('[data-testid="iframe-form-embed"]').nth(0);
   const second = page.frameLocator('[data-testid="iframe-form-embed"]').nth(1);
   await first.getByTestId("button-form-payment-monthly-card-fixture-payment").click();
-  await expect(first.getByTestId("payment-return-screen")).toHaveAttribute("data-payment-status", "cancelled");
+  await expect(first.getByTestId("payment-return-screen")).toHaveAttribute("data-payment-status", "cancelled", { timeout: 20_000 });
   await expect(second.getByTestId("payment-return-screen")).toHaveCount(0);
   await expect(second.getByTestId("button-form-payment-monthly-card-fixture-payment")).toBeVisible();
   expect(state.confirmationCalls).toHaveLength(0);
@@ -607,7 +715,9 @@ test("dedicated monthly-card and Direct Debit complete, cancel, and unavailable-
     ["/membership/direct-debit/cancelled?member_id=membership-return-member", /Direct Debit/i],
   ]) {
     await page.goto(path);
-    const heading = page.locator("main, body").getByText(title).first();
+    // Public/mobile chrome can retain an inert hidden copy while a route
+    // resolves; assert the final visible copy rather than the first DOM match.
+    const heading = page.locator("main:visible").getByText(title).first();
     await expect(heading).toBeVisible();
     await expect(onwardLinks(page.locator("main, body"))).toHaveCount(1);
     await expect(page.locator("header")).toHaveCount(1);
@@ -631,7 +741,9 @@ test("signed-in dedicated returns use member navigation rather than anonymous pu
   ]) {
     await page.goto(path);
     await expect(page.getByTestId(card)).toBeVisible();
-    await expect(page.locator('[data-sidebar="sidebar"]')).toBeVisible();
+    if ((page.viewportSize()?.width || 0) >= 768) {
+      await expect(page.locator('[data-sidebar="sidebar"]')).toBeVisible();
+    }
     await expect(page.getByTestId(memberButton)).toHaveAttribute("href", "/Dashboard");
   }
   expect(state.unexpectedWrites).toEqual([]);

@@ -129,6 +129,10 @@ import {
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
 import { getEmbeddedPaymentReturnRelay, stripPaymentParams } from '@/lib/formPaymentReturn';
+import {
+  PAYMENT_RETURN_READY_MESSAGE,
+  scrollPaymentReturnTarget,
+} from '@/lib/formPaymentReturnScroll';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import {
   EVENT_REGISTRATION_LAYOUT_CONTRACT,
@@ -5458,7 +5462,7 @@ function ResourceShowcaseInspector({ block, update }) {
 // ============================================================================
 function FormEmbedRender({ block, asEditor, priority }) {
   const c = block.content || {};
-  const { micrositePrefix } = useMicrosite();
+  const { micrositePrefix, micrositesLoaded } = useMicrosite();
   const { data: form, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-form', c.formSlug],
     queryFn: () => publicClient.getForm(c.formSlug),
@@ -5468,6 +5472,19 @@ function FormEmbedRender({ block, asEditor, priority }) {
 
   if (!c.formSlug) {
     return <EmptyState icon={FormInput} text="Pick a form in the inspector." />;
+  }
+  // `payment_embed_continue` is part of the iframe URL and therefore of its
+  // payment-return storage scope. Wait for the microsite list before mounting
+  // the published iframe; otherwise a client-only microsite resolution changes
+  // the URL after first paint and remounts the form, losing entered answers.
+  // Editor previews do not submit or own a return scope, so they can render
+  // immediately.
+  if (!asEditor && !micrositesLoaded) {
+    return (
+      <div className="w-full h-full flex items-center justify-center" aria-busy="true">
+        <Loader2 className="w-5 h-5 animate-spin text-slate-400" aria-hidden="true" />
+      </div>
+    );
   }
   if (isLoading) {
     return (
@@ -5653,6 +5670,9 @@ function FormEmbedRender({ block, asEditor, priority }) {
 function FormEmbedIframe({ href, title }) {
   const iframeRef = useRef(null);
   const [height, setHeight] = useState(null);
+  const paymentReturnScrollTimerRef = useRef(null);
+  const paymentReturnScrollDoneRef = useRef(false);
+  const paymentReturnReadyRef = useRef(false);
   // Provider redirects that began in this same-origin iframe intentionally
   // return to the Canvas page, so its header/footer and microsite context are
   // restored. Relay only a short-lived, submission-bound return to the one
@@ -5693,20 +5713,62 @@ function FormEmbedIframe({ href, title }) {
     );
   }, [relaySearch]);
 
+  useEffect(() => () => {
+    if (paymentReturnScrollTimerRef.current != null) {
+      clearTimeout(paymentReturnScrollTimerRef.current);
+    }
+  }, []);
+
   useEffect(() => {
+    const schedulePaymentReturnScroll = (delay = 160) => {
+      if (!relaySearch || paymentReturnScrollDoneRef.current) return;
+      if (paymentReturnScrollTimerRef.current != null) {
+        clearTimeout(paymentReturnScrollTimerRef.current);
+      }
+      // The status screen reports its own height after it mounts. Deferring
+      // this pass lets that resize reach the Canvas block before measuring the
+      // iframe, while still keeping one bounded scroll per return.
+      paymentReturnScrollTimerRef.current = setTimeout(() => {
+        paymentReturnScrollTimerRef.current = null;
+        if (paymentReturnScrollDoneRef.current || !iframeRef.current) return;
+        scrollPaymentReturnTarget(iframeRef.current);
+        paymentReturnScrollDoneRef.current = true;
+      }, delay);
+    };
+
     const onMessage = (event) => {
       const data = event.data;
-      if (!data || data.type !== 'iconn-form-resize') return;
       const iframe = iframeRef.current;
       // Only react to messages coming from this iframe's own contentWindow.
       if (!iframe || event.source !== iframe.contentWindow) return;
+      // A same-origin iframe can only trigger return scrolling when the
+      // submission/instance-bound relay above was accepted. The origin check
+      // prevents an arbitrary frame from moving the containing page.
+      if (data?.type === PAYMENT_RETURN_READY_MESSAGE) {
+        if (event.origin !== window.location.origin) return;
+        paymentReturnReadyRef.current = true;
+        // Normally the iframe's return-screen resize follows shortly after
+        // this message. Keep a bounded fallback for older/hostile documents
+        // that do not report a resize, while preferring the resize-triggered
+        // pass below when it does arrive later.
+        schedulePaymentReturnScroll(400);
+        return;
+      }
+      if (!data || data.type !== 'iconn-form-resize') return;
       const reported = Number(data.height);
       if (!Number.isFinite(reported) || reported <= 0) return;
       setHeight(Math.ceil(reported));
+      if (paymentReturnReadyRef.current) schedulePaymentReturnScroll();
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (paymentReturnScrollTimerRef.current != null) {
+        clearTimeout(paymentReturnScrollTimerRef.current);
+        paymentReturnScrollTimerRef.current = null;
+      }
+    };
+  }, [relaySearch]);
 
   // Canvas block boxes are absolutely positioned with a geometry-driven
   // fixed height and `overflow:hidden`, so a form taller than the block's
@@ -5733,7 +5795,11 @@ function FormEmbedIframe({ href, title }) {
       ref={iframeRef}
       src={src}
       title={title}
-      loading="lazy"
+      // A returned provider session may target an iframe below the fold; keep
+      // that one instance loadable so it can mount its verified return screen
+      // and report the bounded scroll-ready signal. Ordinary Canvas embeds
+      // retain lazy loading.
+      loading={relaySearch ? "eager" : "lazy"}
       style={{
         width: '100%',
         flex: height == null ? 1 : '0 0 auto',

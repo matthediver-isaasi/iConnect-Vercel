@@ -19,17 +19,139 @@ import {
 
 export const PAYMENT_RETURN_POLL_DELAYS_MS = [1500, 3000, 5000];
 
-function hasInitialPaymentReturn() {
-  if (typeof window === 'undefined') return false;
-  try {
-    const stored = loadPaymentSubmissionContext();
-    const decision = parsePaymentReturn(window.location.search, {
-      storedSubmissionId: stored?.submissionId || null,
-    });
-    return decision.kind !== 'none' || !!(stored && !stored.legacy);
-  } catch {
-    return parsePaymentReturn(window.location.search).kind !== 'none';
+const DEFAULT_PAYMENT_RETURN_STATE = {
+  active: false,
+  status: null,
+  provider: null,
+  error: null,
+  canRecheck: false,
+  continuePath: null,
+};
+
+/**
+ * Read the return receipt before the first render. This is deliberately kept
+ * synchronous: a paid receipt must not briefly render the payment form while
+ * an effect is loading sessionStorage, and must not start a second confirm
+ * when the provider included the same return query again.
+ */
+function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? window : null) {
+  if (!windowObj?.location) {
+    return {
+      state: DEFAULT_PAYMENT_RETURN_STATE,
+      stored: null,
+      decision: { kind: 'none' },
+      isReturn: false,
+      terminalReceipt: false,
+      context: null,
+    };
   }
+
+  let stored = null;
+  try {
+    stored = loadPaymentSubmissionContext();
+  } catch {
+    stored = null;
+  }
+
+  const search = windowObj.location.search || '';
+  const decision = parsePaymentReturn(search, {
+    storedSubmissionId: stored?.submissionId || null,
+  });
+  const isReturn = decision.kind !== 'none';
+  const returnedSubmissionId = new URLSearchParams(search).get('form_payment_submission');
+  // A receipt is usable on an ordinary scoped refresh, or on a return URL
+  // which names exactly the submission that produced it. A different
+  // submission must never inherit another payment's terminal outcome.
+  const receiptMatches = !!stored && !stored.legacy
+    && (!isReturn
+      || returnedSubmissionId === stored.submissionId
+      // Stripe returns from older links may omit our submission parameter;
+      // parsePaymentReturn can safely recover that id from this same scoped
+      // receipt when the return still has a payment intent.
+      || (decision.kind === 'confirm'
+        && !returnedSubmissionId
+        && decision.submissionId === stored.submissionId));
+  const terminalReceipt = receiptMatches && stored.terminalStatus === 'paid';
+  const resumable = !isReturn && !!stored && !stored.legacy;
+  const visibleStatus = receiptMatches
+    && stored.status
+    && (stored.status !== 'paid' || terminalReceipt)
+    ? stored.status
+    : null;
+
+  let state = DEFAULT_PAYMENT_RETURN_STATE;
+  if (terminalReceipt) {
+    state = {
+      active: true,
+      status: 'paid',
+      provider: stored.provider || null,
+      error: null,
+      canRecheck: false,
+      continuePath: stored.continuePath || null,
+    };
+  } else if (decision.kind === 'cancelled') {
+    state = {
+      active: true,
+      status: 'cancelled',
+      provider: stored?.provider || null,
+      error: null,
+      canRecheck: false,
+      continuePath: stored?.continuePath || null,
+    };
+  } else if (decision.kind === 'failed') {
+    state = {
+      active: true,
+      status: 'cancelled',
+      provider: stored?.provider || null,
+      error: 'Payment was not completed. Nothing has been confirmed as charged.',
+      canRecheck: false,
+      continuePath: stored?.continuePath || null,
+    };
+  } else if (decision.kind === 'orphan') {
+    state = {
+      active: true,
+      status: 'pending',
+      provider: null,
+      error: null,
+      canRecheck: false,
+      continuePath: null,
+    };
+  } else if (isReturn || resumable) {
+    state = {
+      active: true,
+      status: visibleStatus || 'confirming',
+      provider: stored?.provider || decision.provider || null,
+      error: null,
+      canRecheck: !!visibleStatus && visibleStatus !== 'paid',
+      continuePath: stored?.continuePath || null,
+    };
+  }
+
+  const shouldConfirm = !terminalReceipt
+    && decision.kind === 'confirm'
+    && !!decision.submissionId;
+  const shouldResume = !terminalReceipt && resumable;
+  const context = shouldConfirm || shouldResume
+    ? {
+      submissionId: shouldResume ? stored.submissionId : decision.submissionId,
+      paymentIntentId: shouldResume ? null : decision.paymentIntentId,
+      provider: (shouldResume ? stored.provider : decision.provider)
+        || stored?.provider
+        || null,
+      attempt: 0,
+      returnPath: stored?.returnPath || null,
+      continuePath: stored?.continuePath || null,
+    }
+    : null;
+
+  return {
+    state,
+    stored,
+    decision,
+    isReturn,
+    terminalReceipt,
+    context,
+  };
 }
 
 /**
@@ -42,59 +164,70 @@ function hasInitialPaymentReturn() {
  *  - dismiss(): return to the form (used from the cancelled/error screens)
  */
 export function useFormPaymentReturn() {
-  const [state, setState] = useState(() => {
-    const detected = hasInitialPaymentReturn();
-    return {
-      active: detected,
-      status: detected ? 'confirming' : null,
-      provider: null,
-      error: null,
-      canRecheck: false,
-      continuePath: null,
-    };
-  });
-  const contextRef = useRef(null);
+  const initial = readInitialPaymentReturn();
+  const [state, setState] = useState(() => initial.state);
+  const stateRef = useRef(initial.state);
+  const contextRef = useRef(initial.context);
   const timerRef = useRef(null);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(null);
+  const requestSequenceRef = useRef(0);
+
+  const updateState = useCallback((next) => {
+    setState((previous) => {
+      const resolved = typeof next === 'function' ? next(previous) : next;
+      stateRef.current = resolved;
+      return resolved;
+    });
+  }, []);
 
   const runConfirm = useCallback(async ({ manual = false } = {}) => {
-    if (inFlightRef.current) return inFlightRef.current;
+    if (inFlightRef.current) return inFlightRef.current.promise;
     const context = contextRef.current;
     if (!context) return;
+    const requestSequence = ++requestSequenceRef.current;
+    const isCurrent = () => mountedRef.current
+      && contextRef.current === context
+      && inFlightRef.current?.sequence === requestSequence;
     const operation = (async () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
-      setState((previous) => ({
+      const previousStatus = stateRef.current.status;
+      // Keep the last server-authoritative outcome visible while a bounded
+      // poll or a refresh resume is in flight. A generic spinner is only
+      // useful before the first outcome exists.
+      const retainVisibleStatus = previousStatus && previousStatus !== 'confirming';
+      updateState((previous) => ({
         ...previous,
         active: true,
-        status: 'confirming',
-        error: null,
+        status: retainVisibleStatus ? previousStatus : 'confirming',
+        error: retainVisibleStatus ? previous.error : null,
         canRecheck: false,
       }));
 
       const out = await confirmFormPayment(context);
-      if (!mountedRef.current) return;
+      if (!isCurrent()) return;
       const provider = out.provider || null;
       const terminal = out.status === 'paid';
+      try {
+        savePaymentSubmissionContext({
+          submissionId: context.submissionId,
+          // Only the server response is allowed to update the persisted
+          // provider/status receipt.
+          provider,
+          returnPath: context.returnPath,
+          continuePath: context.continuePath,
+          status: out.status,
+          terminalStatus: terminal ? 'paid' : null,
+        });
+      } catch { /* ignore */ }
       if (terminal) {
         // Keep a short-lived, path-scoped receipt. Refreshing a verified
         // success must never reveal the payment form or issue another confirm;
         // this record contains only status/navigation metadata, never secrets.
-        try {
-          savePaymentSubmissionContext({
-            submissionId: context.submissionId,
-            // Preserve only the provider echoed by the authoritative confirm
-            // response; the pre-redirect hint remains client-controlled.
-            provider,
-            returnPath: context.returnPath,
-            continuePath: context.continuePath,
-            terminalStatus: 'paid',
-          });
-        } catch { /* ignore */ }
         contextRef.current = null;
       }
-      setState({
+      updateState({
         active: true,
         status: out.status,
         provider,
@@ -108,16 +241,18 @@ export function useFormPaymentReturn() {
       if (shouldPoll && context.attempt < PAYMENT_RETURN_POLL_DELAYS_MS.length) {
         const delay = PAYMENT_RETURN_POLL_DELAYS_MS[context.attempt];
         context.attempt += 1;
-        timerRef.current = setTimeout(() => runConfirm(), delay);
+        timerRef.current = setTimeout(() => {
+          if (mountedRef.current && contextRef.current === context) runConfirm();
+        }, delay);
       }
     })();
-    inFlightRef.current = operation;
+    inFlightRef.current = { promise: operation, sequence: requestSequence };
     try {
       return await operation;
     } finally {
-      if (inFlightRef.current === operation) inFlightRef.current = null;
+      if (inFlightRef.current?.sequence === requestSequence) inFlightRef.current = null;
     }
-  }, []);
+  }, [updateState]);
 
   useEffect(() => {
     // Effects are intentionally restartable: React StrictMode runs setup,
@@ -125,46 +260,67 @@ export function useFormPaymentReturn() {
     // across that probe, while mounted/timer ownership is re-established.
     mountedRef.current = true;
 
-    let stored = null;
-    try { stored = loadPaymentSubmissionContext(); } catch { /* ignore */ }
-    const decision = parsePaymentReturn(window.location.search, {
-      storedSubmissionId: stored?.submissionId || null,
-    });
-    const isReturn = decision.kind !== 'none';
-    if (!isReturn && stored?.terminalStatus === 'paid') {
-      // A terminal receipt restores the status UI without calling confirm
-      // again. It remains bounded by loadPaymentSubmissionContext's scope and
-      // expiry checks.
-      setState({
-        active: true,
-        status: 'paid',
-        provider: stored.provider || null,
-        error: null,
-        canRecheck: false,
-        continuePath: stored.continuePath || null,
-      });
-      return undefined;
-    }
-    const resumable = !isReturn && stored && !stored.legacy;
-    if (!isReturn && !resumable) return undefined;
-
-    // Clean the payment params off the URL immediately — a refresh after
-    // this point is an ordinary page load, never a re-confirm.
-    // Preserve any #hash — Stripe's return_url is built from the full
-    // current URL, so a fragment can legitimately survive the round trip.
-    if (isReturn) {
+    const snapshot = readInitialPaymentReturn();
+    const { stored, decision, isReturn, terminalReceipt } = snapshot;
+    const cleanReturnUrl = () => {
+      if (!isReturn) return;
+      // Clean the payment params off the URL immediately — a refresh after
+      // this point is an ordinary page load, never a re-confirm.
+      // Preserve any #hash — Stripe's return_url is built from the full
+      // current URL, so a fragment can legitimately survive the round trip.
       const cleaned = stripPaymentParams(window.location.search);
       window.history.replaceState({}, '', `${window.location.pathname}${cleaned}${window.location.hash || ''}`);
+    };
+
+    cleanReturnUrl();
+
+    if (terminalReceipt) {
+      // A terminal receipt wins even when the provider repeats the same
+      // return URL. It is scoped and expiring, so no confirm is needed.
+      contextRef.current = null;
+      updateState({
+        active: true,
+        status: 'paid',
+        provider: stored?.provider || null,
+        error: null,
+        canRecheck: false,
+        continuePath: stored?.continuePath || null,
+      });
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
+    }
+
+    const resumable = !isReturn && stored && !stored.legacy;
+    if (!isReturn && !resumable) {
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
 
     if (decision.kind === 'cancelled') {
       try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
-      setState({ active: true, status: 'cancelled', provider: stored?.provider || null, error: null, canRecheck: false, continuePath: stored?.continuePath || null });
-      return undefined;
+      updateState({
+        active: true,
+        status: 'cancelled',
+        provider: stored?.provider || null,
+        error: null,
+        canRecheck: false,
+        continuePath: stored?.continuePath || null,
+      });
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
     if (decision.kind === 'failed') {
       try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
-      setState({
+      updateState({
         active: true,
         status: 'cancelled',
         provider: stored?.provider || null,
@@ -172,13 +328,28 @@ export function useFormPaymentReturn() {
         canRecheck: false,
         continuePath: stored?.continuePath || null,
       });
-      return undefined;
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
     if (decision.kind === 'orphan') {
       // Params present but no submission id recoverable — the background
       // reconciliation still finalizes it; show the safe pending copy.
-      setState({ active: true, status: 'pending', provider: null, error: null, canRecheck: false, continuePath: null });
-      return undefined;
+      updateState({
+        active: true,
+        status: 'pending',
+        provider: null,
+        error: null,
+        canRecheck: false,
+        continuePath: null,
+      });
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
 
     const submissionId = resumable ? stored.submissionId : decision.submissionId;
@@ -196,9 +367,9 @@ export function useFormPaymentReturn() {
       try {
         savePaymentSubmissionContext({
           submissionId: decision.submissionId,
-            provider: decision.provider,
-            returnPath: stored?.returnPath || null,
-            continuePath: stored?.continuePath || null,
+          provider: decision.provider,
+          returnPath: stored?.returnPath || null,
+          continuePath: stored?.continuePath || null,
         });
       } catch { /* ignore */ }
     }
@@ -206,17 +377,17 @@ export function useFormPaymentReturn() {
     return () => {
       mountedRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
     };
-  }, [runConfirm]);
+  }, [runConfirm, updateState]);
 
-  const dismiss = useCallback(() => setState({
-    active: false,
-    status: null,
-    provider: null,
-    error: null,
-    canRecheck: false,
-    continuePath: null,
-  }), []);
+  const dismiss = useCallback(() => {
+    contextRef.current = null;
+    requestSequenceRef.current += 1;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    updateState({ ...DEFAULT_PAYMENT_RETURN_STATE });
+  }, [updateState]);
   const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
   return { ...state, dismiss, recheck };
 }

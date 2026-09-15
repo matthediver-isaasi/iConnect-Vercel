@@ -14,3 +14,15 @@ Validate URL path and query separately. Encoded separators in a pathname can be 
 **Why:** Blanket encoded-slash rejection silently discarded otherwise valid parent return context while the server still accepted the URL, preventing the return relay.
 
 **How to apply:** Enforce same-origin URL construction on the server and serialize the client return context consistently, including normal query values.
+
+Treat payment polling and page/iframe replacement as separate causes of apparent reloads.
+
+**Why:** A status reset before every poll can look like a reload even when the document never remounts. Conversely, changing presentation parameters in an iframe URL resets the document and changes the scoped receipt key.
+
+**How to apply:** Record document mounts and schema requests alongside visible status transitions. Preserve the last verified result during background checks, initialize receipts before paint, and settle URL-defining presentation context before mounting a payment-capable iframe. Receipt metadata controls display only; server confirmation remains the authority for side effects.
+
+Chrome-readiness gates must not replace the parent component type around live form content.
+
+**Why:** Switching a hidden wrapper to the public layout remounts descendants even without a changing React key. Request-local guards cannot preserve an iframe document or entered answers across that replacement.
+
+**How to apply:** Keep the layout subtree mounted and change visibility while chrome resolves; verify document mounts and preserved input, not just network request counts.
