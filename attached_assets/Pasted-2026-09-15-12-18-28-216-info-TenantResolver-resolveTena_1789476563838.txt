@@ -1,0 +1,33 @@
+2026-09-15 12:18:28.216 [info] [TenantResolver] resolveTenantFromRequest called
+2026-09-15 12:18:28.216 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-09-15 12:18:28.216 [info] [TenantResolver] Falling back to host-based resolution, hostname: bnms.dev.iconn.app
+2026-09-15 12:18:28.216 [info] [TenantResolver] resolveTenantFromHost called with: bnms.dev.iconn.app
+2026-09-15 12:18:28.216 [info] [TenantResolver] Cache hit for: bnms.dev.iconn.app
+2026-09-15 12:18:40.622 [error] [formEntityPipelines] Pipeline processing failed for paid submission 969d19c6-c5fa-4909-8661-96eabc4bc766 500 {"error":"Failed to process application"}
+2026-09-15 12:18:42.856 [info] [Xero] Creating new contact...
+2026-09-15 12:18:43.148 [info] [Xero] Created new contact: 609e00b0-080b-48fd-b286-85d206551f66
+2026-09-15 12:18:42.631 [info] [Xero] Finding/creating contact: ssds sdss
+2026-09-15 12:18:43.701 [info] [Xero] Creating membership invoice for ssds sdss, 2026/2027, GBP 61
+2026-09-15 12:18:44.147 [info] [Xero] Membership invoice created: INV-8909 (30db331b-9802-441f-ab0f-93e51ab463a3) - Status: AUTHORISED
+2026-09-15 12:18:44.976 [info] [Xero] Online invoice URL retrieved for INV-8909
+2026-09-15 12:18:47.934 [info] [membershipPaymentReconciliation] Firing workflow for member#9867b405-9e13-48fe-b3c6-a8c4ff97e56f (payment_status unpaid->paid, source=form_membership_action)
+2026-09-15 12:18:47.935 [info] [Workflows] triggerWorkflows called: entityType=member, entityId=9867b405-9e13-48fe-b3c6-a8c4ff97e56f, triggerType=field_change
+2026-09-15 12:18:47.935 [info] [Workflows] afterData.tenant_id=ff2df806-b321-4254-b651-3af11fccf1db, beforeData.tenant_id=ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-15 12:18:47.936 [info] [Workflows] Initial tenantId from data: ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-15 12:18:47.936 [info] [Workflows] Querying workflows: entity_type=member, tenant_id=ff2df806-b321-4254-b651-3af11fccf1db, is_active=true
+2026-09-15 12:18:48.047 [info] [Workflows] Query result: 2 workflows found, error: null
+2026-09-15 12:18:48.047 [info] [Workflows] Evaluating 2 workflows for member:9867b405-9e13-48fe-b3c6-a8c4ff97e56f (tenant: ff2df806-b321-4254-b651-3af11fccf1db)
+2026-09-15 12:18:48.047 [info] [Workflows] Checking workflow "Send full application form": trigger_type="record_create", incoming triggerType="field_change"
+2026-09-15 12:18:48.047 [info] [Workflows] Skipping "Send full application form" - trigger type mismatch (workflow: record_create, event: field_change)
+2026-09-15 12:18:48.047 [info] [Workflows] Checking workflow "Send membership payment": trigger_type="field_change", incoming triggerType="field_change"
+2026-09-15 12:18:48.047 [info] [Workflows] Skipping custom field workflow "Send membership payment" - handled by preference value update
+2026-09-15 12:18:48.278 [warn] [formPaymentFinalize] One-off DD remains unready after incomplete financial finalization 969d19c6-c5fa-4909-8661-96eabc4bc766
+2026-09-15 12:18:49.132 [info] [SubmissionEmails] Processing email: email_1788930830722 template: d0f35ed1-152d-4310-8cb7-79c5c9196311
+2026-09-15 12:18:49.262 [info] [SubmissionEmails] Resolved field reference field_1786369847641 to: sdsdsd@sdsdsdsdsdsd.com
+2026-09-15 12:18:49.404 [info] [SubmissionEmails] Sending email to: sdsdsd@sdsdsdsdsdsd.com subject: British Nuclear Medicine Society - Thank you for registering
+2026-09-15 12:18:49.406 [info] [Email Service] tenantId provided: ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-15 12:18:49.528 [info] [Email Service] Using tenant domain: bnms.iconn.app (tenantId: ff2df806-b321-4254-b651-3af11fccf1db)
+2026-09-15 12:18:49.642 [info] [Email Service] No email footer configured for tenant: ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-15 12:18:49.642 [info] [Email Service] Sending email to: sdsdsd@sdsdsdsdsdsd.com, domain: bnms.iconn.app
+2026-09-15 12:18:49.642 [info] [Email Service] Subject: British Nuclear Medicine Society - Thank you for registering
+2026-09-15 12:18:50.010 [info] [Email Service] Email sent successfully. Message ID: <20260915121849.c9efcd76ef5e8deb@bnms.iconn.app>
