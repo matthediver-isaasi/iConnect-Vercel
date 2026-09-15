@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 import { getContactFieldFulfillment } from "@/lib/signatories";
 import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
+import AddressLookupField from "@/components/forms/AddressLookupField";
+import { formatReviewAddress } from "@/lib/reviewAddressDisplay";
 import {
   FORM_NOT_LISTED_TEXT_KEY,
   containsFormNotListedValue,
@@ -117,6 +119,19 @@ function ScoreGradient({ score, riskLevel, customRiskLevels }) {
   );
 }
 
+function ReviewValueEditor(props) {
+  if (props.field.type === 'address_lookup') {
+    return (
+      <AddressLookupField
+        {...props}
+        manualOnly
+        disabled={props.disabled || props.field.locked === true}
+      />
+    );
+  }
+  return <FormRenderer {...props} />;
+}
+
 function ReviewFieldEditor({ 
   field, 
   fieldKey,
@@ -156,6 +171,7 @@ function ReviewFieldEditor({
   
   // For organisation dropdown fields, look up the display name
   const getDisplayValue = (value, submissionData) => {
+    if (field.type === 'address_lookup') return formatReviewAddress(value);
     if (field.type === 'relationship_dropdown') {
       return formatRelationshipAnswerDisplayValue(
         field,
@@ -211,7 +227,7 @@ function ReviewFieldEditor({
               Due Diligence Only
             </Badge>
           </div>
-          <FormRenderer
+          <ReviewValueEditor
             field={field}
             value={reviewedValue}
             onChange={(value) => onChange(stateKey, value)}
@@ -306,7 +322,7 @@ function ReviewFieldEditor({
       </div>
       
       <div className="grid grid-cols-2 gap-4">
-        <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
+        <div className={cn("p-2 bg-white rounded border text-sm min-h-[40px]", field.type === 'address_lookup' && "whitespace-pre-line")}>
           {displayOriginal || <span className="text-muted-foreground italic">No value</span>}
         </div>
         
@@ -315,9 +331,9 @@ function ReviewFieldEditor({
             <span className="text-slate-500 italic">Cannot be amended</span>
           </div>
         ) : isAmended ? (
-          <FormRenderer
+          <ReviewValueEditor
             field={field}
-            value={reviewedValue}
+            value={field.type === 'address_lookup' && reviewedValue === undefined ? originalValue : reviewedValue}
             onChange={(value) => onChange(stateKey, value)}
             onFormNotListedTextChange={(text) => onFormNotListedTextChange?.(field.id, text)}
             disabled={false}

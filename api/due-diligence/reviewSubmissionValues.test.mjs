@@ -8,6 +8,20 @@ import { effectiveReviewSubmissionValues } from './reviewSubmissionValues.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (file) => readFileSync(path.join(here, file), 'utf8');
 
+test('structured review addresses round-trip without restoring cleared optional components or mutating originals', () => {
+  const form = { fields: [
+    { id: 'address', name: 'Address', type: 'address_lookup' },
+    { id: 'reviewer', type: 'address_lookup', due_diligence: true },
+  ] };
+  const original = { Address: Object.freeze({ line_1: 'Original', county: 'County', postcode: 'SW1A 1AA' }) };
+  const amended = { ...original.Address, line_1: 'Amended', county: '' };
+  const saved = JSON.parse(JSON.stringify({ address: amended, reviewer: { line_1: 'Reviewer', postcode: '' } }));
+  assert.deepEqual(effectiveReviewSubmissionValues(form, original, saved), saved);
+  assert.equal(original.Address.line_1, 'Original');
+  assert.equal(original.Address.county, 'County');
+  assert.deepEqual(effectiveReviewSubmissionValues(form, original, {}).address, original.Address);
+});
+
 test('effective review values use amended field IDs and preserve original ID/name fallbacks', () => {
   const form = {
     fields: [
