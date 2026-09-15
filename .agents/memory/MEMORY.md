@@ -151,3 +151,4 @@
 - [Canvas preview authorization](canvas-preview-authorization.md) — preview intent and absent member sessions cannot authorize cached editor content; verify either login system positively.
 - [Organisation access revocation](organisation-access-revocation.md) — restoration must not revive old sessions; fence concurrent member creation without revoking unrelated organisations.
 - [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility, not name-list roles; viewer organisation is authorization-relevant.
+- [Form derived label lifecycle](form-derived-label-lifecycle.md) — picker unmount is navigation, not revocation; retain scoped labels and validate copies before paid persistence too.

@@ -44,6 +44,7 @@ import { getInternalApiBaseUrl, getTenantTrustedBaseUrl } from '../_lib/publicBa
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { sameFormAnswerValues, validateFutureDateFields } from '../../shared/formFutureDates.js';
+import { validateConditionalDisplayNameCopies } from '../_lib/formConditionalDisplayNameCopy.js';
 
 function idempotencyAnswerValues(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
@@ -546,6 +547,31 @@ export default async function handler(req, res, dependencies = {}) {
         }
         console.error('[Public Form Submission] Organisation group validation failed:', error);
         return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+    }
+
+    if (!existingIdempotentSubmission) {
+      try {
+        await validateConditionalDisplayNameCopies({
+          db: supabase,
+          tenantId: tenantData.id,
+          form: relationshipForm,
+          submissionData: submission_data || {},
+          visibilityOptions: submissionVisibilityOptions,
+          relationshipService: createFormRelationshipService({
+            db: supabase,
+            tenantId: tenantData.id,
+          }),
+        });
+      } catch (error) {
+        if (error instanceof FormRelationshipError && error.status < 500) {
+          return res.status(400).json({
+            error: error.message || 'Display-name copy could not be validated',
+            ...(error.code ? { code: error.code } : {}),
+          });
+        }
+        console.error('[Public Form Submission] Display-name copy validation failed:', error);
+        return res.status(500).json({ error: 'Failed to validate display-name copy' });
       }
     }
 

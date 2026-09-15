@@ -1387,6 +1387,18 @@ test('creates a group then assigns its durable action output to an organisation 
     organization_group_source: { type: 'action_output', action_id: groupAction.id },
     mappings: [{ id: 'org-name-map', source_field_id: 'org-name', target_type: 'core', target_field_id: 'name' }],
   };
+  // Mirrors the production-safe scenario for this feature: the visible text
+  // copied from a group picker is the Group name uniqueness value, never the
+  // picker's UUID. This action is processed through the real persisted-action
+  // pipeline below, not a mocked mapping helper.
+  const groupNameUpsertAction = {
+    id: 'upsert-selected-group-name', source: { scope: 'top_level' },
+    target: { kind: 'organization_group' }, operation: 'upsert', uniqueness_field: 'name',
+    mappings: [{
+      id: 'selected-group-name-map', source_field_id: 'organisation-for-submission',
+      target_type: 'core', target_field_id: 'name', is_match: true,
+    }],
+  };
   const existingGroupOrganizationAction = {
     id: 'create-organization-existing-group', source: { scope: 'top_level' },
     target: { kind: 'organization' }, operation: 'create',
@@ -1400,8 +1412,9 @@ test('creates a group then assigns its durable action output to an organisation 
       { id: 'org-name', type: 'text' },
       { id: 'existing-group', type: 'organisation_group_dropdown' },
       { id: 'existing-org-name', type: 'text' },
+      { id: 'organisation-for-submission', type: 'text' },
     ],
-    structured_actions: { version: 1, actions: [groupAction, organizationAction, existingGroupOrganizationAction] },
+    structured_actions: { version: 1, actions: [groupAction, organizationAction, existingGroupOrganizationAction, groupNameUpsertAction] },
   };
   const submission = {
     id: 'submission-group-chain', form_id: form.id, tenant_id: tenantId,
@@ -1410,6 +1423,7 @@ test('creates a group then assigns its durable action output to an organisation 
       'org-name': 'Example Organisation',
       'existing-group': 'group-existing',
       'existing-org-name': 'Existing Group Organisation',
+      'organisation-for-submission': 'Existing Group',
     },
     processing_notes: [],
   };
@@ -1545,6 +1559,10 @@ test('creates a group then assigns its durable action output to an organisation 
   ]);
   assert.equal(store.organization_group.length, 2);
   assert.equal(store.organization.length, 2);
+  const nameUpsert = first.outcomes.find(outcome => outcome.action_id === groupNameUpsertAction.id);
+  assert.equal(nameUpsert?.record_id, 'group-existing');
+  assert.deepEqual(store.organization_group.map(group => group.name), ['Existing Group', 'Northern Region']);
+  assert.equal(store.organization_group.some(group => group.name === 'group-existing'), false);
   const finalRetry = await processPersistedStructuredActions({
     db, formId: form.id, submissionId: submission.id, tenantId, authorization,
   });

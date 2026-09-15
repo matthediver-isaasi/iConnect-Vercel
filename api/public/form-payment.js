@@ -77,6 +77,7 @@ import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
 import { inspectPriorFormStripeIntent } from '../_lib/formStripeIntentRetry.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { validateConditionalDisplayNameCopies } from '../_lib/formConditionalDisplayNameCopy.js';
 import {
   validateFormOrganisationGroupAnswers,
   validateOrganisationGroupDependentOrganizationAnswers,
@@ -275,7 +276,7 @@ export async function validatePaymentRelationships(
   form,
   values,
   visibilityOptions = null,
-  { skipFutureDateValidation = false } = {},
+  { skipFutureDateValidation = false, relationshipService = null } = {},
 ) {
   try {
     const evalOptions = visibilityOptions || {};
@@ -319,7 +320,7 @@ export async function validatePaymentRelationships(
       visibilityOptions: evalOptions,
       hiddenFieldIds,
     });
-    const service = createFormRelationshipService({
+    const service = relationshipService || createFormRelationshipService({
       db: supabase,
       tenantId: tenantData.id,
     });
@@ -340,12 +341,22 @@ export async function validatePaymentRelationships(
       submissionData: values,
       hiddenFieldIds,
     });
+    await validateConditionalDisplayNameCopies({
+      db: supabase,
+      tenantId: tenantData.id,
+      form,
+      submissionData: values,
+      visibilityOptions: evalOptions,
+      relationshipService: service,
+    });
     return true;
   } catch (error) {
     if (error instanceof FormRelationshipError && error.status < 500) {
       res.status(400).json(error.details
         ? { error: 'Invalid repeatable row submission', code: error.code, details: error.details }
-        : { error: 'Invalid relationship selection' });
+        : (error.code === 'DISPLAY_NAME_COPY_INVALID'
+          ? { error: error.message, code: error.code }
+          : { error: 'Invalid relationship selection' }));
       return false;
     }
     if (error?.code === 'INVALID_ORGANISATION_GROUP') {

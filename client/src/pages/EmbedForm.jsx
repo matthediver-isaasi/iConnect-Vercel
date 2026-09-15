@@ -38,6 +38,10 @@ import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 import { getFormMaxWidth } from "../../../shared/formWidth.js";
 import { PAYMENT_RETURN_READY_MESSAGE } from "@/lib/formPaymentReturnScroll";
+import {
+  activeDisplayNameCopyIssues,
+  resolveDisplayNameCopyValue,
+} from "@/lib/formConditionalCopyMode";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -54,6 +58,7 @@ export default function EmbedFormPage() {
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -106,6 +111,19 @@ export default function EmbedFormPage() {
       }
       if (previous[fieldId] === parentValue) return previous;
       return { ...previous, [fieldId]: parentValue };
+    });
+  }, []);
+  const handleRecordSelectionOptionsChange = useCallback((fieldId, state) => {
+    setRecordSelectionOptionStates(previous => {
+      const next = {
+        status: state?.status || 'unavailable',
+        options: state?.options || [],
+        scope: state?.scope || '',
+      };
+      const current = previous[fieldId];
+      if (current?.status === next.status && current?.scope === next.scope
+        && JSON.stringify(current.options) === JSON.stringify(next.options)) return previous;
+      return { ...previous, [fieldId]: next };
     });
   }, []);
 
@@ -204,6 +222,9 @@ export default function EmbedFormPage() {
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  useEffect(() => {
+    setRecordSelectionOptionStates({});
+  }, [form?.id]);
   useEffect(() => {
     setEmptyRelationshipParentValues({});
   }, [form?.id]);
@@ -564,6 +585,13 @@ export default function EmbedFormPage() {
     if (sourceType === 'static') {
       return action.set_value;
     } else if (sourceType === 'field') {
+      const displayName = resolveDisplayNameCopyValue({
+        action,
+        fields: form?.fields,
+        values: formValues,
+        optionStates: recordSelectionOptionStates,
+      });
+      if (displayName) return displayName.value;
       return formValues[action.set_value_field_id];
     } else if (sourceType === 'formula') {
       const operandAMode = action.formula_operand_a_mode || 'field';
@@ -607,12 +635,26 @@ export default function EmbedFormPage() {
     if (sourceType === 'static') {
       return rule.set_value;
     } else if (sourceType === 'field') {
+      const displayName = resolveDisplayNameCopyValue({
+        action: rule,
+        fields: form?.fields,
+        values: formValues,
+        optionStates: recordSelectionOptionStates,
+      });
+      if (displayName) return displayName.value;
       return formValues[rule.set_value_field_id];
     } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
       return conditionalPrefillValues[`legacy_${rule.id}`];
     }
     return null;
   };
+  const displayNameCopyIssues = useMemo(() => activeDisplayNameCopyIssues({
+    rules: form?.visibility_rules,
+    fields: form?.fields,
+    values: formValues,
+    optionStates: recordSelectionOptionStates,
+    evaluateRule: evaluateRuleConditions,
+  }), [form?.visibility_rules, form?.fields, formValues, recordSelectionOptionStates, emptyRelationshipParentValues]);
 
   // Calculate initial hidden field IDs (fields with starts_hidden = true)
   const initialHiddenFieldIds = useMemo(() => {
@@ -743,7 +785,7 @@ export default function EmbedFormPage() {
                 }
               }
               if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
-                const sourceValue = coerceValueForField(formValues[action.set_value_field_id], action.target_field_id);
+                const sourceValue = coerceValueForField(computeSetValue(action), action.target_field_id);
                 const currentTargetValue = formValues[action.target_field_id];
                 if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
                   updates[action.target_field_id] = sourceValue;
@@ -781,7 +823,7 @@ export default function EmbedFormPage() {
           }
         }
       }
-      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+      else if ((rule.rule_type || rule.action) === 'set_value' && rule.target_field_id) {
         const ruleKey = `legacy_${rule.id}`;
         
         if (conditionMet) {
@@ -803,7 +845,16 @@ export default function EmbedFormPage() {
             }
           }
           else if ((rule.set_value_source || 'static') === 'field' && rule.set_value_field_id) {
-            const sourceValue = coerceValueForField(formValues[rule.set_value_field_id], rule.target_field_id);
+            const displayName = resolveDisplayNameCopyValue({
+              action: rule,
+              fields: form?.fields,
+              values: formValues,
+              optionStates: recordSelectionOptionStates,
+            });
+            const sourceValue = coerceValueForField(
+              displayName ? displayName.value : formValues[rule.set_value_field_id],
+              rule.target_field_id,
+            );
             const currentTargetValue = formValues[rule.target_field_id];
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;
@@ -862,7 +913,7 @@ export default function EmbedFormPage() {
     if (Object.keys(updates).length > 0) {
       setFormValues(prev => ({ ...prev, ...updates }));
     }
-  }, [form?.visibility_rules, form?.prefill_source, formValues, emptyRelationshipParentValues, conditionalPrefillValues]);
+  }, [form?.visibility_rules, form?.prefill_source, formValues, recordSelectionOptionStates, emptyRelationshipParentValues, conditionalPrefillValues]);
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
@@ -1031,6 +1082,10 @@ export default function EmbedFormPage() {
   // Task #3483: all pre-submit validation + payload assembly, shared by the
   // normal submit path and the payment step. Returns the payload or null.
   const buildSubmissionPayload = async () => {
+    if (displayNameCopyIssues.length) {
+      toast.error('A selected record name is still loading or is no longer available. Please wait or choose another record.');
+      return null;
+    }
     if (submitControl.disabled) {
       if (submitControl.message) toast.error(submitControl.message);
       return null;
@@ -1398,6 +1453,7 @@ export default function EmbedFormPage() {
                 onFormNotListedTextChange={(text) => handleFormNotListedTextChange(currentField.id, text)}
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+                onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
                 disabled={false}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
@@ -1545,6 +1601,7 @@ export default function EmbedFormPage() {
                 onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+                onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
                 disabled={false}
                 formId={form?.id}
                 formSlug={form?.slug}

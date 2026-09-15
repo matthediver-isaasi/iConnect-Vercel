@@ -42,6 +42,10 @@ import {
   rowSourceDependencyIds,
 } from "@/lib/formRelationshipDropdown";
 import {
+  isSupportedDisplayNameCopySource,
+  recordSelectionOptionScope,
+} from "@/lib/formConditionalCopyMode";
+import {
   intersectConditionalOptions,
   projectConditionalSourceValues,
   removeInvalidConditionalValue,
@@ -767,7 +771,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [] }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [] }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1058,7 +1062,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     previousOrganizationAnswersSignature.current = organizationAnswersSignature;
     organizationAnswersRevision.current += 1;
   }
-  const { data: organisations = [], isLoading: orgsLoading } = useQuery({
+  const { data: organisations = [], isLoading: orgsLoading, isError: orgsError } = useQuery({
     queryKey: [
       'public-form-organization-options',
       formSlug,
@@ -1097,7 +1101,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     onChange,
   ]);
 
-  const { data: organisationGroups = [], isLoading: organisationGroupsLoading } = useQuery({
+  const { data: organisationGroups = [], isLoading: organisationGroupsLoading, isError: organisationGroupsError } = useQuery({
     queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id, field.repeatable_container_field_id],
     queryFn: () => publicClient.listFormOrganisationGroupOptions(
       formSlug,
@@ -1270,6 +1274,34 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     ),
     [field, organisationGroups, conditionalResolution],
   );
+  // Conditional display-name copying consumes only this respondent-scoped
+  // option material. Reporting pending and failed states is as important as
+  // reporting labels: callers clear any old derived text and block submission
+  // rather than accidentally preserving an ID or an obsolete name.
+  useEffect(() => {
+    if (!onRecordSelectionOptionsChange || !isSupportedDisplayNameCopySource(field)) return;
+    const scope = recordSelectionOptionScope(field, allFields, allFormValues);
+    let status = 'resolved';
+    let options = [];
+    if (field.type === 'organisation_dropdown') {
+      status = orgsLoading ? 'pending' : (orgsError ? 'unavailable' : 'resolved');
+      options = organisationOptions.map(option => ({ id: option.id, label: option.name || option.label }));
+    } else if (field.type === 'organisation_group_dropdown') {
+      status = organisationGroupsLoading ? 'pending' : (organisationGroupsError ? 'unavailable' : 'resolved');
+      options = organisationGroupOptions.map(option => ({ id: option.id, label: option.name || option.label }));
+    } else {
+      const relationshipPending = relationshipOptionsLoading
+        || (!relationshipOptionsLoaded && !!relationshipParentValue);
+      status = relationshipPending ? 'pending' : (relationshipOptionsError ? 'unavailable' : 'resolved');
+      options = relationshipOptions.map(option => ({ id: option.id, label: option.label || option.name }));
+    }
+    onRecordSelectionOptionsChange(field.id, { status, options, scope });
+  }, [
+    field, allFields, allFormValues, onRecordSelectionOptionsChange, orgsLoading, orgsError, organisationOptions,
+    organisationGroupsLoading, organisationGroupsError, organisationGroupOptions,
+    relationshipOptionsLoading, relationshipOptionsLoaded, relationshipOptionsError,
+    relationshipParentValue, relationshipOptions,
+  ]);
   const imageButtonOptions = useMemo(
     () => intersectConditionalOptions(field.image_options || [], conditionalResolution, option => option.value),
     [field.image_options, conditionalResolution],

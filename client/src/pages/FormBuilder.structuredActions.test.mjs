@@ -139,3 +139,10 @@ test('unsaved repeatable row editors keep strict custom-object sources disabled'
     /const validation = validateRowSourceConfiguration\(child, children\);[\s\S]*?Complete its source configuration before saving\./,
   );
 });
+
+test('conditional field copy persists an explicit record display-name mode without migrating legacy rules', () => {
+  assert.match(source, /copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE/);
+  assert.match(source, /<SelectItem value=\{CONDITIONAL_COPY_MODE_DISPLAY_NAME\}>Selected record display name<\/SelectItem>/);
+  assert.match(source, /Object\.hasOwn\(rule, 'copy_mode'\)/);
+  assert.match(source, /displayNameCopyConfigurationError\(action, formData\.fields \|\| \[\]\)/);
+});

@@ -64,6 +64,13 @@ import {
   eligibleRelationshipDiscoveryQueryKey,
 } from "@/lib/formRelationshipDropdown";
 import {
+  CONDITIONAL_COPY_MODE_DISPLAY_NAME,
+  CONDITIONAL_COPY_MODE_STORED_VALUE,
+  displayNameCopyConfigurationError,
+  isSupportedDisplayNameCopySource,
+  isSupportedDisplayNameCopyTarget,
+} from "@/lib/formConditionalCopyMode";
+import {
   relationshipEndpointDescriptor,
   relationshipEndpointLabel,
   structuredEndpointReferenceValue,
@@ -2621,6 +2628,7 @@ function LogicRulesSection({
             set_value_source: rule.set_value_source || 'static',
             set_value: rule.set_value || '',
             set_value_field_id: rule.set_value_field_id || '',
+            ...(Object.hasOwn(rule, 'copy_mode') ? { copy_mode: rule.copy_mode } : {}),
             set_value_prefill_field: rule.set_value_prefill_field || '',
             set_value_prefill_source_field_id: rule.set_value_prefill_source_field_id || ''
           });
@@ -2825,6 +2833,7 @@ function LogicRulesSection({
         action_type: 'set_value',
         target_field_id: '',
         set_value_source: 'static',
+        copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE,
         set_value: '',
         set_value_field_id: '',
         set_value_prefill_field: '',
@@ -3065,6 +3074,10 @@ function LogicRulesSection({
     const targetInfo = getTargetFieldOptions(action.target_field_id);
     const sourceType = action.set_value_source || 'static';
     const availableSourceFields = fields.filter(f => f.id !== action.target_field_id);
+    const selectedSourceField = fields.find(f => f.id === action.set_value_field_id);
+    const selectedTargetField = fields.find(f => f.id === action.target_field_id);
+    const supportsDisplayNameCopy = isSupportedDisplayNameCopySource(selectedSourceField)
+      && isSupportedDisplayNameCopyTarget(selectedTargetField);
     const eligiblePrefillSources = fields.filter(isEligibleFormFieldPrefillSource);
     const selectedPrefillSourceId = action.set_value_prefill_source_field_id
       || prefillSourceFieldId;
@@ -3347,21 +3360,51 @@ function LogicRulesSection({
             </Select>
           </div>
         ) : sourceType === 'field' ? (
-          <Select
-            value={action.set_value_field_id || undefined}
-            onValueChange={(value) => updateAction(ruleId, action.id, { set_value_field_id: value })}
-          >
-            <SelectTrigger className="h-9" data-testid={`select-source-field-${actionIndex}`}>
-              <SelectValue placeholder="Select field to copy value from..." />
-            </SelectTrigger>
-            <SelectContent>
-              {availableSourceFields.map(field => (
-                <SelectItem key={field.id} value={field.id}>
-                  {field.label || field.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-2">
+            <Select
+              value={action.set_value_field_id || undefined}
+              onValueChange={(value) => {
+                const source = fields.find(field => field.id === value);
+                updateAction(ruleId, action.id, {
+                  set_value_field_id: value,
+                  ...(action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME
+                    && (!isSupportedDisplayNameCopySource(source)
+                      || !isSupportedDisplayNameCopyTarget(selectedTargetField))
+                    ? { copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE }
+                    : {}),
+                });
+              }}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-source-field-${actionIndex}`}>
+                <SelectValue placeholder="Select field to copy value from..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSourceFields.map(field => (
+                  <SelectItem key={field.id} value={field.id}>
+                    {field.label || field.type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {supportsDisplayNameCopy ? (
+              <Select
+                value={action.copy_mode || CONDITIONAL_COPY_MODE_STORED_VALUE}
+                onValueChange={(copy_mode) => updateAction(ruleId, action.id, { copy_mode })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-copy-mode-${actionIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={CONDITIONAL_COPY_MODE_STORED_VALUE}>Stored value (ID)</SelectItem>
+                  <SelectItem value={CONDITIONAL_COPY_MODE_DISPLAY_NAME}>Selected record display name</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME ? (
+              <p className="text-xs text-red-600">
+                Display-name copying is only available from a top-level single record selection into text or textarea.
+              </p>
+            ) : null}
+          </div>
         ) : (
           <>
             {targetInfo.options.length > 0 ? (
@@ -4176,6 +4219,10 @@ function LogicRulesSection({
                                         updateAction(rule.id, action.id, {
                                           target_field_id: value,
                                           set_value: '',
+                                          ...(action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME
+                                            && !isSupportedDisplayNameCopyTarget(targetField)
+                                            ? { copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE }
+                                            : {}),
                                           // Instructions targets only support static rich-text content
                                           ...(isInstructionsTarget ? {
                                             set_value_source: 'static',
@@ -11898,6 +11945,16 @@ export default function FormBuilderPage() {
         }
         if (!mappingsForAction.some(mapping => mapping.target_field_id === action.uniqueness_field)) {
           toast.error(`${actionName} must map its selected uniqueness field.`);
+          return;
+        }
+      }
+    }
+
+    for (const rule of formData.visibility_rules || []) {
+      for (const action of Array.isArray(rule.actions) ? rule.actions : []) {
+        const copyModeError = displayNameCopyConfigurationError(action, formData.fields || []);
+        if (copyModeError) {
+          toast.error(copyModeError);
           return;
         }
       }
