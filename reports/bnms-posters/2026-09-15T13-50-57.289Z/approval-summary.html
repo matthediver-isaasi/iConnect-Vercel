@@ -1,0 +1,118 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>BNMS posters approval proposal</title><style>body{max-width:1000px;margin:40px auto;padding:24px;font:16px/1.6 system-ui;color:#182334;background:#fafbfc}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}</style><h1>BNMS posters — approval required</h1><pre># BNMS posters: approval required
+
+Final approval package: `2026-09-15T13-50-57.289Z/`.
+
+| Proposed action | Workbook rows |
+| --- | ---: |
+| Insert | 0 |
+| Update | 920 |
+| Unchanged | 0 |
+| Blocked | 1 |
+
+All 921 literal resource URLs uniquely match existing BNMS records. The
+comparison covered all 2,859 destination resources and six taxonomy definitions,
+using two identical, ordered, count-checked reads. No database writes occurred.
+
+## Approvals needed
+
+1. Make the 920 non-blocked resources member-only and add the workbook
+   classifications. The blocked record also currently has public access, but
+   must be resolved separately. Preserve existing tags and classifications.
+2. Approve 191 exact title replacements. These include removal of existing
+   season/year prefixes and restoration of workbook formatting. The workbook
+   lists every before/proposed value; do not approve title changes implicitly.
+3. Confirm the January 1 year-only date convention. Existing dates already
+   agree, so no date changes are proposed. No description changes are proposed.
+4. Preserve existing External Link display types. Download is an optional,
+   separate display-type decision, not part of the 920 updates. Posters remains
+   the taxonomy classification.
+5. Confirm Page URL and Menu Item remain audit-only context. Folder links must
+   not become resource links. No menus, folders, tags or taxonomy definitions
+   will be created.
+6. Resolve source row **567**: both workbook and destination URL begin with a
+   stray backtick before `https://`. Confirm the intended URL before approving
+   any correction; no corrected URL has been substituted or fetched.
+
+There are no ambiguous database matches, hyperlink identity conflicts or
+unknown selected taxonomy values. Fifteen rows have same-title coincidences
+with other records; those records were not used for matching. Management and
+Management &amp; Workforce are distinct verified Focus Area values. Working in NM
+topic markers map to Focus Area, not Collection or Subject.
+
+## Files
+
+- `approval.xlsx`: row-level review with source content, hyperlinks, changes,
+  before/proposed values, match candidates, decisions and taxonomy.
+- `approval-summary.md`: detailed approval summary, checksums and read coverage.
+- `audit.json`: complete machine-readable row proposal.
+- `snapshot.json`: destination comparison fields and taxonomy for offline replay.
+
+The before/proposed objects contain the selected comparison fields, not a
+full-row replacement payload. Any future executor must use explicitly approved
+field patches and recheck current destination state; fields not selected for
+this comparison must remain untouched. No apply mode exists in this work.
+
+Validation: 14 focused tests passed. The generator also verifies offline
+reproducibility and checks that every changed proposed field is disclosed.
+The approval package was regenerated after that check was added.
+
+# BNMS posters — approval proposal
+
+**READ ONLY. Execution remains pending explicit approval. No database or taxonomy writes.**
+
+Tenant: BNMS (British Nuclear Medicine Society), ff2df806-b321-4254-b651-3af11fccf1db. DEST project: lvmzliemqnieeoruhkik.
+Read window: 2026-09-15T13:50:42.902Z to 2026-09-15T13:50:57.289Z.
+
+## Counts
+- sourceRows: 921
+- distinctLiteralUrls: 921
+- distinctTitles: 913
+- existingResources: 2859
+- exactMatches: 921
+- driveIdentityMatches: 0
+- ambiguousMatches: 0
+- unmatchedRows: 0
+- insert: 0
+- update: 920
+- unchanged: 0
+- blocked: 1
+- accessChanges: 921
+- nonBlockedAccessChanges: 920
+- titleChanges: 191
+- taxonomyIssues: 0
+- titleOnlyCoincidenceRows: 15
+- preservedNonDownloadTypes: 921
+- hyperlinkConflicts: 0
+- databaseWrites: 0
+
+Counts are row-level against current DEST, not estimates. Blocked rows are excluded from insert/update/unchanged totals. Even non-blocked updates require approval.
+
+## Decisions for approval
+- All proposals use is_public=false. Existing allowed_role_ids, tags, status and other non-mapped settings remain unchanged. Public-to-member-only changes require approval; none has been applied.
+- Resource URL, Title and Brief Description are retained literally, including whitespace and empty descriptions. Review metadata differences in the workbook before approving replacements.
+- Dates are calendar years 2016–2025, not Excel serial dates. Approve the established January 1 year-only convention; this does not assert a known event date.
+- New resources would use display type Download (download), status active and the original Drive URL. Posters is a separate Resource Type taxonomy classification. Existing display types are preserved; conversion to Download is NOT included.
+- Classifications are additive: Events under Collection; Posters under Resource Type; trimmed case-insensitive X topic markers under Focus Area. Management remains Management; Management and Workforce maps to the verified Management &amp; Workforce. Working in NM markers map to Focus Area, NOT Collection or Subject. Existing tags/classifications are never removed.
+- Page URL contains folder links and is retained separately in the audit, never used as the resource target or identity. Menu Item is source grouping context only. Approve retaining both as audit-only, with no automatic tags, folders, menus or classifications created.
+- Lists and Categories Event Photos &amp; News are reference sheets only; no records are proposed from them.
+- Exact Resource URL matches are preferred; conservative Drive file identity is fallback. Any additional identity candidate blocks the row even if one exact URL exists. Titles never select a record to update. Resolve blocked links or duplicate candidates explicitly; no duplicate deletion is proposed.
+- Taxonomy names exist in multiple category groups; the app stores flat subcategory names. Proposed names are verified against the intended group, but existing category access rules are not changed. Snapshot includes those restrictions for review.
+
+## Changed fields on uniquely matched rows
+- title: 191 rows
+- is_public: 921 rows
+- subcategories: 921 rows
+
+## Blocked issues and source rows
+- invalid_resource_file_url: 567
+
+## Provenance and coverage
+- Source: attached_assets/Resources_-_categorising-tagging_POSTERS_FINALISED_1789479638626.xlsx
+- Workbook SHA-256: 853c7e8b5202fe3ce0f8175aa97bf89f0d054e5fa7502dfcf18852767a0dc972
+- Destination snapshot SHA-256: 9238990670e1e779539d6d4bc7f77408ae76abae3b0b74481b10a803550ef80d
+- Resource pages: 500, 500, 500, 500, 500, 359; exact total 2859.
+- Category pages: 6; exact total 6.
+- Two ordered, count-checked full reads were identical. This is not a transactional backup; any approved execution must refresh and compare the before-values again.
+
+approval.xlsx contains source rows, before/proposed values, differences, decisions and taxonomy. audit.json is the complete machine-readable row audit; snapshot.json is the replay input. Reproduce with node scripts/prepare-bnms-posters-import.mjs. Test with node --test scripts/bnms-posters-proposal.test.mjs.
+</pre></html>

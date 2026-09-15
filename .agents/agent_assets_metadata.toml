@@ -313,3 +313,31 @@ mtime_ms = 1789479591678
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/62d14fd7-80dc-4666-b37f-9f0bbf6d17f1/451e9341-02ce-4e21-aaf8-debd01c8027a"
 storage_version_token = "1789479599277549"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Ragm6fQa3dze9s4c6XSQ9"
+uri = "file://reports/bnms-posters/2026-09-15T13-50-57.289Z/approval.xlsx"
+type = "table"
+title = "BNMS posters — row-level approval workbook"
+description = "921 source rows, exact matches, before/proposed values, taxonomy and decisions. No changes applied."
+logical_id = "76b180d5-f159-470b-9137-608105ad8618"
+content_hash = "sha256:c908d904c50df0da44dd2453fab345c6ef1a862426e8bbd4f8fae230f2859821"
+size = 5728534
+mtime_ms = 1789480386875
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/76b180d5-f159-470b-9137-608105ad8618/e177181a-93f6-4511-8ce3-128f1570f153"
+storage_version_token = "1789480406486564"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "DEM_QJ0iHVJvP6_3O2bjF"
+uri = "file://reports/bnms-posters/2026-09-15T13-50-57.289Z/approval-summary.html"
+type = "text"
+title = "BNMS posters — approval summary"
+description = "0 inserts, 920 proposed updates, 1 blocked row. Includes approval decisions, checksums and destination coverage."
+logical_id = "40b6acea-0fff-498e-9261-7000d2c52bcf"
+content_hash = "sha256:f181b9e60e625816f32a8e1e2ecb48b3b79f83c72f3989669b928cf0eae880d5"
+size = 7372
+mtime_ms = 1789480386864
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/40b6acea-0fff-498e-9261-7000d2c52bcf/d57f8567-fcaf-4bb2-96d1-7d481d935c56"
+storage_version_token = "1789480407377101"
+content_type = "text/html"
