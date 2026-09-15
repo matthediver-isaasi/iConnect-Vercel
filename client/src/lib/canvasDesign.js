@@ -1407,7 +1407,7 @@ export const BLOCK_DEFAULTS = {
       ctaLabel: 'See all speakers',
       ctaMode: 'popup',
       ctaHref: '',
-      speakersPerView: 1,
+      speakersPerView: 1, // Scalar default; also accepts desktop/tablet/mobile overrides.
       showJobTitle: true,
       showOrganization: true,
       autoplay: true,

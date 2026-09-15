@@ -2144,6 +2144,7 @@ function CarouselStage({ transition, durationMs, direction, slideKey, children }
 
 function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
+  const effBreakpoint = useCarouselBreakpoint(breakpoint);
   const { hasEvent, speakers, isLoading, isError } = useEventSpeakers(c.eventId);
 
   const [index, setIndex] = useState(0);
@@ -2155,7 +2156,7 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const touchStartRef = useRef(null);
 
   const count = speakers.length;
-  const perView = Math.max(1, Number(c.speakersPerView) || 1);
+  const perView = Math.max(1, Math.floor(resolveResponsiveValue(c.speakersPerView, effBreakpoint) ?? 1));
   const pageCount = Math.max(1, Math.ceil(count / perView));
   const hasMany = pageCount > 1;
   const transitionStyle = c.transition || 'slide';
@@ -2461,13 +2462,15 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
         onChange={(v) => set({ eventId: v })}
         testId="select-speaker-carousel-event"
       />
-      <NumberField
+      <ResponsiveNumberField
         label="Speakers per view"
         min={1}
-        value={c.speakersPerView || 1}
-        onChange={(v) => set({ speakersPerView: Math.max(1, Math.floor(Number(v) || 1)) })}
+        step={1}
+        value={c.speakersPerView ?? 1}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ speakersPerView: v })}
         testId="input-speaker-carousel-per-view"
-        hint="How many speaker cards to show side-by-side in one slide."
+        hint="How many speaker cards to show side-by-side in one slide. Set separate values on tablet and mobile."
       />
       <TextField
         label="CTA label"
