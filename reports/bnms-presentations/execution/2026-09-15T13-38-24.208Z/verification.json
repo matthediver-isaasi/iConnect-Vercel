@@ -1,0 +1,46 @@
+{
+  "status": "applied",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "inserted": 1354,
+  "updated": 4,
+  "skipped": 87,
+  "databaseWrites": 1358,
+  "replayWrites": 0,
+  "initialResourceCount": 1505,
+  "finalResourceCount": 2859,
+  "allExpectedFieldsVerified": true,
+  "allMemberOnlyAccessPreserved": true,
+  "existingTagsAndClassificationsPreserved": true,
+  "taxonomyUnchanged": true,
+  "coverage": {
+    "resources": [
+      500,
+      500,
+      500,
+      500,
+      500,
+      359
+    ],
+    "categories": [
+      6
+    ]
+  },
+  "replaySummary": {
+    "sourceRows": 1445,
+    "distinctLiteralUrls": 1441,
+    "destinationResources": 2859,
+    "inserts": 0,
+    "updates": 0,
+    "unchanged": 1358,
+    "blocked": 87,
+    "exactMatchRows": 1354,
+    "identityMatchRows": 4,
+    "unmatchedRows": 87,
+    "coreChangeRows": 0,
+    "accessChangeRows": 0,
+    "yearOnlyRows": 1445,
+    "databaseWrites": 0
+  },
+  "proposalChecksum": "ff16e5604fe73e001df933cea278f1f05d1da92c4ffd4558b9edb4a73368336f",
+  "inputChecksum": "0e522c5e96581bce9b23dc35841638724266a98c5060d79c19ac66153dbbb998"
+}

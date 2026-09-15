@@ -1,0 +1,17 @@
+{
+  "algorithm": "SHA-256 exact file bytes",
+  "files": {
+    "plan.json": "6fad4cb222a93e960b3d911f6166af5fb96b08b8f4a719e9c54ca555b365234a",
+    "before.json": "f0acd2cc262f6d55cfe926f7e7259aeedfceebd89b68d4d395e22d173257106d",
+    "transaction-result.json": "d5f7c950982954d91ae65d48b063e828b54af54c0785f07873818f597d6d1de0",
+    "after.json": "96526da37055751b1ca1a201d0681e4052dba641dc0deae35e9721c70bfcab46",
+    "verification.json": "582b4fcb639640d20ba7cd8baedb5bd47ca200989f376bd8ff36ff3bd1f3d31b",
+    "journal.jsonl": "1c5765db5c4dc001b0d1701530af61181bf2369a6365bc88006e738fc0f8c1d0",
+    "execution-report.xlsx": "b710192b231ab317b25fe0f6ff752d14ac142ee39cab6aad44e1e8bc088c67ae"
+  },
+  "generators": {
+    "scripts/apply-bnms-presentations.mjs": "be525b63375cbec11a5dda26249cac1faef2b270026041b981dd5a69f0ac169d",
+    "scripts/bnms-presentations-live.mjs": "fde60584b993b6c0695efa3d6bbdac16c14c66ed51b556babf052899004e6bc6",
+    "scripts/bnms-youtube-categorisation-io.mjs": "ec63e865d34e97346189fbb1c786c0634e849d56cb60f2f2ea1b2f1f96295957"
+  }
+}

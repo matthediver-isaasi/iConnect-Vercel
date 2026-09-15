@@ -257,3 +257,59 @@ mtime_ms = 1789476158717
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/82bfd6c2-683f-42de-bc20-3a7411dda8d4/c1df9365-527c-425f-8d8d-d52154f99223"
 storage_version_token = "1789476170624623"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "yBXlCy9y0JoThsIa8r8Qt"
+uri = "file://reports/bnms-presentations/2026-09-15T13-27-11.746Z/approval-report.xlsx"
+type = "table"
+title = "BNMS presentations — approval workbook"
+description = "All 1,445 rows, proposed actions, blocked rows, mapping guide, and before/proposed values. No live changes applied."
+logical_id = "dd1e35aa-9ee2-4a80-802c-87fd22b8f315"
+content_hash = "sha256:f6d8ffeb4da987f075a48de2b5482365eed338e31278baa6ff82d945c4f1c14c"
+size = 1941186
+mtime_ms = 1789478832186
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dd1e35aa-9ee2-4a80-802c-87fd22b8f315/64303b8f-d032-41b2-99a9-8024ee50389d"
+storage_version_token = "1789478881556596"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "jBjoB76pSaUoUh1uwcEPQ"
+uri = "file://reports/bnms-presentations/approval-audit.zip"
+type = "unspecified"
+title = "BNMS presentations — reproducible audit"
+description = "Full JSON proposal and destination snapshot, approval summary, checksums, and verification results."
+logical_id = "e1a16367-10bb-459a-b211-86d818c4a2ca"
+content_hash = "sha256:5b0d273ec132a9209ccec17b929332bb2a7c78f5326698c467939d10e931b3e7"
+size = 590398
+mtime_ms = 1789478870474
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e1a16367-10bb-459a-b211-86d818c4a2ca/ab87645d-ce0f-4379-abb9-49de0b137ea5"
+storage_version_token = "1789478882437206"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "YoXi5Oeih7sStkyKM0BjT"
+uri = "file://reports/bnms-presentations/execution/2026-09-15T13-38-24.208Z/execution-report.xlsx"
+type = "table"
+title = "Download BNMS presentations import report"
+description = "XLSX report: 1,354 resources added, 4 updated, 87 unresolved rows skipped; live import verified."
+logical_id = "157d7346-fa49-453d-a960-4e4a123977b3"
+content_hash = "sha256:b710192b231ab317b25fe0f6ff752d14ac142ee39cab6aad44e1e8bc088c67ae"
+size = 390828
+mtime_ms = 1789479561718
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/157d7346-fa49-453d-a960-4e4a123977b3/c20e65ac-ea30-4790-bf3b-44851d70cc8b"
+storage_version_token = "1789479809920964"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "ShoglGWTvdxGofztGnjdM"
+uri = "file://reports/bnms-presentations/execution-audit.zip"
+type = "unspecified"
+title = "BNMS presentations — execution audit"
+description = "Saved plan, before/after snapshots, transaction journal, checksums and zero-write replay verification."
+logical_id = "62d14fd7-80dc-4666-b37f-9f0bbf6d17f1"
+content_hash = "sha256:008222158279ad0e592744a16728772b3f113f47828164b7fea696fd73e5d306"
+size = 2165491
+mtime_ms = 1789479591678
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/62d14fd7-80dc-4666-b37f-9f0bbf6d17f1/451e9341-02ce-4e21-aaf8-debd01c8027a"
+storage_version_token = "1789479599277549"
+content_type = "application/octet-stream"
