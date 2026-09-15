@@ -86,6 +86,7 @@ export function useMemberAccess() {
     organizationInfo,
     memberRole,
     authResolved,
+    sessionValidated,
     isAdmin,
     isFeatureExcluded,
     isRoleLoading,

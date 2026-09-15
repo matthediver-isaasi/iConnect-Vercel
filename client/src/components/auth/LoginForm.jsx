@@ -8,6 +8,7 @@ import { Mail, Loader2, CheckCircle2, AlertCircle, Lock, Eye, EyeOff, ArrowLeft 
 import { SiGoogle } from "react-icons/si";
 import { createPageUrl } from "@/utils";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
+import { getValidatedReturnTo } from "@/lib/memberOnlyHtml";
 
 /**
  * Self-contained login/set-password/forgot-password form.
@@ -32,10 +33,27 @@ export default function LoginForm({ className }) {
   const [memberPortalLoginEnabled, setMemberPortalLoginEnabled] = useState(true);
   const [resetToken, setResetToken] = useState("");
 
+  // Capture navigation context once. Some flows replace the URL while
+  // switching modes (OAuth errors and first-login password setup); reading
+  // window.location on every render would otherwise discard a valid returnTo
+  // before the eventual successful login.
+  const [navigationContext] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rawReturnTo = params.get('returnTo');
+    // `rawReturnTo` is already the complete path/query/hash decoded from the
+    // login URL. Supplying empty search/hash is important: otherwise
+    // getValidatedReturnTo would fall back to the login page's own
+    // `?returnTo=...` query and append it to the target fragment.
+    return {
+      returnTo: rawReturnTo
+        ? getValidatedReturnTo({ pathname: rawReturnTo, search: '', hash: '' })
+        : null,
+      resourceId: params.get('resourceId'),
+      groupId: params.get('groupId'),
+    };
+  });
+  const { returnTo, resourceId, groupId } = navigationContext;
   const urlParams = new URLSearchParams(window.location.search);
-  const returnTo = urlParams.get('returnTo');
-  const resourceId = urlParams.get('resourceId');
-  const groupId = urlParams.get('groupId');
   const oauthError = urlParams.get('error');
   const urlMode = urlParams.get('mode');
   const urlToken = urlParams.get('token');
@@ -110,10 +128,17 @@ export default function LoginForm({ className }) {
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     localStorage.setItem('agcas_member', JSON.stringify({ ...member, sessionExpiry }));
     if (returnTo) {
+      const appendContextParam = (target, key, value) => {
+        const hashIndex = target.indexOf('#');
+        const beforeHash = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
+        const hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
+        const separator = beforeHash.includes('?') ? '&' : '?';
+        return `${beforeHash}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${hash}`;
+      };
       if (resourceId) {
-        window.location.href = `${returnTo}?resourceId=${resourceId}`;
+        window.location.href = appendContextParam(returnTo, 'resourceId', resourceId);
       } else if (groupId) {
-        window.location.href = `${returnTo}?id=${groupId}`;
+        window.location.href = appendContextParam(returnTo, 'id', groupId);
       } else {
         window.location.href = returnTo;
       }

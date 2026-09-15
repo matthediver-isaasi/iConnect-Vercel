@@ -1,4 +1,5 @@
 import { useLayoutEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
@@ -8,8 +9,21 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import Events from "./Events";
 
 export default function HomePageRedirect() {
-  const { memberInfo } = useMemberAccess();
+  const location = useLocation();
+  const { memberInfo, authResolved, sessionValidated } = useMemberAccess();
   const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
+  const isCanvasPreview = (() => {
+    try {
+      return new URLSearchParams(location.search).has('_canvasPreview');
+    } catch {
+      return false;
+    }
+  })();
+  const pageAudience = isCanvasPreview
+    ? 'editor'
+    : (authResolved
+      ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
+      : 'checking');
   const { data: homePageSlug, isLoading: settingsLoading } = useQuery({
     queryKey: ['home-page-setting'],
     queryFn: async () => {
@@ -22,16 +36,17 @@ export default function HomePageRedirect() {
   });
 
   const { data: pageData, isLoading: pageLoading } = useQuery({
-    queryKey: ['public-home-page', homePageSlug],
+    queryKey: ['public-home-page', homePageSlug, pageAudience],
     queryFn: async () => {
       if (!homePageSlug) return null;
-      const response = await fetch(`/api/public/page/${homePageSlug}`);
+      const response = await fetch(`/api/public/page/${homePageSlug}`, { credentials: 'include' });
       if (!response.ok) return null;
       const data = await response.json();
       if (!data.success) return null;
       return {
         page: data.page,
-        elements: data.elements || []
+        elements: data.elements || [],
+        symbols: data.symbols,
       };
     },
     enabled: !!homePageSlug,
@@ -87,7 +102,7 @@ export default function HomePageRedirect() {
   if (pageData.page.builder_type === 'canvas') {
     return (
       <div className="w-full" data-testid="home-page-canvas">
-        <CanvasPageRenderer page={pageData.page} />
+        <CanvasPageRenderer page={pageData.page} symbols={pageData.symbols} />
       </div>
     );
   }

@@ -1,3 +1,5 @@
+import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
+
 const STYLE_KEY_SUFFIXES = [
   '_color', '_size', '_weight', '_family', '_spacing', '_height', '_type',
   '_opacity', '_angle', '_radius', '_fit', '_id', '_url', '_point',
@@ -64,16 +66,38 @@ export function extractTextFromObject(obj) {
 
 export async function buildPageSearchText(supabase, pageId) {
   try {
-    const { data: page } = await supabase
+    let { data: page, error: pageError } = await supabase
       .from('i_edit_page')
-      .select('title, slug, description')
+      .select('title, slug, description, builder_type, canvas_design')
       .eq('id', pageId)
       .single();
+    // Keep search rebuilding tolerant of pre-Canvas schemas.
+    if (pageError?.code === '42703') {
+      ({ data: page } = await supabase
+        .from('i_edit_page')
+        .select('title, slug, description')
+        .eq('id', pageId)
+        .single());
+    }
 
     const parts = [];
     if (page) {
       if (page.title) parts.push(page.title);
       if (page.description) parts.push(stripHtml(page.description));
+    }
+
+    // Public search text is a guest projection. This prevents protected
+    // Custom HTML from being persisted into search_text and later returned in
+    // snippets, even if the request that rebuilds the index is authenticated.
+    if (
+      page?.builder_type === 'canvas'
+      && page.canvas_design
+      && typeof page.canvas_design === 'object'
+    ) {
+      const guestDesign = projectCanvasDesignForGuest(page.canvas_design);
+      const canvasText = extractTextFromObject(guestDesign);
+      if (canvasText) parts.push(canvasText);
+      return parts.join(' ').replace(/\s+/g, ' ').trim();
     }
 
     const { data: elements } = await supabase

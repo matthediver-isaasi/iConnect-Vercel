@@ -7,6 +7,7 @@ import { getArticleUrlConfig } from './articleUrlPaths.js';
 import { resolveBlogPostAuthors } from './blogPostAuthors.js';
 import { resolveMicrositeByPrefix } from './microsites.js';
 import { findPublishedArticleBySlug } from './articleSlugLookup.js';
+import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
 
 function stripHtml(html) {
   if (!html) return '';
@@ -594,10 +595,14 @@ async function resolveIEditPage(tenantId, slug, microsite = null) {
       if (imgMatch) image = imgMatch[1];
     }
   } else if (page.builder_type === 'canvas') {
-    if ((!description || !image) && page.canvas_design && typeof page.canvas_design === 'object') {
-      if (!image) image = extractCmsImage(page.canvas_design);
+    // Entity metadata is consumed by the public SSR/SEO path. Never derive
+    // metadata from a member-only custom-html block: its source HTML must not
+    // enter snippets, descriptions, or any alternate readable page path.
+    const guestDesign = projectCanvasDesignForGuest(page.canvas_design);
+    if ((!description || !image) && guestDesign && typeof guestDesign === 'object') {
+      if (!image) image = extractCmsImage(guestDesign);
       if (!description) {
-        const texts = extractCmsTexts(page.canvas_design);
+        const texts = extractCmsTexts(guestDesign);
         if (texts.length) description = texts.join(' ');
       }
     }

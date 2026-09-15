@@ -115,6 +115,14 @@ import {
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml, isRichTextEmpty } from './sanitize';
+import {
+  DEFAULT_MEMBER_ONLY_GUEST_MESSAGE,
+  MAX_MEMBER_ONLY_GUEST_MESSAGE_LENGTH,
+  normalizeMemberOnlyGuestMessage,
+  toMemberOnlyPlainText,
+} from '@/lib/memberOnlyHtml';
+import { useLayoutContext } from '@/contexts/LayoutContext';
+import MemberOnlyHtmlPlaceholder from './MemberOnlyHtmlPlaceholder';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
@@ -4159,8 +4167,23 @@ function TestimonialsInspector({ block, update }) {
 }
 
 // CUSTOM HTML ----------------------------------------------------------------
-function CustomHtmlRender({ block }) {
+function CustomHtmlRender({ block, asEditor = false }) {
   const c = block.content || {};
+  const { memberInfo, sessionValidated, authResolved } = useLayoutContext();
+  const { editorPreview } = useCanvasEditorPage();
+  const isMemberOnly = c.memberOnly === true;
+  const isAuthoringSurface = asEditor || editorPreview === true;
+  // A redacted marker is authoritative. The auth gate also keeps stale
+  // authenticated HTML out of the DOM while the page's session is resolving.
+  // Canvas editor previews deliberately bypass this gate so authors always
+  // inspect the actual HTML they are editing.
+  const canViewMemberOnly = isAuthoringSurface ||
+    (authResolved === true && sessionValidated === true && !!memberInfo);
+  if (isMemberOnly && !isAuthoringSurface && (
+    c.memberOnlyRedacted === true || !canViewMemberOnly
+  )) {
+    return <MemberOnlyHtmlPlaceholder guestMessage={c.guestMessage} blockId={block.id} />;
+  }
   return (
     <div
       className="w-full h-full overflow-auto"
@@ -4191,6 +4214,29 @@ function CustomHtmlInspector({ block, update }) {
           data-testid="input-custom-html"
         />
       </Field>
+      <div className="space-y-2 border-t border-slate-200 pt-2">
+        <ToggleField
+          label="Members only"
+          value={c.memberOnly === true}
+          onChange={(value) => set({ memberOnly: value === true })}
+          testId="toggle-custom-html-member-only"
+        />
+        <p className="text-[10px] text-slate-500">
+          Guests see a safe blurred placeholder. The protected HTML is never
+          rendered for an unverified session.
+        </p>
+        <Field label="Guest message">
+          <Textarea
+            value={toMemberOnlyPlainText(c.guestMessage) || DEFAULT_MEMBER_ONLY_GUEST_MESSAGE}
+            onChange={(e) => set({ guestMessage: toMemberOnlyPlainText(e.target.value) })}
+            onBlur={(e) => set({ guestMessage: normalizeMemberOnlyGuestMessage(e.target.value) })}
+            maxLength={MAX_MEMBER_ONLY_GUEST_MESSAGE_LENGTH}
+            rows={2}
+            className="text-sm"
+            data-testid="input-custom-html-guest-message"
+          />
+        </Field>
+      </div>
     </>
   );
 }

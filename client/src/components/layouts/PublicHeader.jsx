@@ -18,6 +18,8 @@ import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
 import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
 import { DEFAULT_HEADER_LOGO_HEIGHT } from "@shared/micrositeHeaderLogo";
+import { resolvePublicHeaderLink } from "@/lib/publicHeaderLogin";
+import PublicLoginLink from "@/components/layouts/PublicLoginLink";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -434,28 +436,7 @@ export default function PublicHeader() {
   // today's plain-text link: asButton off, positioned left of the social icons.
   // resolveHeaderLink derives the rendered style + label for a given config.
   const resolveHeaderLink = (linkConfig, defaultLabel) => {
-    const asButton = !!linkConfig?.asButton;
-    const background = (linkConfig?.backgroundMode === 'gradient'
-      && Array.isArray(linkConfig?.gradientStops) && linkConfig.gradientStops.length > 0)
-      ? buildGradientFromStops(linkConfig.gradientStops)
-      : (linkConfig?.solidColor || '#5C0085');
-    const buttonHeight = parseInt(linkConfig?.height, 10);
-    const buttonWidth = parseInt(linkConfig?.width, 10);
-    const buttonStyle = asButton ? {
-      background,
-      borderRadius: `${parseInt(linkConfig?.cornerRadius, 10) || 0}px`,
-      borderWidth: `${parseInt(linkConfig?.borderWidth, 10) || 0}px`,
-      borderStyle: linkConfig?.borderStyle || 'solid',
-      borderColor: linkConfig?.borderColor || 'transparent',
-      ...(buttonHeight > 0 ? { height: `${buttonHeight}px` } : {}),
-      ...(buttonWidth > 0 ? { width: `${buttonWidth}px`, justifyContent: 'center' } : {})
-    } : {};
-    // Label color falls back to the top-nav text color when not explicitly set.
-    const labelColor = (asButton && linkConfig?.labelColor) || topNavTextColor;
-    const label = (typeof linkConfig?.label === 'string' && linkConfig.label.trim())
-      ? linkConfig.label.trim()
-      : defaultLabel;
-    return { asButton, buttonStyle, labelColor, label };
+    return resolvePublicHeaderLink(linkConfig, defaultLabel, topNavTextColor);
   };
 
   const loginLinkConfig = branding?.headerConfig?.loginLink;
@@ -484,8 +465,6 @@ export default function PublicHeader() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [memberLandingPage, setMemberLandingPage] = useState('Events');
 
-  // Login styling/label for the positionable Account element (logged-out state).
-  const loginLink = resolveHeaderLink(loginLinkConfig, 'Login');
   // Member Area styling/label for the positionable Account element (logged-in state).
   const memberAreaLink = resolveHeaderLink(memberAreaLinkConfig, 'Member Area');
 
@@ -1012,15 +991,11 @@ export default function PublicHeader() {
       );
     }
     return (
-      <Link
-        to="/login"
-        className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginLink.asButton ? ' px-3 py-1.5' : ''}`}
-        style={{ ...loginLink.buttonStyle, color: loginLink.asButton ? loginLink.labelColor : plainColor }}
-        data-testid="link-header-login"
-      >
-        <User className="w-4 h-4" />
-        <span>{loginLink.label}</span>
-      </Link>
+      <PublicLoginLink
+        className={hoverClass}
+        textColor={plainColor}
+        testId="link-header-login"
+      />
     );
   };
 
@@ -1141,15 +1116,14 @@ export default function PublicHeader() {
           </button>
         </div>
       ) : (
-        <Link
-          to="/login"
+        <PublicLoginLink
+          mobile
           onClick={() => setMobileMenuOpen(false)}
-          className="flex items-center gap-2 py-2 text-slate-900 font-medium"
-          data-testid="link-mobile-login"
-        >
-          <User className="w-5 h-5 text-slate-600" />
-          {loginLink.label}
-        </Link>
+          // The mobile drawer is always a white surface, so plain login links
+          // need a contextual contrast color instead of the desktop bar color.
+          textColor="#0F172A"
+          testId="link-mobile-login"
+        />
       )}
     </div>
   );

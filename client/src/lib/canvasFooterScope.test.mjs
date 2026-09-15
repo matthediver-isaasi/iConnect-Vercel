@@ -53,7 +53,7 @@ test('footer UI passes microsite context into builder and previews', () => {
   assert.match(manager, /data-testid="select-canvas-footer-site"/);
   assert.match(editor, /<CanvasBuilder[^>]+micrositeId=\{footer\.microsite_id\}/);
   assert.match(editor, /<CanvasPageRenderer[^>]+micrositeId=\{footer\.microsite_id\}/);
-  assert.match(renderer, /<CanvasEditorPageProvider micrositeId=\{micrositeId\}>/);
+  assert.match(renderer, /<CanvasEditorPageProvider micrositeId=\{micrositeId\}[^>]*editorPreview=\{editorPreview\}/);
 });
 
 test('database migration creates an atomic, tenant-validated assignment path', () => {

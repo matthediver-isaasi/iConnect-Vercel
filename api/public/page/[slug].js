@@ -1,6 +1,13 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { resolveMicrositeByPrefix } from '../../_lib/microsites.js';
+import {
+  projectMemberOnlyGuest,
+} from '../../../shared/canvasMemberOnly.js';
+import {
+  resolveCanvasViewer,
+  setMemberContentCacheHeaders,
+} from '../../_lib/canvasMemberOnly.js';
 
 // Collect every top-level symbol id referenced by a canvas design so we can
 // embed the resolved symbol designs alongside the page payload. Keeping this
@@ -17,6 +24,16 @@ function collectSymbolIds(design, out) {
       }
     }
   }
+}
+
+export function buildPublicCanvasPagePayload(page, symbols = [], viewer = {}) {
+  const allowMemberOnlyContent = viewer.allowMemberOnlyContent === true;
+  return {
+    page: allowMemberOnlyContent ? page : projectMemberOnlyGuest(page),
+    symbols: allowMemberOnlyContent
+      ? symbols
+      : symbols.map((symbol) => projectMemberOnlyGuest(symbol)),
+  };
 }
 
 async function resolveTenantFromSlug(tenantSlug) {
@@ -37,12 +54,22 @@ async function resolveTenantFromSlug(tenantSlug) {
   return data;
 }
 
-export default async function handler(req, res) {
+export function createPublicPageHandler({
+  db = supabase,
+  resolveTenant = resolveTenantFromRequest,
+  resolveMicrosite = resolveMicrositeByPrefix,
+  resolveViewer = resolveCanvasViewer,
+} = {}) {
+  return async function handler(req, res) {
+  // This endpoint may return either a member projection or a guest
+  // projection. Never allow an intermediary to share either response.
+  setMemberContentCacheHeaders(res, { includeHost: true });
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
@@ -56,7 +83,7 @@ export default async function handler(req, res) {
     console.log('[Public Page Slug] Request for slug:', slug, 'tenantParam:', tenantParam);
     
     // Try hostname-based resolution first, then fall back to query parameter
-    let tenant = await resolveTenantFromRequest(req);
+    let tenant = await resolveTenant(req);
     
     if (!tenant && tenantParam) {
       console.log('[Public Page Slug] Hostname resolution failed, trying query param:', tenantParam);
@@ -76,13 +103,13 @@ export default async function handler(req, res) {
     const micrositePrefix = typeof req.query.microsite === 'string' ? req.query.microsite.trim() : '';
     let microsite = null;
     if (micrositePrefix) {
-      microsite = await resolveMicrositeByPrefix(supabase, tenant.id, micrositePrefix);
+      microsite = await resolveMicrosite(db, tenant.id, micrositePrefix);
       if (!microsite) {
         return res.status(404).json({ error: 'Microsite not found' });
       }
     }
 
-    let pageQuery = supabase
+    let pageQuery = db
       .from('i_edit_page')
       .select('*')
       .eq('tenant_id', tenant.id)
@@ -107,6 +134,8 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 
+    const viewer = await resolveViewer(req, tenant.id);
+
     // Default (non-prefixed) path: a page assigned to a microsite is only
     // served under its prefix. Checked in JS (not SQL) so legacy databases
     // without the microsite_id column keep working unchanged.
@@ -120,11 +149,9 @@ export default async function handler(req, res) {
     // there are no element rows to fetch. Return the row as-is — the client
     // renders static_html/static_css verbatim inside chrome.
     if (page.builder_type === 'ai_static') {
-      // Always revalidate so status/content updates are reflected immediately.
-      res.setHeader('Cache-Control', 'no-store, must-revalidate');
       return res.status(200).json({
         success: true,
-        page,
+        page: buildPublicCanvasPagePayload(page, [], viewer).page,
         elements: [],
       });
     }
@@ -142,7 +169,7 @@ export default async function handler(req, res) {
       collectSymbolIds(page.canvas_design, symbolIds);
       let symbols = [];
       if (symbolIds.size > 0) {
-        const { data: symbolRows, error: symbolsErr } = await supabase
+        const { data: symbolRows, error: symbolsErr } = await db
           .from('canvas_symbol')
           .select('id, name, design, updated_at')
           .eq('tenant_id', tenant.id)
@@ -153,20 +180,18 @@ export default async function handler(req, res) {
           symbols = symbolRows || [];
         }
       }
-      // Always revalidate so a fresh publish or symbol edit is reflected
-      // immediately — never serve a stale page/symbol payload from the edge.
-      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      const pagePayload = buildPublicCanvasPagePayload(page, symbols, viewer);
       return res.status(200).json({
         success: true,
-        page,
+        page: pagePayload.page,
         elements: [],
-        symbols,
+        symbols: pagePayload.symbols,
       });
     }
 
     console.log('[Public Page Slug] Fetching elements for page_id:', page.id);
 
-    const { data: elements, error: elementsError } = await supabase
+    const { data: elements, error: elementsError } = await db
       .from('i_edit_page_element')
       .select('*')
       .eq('page_id', page.id)
@@ -184,7 +209,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      page,
+      page: buildPublicCanvasPagePayload(page, [], viewer).page,
       elements: elements || []
     });
 
@@ -192,4 +217,7 @@ export default async function handler(req, res) {
     console.error('[Public Page] Error:', error);
     return res.status(500).json({ error: 'Failed to fetch page' });
   }
+  };
 }
+
+export default createPublicPageHandler();

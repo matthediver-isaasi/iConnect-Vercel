@@ -15,6 +15,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { reindexMemberContentEntitySafe } from '../_lib/memberContentReindexHook.js';
+import { normalizeMemberOnlyFields } from '../../shared/canvasMemberOnly.js';
 
 function badRequest(res, message) {
   return res.status(400).json({ error: message });
@@ -99,7 +100,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PUT' || req.method === 'PATCH') {
     const body = req.body || {};
-    const design = body.canvas_design;
+    const design = normalizeMemberOnlyFields(body.canvas_design);
     if (!design || typeof design !== 'object' || Array.isArray(design)) {
       return badRequest(res, 'canvas_design (object) is required');
     }
@@ -136,7 +137,7 @@ export default async function handler(req, res) {
 
     const { data: updated, error: updateErr } = await supabase
       .from('i_edit_page')
-      .update({ canvas_design: body.canvas_design })
+      .update({ canvas_design: design })
       .eq('id', pageId)
       .eq('tenant_id', tenantId)
       .select('id, canvas_design')

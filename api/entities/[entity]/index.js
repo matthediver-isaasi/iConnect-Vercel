@@ -34,6 +34,7 @@ import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js'
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
+import { normalizeMemberOnlyFields } from '../../../shared/canvasMemberOnly.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 import {
   validateAutomaticMembershipSettings,
@@ -1401,6 +1402,9 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+      if (entityNorm === 'ieditpage' && sanitizedBody.canvas_design) {
+        sanitizedBody.canvas_design = normalizeMemberOnlyFields(sanitizedBody.canvas_design);
+      }
 
       if (
         entityNorm === 'systemsettings'

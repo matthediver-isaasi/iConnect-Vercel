@@ -1,5 +1,10 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { projectMemberOnlyGuest } from '../../shared/canvasMemberOnly.js';
+import {
+  resolveCanvasViewer,
+  setMemberContentCacheHeaders,
+} from '../_lib/canvasMemberOnly.js';
 
 // Public read of canvas_symbol rows. Restricted to symbols that are
 // actually referenced by a published canvas page for the tenant — this
@@ -18,21 +23,34 @@ function collectSymbolIds(design, out) {
   }
 }
 
-export default async function handler(req, res) {
+export function projectPublicSymbols(symbols, viewer = {}) {
+  return viewer.allowMemberOnlyContent === true
+    ? (symbols || [])
+    : (symbols || []).map((symbol) => projectMemberOnlyGuest(symbol));
+}
+
+export function createCanvasSymbolsHandler({
+  db = supabase,
+  resolveTenant = resolveTenantFromRequest,
+  resolveViewer = resolveCanvasViewer,
+} = {}) {
+  return async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  setMemberContentCacheHeaders(res, { includeHost: true });
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
 
   let tenant;
-  try { tenant = await resolveTenantFromRequest(req); }
+  try { tenant = await resolveTenant(req); }
   catch { return res.status(500).json({ error: 'Failed to resolve tenant' }); }
   if (!tenant?.id) return res.status(404).json({ error: 'Tenant not found' });
+  const viewer = await resolveViewer(req, tenant.id);
 
   // Find every published canvas page for the tenant and collect the
   // referenced symbol ids from each design.
-  const { data: pages, error: pagesErr } = await supabase
+  const { data: pages, error: pagesErr } = await db
     .from('i_edit_page')
     .select('canvas_design')
     .eq('tenant_id', tenant.id)
@@ -44,21 +62,18 @@ export default async function handler(req, res) {
   const ids = new Set();
   for (const p of pages || []) collectSymbolIds(p.canvas_design, ids);
   if (ids.size === 0) {
-    // Never cache an empty result — a symbol that becomes referenced after a
-    // publish must not be masked by a stale empty `{symbols:[]}` payload.
-    res.setHeader('Cache-Control', 'no-store, must-revalidate');
     return res.status(200).json({ symbols: [] });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('canvas_symbol')
     .select('id, name, design, updated_at')
     .eq('tenant_id', tenant.id)
     .in('id', Array.from(ids));
   if (error) return res.status(500).json({ error: 'Failed to load symbols' });
-  // Always revalidate so a symbol edit is reflected on the front end without
-  // waiting for a cache window to expire. This endpoint is now only a fallback
-  // (the page payload carries page-scoped symbols), so freshness over caching.
-  res.setHeader('Cache-Control', 'no-store, must-revalidate');
-  return res.status(200).json({ symbols: data || [] });
+  const symbols = projectPublicSymbols(data, viewer);
+  return res.status(200).json({ symbols });
+  };
 }
+
+export default createCanvasSymbolsHandler();

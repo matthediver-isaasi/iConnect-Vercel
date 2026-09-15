@@ -4,6 +4,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { MICROSOFT_BASE_SCOPES, MICROSOFT_SCOPES } from '../_lib/microsoftGraph.js';
+import { normalizeInternalReturnTo } from '../../shared/safeReturnTo.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
@@ -109,7 +110,7 @@ export default async function handler(req, res) {
       tenantId: tenantContext.tenantId,
       identityId: identityId,
       userType: tenantContext.tenantUserId ? 'tenant_user' : 'member',
-      returnTo: req.query.returnTo || '/settings',
+      returnTo: normalizeInternalReturnTo(req.query.returnTo, '/settings'),
       originHost: originHost,
       timestamp: Date.now()
     };

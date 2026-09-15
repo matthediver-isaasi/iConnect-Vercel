@@ -8,6 +8,12 @@ import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
 import { buildStaticPageSsrHtml } from '../_lib/staticPageSsr.js';
 import { findPublishedArticleBySlug } from '../_lib/articleSlugLookup.js';
+import {
+  DEFAULT_MEMBER_ONLY_GUEST_MESSAGE,
+  normalizeMemberOnlyGuestMessage,
+  projectCanvasDesignForGuest,
+} from '../../shared/canvasMemberOnly.js';
+import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -803,6 +809,12 @@ function renderCanvasBlockHtml(block, opts) {
       return cols.length ? `<div class="cb-columns">${cols.join('')}</div>` : '';
     }
     case 'custom-html': {
+      if (c.memberOnlyRedacted === true) {
+        const message = normalizeMemberOnlyGuestMessage(
+          c.guestMessage || DEFAULT_MEMBER_ONLY_GUEST_MESSAGE
+        );
+        return `<div data-member-only-redacted="true"><p>${escapeHtml(message)}</p></div>`;
+      }
       const raw = typeof c.html === 'string' ? stripHtml(c.html) : '';
       if (!raw || isPlaceholderText(raw)) return '';
       return `<div>${escapeHtml(raw)}</div>`;
@@ -837,7 +849,7 @@ function resolveLandmarkRole(role) {
   return null;
 }
 
-function renderCanvasDesignBody(design) {
+export function renderCanvasDesignBody(design) {
   if (!design || typeof design !== 'object') return { sections: [], firstImage: null, allTexts: [] };
   const sections = [];
   const allTexts = [];
@@ -1120,14 +1132,18 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
     // Then inline content from dynamic data blocks so social unfurls /
     // SEO crawlers get the same first-N items a visitor sees.
     if (page.canvas_design && typeof page.canvas_design === 'object') {
-      const { sections, firstImage, allTexts: canvasTexts } = renderCanvasDesignBody(page.canvas_design);
+      // Prerender is a public/SEO readable path, never a member delivery
+      // path. Project before both semantic rendering and text extraction so
+      // protected HTML cannot reach body, description, or social metadata.
+      const guestDesign = projectCanvasDesignForGuest(page.canvas_design);
+      const { sections, firstImage, allTexts: canvasTexts } = renderCanvasDesignBody(guestDesign);
       for (const s of sections) bodySections.push(s);
       for (const t of canvasTexts) {
         if (t && !isPlaceholderText(t)) allTexts.push(t);
       }
       if (firstImage) ogImage = firstImage;
 
-      const dynamicBlocks = collectCanvasBlocks(page.canvas_design);
+      const dynamicBlocks = collectCanvasBlocks(guestDesign);
       for (const block of dynamicBlocks) {
         const section = await renderCanvasDynamicBlock(supabaseClient, tenant, block);
         if (section) {
@@ -1342,6 +1358,11 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
 }
 
 export default async function handler(req, res) {
+  // A prerender response is a public representation and must not be shared
+  // between guest/member sessions (or vice versa). It is deliberately always
+  // guest-projected even if a crawler forwards a logged-in cookie.
+  setMemberContentCacheHeaders(res, { includeHost: true });
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -1594,7 +1615,6 @@ export default async function handler(req, res) {
               '<meta name="robots" content="noindex, follow">',
             );
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
-            res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
             return res.status(404).send(html);
           }
         } catch (notFoundErr) {
@@ -1616,7 +1636,6 @@ export default async function handler(req, res) {
 </body>
 </html>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=300');
       return res.status(404).send(goneHtml);
     }
 
@@ -1656,7 +1675,6 @@ export default async function handler(req, res) {
     });
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
     return res.status(200).send(html);
   } catch (error) {
     console.error('[Prerender] Error:', error);

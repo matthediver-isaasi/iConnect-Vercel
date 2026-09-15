@@ -11,6 +11,7 @@ import {
   CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY,
   normalizeCanvasDynamicWidgetContent,
 } from './canvasDynamicWidget.js';
+import { normalizeMemberOnlyContent } from './memberOnlyHtml.js';
 //
 // The canvas_design column on i_edit_page stores a versioned JSON document
 // describing a free-form page laid out by the Canvas Builder.
@@ -902,6 +903,8 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 1, borderColor: '#facc15' },
     content: {
       html: '<div>Custom HTML — use at your own risk.</div>',
+      memberOnly: false,
+      guestMessage: 'Please login to view this member only content',
     },
   },
   [BLOCK_TYPES.ICON]: {
@@ -3351,6 +3354,9 @@ function normalizeBlock(block) {
   // outlive its authorization scope.
   if (type === BLOCK_TYPES.DYNAMIC_WIDGET) {
     normalized.content = normalizeCanvasDynamicWidgetContent(block.content);
+  }
+  if (type === BLOCK_TYPES.CUSTOM_HTML) {
+    normalized.content = normalizeMemberOnlyContent(normalized.content);
   }
 
   // CARD compatibility shim: cards used to carry their inset as outer block

@@ -38,6 +38,7 @@ import { anonymizeMember } from '../../_lib/memberAnonymize.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
+import { normalizeMemberOnlyFields } from '../../../shared/canvasMemberOnly.js';
 import {
   isCorePreferenceField,
   isCorePreferenceValueEntity,
@@ -1029,6 +1030,9 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNormalized === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+      if (entityNormalized === 'ieditpage' && sanitizedBody.canvas_design) {
+        sanitizedBody.canvas_design = normalizeMemberOnlyFields(sanitizedBody.canvas_design);
+      }
 
       if (entityNormalized === 'systemsettings') {
         const tenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;

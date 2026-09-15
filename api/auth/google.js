@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { serialize } from 'cookie';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { normalizeInternalReturnTo } from '../../shared/safeReturnTo.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
@@ -66,7 +67,9 @@ export default async function handler(req, res) {
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
       originHost: req.headers['x-forwarded-host'] || req.headers.host,
-      returnTo: req.query.returnTo || null,
+      returnTo: req.query.returnTo
+        ? normalizeInternalReturnTo(req.query.returnTo, '/')
+        : null,
       timestamp: Date.now()
     };
 

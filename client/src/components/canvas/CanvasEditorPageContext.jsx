@@ -9,18 +9,28 @@ import { createContext, useContext, useMemo } from 'react';
  * toggle) read it from here instead.
  *
  * On the public page this provider is absent, so `useCanvasEditorPage()`
- * degrades to "no editor context" — safe because only inspectors consume it.
+ * degrades to "no editor context". The editorPreview flag is an explicit
+ * capability propagated by DynamicPage after its editor access check; URL
+ * query parameters are never treated as authoring authorization here.
  */
 const CanvasEditorPageContext = createContext(null);
 
 export function useCanvasEditorPage() {
-  return useContext(CanvasEditorPageContext) || { micrositeId: null, isMicrositePage: false };
+  return useContext(CanvasEditorPageContext) || {
+    micrositeId: null,
+    isMicrositePage: false,
+    editorPreview: false,
+  };
 }
 
-export function CanvasEditorPageProvider({ micrositeId = null, children }) {
+export function CanvasEditorPageProvider({ micrositeId = null, editorPreview = false, children }) {
   const value = useMemo(
-    () => ({ micrositeId: micrositeId || null, isMicrositePage: !!micrositeId }),
-    [micrositeId],
+    () => ({
+      micrositeId: micrositeId || null,
+      isMicrositePage: !!micrositeId,
+      editorPreview: editorPreview === true,
+    }),
+    [micrositeId, editorPreview],
   );
   return (
     <CanvasEditorPageContext.Provider value={value}>

@@ -1,5 +1,6 @@
 import { mergeMicrositeConfig, micrositeBrandingValue } from './microsites.js';
 import { resolveEffectiveCanvasFooter } from './canvasFooters.js';
+import { projectMemberOnlyGuest } from '../../shared/canvasMemberOnly.js';
 
 /**
  * Build the public tenant-branding payload (the `branding` object returned by
@@ -11,7 +12,12 @@ import { resolveEffectiveCanvasFooter } from './canvasFooters.js';
  * reads from the injected global is byte-identical to what it would otherwise
  * fetch (no second repaint when the real fetch lands).
  */
-export function buildTenantBrandingPayload(tenantData, microsite = null, effectiveFooter = null) {
+export function buildTenantBrandingPayload(
+  tenantData,
+  microsite = null,
+  effectiveFooter = null,
+  { allowMemberOnlyContent = true } = {}
+) {
   const buttonStyles = tenantData.branding_config?.button_styles || {};
 
   const tenantSettings = tenantData.settings || {};
@@ -51,6 +57,7 @@ export function buildTenantBrandingPayload(tenantData, microsite = null, effecti
     }
   }
 
+  const canvasFooter = effectiveFooter?.source === 'canvas' ? effectiveFooter.footer : null;
   return {
     id: tenantData.id,
     name: tenantData.name,
@@ -66,7 +73,9 @@ export function buildTenantBrandingPayload(tenantData, microsite = null, effecti
     headerConfig,
     footerConfig,
     footerSource: effectiveFooter?.source === 'canvas' ? 'canvas' : 'configured',
-    canvasFooter: effectiveFooter?.source === 'canvas' ? effectiveFooter.footer : null,
+    canvasFooter: canvasFooter && !allowMemberOnlyContent
+      ? projectMemberOnlyGuest(canvasFooter)
+      : canvasFooter,
     microsite: microsite ? {
       id: microsite.id,
       name: microsite.name,
@@ -86,7 +95,16 @@ export function buildTenantBrandingPayload(tenantData, microsite = null, effecti
  * Async public/SSR entry point. Canvas footer resolution is kept beside the
  * legacy branding merge so both delivery paths make the same fallback choice.
  */
-export async function resolveTenantBrandingPayload(tenantData, microsite = null) {
+export async function resolveTenantBrandingPayload(
+  tenantData,
+  microsite = null,
+  { allowMemberOnlyContent = false } = {}
+) {
   const effectiveFooter = await resolveEffectiveCanvasFooter(tenantData, microsite);
-  return buildTenantBrandingPayload(tenantData, microsite, effectiveFooter);
+  return buildTenantBrandingPayload(
+    tenantData,
+    microsite,
+    effectiveFooter,
+    { allowMemberOnlyContent }
+  );
 }

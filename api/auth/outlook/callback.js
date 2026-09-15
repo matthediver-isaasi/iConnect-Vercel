@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import { parse, serialize } from 'cookie';
 import { supabase } from '../../_lib/database.js';
 import { evaluateMicrosoftScopes } from '../../_lib/microsoftGraph.js';
+import {
+  appendInternalQuery,
+  normalizeInternalReturnTo,
+} from '../../../shared/safeReturnTo.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -44,6 +48,19 @@ function buildRedirect(path, isProduction, originHost = null) {
     return url;
   }
   return path;
+}
+
+export function buildOutlookSuccessRedirect({
+  returnTo,
+  isProduction,
+  originHost,
+}) {
+  const finalPath = normalizeInternalReturnTo(returnTo, '/settings');
+  return buildRedirect(
+    appendInternalQuery(finalPath, 'outlook_connected', 'true'),
+    isProduction,
+    originHost
+  );
 }
 
 export default async function handler(req, res) {
@@ -248,9 +265,13 @@ export default async function handler(req, res) {
 
     res.setHeader('Set-Cookie', clearNonceCookie);
 
-    const finalPath = returnTo || '/settings';
+    const finalPath = normalizeInternalReturnTo(returnTo, '/settings');
     console.log(`[Outlook OAuth Callback] Building success redirect: returnTo=${returnTo}, finalPath=${finalPath}, originHost=${originHost}`);
-    const successRedirect = buildRedirect(`${finalPath}?outlook_connected=true`, isProduction, originHost);
+    const successRedirect = buildOutlookSuccessRedirect({
+      returnTo,
+      isProduction,
+      originHost,
+    });
     console.log(`[Outlook OAuth Callback] Final redirect URL: ${successRedirect}`);
     
     res.redirect(successRedirect);

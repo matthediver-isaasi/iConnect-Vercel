@@ -62,12 +62,11 @@ export default function DynamicPage() {
   const effectiveSlug = isMicrositeHomeRoute ? barePrefixHome.home_slug : slug;
   // When the Canvas Page Editor opens the live preview iframe, it appends
   // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
-  // (and the public endpoint, which only returns published pages) so the
-  // editor can preview and run accessibility audits against unpublished
-  // drafts. Authorization is still enforced — the authenticated
-  // IEditPage.list endpoint only returns pages the user can access, so
-  // unauthenticated visitors hitting this URL get the normal not-found
-  // branch.
+  // (and the public endpoint, which only returns published pages) only after
+  // the positive capability check below, so an authorized editor can preview
+  // and run accessibility audits against unpublished drafts. Anonymous
+  // visitors keep the normal published/redacted projection even if they copy
+  // the preview URL.
   const isCanvasPreview = useMemo(() => {
     try {
       return new URLSearchParams(location.search).has('_canvasPreview');
@@ -88,24 +87,68 @@ export default function DynamicPage() {
       return false;
     }
   }, [location.search]);
-  const { memberInfo, memberRole, isAccessReady, isFeatureExcluded } = useMemberAccess();
-  // Preview mode is only honoured when the viewer actually has the
-  // Canvas page editor capability. A bare ?_canvasPreview=… param from
-  // an ordinary tenant member must NOT bypass the publish gate, or
-  // drafts would leak to anyone authenticated in the tenant.
+  const {
+    memberInfo,
+    memberRole,
+    isAccessReady,
+    isFeatureExcluded,
+    authResolved,
+    sessionValidated,
+  } = useMemberAccess();
+  // Preview mode is only honoured after a positive capability check. A bare
+  // `?_canvasPreview=…` parameter is not an authorization signal: anonymous
+  // visitors must stay on the public projection, and a member must have a
+  // validated session plus the page-editor feature.
   //
-  // Tenant admin (admin dashboard) sessions don't populate `memberInfo`,
-  // so `isAccessReady` stays false for them. We allow preview when there
-  // is no member session at all — those callers either are a tenant admin
-  // or are unauthenticated; the server-side gates on `/api/entities/IEditPage*`
-  // and `/api/canvas-design/[pageId]` make sure drafts only come back for
-  // tenant admins or members with `site-builder.page-editor`.
+  // Tenant-admin sessions do not populate `memberInfo`, so validate that
+  // session independently through the tenant-user endpoint. Requiring a
+  // completed, non-fetching query here is important when an admin session
+  // expires: React Query can retain stale data while it refetches, but stale
+  // data must never keep the editor audience enabled.
+  const tenantAdminAuthQuery = useQuery({
+    queryKey: [
+      'canvas-preview-tenant-admin-auth',
+      isCanvasPreview,
+      authResolved,
+      sessionValidated,
+      memberInfo?.id || 'anonymous',
+    ],
+    queryFn: async () => {
+      const response = await fetch('/api/auth/tenant-user-me', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!response.ok) return null;
+      const data = await response.json().catch(() => null);
+      return data?.authenticated === true && data?.tenantUser ? data : null;
+    },
+    enabled: isCanvasPreview && authResolved && !memberInfo,
+    staleTime: 0,
+    retry: false,
+    refetchOnMount: 'always',
+  });
+
   const canPreviewDrafts = useMemo(() => {
     if (!isCanvasPreview) return false;
-    if (!memberInfo) return true; // tenant admin or anonymous — server gate decides
-    if (!isAccessReady) return false;
-    return !isFeatureExcluded('site-builder.page-editor');
-  }, [isCanvasPreview, memberInfo, isAccessReady, isFeatureExcluded]);
+    if (memberInfo) {
+      if (!authResolved || !sessionValidated || !isAccessReady) return false;
+      return !isFeatureExcluded('site-builder.page-editor');
+    }
+    return tenantAdminAuthQuery.isSuccess
+      && !tenantAdminAuthQuery.isFetching
+      && !!tenantAdminAuthQuery.data?.authenticated
+      && !!tenantAdminAuthQuery.data?.tenantUser;
+  }, [
+    isCanvasPreview,
+    memberInfo,
+    authResolved,
+    sessionValidated,
+    isAccessReady,
+    isFeatureExcluded,
+    tenantAdminAuthQuery.data,
+    tenantAdminAuthQuery.isFetching,
+    tenantAdminAuthQuery.isSuccess,
+  ]);
   const { setForcePublicLayout, setForceBlankLayout, setChromeReady, setPublicChrome } = useLayoutContext();
   const { branding } = useTenantBranding();
   
@@ -161,8 +204,16 @@ export default function DynamicPage() {
     (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
+  // Public page payloads can be redacted for a guest and full for a validated
+  // member. Re-keying on the resolved audience refreshes the page after login
+  // without putting editor preview drafts through a session-driven overwrite.
+  const pageAudience = canPreviewDrafts
+    ? 'editor'
+    : (authResolved
+      ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
+      : 'checking');
   const { data: pageData, isLoading: pageLoading, isFetched: pageFetched, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', effectivePrefix, effectiveSlug, isCanvasPreview ? 'preview' : 'live'],
+    queryKey: ['iedit-dynamic-page', effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience],
     queryFn: async () => {
       // Task #2426/#2764: microsite pages (both /{prefix}/{slug} and the bare
       // /{prefix} home page) are public-only — resolve strictly via the public
@@ -179,10 +230,11 @@ export default function DynamicPage() {
         }
         return { page: null, elements: [] };
       }
-      // In Canvas Page Editor preview mode we skip the public endpoint
-      // entirely — it only serves published pages, and the preview iframe
-      // is explicitly authoring an unpublished draft.
-      if (!isCanvasPreview) {
+      // Once a verified editor capability is available, skip the public
+      // endpoint entirely — it only serves published pages, and the preview
+      // iframe is explicitly authoring an unpublished draft. An unverified
+      // `_canvasPreview` URL must stay on the public projection.
+      if (!canPreviewDrafts) {
         // Try public endpoint first (works for unauthenticated users on public pages)
         try {
           const data = await publicClient.getPage(slug);
@@ -697,7 +749,11 @@ export default function DynamicPage() {
   if (page.builder_type === 'canvas') {
     return (
       <div className="w-full" data-testid={`dynamic-page-${slug}`}>
-        <CanvasPageRenderer page={page} symbols={pageData?.symbols} />
+        <CanvasPageRenderer
+          page={page}
+          symbols={pageData?.symbols}
+          editorPreview={canPreviewDrafts && !forcePublicPreview}
+        />
       </div>
     );
   }

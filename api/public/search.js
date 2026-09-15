@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { stripHtml } from '../_lib/searchTextBuilder.js';
 import { resolveMicrositeByPrefix, listActiveMicrosites, isMissingMicrositeSchema } from '../_lib/microsites.js';
+import { extractTextFromObject } from '../_lib/searchTextBuilder.js';
+import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
+import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
   isImmediateEvent,
@@ -22,10 +25,37 @@ function extractSnippet(text, searchTerm, maxLength = 150) {
   return snippet;
 }
 
+export function buildPublicPageSearchResult(page, searchTerm) {
+  const term = String(searchTerm || '').toLowerCase();
+  const titleMatch = page.title?.toLowerCase().includes(term);
+  const descMatch = page.description?.toLowerCase().includes(term);
+  const publicPageText = page.builder_type === 'canvas'
+    ? extractTextFromObject(projectCanvasDesignForGuest(page.canvas_design))
+    : (page.search_text || '');
+  const publicTextMatch = publicPageText.toLowerCase().includes(term);
+
+  // A stale search_text row may match protected HTML. Do not expose the page
+  // (or a snippet) unless the guest-visible projection matches as well.
+  if (!titleMatch && !descMatch && !publicTextMatch) return null;
+  const description = titleMatch || descMatch
+    ? (page.description || '')
+    : extractSnippet(publicPageText, searchTerm);
+  return {
+    type: 'page',
+    id: page.id,
+    title: page.title,
+    description,
+    image: null,
+    url: null,
+    date: page.published_at,
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  setMemberContentCacheHeaders(res, { includeHost: true });
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -74,7 +104,7 @@ export default async function handler(req, res) {
     // (stale dev DB), fall back to the base select. Only microsite-only mode
     // restricts the page set; every other mode stays tenant-wide.
     const runPagesQuery = async () => {
-      const baseSelect = 'id, title, slug, description, published_at, search_text';
+      const baseSelect = 'id, title, slug, description, published_at, search_text, builder_type, canvas_design';
       const buildBase = (select) => supabase
         .from('i_edit_page')
         .select(select)
@@ -249,25 +279,11 @@ export default async function handler(req, res) {
 
     if (pagesResult.data) {
       pagesResult.data.forEach(page => {
-        const titleMatch = page.title?.toLowerCase().includes(searchTerm.toLowerCase());
-        const descMatch = page.description?.toLowerCase().includes(searchTerm.toLowerCase());
-        let description;
-        if (titleMatch || descMatch) {
-          description = page.description || '';
-        } else {
-          description = extractSnippet(page.search_text, searchTerm);
-        }
         const prefix = page.microsite_id ? micrositePrefixMap[page.microsite_id] : null;
-        const pageUrl = prefix ? `/${prefix}/${page.slug}` : `/${page.slug}`;
-        results.push({
-          type: 'page',
-          id: page.id,
-          title: page.title,
-          description,
-          image: null,
-          url: pageUrl,
-          date: page.published_at
-        });
+        const result = buildPublicPageSearchResult(page, searchTerm);
+        if (!result) return;
+        result.url = prefix ? `/${prefix}/${page.slug}` : `/${page.slug}`;
+        results.push(result);
       });
     }
 

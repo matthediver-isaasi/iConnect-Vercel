@@ -26,6 +26,7 @@ import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowCo
 import { TooltipProvider } from "@/components/ui/tooltip";
 import CanvasFlowStage from "./CanvasFlowStage";
 import { CanvasEditorPageProvider } from "./CanvasEditorPageContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -44,7 +45,7 @@ function useTenantCanvasTheme() {
   return theme;
 }
 
-function useSymbolsForDesign(design, providedSymbols) {
+function useSymbolsForDesign(design, providedSymbols, audienceKey = 'guest') {
   const symbolIds = useMemo(() => {
     const ids = new Set();
     try {
@@ -76,7 +77,11 @@ function useSymbolsForDesign(design, providedSymbols) {
   );
   const [fetchedById, setFetchedById] = useState(() => new Map());
   useEffect(() => {
-    if (missingIds.length === 0) { setFetchedById(new Map()); return; }
+    // Never carry a previous audience's symbol payload through an auth
+    // transition. A guest/error state must not briefly paint a member-only
+    // symbol while the refreshed request is in flight.
+    setFetchedById(new Map());
+    if (missingIds.length === 0) return;
     let cancelled = false;
     // Public read endpoint resolves tenant by host, so anonymous
     // visitors can still see resolved symbol content.
@@ -90,7 +95,7 @@ function useSymbolsForDesign(design, providedSymbols) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [missingIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [missingIds.join('|'), audienceKey]); // eslint-disable-line react-hooks/exhaustive-deps
   return useMemo(() => {
     if (fetchedById.size === 0) return providedById;
     const m = new Map(fetchedById);
@@ -551,14 +556,29 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
   );
 }
 
-function CanvasPageRendererContent({ page, symbols, forceBreakpoint, embedded = false }) {
+function CanvasPageRendererContent({
+  page,
+  symbols,
+  forceBreakpoint,
+  embedded = false,
+  editorPreview = false,
+}) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
   // (CanvasFlowStage, driven by resolveFlowLayout). v1 (absolute) documents keep
   // the legacy CSS-positioned renderer below unchanged. `normalizeCanvasDesign`
   // already routed a v2 doc through the flow normalizer.
   const isFlow = useMemo(() => isFlowDesign(baseDesign), [baseDesign]);
-  const symbolsById = useSymbolsForDesign(baseDesign, symbols);
+  const { memberInfo, authResolved, sessionValidated } = useLayoutContext();
+  // A preview iframe may carry `_canvasPreview` in its URL, but that query
+  // parameter is not an authorization signal. DynamicPage explicitly passes
+  // editorPreview only after its server-backed editor capability check.
+  const audienceKey = editorPreview === true
+    ? 'editor'
+    : (authResolved
+      ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
+      : 'checking');
+  const symbolsById = useSymbolsForDesign(baseDesign, symbols, audienceKey);
   const theme = useTenantCanvasTheme();
   const { styles: tenantTypographyStyles } = useTenantTypographyStylesState();
   const design = useMemo(
@@ -830,10 +850,10 @@ function CanvasPageRendererContent({ page, symbols, forceBreakpoint, embedded = 
   );
 }
 
-export default function CanvasPageRenderer({ micrositeId = null, ...props }) {
+export default function CanvasPageRenderer({ micrositeId = null, editorPreview = false, ...props }) {
   return (
-    <CanvasEditorPageProvider micrositeId={micrositeId}>
-      <CanvasPageRendererContent {...props} />
+    <CanvasEditorPageProvider micrositeId={micrositeId} editorPreview={editorPreview}>
+      <CanvasPageRendererContent {...props} editorPreview={editorPreview} />
     </CanvasEditorPageProvider>
   );
 }

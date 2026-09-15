@@ -10,6 +10,7 @@ import {
   evaluateMemberPortalLoginGate,
   evaluateOrganisationLoginGate,
 } from '../../_lib/organisationLoginGate.js';
+import { normalizeInternalReturnTo } from '../../../shared/safeReturnTo.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -42,6 +43,18 @@ function buildErrorRedirect(tenantSlug, error, isProduction, extraParams = '') {
     return `https://${tenantSlug}.iconn.app/login?error=${error}${extraParams}`;
   }
   return `/login?error=${error}${extraParams}`;
+}
+
+export function buildGoogleFinalRedirect({
+  tenantSlug,
+  returnTo,
+  landingPage,
+  isProduction,
+}) {
+  const finalPath = normalizeInternalReturnTo(returnTo, landingPage);
+  return isProduction
+    ? `https://${tenantSlug}.iconn.app${finalPath}`
+    : finalPath;
 }
 
 export default async function handler(req, res) {
@@ -312,10 +325,12 @@ export default async function handler(req, res) {
       landingPage = '/memberdemo';
     }
 
-    const finalPath = returnTo || landingPage;
-    const finalRedirect = isProduction 
-      ? `https://${tenantSlug}.iconn.app${finalPath}`
-      : finalPath;
+    const finalRedirect = buildGoogleFinalRedirect({
+      tenantSlug,
+      returnTo,
+      landingPage,
+      isProduction,
+    });
     
     const html = `
       <!DOCTYPE html>
@@ -324,7 +339,7 @@ export default async function handler(req, res) {
         <body>
           <script>
             localStorage.setItem('agcas_member', JSON.stringify(${JSON.stringify({ ...member, sessionExpiry })}));
-            window.location.href = '${finalRedirect}';
+             window.location.href = ${JSON.stringify(finalRedirect)};
           </script>
           <p>Signing in...</p>
         </body>
