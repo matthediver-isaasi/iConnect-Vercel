@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
+import MemberMembershipInstalments, {
+  isMonthlyMembershipRecord,
+  MemberMembershipInstalmentsToggle,
+} from "@/components/membership/MemberMembershipInstalments";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -512,6 +516,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  const [expandedInstalmentHistoryId, setExpandedInstalmentHistoryId] = useState(null);
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [pauseReason, setPauseReason] = useState('');
   const [pauseRestartDate, setPauseRestartDate] = useState('');
@@ -539,10 +544,27 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     }
   };
 
-  const handleViewInvoice = async (recordId, invoiceNumber) => {
+  const handleViewInvoice = async (recordId, invoiceNumber, source = null, suppliedInvoiceUrl = null) => {
     setLoadingInvoiceRecordId(recordId);
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+      let invoiceUrl = suppliedInvoiceUrl;
+      if (!invoiceUrl) {
+        const params = new URLSearchParams();
+        params.set('inline', 'true');
+        if (source === 'instalment') {
+          // The instalment endpoint returns this URL with ownership-scoped
+          // source and paymentRef. This fallback is kept for older responses.
+          params.set('source', 'personal');
+          params.set('instalment', 'true');
+          params.set('paymentRef', recordId);
+        } else if (source) {
+          params.set('source', source);
+        }
+        invoiceUrl = `/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`;
+      } else {
+        invoiceUrl += `${invoiceUrl.includes('?') ? '&' : '?'}inline=true`;
+      }
+      const response = await fetch(invoiceUrl, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -563,10 +585,23 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     }
   };
 
-  const handleDownloadInvoice = async (recordId, invoiceNumber) => {
+  const handleDownloadInvoice = async (recordId, invoiceNumber, source = null, suppliedInvoiceUrl = null) => {
     setLoadingInvoiceRecordId(recordId);
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+      let invoiceUrl = suppliedInvoiceUrl;
+      if (!invoiceUrl) {
+        const params = new URLSearchParams();
+        if (source === 'instalment') {
+          params.set('source', 'personal');
+          params.set('instalment', 'true');
+          params.set('paymentRef', recordId);
+        } else if (source) {
+          params.set('source', source);
+        }
+        const query = params.toString();
+        invoiceUrl = `/api/membership-invoice/${encodeURIComponent(recordId)}${query ? `?${query}` : ''}`;
+      }
+      const response = await fetch(invoiceUrl, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -1365,8 +1400,11 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       && record.payment_method !== 'stripe_monthly_card'
                       && record.interval_unit !== 'monthly'
                       && record.payment_frequency !== 'monthly';
+                    const isMonthlyRecord = isMonthlyMembershipRecord(record);
+                    const isInstalmentsExpanded = expandedInstalmentHistoryId === record.id;
                     return (
-                      <tr key={record.id} className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
+                      <Fragment key={record.id}>
+                      <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">{record.membership_year}</td>
                         <td className="p-3">
                           <Badge variant="secondary">{record.tier_label || '-'}</Badge>
@@ -1403,8 +1441,24 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                             </Badge>
                             <PaymentStatusBadge paymentStatus={record.payment_status} />
                           </div>
+                            {isMonthlyRecord && record.payment_status === 'partial' && (
+                              <p className="mt-1 text-xs text-muted-foreground" data-testid={`text-member-history-partial-whole-term-${record.id}`}>
+                                Partial is the whole-term status; it does not mean a collected monthly payment failed.
+                              </p>
+                            )}
                         </td>
                         <td className="p-3">
+                          {isMonthlyRecord && (
+                            <div className="flex justify-center mb-1">
+                              <MemberMembershipInstalmentsToggle
+                                record={record}
+                                expanded={isInstalmentsExpanded}
+                                onToggle={() => setExpandedInstalmentHistoryId((current) => (
+                                  current === record.id ? null : record.id
+                                ))}
+                              />
+                            </div>
+                          )}
                           {!invoiceId && record.accounting_sync_status === 'failed' ? (
                             <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
                               <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
@@ -1500,6 +1554,16 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                           )}
                         </td>
                       </tr>
+                      {isMonthlyRecord && (
+                        <MemberMembershipInstalments
+                          record={record}
+                          expanded={isInstalmentsExpanded}
+                          onViewInvoice={handleViewInvoice}
+                          onDownloadInvoice={handleDownloadInvoice}
+                          loadingInvoiceId={loadingInvoiceRecordId}
+                        />
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>

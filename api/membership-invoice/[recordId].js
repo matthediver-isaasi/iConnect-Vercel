@@ -22,21 +22,38 @@ const COMMON_INVOICE_COLUMNS = [
   'accounting_invoice_number',
 ].join(', ');
 
+const INSTALMENT_COMMON_COLUMNS = [
+  'id',
+  'tenant_id',
+  'membership_year',
+  'billing_period',
+  'billing_agreement_id',
+  'xero_invoice_id',
+  'xero_invoice_number',
+  'accounting_provider',
+  'accounting_invoice_id',
+  'accounting_invoice_number',
+].join(', ');
+
 const INVOICE_COLUMNS_BY_SOURCE = {
   personal: ['member_id', COMMON_INVOICE_COLUMNS].join(', '),
   organisation: ['organization_id', COMMON_INVOICE_COLUMNS].join(', '),
 };
 
+const INSTALMENT_COLUMNS_BY_SOURCE = {
+  personal: ['member_id', INSTALMENT_COMMON_COLUMNS].join(', '),
+  organisation: ['organization_id', INSTALMENT_COMMON_COLUMNS].join(', '),
+};
 const TABLE_BY_SOURCE = {
   [PERSONAL_SOURCE]: 'member_membership_history',
   [ORGANISATION_SOURCE]: 'organisation_membership_history',
 };
 
-async function fetchInvoiceRecord(db, source, recordId, tenantId) {
+async function fetchInvoiceRecord(db, source, recordId, tenantId, { instalment = false } = {}) {
   const table = TABLE_BY_SOURCE[source];
   const { data, error } = await db
     .from(table)
-    .select(INVOICE_COLUMNS_BY_SOURCE[source])
+    .select((instalment ? INSTALMENT_COLUMNS_BY_SOURCE : INVOICE_COLUMNS_BY_SOURCE)[source])
     .eq('id', recordId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -54,6 +71,146 @@ function recordBelongsToMember(record, source, memberId, organizationId) {
     return !!memberId && record?.member_id === memberId;
   }
   return !!organizationId && record?.organization_id === organizationId;
+}
+
+function isInstalmentSelector(query) {
+  return query?.instalment === 'true'
+    || query?.instalments === 'true';
+}
+
+function hasInvalidInstalmentSelector(query) {
+  for (const key of ['instalment', 'instalments']) {
+    if (query?.[key] !== undefined
+        && (Array.isArray(query[key]) || !['true', 'false'].includes(String(query[key])))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function agreementOwnsHistory(agreement, record, source) {
+  if (!agreement || agreement.tenant_id !== record.tenant_id) return false;
+  if (source === PERSONAL_SOURCE) {
+    return agreement.member_id === record.member_id && !agreement.organization_id;
+  }
+  return agreement.organization_id === record.organization_id && !agreement.member_id;
+}
+
+function instalmentPaymentReference(query) {
+  return query?.paymentRef
+    || query?.paymentId
+    || query?.externalPaymentId
+    || null;
+}
+
+function ledgerInvoiceId(row) {
+  return row?.accounting_invoice_id || row?.xero_invoice_id || null;
+}
+
+function ledgerInvoiceNumber(row) {
+  return row?.accounting_invoice_number || row?.xero_invoice_number || null;
+}
+
+async function fetchInstalmentInvoiceRow({
+  db,
+  record,
+  source,
+  tenantId,
+  query,
+}) {
+  if (!record?.billing_agreement_id) {
+    return { error: { status: 404, message: 'No billing agreement is attached to this membership record' } };
+  }
+
+  const { data: agreement, error: agreementError } = await db
+    .from('membership_billing_agreements')
+    .select('id, tenant_id, member_id, organization_id, provider, status, metadata')
+    .eq('id', record.billing_agreement_id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (agreementError) throw agreementError;
+  if (!agreement || !agreementOwnsHistory(agreement, record, source)) {
+    return { error: { status: 403, message: 'Membership billing agreement ownership mismatch' } };
+  }
+
+  if (!['stripe', 'gocardless'].includes(agreement.provider)) {
+    return { error: { status: 500, message: 'Unsupported membership billing agreement provider' } };
+  }
+  const provider = agreement.provider;
+  const paymentRef = instalmentPaymentReference(query);
+  const instalmentId = query?.instalmentId || null;
+  let ledgerRows = [];
+  let plans = [];
+
+  if (provider === 'stripe') {
+    let ledgerQuery = db
+      .from('membership_instalment_invoices')
+      .select('id, tenant_id, billing_agreement_id, plan_id, external_payment_id, accounting_provider, accounting_invoice_id, accounting_invoice_number, xero_invoice_id, xero_invoice_number, accounting_sync_status, accounting_sync_error, amount_minor, currency, created_at, accounting_synced_at')
+      .eq('tenant_id', tenantId)
+      .eq('billing_agreement_id', agreement.id);
+    if (instalmentId) ledgerQuery = ledgerQuery.eq('id', instalmentId);
+    if (paymentRef) ledgerQuery = ledgerQuery.eq('external_payment_id', paymentRef);
+    if (typeof ledgerQuery.limit === 'function') ledgerQuery = ledgerQuery.limit(1);
+    const { data, error } = await ledgerQuery;
+    if (error) {
+      if (error.code === '42P01' || error.code === '42703') {
+        return { error: { status: 404, message: 'Instalment accounting ledger is not available' } };
+      }
+      throw error;
+    }
+    ledgerRows = Array.isArray(data) ? data : (data ? [data] : []);
+  } else {
+    let planQuery = db
+      .from('membership_payment_plans')
+      .select('id, tenant_id, billing_agreement_id, member_id, organization_id')
+      .eq('tenant_id', tenantId)
+      .eq('billing_agreement_id', agreement.id);
+    if (typeof planQuery.limit === 'function') planQuery = planQuery.limit(100);
+    const planResult = await planQuery;
+    if (planResult?.error) throw planResult.error;
+    plans = Array.isArray(planResult?.data) ? planResult.data : [];
+    const planIds = plans
+      .filter((plan) => plan.member_id == null || plan.member_id === record.member_id)
+      .filter((plan) => plan.organization_id == null || plan.organization_id === record.organization_id)
+      .map((plan) => plan.id)
+      .filter(Boolean);
+    if (planIds.length > 0) {
+      let ledgerQuery = db
+        .from('gocardless_payments')
+        .select('id, tenant_id, plan_id, gocardless_payment_id, accounting_provider, accounting_invoice_id, accounting_invoice_number, xero_invoice_id, xero_invoice_number, accounting_sync_status, accounting_sync_error, amount_minor, currency, status, charge_date, confirmed_at, created_at, accounting_synced_at')
+        .eq('tenant_id', tenantId)
+        .in('plan_id', planIds)
+        .in('status', ['confirmed', 'paid_out']);
+      if (instalmentId) ledgerQuery = ledgerQuery.eq('id', instalmentId);
+      if (paymentRef) ledgerQuery = ledgerQuery.eq('gocardless_payment_id', paymentRef);
+      if (typeof ledgerQuery.limit === 'function') ledgerQuery = ledgerQuery.limit(1);
+      const { data, error } = await ledgerQuery;
+      if (error) {
+        if (error.code === '42P01' || error.code === '42703') {
+          return { error: { status: 404, message: 'Instalment accounting ledger is not available' } };
+        }
+        throw error;
+      }
+      ledgerRows = Array.isArray(data) ? data : (data ? [data] : []);
+    }
+  }
+
+  const row = ledgerRows[0] || null;
+  if (!row) {
+    return { error: { status: 404, message: 'Instalment invoice not found for this membership record' } };
+  }
+
+  // A ledger query is always scoped through the tenant and the history's
+  // agreement. Keep this assertion explicit so a future query change cannot
+  // accidentally turn an external payment reference into a cross-member read.
+  if (row.tenant_id !== tenantId
+      || (provider === 'stripe' && row.billing_agreement_id !== agreement.id)
+      || (provider === 'gocardless'
+        && !plans.some((plan) => plan.id === row.plan_id))) {
+    return { error: { status: 403, message: 'Instalment invoice ownership mismatch' } };
+  }
+
+  return { agreement, row, provider };
 }
 
 /**
@@ -118,6 +275,17 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
     if (!recordId) {
       return res.status(400).json({ error: 'Record ID required' });
     }
+    if (hasInvalidInstalmentSelector(query)) {
+      return res.status(400).json({ error: 'Invalid instalment selector' });
+    }
+    const instalmentRequest = isInstalmentSelector(query);
+    if (instalmentRequest
+        && !instalmentPaymentReference(query)
+        && !query.instalmentId) {
+      return res.status(400).json({
+        error: 'paymentRef or instalmentId is required for an instalment invoice',
+      });
+    }
 
     const requestedSource = query.source;
     if (requestedSource !== undefined
@@ -144,7 +312,7 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
         }
         : tenantContext;
       const isAdmin = await checkAdmin(adminCheckContext);
-      if (!isAdmin) {
+      if (!isAdmin && !instalmentRequest) {
         // RBAC must use the role attached to the authenticated member row.
         // tenantContext.roleId is intentionally not a fallback here.
         const roleId = sessionMember?.role_id;
@@ -159,13 +327,26 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
         }
       }
 
-      const memberId = sessionMember?.id || tenantContext?.memberId;
-      const organizationId = sessionMember?.organization_id || tenantContext?.organizationId;
+      // Instalment accounting is deliberately narrower than the legacy annual
+      // invoice permission: an admin or the authenticated owning member only.
+      // Never use a stale tenant-context member as proof of ownership.
+      const memberId = instalmentRequest
+        ? sessionMember?.id
+        : (sessionMember?.id || tenantContext?.memberId);
+      const organizationId = instalmentRequest
+        ? sessionMember?.organization_id
+        : (sessionMember?.organization_id || tenantContext?.organizationId);
 
       let recordsBySource;
       if (requestedSource) {
         recordsBySource = {
-          [requestedSource]: await fetchInvoiceRecord(db, requestedSource, recordId, appTenantId),
+          [requestedSource]: await fetchInvoiceRecord(
+            db,
+            requestedSource,
+            recordId,
+            appTenantId,
+            { instalment: instalmentRequest },
+          ),
         };
       } else {
         // Query both ledgers for source-less record-ID requests. In addition
@@ -178,12 +359,14 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
             ORGANISATION_SOURCE,
             recordId,
             appTenantId,
+            { instalment: instalmentRequest },
           ),
           fetchInvoiceRecord(
             db,
             PERSONAL_SOURCE,
             recordId,
             appTenantId,
+            { instalment: instalmentRequest },
           ),
         ]);
         recordsBySource = {
@@ -210,6 +393,39 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
       }
 
       const record = recordsBySource[candidateSource];
+      if (instalmentRequest) {
+        const instalment = await fetchInstalmentInvoiceRow({
+          db,
+          record,
+          source: candidateSource,
+          tenantId: appTenantId,
+          query,
+        });
+        if (instalment.error) {
+          return res.status(instalment.error.status).json({ error: instalment.error.message });
+        }
+        const invoiceId = ledgerInvoiceId(instalment.row);
+        if (!invoiceId) {
+          return res.status(404).json({
+            error: 'No accounting invoice is linked to this instalment',
+          });
+        }
+        const providerName = instalment.row.accounting_provider || 'xero';
+        const provider = await getProviderByName(providerName);
+        const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
+        const inline = query.inline === 'true';
+        const invoiceNumber = ledgerInvoiceNumber(instalment.row);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Length', pdfBuffer.length);
+        const disposition = inline ? 'inline' : 'attachment';
+        res.setHeader(
+          'Content-Disposition',
+          `${disposition}; filename="membership-invoice-${invoiceNumber || recordId}.pdf"`,
+        );
+        return res.send(pdfBuffer);
+      }
+
       if (!hasInvoiceReference(record)) {
         return res.status(404).json({ error: 'Invoice not found for this membership record' });
       }

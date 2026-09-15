@@ -59,6 +59,75 @@ function mockedDb({
   return db;
 }
 
+function mockedInstalmentDb({
+  history,
+  agreement,
+  planRows = [],
+  ledgerRows = [],
+  errors = {},
+} = {}) {
+  const calls = [];
+  const db = {
+    calls,
+    from(table) {
+      const state = { table, filters: {}, limits: [] };
+      calls.push(state);
+      const chain = {
+        select() {
+          return chain;
+        },
+        eq(column, value) {
+          state.filters[column] = value;
+          return chain;
+        },
+        in(column, value) {
+          state.filters[column] = value;
+          return chain;
+        },
+        limit(value) {
+          state.limits.push(value);
+          return chain;
+        },
+        maybeSingle() {
+          if (table === 'member_membership_history') {
+            return Promise.resolve({ data: history || null, error: errors[table] || null });
+          }
+          if (table === 'membership_billing_agreements') {
+            return Promise.resolve({ data: agreement || null, error: errors[table] || null });
+          }
+          return Promise.resolve({ data: null, error: errors[table] || null });
+        },
+        then(resolve, reject) {
+          let data = [];
+          if (table === 'membership_payment_plans') {
+            data = planRows;
+          } else if (table === 'membership_instalment_invoices') {
+            data = ledgerRows.filter((row) => (
+              row.tenant_id === state.filters.tenant_id
+              && row.billing_agreement_id === state.filters.billing_agreement_id
+              && (!state.filters.external_payment_id
+                || row.external_payment_id === state.filters.external_payment_id)
+              && (!state.filters.id || row.id === state.filters.id)
+            ));
+          } else if (table === 'gocardless_payments') {
+            data = ledgerRows.filter((row) => (
+              row.tenant_id === state.filters.tenant_id
+              && state.filters.plan_id?.includes(row.plan_id)
+              && state.filters.status?.includes(row.status)
+              && (!state.filters.gocardless_payment_id
+                || row.gocardless_payment_id === state.filters.gocardless_payment_id)
+              && (!state.filters.id || row.id === state.filters.id)
+            ));
+          }
+          return Promise.resolve({ data, error: errors[table] || null }).then(resolve, reject);
+        },
+      };
+      return chain;
+    },
+  };
+  return db;
+}
+
 function endpoint({
   db,
   member = null,
@@ -460,4 +529,191 @@ test('fails on membership query and accounting provider errors', async () => {
   assert.deepEqual(providerResponse.payload, {
     error: 'Failed to fetch invoice from accounting provider',
   });
+});
+
+test('instalment selector fetches the Stripe ledger by tenant, agreement and payment reference', async () => {
+  const history = {
+    ...personalRecord,
+    id: 'stripe-history',
+    billing_agreement_id: 'stripe-agreement',
+    membership_year: '2026/2027',
+  };
+  const agreement = {
+    id: 'stripe-agreement',
+    tenant_id: 'tenant-1',
+    member_id: 'member-1',
+    organization_id: null,
+    provider: 'stripe',
+    metadata: { card: { invoicing_mode: 'per_instalment' } },
+  };
+  const db = mockedInstalmentDb({
+    history,
+    agreement,
+    ledgerRows: [{
+      id: 'stripe-row',
+      tenant_id: 'tenant-1',
+      billing_agreement_id: 'stripe-agreement',
+      external_payment_id: 'stripe-invoice-1',
+      accounting_provider: 'quickbooks',
+      accounting_invoice_id: 'qbo-inst-1',
+      accounting_invoice_number: 'QBO-INST-1',
+      accounting_sync_status: 'posted',
+    }],
+  });
+  const providerCalls = [];
+  const { handler } = endpoint({
+    db,
+    member: {
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      organization_id: null,
+      role_id: 'role-member',
+    },
+    permission: false,
+    provider: {
+      fetchInvoicePdf: async (invoiceId, tenantId) => {
+        providerCalls.push({ invoiceId, tenantId });
+        return Buffer.from('%PDF instalment');
+      },
+    },
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: {
+      recordId: 'stripe-history',
+      source: 'personal',
+      instalment: 'true',
+      paymentRef: 'stripe-invoice-1',
+      inline: 'true',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.toString(), '%PDF instalment');
+  assert.equal(res.headers['Content-Disposition'], 'inline; filename="membership-invoice-QBO-INST-1.pdf"');
+  assert.deepEqual(providerCalls, [{ invoiceId: 'qbo-inst-1', tenantId: 'tenant-1' }]);
+  const ledgerCall = db.calls.find((call) => call.table === 'membership_instalment_invoices');
+  assert.equal(ledgerCall.filters.tenant_id, 'tenant-1');
+  assert.equal(ledgerCall.filters.billing_agreement_id, 'stripe-agreement');
+  assert.equal(ledgerCall.filters.external_payment_id, 'stripe-invoice-1');
+});
+
+test('instalment selector fetches a GoCardless invoice only through an owned plan', async () => {
+  const history = {
+    ...personalRecord,
+    id: 'gc-history',
+    billing_agreement_id: 'gc-agreement',
+  };
+  const agreement = {
+    id: 'gc-agreement',
+    tenant_id: 'tenant-1',
+    member_id: 'member-1',
+    organization_id: null,
+    provider: 'gocardless',
+    metadata: { dd: { invoicing_mode: 'per_instalment' } },
+  };
+  const db = mockedInstalmentDb({
+    history,
+    agreement,
+    planRows: [{
+      id: 'gc-plan',
+      tenant_id: 'tenant-1',
+      billing_agreement_id: 'gc-agreement',
+      member_id: 'member-1',
+      organization_id: null,
+    }],
+    ledgerRows: [{
+      id: 'gc-row',
+      tenant_id: 'tenant-1',
+      plan_id: 'gc-plan',
+      gocardless_payment_id: 'gc-payment-1',
+      status: 'confirmed',
+      accounting_provider: 'xero',
+      xero_invoice_id: 'xero-inst-1',
+      xero_invoice_number: 'XERO-INST-1',
+    }],
+  });
+  const { handler } = endpoint({
+    db,
+    member: {
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      organization_id: null,
+      role_id: 'role-member',
+    },
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: {
+      recordId: 'gc-history',
+      source: 'personal',
+      instalments: 'true',
+      paymentRef: 'gc-payment-1',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.toString(), '%PDF mocked');
+  assert.equal(db.calls.find((call) => call.table === 'gocardless_payments')
+    .filters.plan_id[0], 'gc-plan');
+});
+
+test('instalment requests reject agreement/history ownership mismatches', async () => {
+  const db = mockedInstalmentDb({
+    history: {
+      ...personalRecord,
+      id: 'mismatch-history',
+      billing_agreement_id: 'wrong-agreement',
+    },
+    agreement: {
+      id: 'wrong-agreement',
+      tenant_id: 'tenant-1',
+      member_id: 'different-member',
+      organization_id: null,
+      provider: 'stripe',
+      metadata: { card: { invoicing_mode: 'per_instalment' } },
+    },
+  });
+  const { handler } = endpoint({
+    db,
+    member: {
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      organization_id: null,
+      role_id: 'role-member',
+    },
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: {
+      recordId: 'mismatch-history',
+      source: 'personal',
+      instalment: 'true',
+      instalmentId: 'stripe-row',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.match(res.payload.error, /ownership mismatch/);
+});
+
+test('instalment mode requires an explicit payment selector', async () => {
+  const db = mockedInstalmentDb({ history: personalRecord });
+  const { handler } = endpoint({ db });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: { recordId: 'personal-record', source: 'personal', instalment: 'true' },
+  }, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.error, /paymentRef or instalmentId/);
+  assert.equal(db.calls.length, 0);
 });
