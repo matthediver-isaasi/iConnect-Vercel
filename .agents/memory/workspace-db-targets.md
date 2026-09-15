@@ -31,6 +31,12 @@ The Secrets inventory is not a complete inventory of runtime-injected variables.
 
 **How to apply:** Before requesting credentials, use the existing destination-only runner or a read-only connection check that never prints connection values. Never substitute SOURCE or the generic database URL.
 
+Destination SQL TLS may require the public Supabase root CA rather than the container's default trust store.
+
+**Why:** The destination pooler has produced `SELF_SIGNED_CERT_IN_CHAIN` with ordinary verified TLS; verification succeeds with Supabase's published CA. Disabling certificate verification is unnecessary.
+
+**How to apply:** Supply the trusted provider CA while retaining certificate and hostname verification, and independently pin the REST project and SQL pooler project identity for live data runners.
+
 **Member-auth E2E is impossible in this workspace:** `getSessionMember`
 selects `member` with an embedded `organization:organization_id(tenant_id)`
 join, and the SOURCE DB's `organization` table has no `tenant_id` column —

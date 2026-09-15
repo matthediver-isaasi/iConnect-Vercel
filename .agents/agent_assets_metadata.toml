@@ -243,3 +243,17 @@ mtime_ms = 1789472937540
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8612599a-886d-4d1d-8d1a-62b7b0ad1208/d6903755-0cce-4db4-9f29-9c8bbcc33e69"
 storage_version_token = "1789473036416681"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "erJvIG7GBTc5Py4hCHhub"
+uri = "file://.local/bnms-youtube-categorisation/runs/2026-09-15T12-41-07.993Z/BNMS-classification-audit.xlsx"
+type = "table"
+title = "BNMS Resource Categorisation — Audit Report"
+description = "184 videos updated, 5 already complete; before/after recovery snapshots, classification changes, skipped rows, checksum and verified zero-write replay."
+logical_id = "82bfd6c2-683f-42de-bc20-3a7411dda8d4"
+content_hash = "sha256:81babd7829c810700cde3171b17d2225c7737e3c3d2d2526ef5f10d4da7c347b"
+size = 4701920
+mtime_ms = 1789476158717
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/82bfd6c2-683f-42de-bc20-3a7411dda8d4/c1df9365-527c-425f-8d8d-d52154f99223"
+storage_version_token = "1789476170624623"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
