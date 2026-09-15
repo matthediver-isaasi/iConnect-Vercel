@@ -625,11 +625,21 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (!stripeProcessingLease) return;
     const lease = stripeProcessingLease;
     stripeProcessingLease = null;
-    await supabase.rpc('release_form_stripe_address_mapping_processing', {
-      p_tenant_id: lease.tenantId,
-      p_submission_id: lease.submissionId,
-      p_token: lease.token,
-    }).catch(() => {});
+    try {
+      // Supabase RPC builders are thenables, not Promises with .catch().
+      const { error } = await supabase.rpc('release_form_stripe_address_mapping_processing', {
+        p_tenant_id: lease.tenantId,
+        p_submission_id: lease.submissionId,
+        p_token: lease.token,
+      });
+      if (error) {
+        console.warn('[AppProcessor] Stripe processing lease release returned a database error');
+      }
+    } catch {
+      // Cleanup must not replace the processing outcome. Avoid logging the
+      // error payload: it may contain credentials, addresses, or lease tokens.
+      console.warn('[AppProcessor] Stripe processing lease release operation failed');
+    }
   };
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
