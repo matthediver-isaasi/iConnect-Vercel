@@ -20,3 +20,9 @@ Only a wholly side-effect-free primary-output wait may yield to primary pipeline
 **Why:** Treating every incomplete batch as fatal creates a circular dependency before member creation, but allowing every failure through can duplicate partial effects. A successful address ledger alone cannot certify the rest of the submission, and a failed durable completion write must not authorize paid membership or Due Diligence readiness.
 
 **How to apply:** Cover fresh creation and partial-checkpoint retries, including absent pending flags, completion-write failures and lease cleanup. Exercise both full-card payment and monthly setup: monthly setup must retain its unpaid/pending-activation meaning.
+
+Distinguish an unresolved primary output from a primary pipeline that deliberately completed without creating an optional entity. Implicit post-primary work may proceed after settled absence; explicit endpoints needing that absent entity must fail, not wait forever.
+
+**Why:** A populated Group can accompany an intentionally blank Organisation. Requiring a nonexistent Organisation ID blocks the Group and Member indefinitely. Conversely, falsely declaring absence can permanently hide invalid Organisation data on retry.
+
+**How to apply:** Determine optional absence from the effective union of primary and top-level mappings, respecting destination precedence. Supplied non-name data or a Not listed selection without a name is invalid, not blank. Keep completion evidence server-owned.

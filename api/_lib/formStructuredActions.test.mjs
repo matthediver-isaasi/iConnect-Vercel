@@ -3531,6 +3531,51 @@ test('primary pipeline endpoints require a matching persisted primary pipeline',
   );
 });
 
+test('completed optional organization absence does not satisfy an explicit organization endpoint', async () => {
+  const fixture = customResolverFixture();
+  fixture.form.entity_pipelines = {
+    members: [{ id: 'primary-member', isPrimary: true }],
+    organisations: [{ id: 'primary-organization', isPrimary: true }],
+  };
+  fixture.form.structured_actions.actions.push({
+    id: 'link-department-optional-organization',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    operation: 'link_relationship',
+    relationship_definition_id: fixture.definition.id,
+    source_endpoint: {
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+      source: { type: 'action_output', action_id: 'resolve-department' },
+    },
+    target_endpoint: {
+      kind: 'organization',
+      source: { type: 'primary_pipeline_output' },
+    },
+  });
+
+  const result = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+    primaryRecords: { memberId: 'member-created' },
+    completedPrimaryKinds: ['organization'],
+  });
+  assert.equal(result.success, false, JSON.stringify(result));
+  assert.equal(result.failed_count, 2);
+  assert.ok(result.outcomes
+    .filter(outcome => outcome.action_id === 'link-department-optional-organization')
+    .every(outcome => outcome.code === 'PRIMARY_PIPELINE_OUTPUT_ABSENT'));
+  assert.equal(
+    fixture.store.custom_object_relationship.some(
+      edge => edge.relationship_definition_id === fixture.definition.id
+        && edge.target_record_id === 'organization-created',
+    ),
+    false,
+  );
+});
+
 test('trusted non-admin processing resolves selected and Not-listed Custom Object records canonically', async () => {
   for (const notListedOperation of ['create', 'upsert']) {
     const fixture = customResolverFixture({ notListedOperation });

@@ -1594,6 +1594,226 @@ test('blank not-listed companion text returns the real MISSING_ORG_NAME validati
   assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
 });
 
+test('optional organization no-op is fail-closed for required/static/unknown/populated and mixed mappings', async () => {
+  const cases = [
+    {
+      label: 'required blank',
+      fields: [{ id: 'org-name', type: 'text', required: true }],
+      form_values: { 'org-name': '' },
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      statusCode: 400,
+    },
+    {
+      label: 'static blank',
+      fields: [],
+      form_values: {},
+      mappings: [{
+        source_type: 'static',
+        static_value: '',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      statusCode: 400,
+    },
+    {
+      label: 'unknown source',
+      fields: [],
+      form_values: {},
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'missing-org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      statusCode: 400,
+    },
+    {
+      label: 'populated optional source',
+      fields: [{ id: 'org-name', type: 'text', required: false }],
+      form_values: { 'org-name': 'Supplied Organisation' },
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      statusCode: 200,
+      insertedName: 'Supplied Organisation',
+    },
+    {
+      label: 'blank identity with populated other organization field',
+      fields: [
+        { id: 'org-name', type: 'text', required: false },
+        { id: 'org-address', type: 'text', required: false },
+      ],
+      form_values: {
+        'org-name': '',
+        'org-address': '1 Meaningful Road',
+      },
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }, {
+        source_type: 'field',
+        source_field_id: 'org-address',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'address',
+      }],
+      statusCode: 400,
+    },
+    {
+      label: 'all optional sources blank',
+      fields: [
+        { id: 'org-name', type: 'text', required: false },
+        { id: 'org-address', type: 'text', required: false },
+      ],
+      form_values: { 'org-name': '', 'org-address': '' },
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }, {
+        source_type: 'field',
+        source_field_id: 'org-address',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'address',
+      }],
+      statusCode: 200,
+    },
+  ];
+
+  for (const scenario of cases) {
+    const result = await invokeProcessor({
+      fields: scenario.fields,
+      form_values: scenario.form_values,
+      entity_pipelines: {
+        organisations: [{
+          id: `org-primary-${scenario.label.replaceAll(' ', '-')}`,
+          isPrimary: true,
+          mappings: scenario.mappings,
+        }],
+      },
+    });
+    assert.equal(result.response.statusCode, scenario.statusCode, scenario.label);
+    if (scenario.statusCode === 400) {
+      assert.equal(result.response.body.code, 'MISSING_ORG_NAME', scenario.label);
+      assert.equal(
+        result.inserts.some(entry => entry.table === 'organization'),
+        false,
+        scenario.label,
+      );
+    } else if (scenario.insertedName) {
+      assert.equal(
+        result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+        scenario.insertedName,
+      );
+    } else {
+      assert.equal(
+        result.inserts.some(entry => entry.table === 'organization'),
+        false,
+        scenario.label,
+      );
+    }
+  }
+});
+
+test('optional organization absence checks the effective primary and top-level mapping union', async () => {
+  const cases = [
+    {
+      label: 'primary name blank with populated top-level address',
+      pipelineMappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      topLevelMappings: [{
+        source_type: 'field',
+        source_field_id: 'org-address',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'address',
+      }],
+      form_values: { 'org-name': '', 'org-address': '1 Meaningful Road' },
+    },
+    {
+      label: 'primary address populated with blank top-level name',
+      pipelineMappings: [{
+        source_type: 'field',
+        source_field_id: 'org-address',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'address',
+      }],
+      topLevelMappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      form_values: { 'org-name': '', 'org-address': '1 Meaningful Road' },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const result = await invokeProcessor({
+      fields: [
+        { id: 'org-name', type: 'text', required: false },
+        { id: 'org-address', type: 'text', required: false },
+      ],
+      form_values: scenario.form_values,
+      field_mappings: scenario.topLevelMappings,
+      entity_pipelines: {
+        organisations: [{
+          id: `org-primary-${scenario.label.replaceAll(' ', '-')}`,
+          isPrimary: true,
+          mappings: scenario.pipelineMappings,
+        }],
+      },
+    });
+    assert.equal(result.response.statusCode, 400, scenario.label);
+    assert.equal(result.response.body.code, 'MISSING_ORG_NAME', scenario.label);
+    assert.equal(
+      result.inserts.some(entry => entry.table === 'organization'),
+      false,
+      scenario.label,
+    );
+    assert.equal(
+      result.submission.payment_meta?.structured_actions_result?.completed_primary_kinds
+        ?.includes('organization') || false,
+      false,
+      `${scenario.label} must not persist organization settlement`,
+    );
+    assert.equal(
+      result.updates
+        .flatMap(entry => entry.table === 'form_submission'
+          ? entry.payload.processing_notes || []
+          : [])
+        .some(note => note.kind === 'entity_pipeline_skipped_optional_identity'),
+      false,
+      `${scenario.label} must not record an optional identity skip`,
+    );
+  }
+});
+
 test('a hidden organization identity mapping preserves legacy processing when Ignore if hidden is off', async () => {
   const payload = publicPayload();
   payload.fields[0].starts_hidden = true;

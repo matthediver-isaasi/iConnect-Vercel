@@ -841,8 +841,8 @@ function primaryPipelineFor(pipelines) {
   return pipelines.find(pipeline => pipeline?.isPrimary || pipeline?.is_primary) || pipelines[0];
 }
 
-function primaryPipelineEndpointKinds(contract) {
-  return new Set(contract.actions.flatMap(action => {
+function primaryPipelineEndpointKinds(contract, form = null) {
+  const kinds = new Set(contract.actions.flatMap(action => {
     const relationshipKinds = isRelationshipAction(action)
       ? Object.values(relationshipEndpoints(action))
         .filter(endpoint => endpointInput(endpoint).type === 'primary_pipeline_output')
@@ -855,10 +855,21 @@ function primaryPipelineEndpointKinds(contract) {
       .map(input => input.kind);
     return [...relationshipKinds, ...labelKinds];
   }));
+  // Organisation Group actions are evaluated after the configured primary
+  // entity plans. This implicit ordering is deliberately narrow: infer a
+  // wait only for primary pipelines that actually exist in the persisted
+  // form, rather than inventing a dependency for a missing entity plan.
+  if (contract.actions.some(action =>
+    entityName(action) === 'organization_group'
+    && ['create', 'upsert'].includes(operationName(action)))) {
+    if (primaryPipelineFor(form?.entity_pipelines?.members)) kinds.add('member');
+    if (primaryPipelineFor(form?.entity_pipelines?.organisations)) kinds.add('organization');
+  }
+  return kinds;
 }
 
 function assertPrimaryPipelineEndpointsConfigured(contract, form) {
-  const required = primaryPipelineEndpointKinds(contract);
+  const required = primaryPipelineEndpointKinds(contract, form);
   const missing = [...required].filter(kind => {
     const pipelines = kind === 'member'
       ? form?.entity_pipelines?.members
@@ -1893,6 +1904,11 @@ function organizationGroupRecordId(invocation, actionOutputs) {
 }
 
 function assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecords = {}) {
+  const completedPrimaryKinds = new Set(
+    Array.isArray(primaryRecords.completedPrimaryKinds)
+      ? primaryRecords.completedPrimaryKinds
+      : [],
+  );
   const dependencies = isRelationshipAction(invocation.action)
     ? Object.values(relationshipEndpoints(invocation.action)).map(endpointInput)
     : [
@@ -1915,9 +1931,16 @@ function assertInvocationDependenciesComplete(invocation, actionOutputs, primary
           : null;
       if (!recordId) {
         const error = new StructuredActionContractError(
-          `Action is waiting for the primary ${kind} pipeline result`,
+          completedPrimaryKinds.has(kind)
+            ? `Action requires a primary ${kind} pipeline record, but that optional pipeline settled without one`
+            : `Action is waiting for the primary ${kind} pipeline result`,
         );
-        error.code = 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
+        // A settled optional pipeline is a terminal absence, not a retryable
+        // dependency wait.  Keep a real action dependency fail-closed rather
+        // than silently allowing it to proceed without its endpoint.
+        error.code = completedPrimaryKinds.has(kind)
+          ? 'PRIMARY_PIPELINE_OUTPUT_ABSENT'
+          : 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
         throw error;
       }
       continue;
@@ -2273,6 +2296,7 @@ export async function processPersistedStructuredActions({
   tenantId,
   authorization = {},
   primaryRecords = {},
+  completedPrimaryKinds = [],
 }) {
   if (!formId || !submissionId) throw new StructuredActionContractError('form_id and submission_id are required');
   const [{ data: form, error: formError }, { data: submission, error: submissionError }] = await Promise.all([
@@ -2413,8 +2437,26 @@ export async function processPersistedStructuredActions({
     .filter(n => n?.kind === 'structured_action' && n?.status === 'completed' && n?.invocation_key)
     .map(n => [n.invocation_key, n]));
   const outcomes = [];
+  // `completedPrimaryKinds` distinguishes an output that is still being
+  // produced from an optional primary pipeline that was intentionally
+  // evaluated and settled without creating a record.  The latter must not
+  // keep unrelated actions in a retry loop, while a direct dependency still
+  // fails closed in assertInvocationDependenciesComplete.
+  const completedPrimaryKindSet = new Set(
+    [
+      ...(Array.isArray(primaryRecords.completedPrimaryKinds)
+        ? primaryRecords.completedPrimaryKinds
+        : []),
+      ...(Array.isArray(completedPrimaryKinds) ? completedPrimaryKinds : []),
+    ],
+  );
+  const primaryRecordsForInvocation = {
+    ...primaryRecords,
+    completedPrimaryKinds: [...completedPrimaryKindSet],
+  };
   const missingPrimaryKinds = [...requiredPrimaryKinds].filter(kind => (
-    kind === 'member' ? !primaryRecords.memberId : !primaryRecords.organizationId
+    (kind === 'member' ? !primaryRecords.memberId : !primaryRecords.organizationId)
+      && !completedPrimaryKindSet.has(kind)
   ));
   const actionOutputs = new Map();
   for (const invocation of invocations.filter(item => isMultiRecordReferenceAction(item.action))) {
@@ -2430,7 +2472,7 @@ export async function processPersistedStructuredActions({
   }
   for (const invocation of invocations) {
     invocation.contractActions = contract.actions;
-    invocation.primaryRecords = primaryRecords;
+    invocation.primaryRecords = primaryRecordsForInvocation;
     if (missingPrimaryKinds.length) {
       const blocked = {
         invocation_key: invocation.invocationKey,
@@ -2480,7 +2522,7 @@ export async function processPersistedStructuredActions({
       continue;
     }
     try {
-      assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecords);
+      assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecordsForInvocation);
     } catch (error) {
       const waitingForPrimary = error?.code === 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
       const blocked = {
@@ -2552,7 +2594,7 @@ export async function processPersistedStructuredActions({
           relationshipDefinition,
           actionOutputs,
           authorization,
-          primaryRecords,
+          primaryRecordsForInvocation,
         )
         : await executeInvocation(
           db,
@@ -2616,6 +2658,7 @@ export async function processPersistedStructuredActions({
     failed_count: failed.length,
     incomplete_count: incomplete.length,
     skipped_count: skipped.length,
+    completed_primary_kinds: [...completedPrimaryKindSet],
     created_member_id: firstMember?.record_id || null,
     created_organization_id: firstOrganization?.record_id || null,
     organization_id: firstOrganization?.record_id || null,

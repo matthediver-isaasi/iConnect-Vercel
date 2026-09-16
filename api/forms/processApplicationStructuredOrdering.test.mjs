@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import handler from './process-application.js';
 import { finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
+import { finalizeFormMonthlyDirectDebit } from '../_lib/formMonthlyDirectDebitFinalize.js';
 import {
   isCleanPrimaryOutputDependencyWait,
 } from './process-application.js';
@@ -262,6 +263,8 @@ async function invokeOrderingProcessor(payload, {
   persistedCreatedMemberId = null,
   entityProcessingCompletedAt = null,
   paymentMeta = {},
+  paymentProvider = 'stripe',
+  paymentStatus = 'paid',
   existingMember = {
     id: MEMBER_ID,
     tenant_id: TENANT_ID,
@@ -300,8 +303,8 @@ async function invokeOrderingProcessor(payload, {
     created_organization_id: null,
     entity_processing_completed_at: entityProcessingCompletedAt,
     payment_reference: 'pi-ordering-test',
-    payment_provider: 'stripe',
-    payment_status: 'paid',
+    payment_provider: paymentProvider,
+    payment_status: paymentStatus,
     payment_meta: {
       verified_submitter_member_id: null,
       verified_admin_access: true,
@@ -437,7 +440,20 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
   const originalFetch = global.fetch;
   const originalAppUrl = process.env.APP_URL;
   const originalSecret = process.env.SESSION_SECRET;
-  const finalizeThroughSharedProcessor = async (groupName) => {
+  const finalizeThroughSharedProcessor = async (groupName, {
+    paymentProvider = 'stripe',
+    paymentStatus = 'paid',
+    existingMember = {
+      id: MEMBER_ID,
+      tenant_id: TENANT_ID,
+      email: 'ordering@example.test',
+      organization_id: null,
+      organization_group_id: null,
+      role_id: null,
+    },
+    monthly = false,
+    runPaidOneOffRetry = false,
+  } = {}) => {
     const payload = relationshipPayload({
       structuredActions: optionalOrganizationGroupAction(),
     });
@@ -449,7 +465,12 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       ...payload.form_values,
       'optional-group-name': groupName,
     };
-    const context = await invokeOrderingProcessor(payload, { invokeHandler: false });
+    const context = await invokeOrderingProcessor(payload, {
+      invokeHandler: false,
+      existingMember,
+      paymentProvider,
+      paymentStatus,
+    });
     const rpcNames = [];
     const originalRpc = context.client.rpc.bind(context.client);
     context.client.rpc = async (name, args) => {
@@ -457,6 +478,9 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       if (name === 'mark_one_off_form_due_diligence_ready') return { data: true, error: null };
       if (name === 'claim_form_due_diligence_initialization') {
         return { data: { claimed: false, code: 'NOT_ELIGIBLE' }, error: null };
+      }
+      if (name === 'bind_form_monthly_direct_debit_membership') {
+        return { data: { ok: true, history_id: 'monthly-history' }, error: null };
       }
       return originalRpc(name, args);
     };
@@ -490,13 +514,53 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       };
     };
     try {
-      const result = await finalizeFormSubmission({
-        supabase: context.client,
-        submission: context.rows.form_submission[0],
-        form: context.rows.form[0],
-        baseUrl: '',
-      });
-      return { ...context, result, rpcNames };
+      const result = monthly
+        ? await finalizeFormMonthlyDirectDebit({
+          db: context.client,
+          agreement: {
+            id: 'ordering-monthly-agreement',
+            tenant_id: TENANT_ID,
+            provider: 'gocardless',
+            agreement_type: 'member',
+            metadata: {
+              form_submission_id: context.rows.form_submission[0].id,
+              dd: { kind: 'monthly_direct_debit', membership_year: '2026/27' },
+            },
+          },
+          baseUrl: '',
+        })
+        : await finalizeFormSubmission({
+          supabase: context.client,
+          submission: context.rows.form_submission[0],
+          form: context.rows.form[0],
+          baseUrl: '',
+        });
+      let paidOneOffResult = null;
+      let paidOneOffRetry = null;
+      if (runPaidOneOffRetry) {
+        const paidSubmission = context.rows.form_submission[0];
+        paidSubmission.payment_status = 'paid';
+        paidSubmission.payment_provider = 'stripe';
+        paidOneOffResult = await finalizeFormSubmission({
+          supabase: context.client,
+          submission: paidSubmission,
+          form: context.rows.form[0],
+          baseUrl: '',
+        });
+        paidOneOffRetry = await finalizeFormSubmission({
+          supabase: context.client,
+          submission: context.rows.form_submission[0],
+          form: context.rows.form[0],
+          baseUrl: '',
+        });
+      }
+      return {
+        ...context,
+        result,
+        paidOneOffResult,
+        paidOneOffRetry,
+        rpcNames,
+      };
     } finally {
       global.fetch = originalFetch;
       if (originalAppUrl === undefined) delete process.env.APP_URL;
@@ -531,6 +595,151 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       ['Configured group'],
     );
     assert.equal(configured.rows.form_submission[0].payment_meta.structured_actions_pending, false);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = originalAppUrl;
+    if (originalSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = originalSecret;
+  }
+});
+
+test('monthly setup waits for optional organisation settlement, creates the member/group, and one-off paid retry stays idempotent', async () => {
+  invokeOrderingProcessor.ledger = new Map();
+  const payload = relationshipPayload({
+    structuredActions: optionalOrganizationGroupAction(),
+  });
+  payload.fields = [
+    ...payload.fields,
+    { id: 'optional-org-name', type: 'text', required: false },
+    { id: 'optional-group-name', type: 'text', required: false },
+  ];
+  payload.form_values = {
+    ...payload.form_values,
+    organization: null,
+    'optional-org-name': '',
+    'optional-group-name': 'Configured group',
+  };
+  payload.organization_entity_action = 'upsert';
+  payload.entity_pipelines = {
+    members: payload.entity_pipelines.members,
+    organisations: [{
+      id: 'primary-organization',
+      isPrimary: true,
+      mappings: [{
+        id: 'optional-org-name-map',
+        source_type: 'field',
+        source_field_id: 'optional-org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+    }],
+  };
+
+  const originalFetch = global.fetch;
+  const originalAppUrl = process.env.APP_URL;
+  const originalSecret = process.env.SESSION_SECRET;
+  const context = await invokeOrderingProcessor(payload, {
+    invokeHandler: false,
+    existingMember: null,
+    paymentProvider: 'gocardless_monthly_dd',
+    paymentStatus: 'setup_complete',
+  });
+  const rpcNames = [];
+  const originalRpc = context.client.rpc.bind(context.client);
+  context.client.rpc = async (name, args) => {
+    rpcNames.push(name);
+    if (name === 'bind_form_monthly_direct_debit_membership') {
+      return { data: { ok: true, history_id: 'monthly-history' }, error: null };
+    }
+    if (name === 'claim_form_due_diligence_initialization') {
+      return { data: { claimed: false, code: 'NOT_ELIGIBLE' }, error: null };
+    }
+    if (name === 'mark_one_off_form_due_diligence_ready') return { data: true, error: null };
+    return originalRpc(name, args);
+  };
+  process.env.APP_URL = 'https://structured-ordering.test';
+  process.env.SESSION_SECRET = 'structured-ordering-test-secret';
+  global.fetch = async (url, options) => {
+    if (!String(url).endsWith('/api/forms/process-application')) {
+      return {
+        ok: false,
+        status: 404,
+        async json() { return {}; },
+        async text() { return ''; },
+      };
+    }
+    const request = {
+      method: options.method,
+      headers: options.headers,
+      body: JSON.parse(options.body),
+    };
+    const response = { statusCode: 200, body: null };
+    await handler(request, {
+      status(code) { response.statusCode = code; return this; },
+      json(body) { response.body = body; return body; },
+    }, { supabase: context.client });
+    const serialized = JSON.stringify(response.body);
+    return {
+      ok: response.statusCode >= 200 && response.statusCode < 300,
+      status: response.statusCode,
+      async json() { return JSON.parse(serialized); },
+      async text() { return serialized; },
+    };
+  };
+
+  try {
+    const monthly = await finalizeFormMonthlyDirectDebit({
+      db: context.client,
+      agreement: {
+        id: 'ordering-monthly-agreement',
+        tenant_id: TENANT_ID,
+        provider: 'gocardless',
+        agreement_type: 'member',
+        metadata: {
+          form_submission_id: context.rows.form_submission[0].id,
+          dd: { kind: 'monthly_direct_debit', membership_year: '2026/27' },
+        },
+      },
+      baseUrl: '',
+    });
+    assert.equal(monthly.handled, true, JSON.stringify(monthly));
+    assert.equal(context.rows.form_submission[0].payment_status, 'setup_complete');
+    assert.equal(context.rows.form_submission[0].payment_meta.monthly_dd_state.status, 'done');
+    assert.deepEqual(
+      context.rows.form_submission[0].payment_meta.structured_actions_result.completed_primary_kinds,
+      ['organization'],
+    );
+    assert.equal(rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
+    assert.equal(context.rows.member.length, 1);
+    assert.equal(context.rows.organization_group.length, 1);
+    assert.equal(context.rows.organization.length, 1);
+    assert.equal(context.inserts.some(entry => entry.table === 'organization'), false);
+
+    context.rows.form_submission[0].payment_status = 'paid';
+    context.rows.form_submission[0].payment_provider = 'stripe';
+    const paid = await finalizeFormSubmission({
+      supabase: context.client,
+      submission: context.rows.form_submission[0],
+      form: context.rows.form[0],
+      baseUrl: '',
+    });
+    assert.equal(paid.finalized, true);
+    assert.equal(rpcNames.includes('mark_one_off_form_due_diligence_ready'), true);
+    assert.equal(context.rows.member.length, 1);
+    assert.equal(context.rows.organization_group.length, 1);
+
+    const retry = await finalizeFormSubmission({
+      supabase: context.client,
+      submission: context.rows.form_submission[0],
+      form: context.rows.form[0],
+      baseUrl: '',
+    });
+    assert.equal(retry.alreadyFinalized, true);
+    assert.equal(context.rows.member.length, 1);
+    assert.equal(context.rows.organization_group.length, 1);
+    assert.equal(context.rows.organization.length, 1);
   } finally {
     global.fetch = originalFetch;
     if (originalAppUrl === undefined) delete process.env.APP_URL;

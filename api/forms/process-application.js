@@ -1111,6 +1111,11 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       persistedSubmission.payment_meta?.structured_actions_pending === true
       || persistedStructuredActionResult?.success === false
     );
+    const persistedCompletedPrimaryKinds = Array.isArray(
+      persistedStructuredActionResult?.completed_primary_kinds,
+    )
+      ? persistedStructuredActionResult.completed_primary_kinds
+      : [];
     let persistedEntityCreations = { member: new Set(), organization: new Set() };
     if (hasStripeAddressMappingWork) {
       persistedEntityCreations = await loadPersistedFormEntityCreations({
@@ -1356,6 +1361,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // copies are deliberately ignored. Legacy processing below remains intact.
     let structuredActionResult = null;
     let structuredActionsWaitingForPrimary = false;
+    const completedPrimaryKinds = new Set();
     if (form_id && submission_id && effectiveEntityTenantId) {
       try {
         const structuredResult = await processPersistedStructuredActions({
@@ -1368,6 +1374,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             memberId: persistedSubmission.created_member_id || null,
             organizationId: persistedSubmission.created_organization_id || null,
           },
+          completedPrimaryKinds: persistedCompletedPrimaryKinds,
         });
         structuredActionResult = structuredResult;
         for (const outcome of structuredResult?.outcomes || []) {
@@ -1818,6 +1825,103 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         return selectionLostIdentityOnlyToHiddenMapping(primarySelection, entity);
       }
       return selectionLostIdentityOnlyToHiddenMapping(topLevelMappingSelection, entity);
+    };
+    // A modern Organisation pipeline is inferred as upsert whenever it is
+    // configured, even when the respondent intentionally leaves its optional
+    // identity field blank. Only treat that as a settled no-op when every
+    // configured Organisation mapping is a field mapping from an existing,
+    // optional source and every visible value is blank. A populated
+    // companion/custom mapping, static value, required source, or unknown
+    // source retains the normal missing-name failure.
+    const effectiveOrganizationMappingSelection = ({
+      primarySelection,
+      topLevelSelection,
+    } = {}) => {
+      const primaryIncludedMappings = primarySelection
+        ? coalesceExplicitFallbackMappings(
+          primarySelection.includedMappings || [],
+          form_values,
+          hiddenSubmissionFieldIds,
+        )
+        : [];
+      const primaryDestinationKeys = new Set(
+        [
+          ...(primarySelection?.includedMappings || []),
+          ...(primarySelection?.ignoredMappings || []),
+        ]
+          .filter(mapping => (
+            (primarySelection?.targetEntity || mapping?.target_entity) === 'organization'
+          ))
+          .map(mapping => [
+            mapping?.target_type || 'core',
+            resolveOrganizationCoreField(mapping?.target_field || mapping?.target_field_id),
+          ].join(':')),
+      );
+      const topLevelIncludedMappings = topLevelSelection
+        ? coalesceExplicitFallbackMappings(
+          topLevelSelection.includedMappings || [],
+          form_values,
+          hiddenSubmissionFieldIds,
+        )
+        : [];
+      const topLevelEffectiveMappings = topLevelIncludedMappings.filter(mapping => {
+        if ((topLevelSelection?.targetEntity || mapping?.target_entity) !== 'organization') {
+          return false;
+        }
+        const destinationKey = [
+          mapping?.target_type || 'core',
+          resolveOrganizationCoreField(mapping?.target_field || mapping?.target_field_id),
+        ].join(':');
+        return !primaryDestinationKeys.has(destinationKey);
+      });
+      return {
+        includedMappings: [...primaryIncludedMappings, ...topLevelEffectiveMappings],
+        targetEntity: 'organization',
+        source: 'effective_organization_mappings',
+      };
+    };
+    const optionalOrganizationPipelineHasNoInput = (selection) => {
+      if (!selection) return false;
+      const selectedMappings = (selection.includedMappings || []).filter(mapping => (
+        (selection.targetEntity || mapping?.target_entity) === 'organization'
+      ));
+      if (selectedMappings.length === 0
+        || !selectedMappings.some(mapping =>
+          isIdentityMappingFor(mapping, 'organization', selection.targetEntity))) {
+        return false;
+      }
+      const isBlank = value => value == null
+        || (typeof value === 'string' ? value.trim() === '' : value === '')
+        || (Array.isArray(value) && value.length === 0);
+      const isRequired = field => {
+        const flags = [field?.required, field?.is_required]
+          .filter(value => value !== undefined && value !== null);
+        const conditionalFlags = [
+          field?.conditional_required,
+          field?.required_if,
+          field?.required_when,
+          field?.required_conditions,
+          field?.required_rules,
+        ].filter(value => value !== undefined && value !== null);
+        return flags.some(value => value !== false) || conditionalFlags.length > 0;
+      };
+      for (const mapping of selectedMappings) {
+        if (mapping?.source_type && mapping.source_type !== 'field') return false;
+        if (mapping?.transformation === 'current_date') return false;
+        if (!mapping?.source_field_id) return false;
+        const sourceField = fieldsById.get(String(mapping.source_field_id));
+        if (!sourceField
+          || isRequired(sourceField)
+          || hiddenSubmissionFieldIds.has(String(mapping.source_field_id))) {
+          return false;
+        }
+        let value = extractMappingSourceComponent(
+          mapping,
+          form_values[mapping.source_field_id],
+        );
+        if (!isBlank(value)) return false;
+      }
+      return true;
     };
     
     if (memberPipelines.length > 0) {
@@ -2811,6 +2915,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         } else if (orgAction === 'create' || orgAction === 'upsert') {
           organizationCreateAttempt: {
           // Create new organization - require name
+          if (typeof orgData.name === 'string' && orgData.name.trim() === '') {
+            orgData.name = null;
+          }
           if (!orgData.name) {
             if (primaryIdentityLostOnlyToHiddenMapping(primaryOrgMappingSelection, 'organization')) {
               console.log('[AppProcessor] Organisation pipeline intentionally skipped because its opted-in hidden name mapping was ignored.');
@@ -2821,6 +2928,24 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
                 target_entity: 'organization',
                 pipeline_id: primaryOrgMappingSelection?.pipelineId || null,
                 message: 'Organisation create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+              break organizationCreateAttempt;
+            }
+            const optionalOrganizationSelection = effectiveOrganizationMappingSelection({
+              primarySelection: primaryOrgMappingSelection,
+              topLevelSelection: topLevelMappingSelection,
+            });
+            if (optionalOrganizationPipelineHasNoInput(optionalOrganizationSelection)) {
+              completedPrimaryKinds.add('organization');
+              console.log('[AppProcessor] Organisation create/upsert intentionally skipped because all configured organization inputs were blank optional field mappings.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_optional_identity',
+                level: 'info',
+                stage: 'organization_create',
+                target_entity: 'organization',
+                pipeline_id: primaryOrgMappingSelection?.pipelineId || null,
+                reason: 'optional_source_unavailable',
+                message: 'Organisation create/upsert intentionally skipped because its optional mapped inputs were unanswered.',
               });
               break organizationCreateAttempt;
             }
@@ -4579,6 +4704,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             memberId: primaryMemberId,
             organizationId: primaryOrganizationId,
           },
+          completedPrimaryKinds: [...completedPrimaryKinds],
         });
         structuredActionResult = postPipelineStructuredResult;
         for (const outcome of postPipelineStructuredResult?.outcomes || []) {
