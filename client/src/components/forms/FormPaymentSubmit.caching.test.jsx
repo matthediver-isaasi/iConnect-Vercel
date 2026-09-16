@@ -47,6 +47,11 @@ const field = () => ({
   payment_currency: 'GBP',
 });
 
+const directDebitField = () => ({
+  ...field(),
+  payment_providers: ['gocardless'],
+});
+
 const membershipForm = {
   id: 'membership-form',
   fields: [],
@@ -239,6 +244,100 @@ test('inline Stripe completion stores the verified paid receipt for refresh', as
     container.remove();
     window.Stripe = originalStripe;
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('real Drop-in success callback confirms setup_complete and adopts application completion', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/inline-dd');
+  const originalDropin = window.GoCardlessDropin;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  let resolveComplete;
+  const complete = new Promise((resolve) => { resolveComplete = resolve; });
+  window.GoCardlessDropin = {
+    create: (options) => ({
+      open: () => options.onSuccess({ id: 'billing-request' }, { id: 'flow' }),
+      exit: () => {},
+    }),
+  };
+  globalThis.fetch = async (_url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    calls.push(body?.action);
+    if (body?.action === 'create') {
+      return {
+        ok: true,
+        json: async () => ({
+          submissionId: 'inline-dd-submission',
+          flowId: 'flow',
+          environment: 'sandbox',
+          authorisationUrl: 'https://pay.example/flow',
+        }),
+      };
+    }
+    if (body?.action === 'confirm') {
+      return {
+        ok: true,
+        json: async () => ({
+          provider: 'gocardless',
+          status: 'setup_complete',
+          paymentSucceeded: false,
+        }),
+      };
+    }
+    throw new Error(`unexpected payment request: ${body?.action}`);
+  };
+
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 60_000, gcTime: 300_000 } },
+  });
+  client.setQueryData(
+    ['form-payment-providers', 'membership'],
+    [{ id: 'gocardless', configured: true }],
+  );
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      React.createElement(QueryClientProvider, { client },
+        React.createElement(FormPaymentSubmit, {
+          field: directDebitField(),
+          formValues: { price: '10' },
+          buildPayload: async () => ({
+            form_id: 'inline-dd-form',
+            submission_data: { price: '10' },
+          }),
+          membershipQuote: {
+            matched: true,
+            quote: {
+              required: true,
+              amount: 10,
+              currency: 'GBP',
+              membership: { direct_debit_allowed: true },
+            },
+          },
+          onSetupComplete: (submissionId) => resolveComplete(submissionId),
+        })),
+    ));
+    const providerButton = container.querySelector('[data-testid="button-form-payment-gocardless-payment-1"]');
+    assert.ok(providerButton);
+    await act(async () => {
+      providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    assert.equal(await Promise.race([
+      complete,
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 50)),
+    ]), 'inline-dd-submission');
+    assert.deepEqual(calls, ['create', 'confirm']);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    container.remove();
+    globalThis.fetch = originalFetch;
+    if (originalDropin === undefined) delete window.GoCardlessDropin;
+    else window.GoCardlessDropin = originalDropin;
   }
 });
 

@@ -23,10 +23,15 @@ const DEFAULT_PAYMENT_RETURN_STATE = {
   active: false,
   status: null,
   provider: null,
+  directDebitCompleted: false,
   error: null,
   canRecheck: false,
   continuePath: null,
 };
+
+function isCompletedDirectDebit(provider, status) {
+  return provider === 'gocardless' && status === 'setup_complete';
+}
 
 /**
  * Read the return receipt before the first render. This is deliberately kept
@@ -85,6 +90,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'paid',
       provider: stored.provider || null,
+      directDebitCompleted: false,
       error: null,
       canRecheck: false,
       continuePath: stored.continuePath || null,
@@ -94,6 +100,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'cancelled',
       provider: stored?.provider || null,
+      directDebitCompleted: false,
       error: null,
       canRecheck: false,
       continuePath: stored?.continuePath || null,
@@ -101,8 +108,9 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
   } else if (decision.kind === 'failed') {
     state = {
       active: true,
-      status: 'cancelled',
+      status: 'failed',
       provider: stored?.provider || null,
+      directDebitCompleted: false,
       error: 'Payment was not completed. Nothing has been confirmed as charged.',
       canRecheck: false,
       continuePath: stored?.continuePath || null,
@@ -112,6 +120,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'pending',
       provider: null,
+      directDebitCompleted: false,
       error: null,
       canRecheck: false,
       continuePath: null,
@@ -121,8 +130,14 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: visibleStatus || 'confirming',
       provider: stored?.provider || decision.provider || null,
+      directDebitCompleted: isCompletedDirectDebit(
+        stored?.provider || decision.provider || null,
+        visibleStatus,
+      ),
       error: null,
-      canRecheck: !!visibleStatus && visibleStatus !== 'paid',
+      canRecheck: !!visibleStatus
+        && visibleStatus !== 'paid'
+        && !isCompletedDirectDebit(stored?.provider || decision.provider || null, visibleStatus),
       continuePath: stored?.continuePath || null,
     };
   }
@@ -160,7 +175,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
  *
  * Returns { active, status, error, dismiss }:
  *  - active: render the status screen instead of the form
- *  - status: 'confirming' | 'paid' | 'pending' | 'cancelled' | 'error'
+ *  - status: 'confirming' | 'paid' | 'pending' | 'cancelled' | 'failed' | 'error'
  *  - dismiss(): return to the form (used from the cancelled/error screens)
  */
 export function useFormPaymentReturn() {
@@ -209,6 +224,7 @@ export function useFormPaymentReturn() {
       if (!isCurrent()) return;
       const provider = out.provider || null;
       const terminal = out.status === 'paid';
+      const directDebitCompleted = isCompletedDirectDebit(provider, out.status);
       try {
         savePaymentSubmissionContext({
           submissionId: context.submissionId,
@@ -231,8 +247,9 @@ export function useFormPaymentReturn() {
         active: true,
         status: out.status,
         provider,
+        directDebitCompleted,
         error: out.error || null,
-        canRecheck: !terminal,
+        canRecheck: !terminal && !directDebitCompleted,
         continuePath: context.continuePath || null,
       });
 
@@ -282,6 +299,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'paid',
         provider: stored?.provider || null,
+        directDebitCompleted: false,
         error: null,
         canRecheck: false,
         continuePath: stored?.continuePath || null,
@@ -308,6 +326,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'cancelled',
         provider: stored?.provider || null,
+        directDebitCompleted: false,
         error: null,
         canRecheck: false,
         continuePath: stored?.continuePath || null,
@@ -322,8 +341,9 @@ export function useFormPaymentReturn() {
       try { clearPaymentSubmissionContext(); } catch { /* ignore */ }
       updateState({
         active: true,
-        status: 'cancelled',
+        status: 'failed',
         provider: stored?.provider || null,
+        directDebitCompleted: false,
         error: 'Payment was not completed. Nothing has been confirmed as charged.',
         canRecheck: false,
         continuePath: stored?.continuePath || null,
@@ -341,6 +361,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'pending',
         provider: null,
+        directDebitCompleted: false,
         error: null,
         canRecheck: false,
         continuePath: null,
@@ -381,6 +402,31 @@ export function useFormPaymentReturn() {
     };
   }, [runConfirm, updateState]);
 
+  // Inline payment flows have already called the same server confirmation
+  // helper before they reach this callback. Adopt that verified result into
+  // the page-level screen so inline and hosted completions have identical
+  // copy, continuation, scrolling, and iframe behaviour.
+  const adoptCompletion = useCallback(({ submissionId, provider = null } = {}) => {
+    if (!submissionId || !isCompletedDirectDebit(provider, 'setup_complete')) return;
+    contextRef.current = {
+      submissionId,
+      paymentIntentId: null,
+      provider,
+      attempt: 0,
+      returnPath: null,
+      continuePath: null,
+    };
+    updateState({
+      active: true,
+      status: 'setup_complete',
+      provider,
+      directDebitCompleted: true,
+      error: null,
+      canRecheck: false,
+      continuePath: null,
+    });
+  }, [updateState]);
+
   const dismiss = useCallback(() => {
     contextRef.current = null;
     requestSequenceRef.current += 1;
@@ -389,7 +435,7 @@ export function useFormPaymentReturn() {
     updateState({ ...DEFAULT_PAYMENT_RETURN_STATE });
   }, [updateState]);
   const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
-  return { ...state, dismiss, recheck };
+  return { ...state, dismiss, recheck, adoptCompletion };
 }
 
 const SCREENS = {
@@ -441,6 +487,13 @@ const SCREENS = {
     title: 'Payment cancelled',
     body: 'The payment was cancelled and your form was not submitted. You can return to the form and try again.',
   },
+  failed: {
+    icon: XCircle,
+    iconClass: 'text-slate-500',
+    bubbleClass: 'bg-slate-100',
+    title: 'Payment not completed',
+    body: 'The payment was not completed. Nothing has been confirmed as charged. You can return to the form and try again.',
+  },
   confirming: {
     icon: Loader2,
     iconClass: 'text-blue-600 animate-spin',
@@ -479,20 +532,24 @@ export function FormPaymentReturnScreen({
 }) {
   const def = SCREENS[status] || SCREENS.confirming;
   const Icon = def.icon;
+  const directDebitCompleted = provider === 'gocardless' && status === 'setup_complete';
   const pendingBody = provider === 'gocardless'
     ? 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
     : provider === 'stripe_monthly_card'
       ? 'Your monthly card set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
       : def.body;
-  const body = status === 'paid'
+  const body = directDebitCompleted
+    ? 'Your application has been submitted and your Direct Debit is set up.\nYour first payment will be collected separately.\nYou can now leave this page.'
+    : status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
     : error
       ? error
       : status === 'pending' ? pendingBody : def.body;
-  const showReturn = status === 'cancelled' && onReturnToForm;
+  const title = directDebitCompleted ? 'Application submitted' : def.title;
+  const showReturn = ['cancelled', 'failed'].includes(status) && onReturnToForm;
   // Never offer a completed, pending, or ambiguous payment back to the form:
   // that page contains payment controls and could invite a second attempt.
-  const showContinue = status !== 'confirming' && status !== 'cancelled' && !!continueHref;
+  const showContinue = !['confirming', 'cancelled', 'failed'].includes(status) && !!continueHref;
 
   const card = (
     <Card
@@ -505,14 +562,14 @@ export function FormPaymentReturnScreen({
         <div className={`w-16 h-16 ${def.bubbleClass} rounded-full flex items-center justify-center mx-auto mb-4`}>
           <Icon className={`w-8 h-8 ${def.iconClass}`} />
         </div>
-        <h3 className="text-xl font-semibold text-slate-900 mb-2" data-testid="payment-return-title">{def.title}</h3>
+        <h3 className="text-xl font-semibold text-slate-900 mb-2" data-testid="payment-return-title">{title}</h3>
         {body && <p className="text-slate-600 whitespace-pre-line" data-testid="payment-return-body">{body}</p>}
         {showReturn && (
           <Button className="mt-6" variant="outline" onClick={onReturnToForm} data-testid="button-return-to-form">
             Return to form
           </Button>
         )}
-        {canRecheck && onRecheck && status !== 'confirming' && (
+        {canRecheck && onRecheck && status !== 'confirming' && !directDebitCompleted && (
           <Button className="mt-6" variant="outline" onClick={onRecheck} data-testid="button-payment-return-recheck">
             Check status again
           </Button>

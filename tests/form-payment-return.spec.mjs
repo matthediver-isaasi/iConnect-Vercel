@@ -125,3 +125,131 @@ for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixt
     expect(state.escapedWrites).toEqual([]);
   });
 }
+
+for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixture']) {
+  test(`${surface}: completed Direct Debit shows application submission confirmation`, async ({ page }) => {
+    const state = await fixtures(page, [{
+      success: true,
+      provider: 'gocardless',
+      status: 'setup_complete',
+      paymentSucceeded: true,
+      retryable: false,
+    }]);
+    const join = surface.includes('?') ? '&' : '?';
+    await page.goto(
+      `${surface}${join}form_payment_submission=return-fixture-submission&form_payment_provider=gocardless`,
+    );
+
+    const screen = page.getByTestId('payment-return-screen');
+    await expect(screen).toHaveAttribute('data-payment-status', 'setup_complete');
+    await expect(screen).toHaveAttribute('data-payment-provider', 'gocardless');
+    await expect(page.getByTestId('payment-return-title')).toHaveText('Application submitted');
+    await expect(page.getByTestId('payment-return-body')).toHaveText(
+      'Your application has been submitted and your Direct Debit is set up. Your first payment will be collected separately. You can now leave this page.',
+    );
+    // setup_complete is terminal for the form submission but deliberately not
+    // a paid one: applicants must not be sent back to a payment control or
+    // offered a misleading status recheck.
+    await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+    await expect(page.getByTestId('button-return-to-form')).toHaveCount(0);
+    expect(state.calls).toHaveLength(1);
+    expect(state.calls[0].action).toBe('confirm');
+    expect(state.escapedWrites).toEqual([]);
+  });
+}
+
+test('/embed/form: completed Direct Debit survives refresh and keeps the embedded destination', async ({ page }) => {
+  const state = await fixtures(page, [{
+    success: true,
+    provider: 'gocardless',
+    status: 'setup_complete',
+    paymentSucceeded: true,
+    retryable: false,
+  }]);
+  await page.goto(
+    '/embed/form/return-fixture?payment_embed_continue=%2Fmembership&form_payment_submission=return-fixture-submission&form_payment_provider=gocardless',
+  );
+
+  const screen = page.getByTestId('payment-return-screen');
+  await expect(screen).toHaveAttribute('data-payment-status', 'setup_complete');
+  await expect(page.getByTestId('payment-return-title')).toHaveText('Application submitted');
+  await expect(page.getByTestId('button-payment-return-continue')).toHaveAttribute('href', '/membership');
+  await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+  expect(state.calls).toHaveLength(1);
+
+  await page.reload();
+  await expect(screen).toHaveAttribute('data-payment-status', 'setup_complete');
+  await expect(page.getByTestId('payment-return-title')).toHaveText('Application submitted');
+  await expect(page.getByTestId('payment-return-body')).toHaveText(
+    'Your application has been submitted and your Direct Debit is set up. Your first payment will be collected separately. You can now leave this page.',
+  );
+  await expect(page.getByTestId('button-payment-return-continue')).toHaveAttribute('href', '/membership');
+  await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+  expect(state.calls).toHaveLength(2);
+  expect(state.calls.every(call => call.action === 'confirm')).toBe(true);
+  expect(state.escapedWrites).toEqual([]);
+});
+
+test('same-origin embedded Direct Debit completion keeps onward navigation in the containing page', async ({ page }, testInfo) => {
+  const state = await fixtures(page, [{
+    success: true,
+    provider: 'gocardless',
+    status: 'setup_complete',
+    paymentSucceeded: true,
+    retryable: false,
+  }]);
+  const appOrigin = new URL(testInfo.project.use.baseURL).origin;
+  await page.goto('/');
+  await page.setContent(`
+    <main><iframe
+      data-testid="same-origin-dd-frame"
+      src="${appOrigin}/embed/form/return-fixture?payment_embed_continue=%2Fmembership&form_payment_submission=return-fixture-submission&form_payment_provider=gocardless"
+      title="Direct Debit application"
+    ></iframe></main>
+  `);
+
+  const frame = page.frameLocator('[data-testid="same-origin-dd-frame"]');
+  await expect(frame.getByTestId('payment-return-screen')).toHaveAttribute('data-payment-status', 'setup_complete');
+  await expect(frame.getByTestId('payment-return-title')).toHaveText('Application submitted');
+  const onward = frame.getByTestId('button-payment-return-continue');
+  await expect(onward).toHaveCount(1);
+  await expect(onward).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(onward).not.toHaveAttribute('target', '_blank');
+  expect(state.calls).toHaveLength(1);
+  expect(state.escapedWrites).toEqual([]);
+});
+
+test('cross-origin embedded Direct Debit completion opens onward navigation separately without navigating the host', async ({ page }, testInfo) => {
+  const state = await fixtures(page, [{
+    success: true,
+    provider: 'gocardless',
+    status: 'setup_complete',
+    paymentSucceeded: true,
+    retryable: false,
+  }]);
+  const appOrigin = new URL(testInfo.project.use.baseURL).origin;
+  await page.context().route('https://external.example.invalid/membership', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: `<!doctype html><title>External fixture host</title>
+      <header>External fixture header</header>
+      <main><iframe
+        data-testid="cross-origin-dd-frame"
+        src="${appOrigin}/embed/form/return-fixture?payment_embed_continue=%2Fmembership&form_payment_submission=return-fixture-submission&form_payment_provider=gocardless"
+        title="Direct Debit application"
+      ></iframe></main>
+      <footer>External fixture footer</footer>`,
+  }));
+  await page.goto('https://external.example.invalid/membership');
+
+  const frame = page.frameLocator('[data-testid="cross-origin-dd-frame"]');
+  await expect(frame.getByTestId('payment-return-screen')).toHaveAttribute('data-payment-status', 'setup_complete');
+  await expect(frame.getByTestId('payment-return-title')).toHaveText('Application submitted');
+  const onward = frame.getByTestId('button-payment-return-continue');
+  await expect(onward).toHaveAttribute('href', '/membership');
+  await expect(onward).toHaveAttribute('target', '_blank');
+  await expect(onward).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(page.url()).toBe('https://external.example.invalid/membership');
+  expect(state.calls).toHaveLength(1);
+  expect(state.escapedWrites).toEqual([]);
+});

@@ -1457,6 +1457,11 @@ export default function EmbedFormPage() {
                     disabledMessage={submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                    onSetupComplete={(submissionId) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                      notifyParentResize();
+                    }}
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text || 'Submit'}
                     membershipQuote={membershipFeeQuote}
@@ -1647,6 +1652,11 @@ export default function EmbedFormPage() {
                 disabledMessage={submitControl.message}
                 busy={submitFormMutation.isPending}
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                onSetupComplete={(submissionId) => {
+                  rotateIdempotencyKey();
+                  paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                  notifyParentResize();
+                }}
                 onNormalSubmit={handleSubmit}
                 submitLabel={form.submit_button_text || 'Submit'}
                 membershipQuote={membershipFeeQuote}

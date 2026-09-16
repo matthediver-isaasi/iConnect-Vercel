@@ -2729,6 +2729,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       disabledMessage={submitControl.message}
                       busy={submitFormMutation.isPending}
                       onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                      onSetupComplete={(submissionId) => {
+                        rotateIdempotencyKey();
+                        paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                      }}
                       onNormalSubmit={handleSubmit}
                       submitLabel={form.submit_button_text}
                       membershipQuote={membershipFeeQuote}
@@ -3202,6 +3206,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     disabledMessage={submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onSetupComplete={(submissionId) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                    }}
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text}
                     membershipQuote={membershipFeeQuote}

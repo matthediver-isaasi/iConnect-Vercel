@@ -94,6 +94,82 @@ test('hook resumes a path-scoped refresh and preserves setup_complete truthfully
   container.remove();
 });
 
+test('completed GoCardless setup is an application submission, not a paid outcome', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'submission-dd-complete',
+    provider: 'gocardless',
+    status: 'setup_complete',
+    pathname: '/forms/example',
+  });
+  const calls = [];
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    return {
+      ok: true,
+      json: async () => ({
+        provider: 'gocardless',
+        status: 'setup_complete',
+        paymentSucceeded: false,
+      }),
+    };
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(calls.length, 1, 'a refresh revalidates the server-confirmed DD setup');
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Application submitted',
+  );
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-body"]').textContent,
+    'Your application has been submitted and your Direct Debit is set up.\nYour first payment will be collected separately.\nYou can now leave this page.',
+  );
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+  assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('inline completion can adopt the verified DD outcome into the page-level screen', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/inline-dd');
+  let adoptCompletion;
+  function AdoptProbe() {
+    const paymentReturn = useFormPaymentReturn();
+    adoptCompletion = paymentReturn.adoptCompletion;
+    if (!paymentReturn.active) return React.createElement('output', { 'data-testid': 'inactive' });
+    return React.createElement(FormPaymentReturnScreen, {
+      ...paymentReturn,
+      onRecheck: paymentReturn.recheck,
+      onReturnToForm: paymentReturn.dismiss,
+    });
+  }
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(React.createElement(AdoptProbe)));
+  await act(async () => {
+    adoptCompletion({ submissionId: 'inline-dd-complete', provider: 'gocardless' });
+  });
+
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Application submitted');
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+  assert.match(container.textContent, /first payment will be collected separately/i);
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
 test('verified paid receipt survives refresh without confirming or reopening payment', async () => {
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/forms/example');
@@ -234,8 +310,8 @@ test('a resumed authoritative outcome remains visible while its recheck is pendi
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment setup complete');
-  assert.match(container.textContent, /first collection has not yet been confirmed/i);
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Application submitted');
+  assert.match(container.textContent, /first payment will be collected separately/i);
   assert.doesNotMatch(container.textContent, /submission is complete/i);
 
   await act(async () => root.unmount());
@@ -394,6 +470,26 @@ test('blocked screen has safe recheck but no return-to-payment affordance', asyn
   assert.ok(container.querySelector('[data-testid="button-payment-return-recheck"]'));
   assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
   assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
+
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('failed provider returns stay distinct from an intentional cancellation', async () => {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(React.createElement(FormPaymentReturnScreen, {
+    status: 'failed',
+    error: 'Payment was not completed. Nothing has been confirmed as charged.',
+    onReturnToForm: () => {},
+    embedded: true,
+  })));
+
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment not completed');
+  assert.match(container.textContent, /Nothing has been confirmed as charged/i);
+  assert.ok(container.querySelector('[data-testid="button-return-to-form"]'));
+  assert.equal(container.querySelector('[data-testid="button-payment-return-continue"]'), null);
 
   await act(async () => root.unmount());
   container.remove();

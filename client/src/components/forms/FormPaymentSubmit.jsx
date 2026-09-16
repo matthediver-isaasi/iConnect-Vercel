@@ -49,6 +49,9 @@ export function derivePaymentAmountClient(paymentField, formValues) {
  *  - disabled / disabledMessage: submit-control rule state
  *  - busy: parent-side submitting state
  *  - onPaid(submissionId): payment verified server-side — show success
+ *  - onSetupComplete(submissionId): GoCardless Direct Debit membership was
+ *    verified and the application was finalized — show the dedicated
+ *    application-submitted outcome (distinct from a paid card payment)
  *  - onNormalSubmit(): fall back to the plain submit path (zero amount /
  *    no configured provider)
  *  - continueHref / continueLabel: safe non-payment exit for an inline
@@ -69,6 +72,7 @@ export default function FormPaymentSubmit({
   disabledMessage = null,
   busy = false,
   onPaid,
+  onSetupComplete,
   onNormalSubmit,
   submitLabel = 'Submit',
   membershipQuote = null,
@@ -198,6 +202,14 @@ export default function FormPaymentSubmit({
         });
       } catch { /* Storage may be unavailable; keep the in-memory result. */ }
       if (out.status !== 'paid') {
+        if (out.status === 'setup_complete' && out.provider === 'gocardless') {
+          // GoCardless setup_complete is a server-confirmed, finalized
+          // membership application, not a captured one-off payment. Keep the
+          // scoped setup receipt, but let the page-level handler adopt the
+          // dedicated application-submitted screen.
+          onSetupComplete?.(submissionId);
+          return true;
+        }
         setPaymentCaptured(true);
         setPaymentError(out.error || (
           out.status === 'setup_complete'
@@ -212,7 +224,7 @@ export default function FormPaymentSubmit({
       confirmInFlightRef.current = false;
       if (isCurrent()) setConfirming(false);
     }
-  }, [onPaid, selectedProvider, continueHref]);
+  }, [onPaid, onSetupComplete, selectedProvider, continueHref]);
 
   const leaveForProvider = (url, paymentNavigation) => {
     // Stripe Checkout and some hosted mandate pages refuse to render in a
@@ -422,8 +434,9 @@ export default function FormPaymentSubmit({
           environment={gcDropin.environment}
           onSuccess={() => {
             setGcDropin(null);
-            // Confirm server-side; a still-pending mandate shows the existing
-            // "being confirmed, completes automatically" message.
+            // Confirm server-side; setup_complete adopts the dedicated
+            // application-submitted screen, while a still-pending mandate
+            // shows the existing "being confirmed" message.
             confirmPayment({ submissionId: submissionIdRef.current });
           }}
           onExit={() => {
