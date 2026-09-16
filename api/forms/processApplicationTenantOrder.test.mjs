@@ -72,7 +72,7 @@ test('structured actions wait for actual primary pipelines and preserve existing
 test('authoritative form reload includes pages for hidden-field relationship validation', () => {
   assert.match(
     src,
-    /from\('form'\)\.select\('id, tenant_id, pages, visibility_rules, fields,/,
+    /from\('form'\)\.select\('id, name, tenant_id, pages, visibility_rules, fields,/,
     'persisted page visibility is required before validating Related Records selections',
   );
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   collectPipelineCrmNoteIntents,
   persistPipelineCrmNotes,
@@ -64,7 +65,7 @@ test('CRM note mappings use transformations, fallback winners, and skip empty in
     applyTransformation: value => String(value).trim(),
     formFields,
   });
-  assert.deepEqual(intents, [{ mappingId: 'pipeline:second', content: 'Useful note' }]);
+  assert.deepEqual(intents, [{ mappingId: 'pipeline:second', content: 'Useful note', fieldLabel: 'Form field' }]);
   assert.deepEqual(collectPipelineCrmNoteIntents(pipeline(), { answer: '   ' }, {
     applyTransformation: value => String(value).trim(),
     formFields,
@@ -87,8 +88,41 @@ test('CRM note mappings ignore hidden sources only when explicitly opted in', ()
     formFields,
   });
 
-  assert.deepEqual(defaultOff, [{ mappingId: 'pipeline:note-mapping', content: 'Legacy note' }]);
+  assert.deepEqual(defaultOff, [{ mappingId: 'pipeline:note-mapping', content: 'Legacy note', fieldLabel: 'Form field' }]);
   assert.deepEqual(optedIn, []);
+});
+
+test('fallback mappings retain the winning field visual label', () => {
+  const mappings = ['first', 'second'].map(id => ({
+    ...pipeline().mappings[0], id, source_field_id: id,
+    fallback_group: { version: 1, id: 'fallback' },
+  }));
+  const intents = collectPipelineCrmNoteIntents({ mappings }, { first: '', second: 'Answer' }, {
+    formFields: [
+      { id: 'first', type: 'text', label: 'Primary question' },
+      { id: 'second', type: 'text', label: 'Alternative question' },
+    ],
+  });
+  assert.equal(intents[0].fieldLabel, 'Alternative question');
+});
+
+test('unnamed forms still identify note provenance and preserve multiline answers', async () => {
+  const db = fakeDb();
+  await persistPipelineCrmNotes({
+    db, tenantId: 'tenant-1', submissionId: 'submission-1',
+    entity: 'member', entityId: 'member-1', pipeline: pipeline(),
+    values: { answer: 'First line\nSecond line' },
+    formFields: [{ id: 'answer', type: 'textarea', label: 'Your comments' }],
+    formName: ' ',
+  });
+  assert.equal(db.rows.member_note[0].content,
+    'Form submission\n\nYour comments:\nFirst line\nSecond line');
+});
+
+test('processor loads and passes the persisted form name for CRM notes', () => {
+  const source = readFileSync(new URL('../forms/process-application.js', import.meta.url), 'utf8');
+  assert.match(source, /from\('form'\)\.select\('id, name, tenant_id/);
+  assert.match(source, /formName: persistedForm\.name/);
 });
 
 test('CRM note mapping visibility preserves current-date transforms and fallback order', () => {
@@ -106,7 +140,7 @@ test('CRM note mapping visibility preserves current-date transforms and fallback
       applyTransformation: (_value, transformation) =>
         transformation === 'current_date' ? '2026-09-09' : _value,
     }),
-    [{ mappingId: 'pipeline:note-mapping', content: '2026-09-09' }],
+    [{ mappingId: 'pipeline:note-mapping', content: '2026-09-09', fieldLabel: 'Form field' }],
   );
 
   const fallbackPipeline = {
@@ -134,7 +168,7 @@ test('CRM note mapping visibility preserves current-date transforms and fallback
       hiddenFieldIds: new Set(['first']),
       formFields,
     }),
-    [{ mappingId: 'pipeline:visible-second', content: 'Visible note' }],
+    [{ mappingId: 'pipeline:visible-second', content: 'Visible note', fieldLabel: 'Form field' }],
   );
 });
 
@@ -154,13 +188,14 @@ for (const [entity, entityId, table, foreignKey] of [
       pipeline: pipeline(entity),
       values: { answer: '  First-class note  ' },
       applyTransformation: value => String(value).trim(),
-      formFields,
+      formFields: [{ id: 'answer', type: 'textarea', label: 'Additional information' }],
+      formName: 'Membership application',
     };
     assert.equal((await persistPipelineCrmNotes(input)).inserted, 1);
     assert.equal((await persistPipelineCrmNotes(input)).inserted, 0);
     assert.equal(db.rows[table].length, 1);
     assert.equal(db.rows[table][0][foreignKey], entityId);
-    assert.equal(db.rows[table][0].content, 'First-class note');
+    assert.equal(db.rows[table][0].content, 'Form submission: Membership application\n\nAdditional information:\nFirst-class note');
   });
 }
 

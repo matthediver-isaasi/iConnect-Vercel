@@ -54,7 +54,11 @@ export function collectPipelineCrmNoteIntents(pipeline, values, {
     const content = textValue(value);
     if (content) {
       const pipelineId = String(pipeline?.id || 'pipeline');
-      intents.push({ mappingId: `${pipelineId}:${String(mapping.id)}`, content });
+      intents.push({
+        mappingId: `${pipelineId}:${String(mapping.id)}`,
+        content,
+        fieldLabel: textValue(sourceField.label) || 'Form field',
+      });
     }
   }
   return intents;
@@ -80,6 +84,7 @@ export async function persistPipelineCrmNotes({
   applyTransformation,
   hiddenFieldIds,
   formFields,
+  formName,
 }) {
   const intents = collectPipelineCrmNoteIntents(pipeline, values, {
     applyTransformation,
@@ -102,6 +107,8 @@ export async function persistPipelineCrmNotes({
   const table = entity === 'member' ? 'member_note' : 'organization_note';
   let inserted = 0;
   for (const intent of intents) {
+    const formTitle = textValue(formName);
+    const content = `${formTitle ? `Form submission: ${formTitle}` : 'Form submission'}\n\n${intent.fieldLabel}:\n${intent.content}`;
     const { data: existing, error: lookupError } = await db.from(table).select('id')
       .eq('form_submission_id', submissionId)
       .eq('form_mapping_id', intent.mappingId)
@@ -112,7 +119,7 @@ export async function persistPipelineCrmNotes({
       ? {
           target_member_id: entityId,
           author_member_id: authorMemberId || null,
-          content: intent.content,
+          content,
           attachments: [],
           form_submission_id: submissionId,
           form_mapping_id: intent.mappingId,
@@ -120,7 +127,7 @@ export async function persistPipelineCrmNotes({
       : {
           organization_id: entityId,
           member_id: authorMemberId || null,
-          content: intent.content,
+          content,
           attachments: [],
           form_submission_id: submissionId,
           form_mapping_id: intent.mappingId,
