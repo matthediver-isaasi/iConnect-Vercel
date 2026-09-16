@@ -14,3 +14,9 @@ Preflight validation must mirror which mappings execution actually applies: an e
 **Why:** Validating ignored companion mappings can reject a valid existing-record selection for a relationship conflict even though no mutation would occur.
 
 **How to apply:** Exclude resolved existing items from companion-write preflight, including each existing item in multi-reference actions, while retaining validation for Not listed items.
+
+Only a wholly side-effect-free primary-output wait may yield to primary pipelines; genuine failures and mixed outcomes must still stop processing. Completion shortcuts must not bypass unresolved structured work.
+
+**Why:** Treating every incomplete batch as fatal creates a circular dependency before member creation, but allowing every failure through can duplicate partial effects. A successful address ledger alone cannot certify the rest of the submission, and a failed durable completion write must not authorize paid membership or Due Diligence readiness.
+
+**How to apply:** Cover fresh creation and partial-checkpoint retries, including absent pending flags, completion-write failures and lease cleanup. Exercise both full-card payment and monthly setup: monthly setup must retain its unpaid/pending-activation meaning.

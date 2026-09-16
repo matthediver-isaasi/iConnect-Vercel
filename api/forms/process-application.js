@@ -85,6 +85,28 @@ const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
 // Helper function to check if a value is "empty" (undefined, null, or empty string)
 const isEmptyValue = (value) => value === undefined || value === null || value === '';
 
+// A structured action run may be evaluated before the legacy primary
+// pipelines have produced the records that a persisted action references.
+// Only defer that narrow, side-effect-free wait state.  A result containing
+// any completed invocation (including an already-completed ledger row), a
+// genuine failure, or a different kind of skip must remain fail-closed.
+export const isCleanPrimaryOutputDependencyWait = (result) => {
+  if (!result || result.success !== false) return false;
+  const outcomes = Array.isArray(result.outcomes) ? result.outcomes : [];
+  if (outcomes.length === 0) return false;
+  if (Number(result.completed_count || 0) > 0 || Number(result.failed_count || 0) > 0) {
+    return false;
+  }
+  if (outcomes.some(outcome => ['completed', 'already_completed'].includes(outcome?.status))) {
+    return false;
+  }
+  return outcomes.every(outcome => (
+    outcome?.status === 'skipped'
+    && outcome?.reason === 'primary_pipeline_output_unavailable'
+    && outcome?.retryable === true
+  ));
+};
+
 export const isMemberResourceCategoryMapping = (mapping) => (
   mapping?.target_type === 'resource_category'
   && mapping?.target_entity === 'member'
@@ -1080,6 +1102,15 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     const hasStripeAddressMappingWork = !!(
       persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
     );
+    // A completed address snapshot is normally an authoritative historical
+    // fast path. Do not let it hide a structured-action retry that was already
+    // persisted as incomplete, including rows written before the explicit
+    // structured_actions_pending flag was introduced.
+    const persistedStructuredActionResult = persistedSubmission.payment_meta?.structured_actions_result;
+    const persistedStructuredActionsIncomplete = (
+      persistedSubmission.payment_meta?.structured_actions_pending === true
+      || persistedStructuredActionResult?.success === false
+    );
     let persistedEntityCreations = { member: new Set(), organization: new Set() };
     if (hasStripeAddressMappingWork) {
       persistedEntityCreations = await loadPersistedFormEntityCreations({
@@ -1098,18 +1129,20 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         .maybeSingle();
       if (completedAddressError) throw completedAddressError;
       if (completedAddressMapping) {
-        return res.json({
-          success: true,
-          already_processed: true,
-          created_member_id: completedAddressMapping.member_id || persistedSubmission.created_member_id || null,
-          created_organization_id: completedAddressMapping.organization_id || persistedSubmission.created_organization_id || null,
-          organization_id: completedAddressMapping.organization_id || persistedSubmission.organization_id || null,
-          stripe_address_mappings: {
-            configured: true,
-            applied: false,
-            alreadyApplied: true,
-          },
-        });
+        if (!persistedStructuredActionsIncomplete) {
+          return res.json({
+            success: true,
+            already_processed: true,
+            created_member_id: completedAddressMapping.member_id || persistedSubmission.created_member_id || null,
+            created_organization_id: completedAddressMapping.organization_id || persistedSubmission.created_organization_id || null,
+            organization_id: completedAddressMapping.organization_id || persistedSubmission.organization_id || null,
+            stripe_address_mappings: {
+              configured: true,
+              applied: false,
+              alreadyApplied: true,
+            },
+          });
+        }
       }
     }
 
@@ -1286,11 +1319,43 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         .eq('entity_type', entity)
         .eq('entity_id', entityId);
     };
+    const autoApproveFeesAfterStructuredCompletion = async (memberId, organizationId = null) => {
+      if (!memberId) return;
+      try {
+        let effectiveTenantId = effectiveEntityTenantId;
+        if (!effectiveTenantId) {
+          const { data: memberForTenant } = await supabase
+            .from('member')
+            .select('tenant_id')
+            .eq('id', memberId)
+            .maybeSingle();
+          effectiveTenantId = memberForTenant?.tenant_id;
+          if (effectiveTenantId) {
+            console.log('[AppProcessor] Resolved tenant_id from member record for auto-approve:', effectiveTenantId);
+          }
+        }
+        if (!effectiveTenantId) {
+          console.warn('[AppProcessor] Cannot auto-approve fees: tenant_id could not be resolved for member:', memberId);
+          return;
+        }
+
+        // Task #3241 — shared helper resolves the config, checks
+        // auto_approve_fees, and upserts the invoicing row.
+        const { autoApproveMemberFees, autoApproveOrgFees } = await import('../_lib/membershipFeeApproval.js');
+        await autoApproveMemberFees(effectiveTenantId, memberId);
+        if (organizationId) {
+          await autoApproveOrgFees(effectiveTenantId, organizationId);
+        }
+      } catch (autoApproveErr) {
+        console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
+      }
+    };
 
     // Versioned structured actions are an authoritative persisted contract.
     // The executor reloads both the form configuration and answers; request
     // copies are deliberately ignored. Legacy processing below remains intact.
     let structuredActionResult = null;
+    let structuredActionsWaitingForPrimary = false;
     if (form_id && submission_id && effectiveEntityTenantId) {
       try {
         const structuredResult = await processPersistedStructuredActions({
@@ -1312,20 +1377,31 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           });
         }
         if (structuredResult?.success === false) {
-          // A structured action may have completed some rows while another
-          // row remains failed/retryable. Never fall through to the legacy
-          // member/organisation pipelines in that state: doing so would
-          // create side effects that are not part of the failed structured
-          // contract and make a retry non-deterministic.
-          return res.status(409).json({
-            success: false,
-            error: 'Structured actions did not complete',
-            code: 'STRUCTURED_ACTIONS_INCOMPLETE',
-            structured_actions: structuredResult,
-          });
+          if (isCleanPrimaryOutputDependencyWait(structuredResult)) {
+            // This is the one safe exception to the structured-first
+            // ordering: no action claimed or mutated anything, and every
+            // invocation is waiting only for a legacy primary pipeline
+            // output.  Let the normal primary member/organisation paths run,
+            // then retry the persisted actions below with those IDs.
+            structuredActionsWaitingForPrimary = true;
+          } else {
+            // A structured action may have completed some rows while another
+            // row remains failed/retryable. Never fall through to the legacy
+            // member/organisation pipelines in that state: doing so would
+            // create side effects that are not part of the failed structured
+            // contract and make a retry non-deterministic.
+            await releaseStripeProcessingLease();
+            return res.status(409).json({
+              success: false,
+              error: 'Structured actions did not complete',
+              code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+              structured_actions: structuredResult,
+            });
+          }
         }
       } catch (error) {
         if (error instanceof StructuredActionContractError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+          await releaseStripeProcessingLease();
           return res.status(error.status || 400).json({
             error: error.message,
             code: error.code,
@@ -1381,10 +1457,20 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         .eq('form_submission_id', submission_id);
       if (pipelineEntityLinksError) throw pipelineEntityLinksError;
       persistedPipelineEntityLinks = pipelineEntityLinks || [];
+      const structuredActionsPending = persistedSubmission.payment_meta?.structured_actions_pending === true;
+      // The current executor result is authoritative for this invocation.
+      // Do not require the persisted marker: older partial runs may have
+      // written primary IDs/completion fields before that marker existed.
+      const structuredActionsStillIncomplete = structuredActionResult?.success === false;
       if (
-        (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
-        || existingSubmission?.entity_processing_completed_at
+        (
+          (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
+          || existingSubmission?.entity_processing_completed_at
+        )
+        && !structuredActionsStillIncomplete
       ) {
+        const structuredActionsResolvedOnRetry = structuredActionsPending
+          && structuredActionResult?.success === true;
         await persistCrmNotesForPipeline(
           'member',
           existingSubmission?.created_member_id,
@@ -1423,28 +1509,53 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         for (const outcome of relatedRecords?.outcomes || []) {
           addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
         }
+        const retryUpdate = {};
         if (processingNotes.length > 0) {
-          const retryUpdate = {
-            processing_notes: [...persistedProcessingNotes, ...processingNotes],
+          retryUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+        }
+        if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
+          retryUpdate.payment_meta = {
+            ...(persistedSubmission.payment_meta || {}),
+            ...(structuredActionResult ? {
+              structured_actions_pending: structuredActionResult.success === false,
+              structured_actions_result: structuredActionResult,
+            } : {}),
+            ...(relatedRecords ? {
+            related_records_pending: relatedRecords.success === false,
+            related_records_result: relatedRecords,
+            } : {}),
           };
-          if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
-            retryUpdate.payment_meta = {
-              ...(persistedSubmission.payment_meta || {}),
-              ...(structuredActionResult ? {
-                structured_actions_pending: structuredActionResult.success === false,
-                structured_actions_result: structuredActionResult,
-              } : {}),
-              ...(relatedRecords ? {
-              related_records_pending: relatedRecords.success === false,
-              related_records_result: relatedRecords,
-              } : {}),
-            };
-          }
+        }
+        if (structuredActionsResolvedOnRetry) {
+          retryUpdate.entity_processing_completed_at = new Date().toISOString();
+          retryUpdate.payment_meta = {
+            ...(retryUpdate.payment_meta || persistedSubmission.payment_meta || {}),
+            structured_actions_pending: false,
+            structured_actions_result: structuredActionResult,
+          };
+        }
+        if (Object.keys(retryUpdate).length > 0) {
           const { error: noteError } = await supabase.from('form_submission')
             .update(retryUpdate)
             .eq('id', submission_id).eq('tenant_id', effectiveEntityTenantId);
-          if (noteError) console.error('[AppProcessor] Failed to persist retry relationship outcomes:', noteError);
+          if (noteError) {
+            if (structuredActionsResolvedOnRetry) {
+              await releaseStripeProcessingLease();
+              throw noteError;
+            }
+            console.error('[AppProcessor] Failed to persist retry relationship outcomes:', noteError);
+          }
         }
+        if (structuredActionsResolvedOnRetry) {
+          // Persist the completion checkpoint before triggering any readiness
+          // side effects. A failed resume update must remain retryable and
+          // must never auto-approve a member whose completion was not stored.
+          await autoApproveFeesAfterStructuredCompletion(
+            existingSubmission.created_member_id,
+            existingSubmission.created_organization_id || persistedSubmission.organization_id || null,
+          );
+        }
+        await releaseStripeProcessingLease();
         return res.json({
           success: structuredActionResult ? structuredActionResult.success : true,
           already_processed: true,
@@ -3645,43 +3756,6 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       }
     }
     
-    // Auto-approve membership fees for tier configs with auto_approve_fees enabled
-    // Runs AFTER custom fields and category selections are saved so config resolution can match correctly
-    if (createdMemberId) {
-      try {
-        let effectiveTenantId = effectiveEntityTenantId;
-        if (!effectiveTenantId) {
-          const { data: memberForTenant } = await supabase
-            .from('member')
-            .select('tenant_id')
-            .eq('id', createdMemberId)
-            .maybeSingle();
-          effectiveTenantId = memberForTenant?.tenant_id;
-          if (effectiveTenantId) {
-            console.log('[AppProcessor] Resolved tenant_id from member record for auto-approve:', effectiveTenantId);
-          }
-        }
-        if (!effectiveTenantId) {
-          console.warn('[AppProcessor] Cannot auto-approve fees: tenant_id could not be resolved for member:', createdMemberId);
-        }
-
-        if (effectiveTenantId) {
-          // Task #3241 — shared helper resolves the config, checks
-          // auto_approve_fees, and upserts the invoicing row.
-          const { autoApproveMemberFees, autoApproveOrgFees } = await import('../_lib/membershipFeeApproval.js');
-
-          await autoApproveMemberFees(effectiveTenantId, createdMemberId);
-
-          const resolvedOrgId = createdOrganizationId || prefill_organization_id;
-          if (resolvedOrgId) {
-            await autoApproveOrgFees(effectiveTenantId, resolvedOrgId);
-          }
-        }
-      } catch (autoApproveErr) {
-        console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
-      }
-    }
-
     // Handle non-deferred communication preferences through the shared,
     // role-authorized persistence boundary. Form-field choices are collected
     // first and pipeline mappings override them, preserving the established
@@ -4481,35 +4555,105 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
     }
 
-    const structuredMemberId = structuredActionResult?.created_member_id || null;
-    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
-    const primaryMemberId = createdMemberId || null;
-    const primaryOrganizationId = createdOrganizationId || null;
-    const resolvedMemberId = primaryMemberId || structuredMemberId || null;
-    const resolvedOrganizationId = primaryOrganizationId || structuredOrganizationId || prefill_organization_id || null;
-    if ((structuredActionResult?.outcomes || []).some(
-      outcome => outcome.reason === 'primary_pipeline_output_unavailable',
-    )) {
-      const postPipelineStructuredResult = await processPersistedStructuredActions({
-        db: supabase,
-        formId: form_id,
-        submissionId: submission_id,
-        tenantId: effectiveEntityTenantId,
-        authorization: processingAuthorization,
-        primaryRecords: {
-          memberId: primaryMemberId,
-          organizationId: primaryOrganizationId,
-        },
-      });
-      structuredActionResult = postPipelineStructuredResult;
-      for (const outcome of postPipelineStructuredResult?.outcomes || []) {
-        addProcessingNote({
-          kind: 'structured_action',
-          phase: 'post_primary_pipeline',
-          ...outcome,
+    // Primary IDs are intentionally calculated before the late structured
+    // retry so they can be supplied as its trusted pipeline outputs. The
+    // resolved IDs are calculated again after that retry below; a structured
+    // action may itself be the first durable source of an entity ID.
+    const primaryMemberId = createdMemberId || persistedSubmission.created_member_id || null;
+    const primaryOrganizationId = createdOrganizationId
+      || persistedSubmission.created_organization_id
+      || null;
+    const shouldRetryStructuredActionsAfterPrimary = structuredActionsWaitingForPrimary
+      || (structuredActionResult?.outcomes || []).some(
+        outcome => outcome.reason === 'primary_pipeline_output_unavailable',
+      );
+    if (shouldRetryStructuredActionsAfterPrimary) {
+      try {
+        const postPipelineStructuredResult = await processPersistedStructuredActions({
+          db: supabase,
+          formId: form_id,
+          submissionId: submission_id,
+          tenantId: effectiveEntityTenantId,
+          authorization: processingAuthorization,
+          primaryRecords: {
+            memberId: primaryMemberId,
+            organizationId: primaryOrganizationId,
+          },
         });
+        structuredActionResult = postPipelineStructuredResult;
+        for (const outcome of postPipelineStructuredResult?.outcomes || []) {
+          addProcessingNote({
+            kind: 'structured_action',
+            phase: 'post_primary_pipeline',
+            ...outcome,
+          });
+        }
+      } catch (error) {
+        if (error instanceof StructuredActionContractError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+          await releaseStripeProcessingLease();
+          return res.status(error.status || (error?.code === 'STRUCTURED_ACTION_FORBIDDEN' ? 403 : 400)).json({
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        }
+        throw error;
       }
     }
+
+    const structuredMemberId = structuredActionResult?.created_member_id || null;
+    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
+    // Recompute these only after the post-primary action pass. In particular,
+    // do not feed stale null IDs into payment-derived mappings or submission
+    // linkage when a late structured action completed on this invocation.
+    const resolvedMemberId = primaryMemberId || structuredMemberId || null;
+    const resolvedOrganizationId = primaryOrganizationId
+      || structuredOrganizationId
+      || prefill_organization_id
+      || null;
+
+    // The primary pipelines may have completed while the dependent action is
+    // still waiting (for example, a required output remains unavailable).
+    // Persist the trusted IDs and retry state, but deliberately do not run
+    // relationship/address finalization or mark entity processing complete.
+    // This keeps a paid retry resumable without allowing downstream
+    // membership/DD readiness to observe an incomplete structured contract.
+    if (structuredActionResult?.success === false) {
+      const incompleteUpdate = {};
+      if (resolvedMemberId) incompleteUpdate.created_member_id = resolvedMemberId;
+      if (resolvedOrganizationId) {
+        incompleteUpdate.created_organization_id = resolvedOrganizationId;
+        incompleteUpdate.organization_id = resolvedOrganizationId;
+      }
+      if (processingNotes.length > 0) {
+        incompleteUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
+      if (persistedSubmission.payment_status) {
+        incompleteUpdate.payment_meta = {
+          ...(persistedSubmission.payment_meta || {}),
+          structured_actions_pending: true,
+          structured_actions_result: structuredActionResult,
+        };
+      }
+      if (Object.keys(incompleteUpdate).length > 0) {
+        const { error: incompleteUpdateError } = await supabase
+          .from('form_submission')
+          .update(incompleteUpdate)
+          .eq('id', submission_id);
+        if (incompleteUpdateError) throw incompleteUpdateError;
+      }
+      await releaseStripeProcessingLease();
+      return res.status(409).json({
+        success: false,
+        error: 'Structured actions did not complete',
+        code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+        structured_actions: structuredActionResult,
+        created_member_id: resolvedMemberId,
+        created_organization_id: resolvedOrganizationId,
+        organization_id: resolvedOrganizationId,
+      });
+    }
+
     const relatedRecords = await processPrimaryPipelineRelatedRecords({
       db: supabase,
       tenantId: effectiveEntityTenantId,
@@ -4621,6 +4765,12 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         console.log(`[AppProcessor] form_submission ${submission_id} updated with ${processingNotes.length} processing note(s).`);
       }
     }
+    // Auto-approve only after the completion/linkage checkpoint is durable.
+    // A failed final update must remain retryable without exposing readiness.
+    await autoApproveFeesAfterStructuredCompletion(
+      resolvedMemberId,
+      resolvedOrganizationId || null,
+    );
     if (submissionLinkagePersisted && submission_id) {
       await persistCrmNotesForPipeline(
         'member',
