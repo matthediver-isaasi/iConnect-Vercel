@@ -45,6 +45,13 @@ const groups = [
   { id: 'b', name: 'Beta', allow_self_join: true, self_join_closed: true },
 ];
 
+test('Canvas renders badges only for groups with eligible vacancies', () => {
+  const html = render({ isAuthenticated: true, openVacancyCountByGroup: { b: 2 } });
+  assert.doesNotMatch(html, /badge-open-vacancies-a/);
+  assert.match(html, /badge-open-vacancies-b/);
+  assert.match(html, /2 open vacancies/);
+});
+
 function render(overrides = {}) {
   return renderToStaticMarkup(
     <MemoryRouter>

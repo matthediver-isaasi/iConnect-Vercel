@@ -1050,6 +1050,7 @@ export default function MemberGroupDetailPage() {
     onSuccess: () => {
       const wasEdit = !!editingVacancyId;
       queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["member-groups-open-vacancies"] });
       setShowPostVacancy(false);
       setVacancyForm(EMPTY_VACANCY_FORM);
       setEditingVacancyId(null);
@@ -1107,6 +1108,7 @@ export default function MemberGroupDetailPage() {
     },
     onSuccess: (_data, vacancy) => {
       queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["member-groups-open-vacancies"] });
       toast.success(
         vacancy.status === "closed" ? "Vacancy reopened" : "Vacancy closed"
       );
@@ -1121,6 +1123,7 @@ export default function MemberGroupDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
       setRemoveVacancyTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["member-groups-open-vacancies"] });
       toast.success("Vacancy removed");
     },
     onError: (error) => {

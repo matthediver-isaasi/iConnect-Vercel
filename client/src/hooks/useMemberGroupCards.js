@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { publicClient } from '@/api/publicClient';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { useLayoutContext } from '@/contexts/LayoutContext';
+import { countOpenVacanciesByGroup } from '@/lib/vacancyStatus';
 import {
   MEMBER_GROUP_CARD_SOURCE,
   MAX_MEMBER_GROUP_ROLE_HOLDERS,
@@ -148,15 +149,10 @@ export function useMemberGroupCardsData({ source, selectedGroupIds } = {}) {
     return byGroup;
   }, [assignments]);
 
-  const openVacancyCountByGroup = useMemo(() => {
-    const byGroup = {};
-    for (const vacancy of vacancies) {
-      if (vacancy.member_group_id && vacancy.status !== 'closed') {
-        byGroup[vacancy.member_group_id] = (byGroup[vacancy.member_group_id] || 0) + 1;
-      }
-    }
-    return byGroup;
-  }, [vacancies]);
+  const openVacancyCountByGroup = useMemo(
+    () => countOpenVacanciesByGroup(vacancies),
+    [vacancies],
+  );
 
   const groupAdminIds = useMemo(() => {
     const ids = new Set();

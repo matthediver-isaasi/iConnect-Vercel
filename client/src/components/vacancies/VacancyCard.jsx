@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import DOMPurify from "dompurify";
+import { getClosingDate, isClosingDatePast, isVacancyClosed } from "@/lib/vacancyStatus";
+export { getClosingDate, isClosingDatePast, isVacancyClosed } from "@/lib/vacancyStatus";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,33 +48,6 @@ export function formatMaxTerms(vacancy) {
 export function getPositionsAvailable(vacancy) {
   const n = Number(vacancy?.positions_available);
   return Number.isFinite(n) && n > 0 ? n : 1;
-}
-
-/** Parse a vacancy.closing_date (YYYY-MM-DD or ISO) to a Date, or null. */
-export function getClosingDate(vacancy) {
-  const raw = vacancy?.closing_date;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-/** True when the closing date has passed (compared on a whole-day basis). */
-export function isClosingDatePast(vacancy) {
-  const d = getClosingDate(vacancy);
-  if (!d) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const closing = new Date(d);
-  closing.setHours(0, 0, 0, 0);
-  return closing < today;
-}
-
-/**
- * Single source of truth for whether a vacancy is closed: explicit
- * status='closed' OR its closing date is in the past.
- */
-export function isVacancyClosed(vacancy) {
-  return vacancy?.status === "closed" || isClosingDatePast(vacancy);
 }
 
 /** True when the closing date is today or within the next 7 days. */

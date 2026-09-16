@@ -59,6 +59,11 @@ test('authenticated card shows joined role, group-admin and vacancy indicators',
   assert.match(html, /Find out more/);
 });
 
+test('zero open vacancies hides the badge for members and positive counts stay private', () => {
+  assert.doesNotMatch(render({ isAuthenticated: true, openVacancyCount: 0 }), /badge-open-vacancies/);
+  assert.doesNotMatch(render({ openVacancyCount: 2 }), /badge-open-vacancies/);
+});
+
 test('Canvas cards show every supplied safe holder while ordinary cards remain unchanged', () => {
   const html = render({
     featuredRole: 'Chair',
