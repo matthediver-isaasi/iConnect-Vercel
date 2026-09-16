@@ -158,7 +158,6 @@ export default async function handler(req, res) {
           status,
           created_date,
            organization_id,
-           member_id,
            created_member_id,
            created_organization_id
         )

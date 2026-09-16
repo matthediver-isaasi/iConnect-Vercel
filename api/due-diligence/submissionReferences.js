@@ -82,7 +82,7 @@ export async function resolveDueDiligenceSubmissionReferences({
     memberIds.length
       ? db
           .from('member')
-          .select('id, first_name, last_name, full_name, email, tenant_id')
+          .select('id, first_name, last_name, email, tenant_id')
           .in('id', memberIds)
           .eq('tenant_id', tenantId)
       : Promise.resolve({ data: [], error: null }),

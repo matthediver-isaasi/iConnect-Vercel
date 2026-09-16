@@ -2525,7 +2525,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
     // form-scoping guard already in place for executeMemberCreationActions.
     const { data: formSubmission, error: fsError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id, created_member_id, member_id')
+      .select('form_id, submission_data, organization_id, created_member_id')
       .eq('id', ddSubmission.form_submission_id)
       .eq('tenant_id', tenantId)
       .single();
