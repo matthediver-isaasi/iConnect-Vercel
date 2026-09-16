@@ -324,11 +324,16 @@ test("mounted member mapping editor adds, edits, reorders, disables, and reloads
   await expect(memberAction).toBeVisible();
   await memberAction.getByTestId(`button-edit-member-field-mapping-${MEMBER_MAPPING_ID}`).click();
   await page.getByTestId("input-member-static-value-0").fill("Edited after add");
+  await page.getByTestId("select-member-target-type-1").click();
+  await page.getByRole("option", { name: "Custom field", exact: true }).click();
+  await page.getByTestId("select-member-custom-target-1").click();
+  await page.getByRole("option", { name: "Member segment", exact: true }).click();
   await page.getByTestId("button-confirm-member-field-mapping-0").click();
   await expect.poll(() => state.writes.filter(write => write.method === "PUT")).toHaveLength(1);
   const editWrite = state.writes.find(write => write.method === "PUT");
   expect(editWrite.body).toEqual(expect.objectContaining({ target_entity: "member" }));
   expect(editWrite.body.field_mappings[0].static_value).toBe("Edited after add");
+  expect(editWrite.body.field_mappings[1].target_field).toBe(MEMBER_FIELD_ID);
 
   await openActions(page);
   await memberAction.getByTestId(`switch-toggle-member-field-mapping-${MEMBER_MAPPING_ID}`).click();
@@ -339,6 +344,10 @@ test("mounted member mapping editor adds, edits, reorders, disables, and reloads
   await page.reload();
   await openActions(page);
   await expect(page.getByTestId(`member-field-mapping-action-${MEMBER_MAPPING_ID}`)).toContainText("Disabled");
+  await memberAction.getByTestId(`button-edit-member-field-mapping-${MEMBER_MAPPING_ID}`).click();
+  await expect(page.getByTestId("select-member-custom-target-1")).toContainText("Member segment");
+  expect(state.fieldActions.find(action => action.id === MEMBER_MAPPING_ID).field_mappings)
+    .toEqual(editWrite.body.field_mappings);
   await expect(page.getByText("Update Organisation Fields", { exact: true })).toBeVisible();
   await expect(page.getByText("Create Member Record", { exact: true })).toBeVisible();
   await page.screenshot({

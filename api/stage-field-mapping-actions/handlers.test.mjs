@@ -73,7 +73,8 @@ class Query {
     this.limitCount = null;
   }
 
-  select() {
+  select(columns = '*') {
+    this.columns = columns;
     return this;
   }
 
@@ -122,6 +123,16 @@ class Query {
   }
 
   execute(single) {
+    if (this.table === 'preference_field') {
+      if (this.state.preferenceError) return { data: null, error: this.state.preferenceError };
+      const supported = new Set([
+        'id', 'tenant_id', 'entity_scope', 'is_active', 'field_type',
+        ...(this.state.optionalPreferenceColumns || []),
+      ]);
+      const unknown = this.columns?.split(',').map(column => column.trim())
+        .find(column => column !== '*' && !supported.has(column));
+      if (unknown) return { data: null, error: { code: '42703', message: `column preference_field.${unknown} does not exist` } };
+    }
     const rows = this.state[this.table] || [];
     const matches = rows.filter((row) => this.filters.every((filter) => (
       filter.kind === 'in'
@@ -149,7 +160,10 @@ class Query {
 
     const data = this.limitCount === 1 ? matches.slice(0, 1) : matches;
     if (single && !data[0]) return { data: null, error: { code: 'PGRST116' } };
-    return { data, error: null };
+    const projected = !this.columns || this.columns === '*' ? data : data.map(row => (
+      Object.fromEntries(this.columns.split(',').map(column => column.trim()).map(column => [column, row[column]]))
+    ));
+    return { data: single ? projected[0] : projected, error: null };
   }
 }
 
@@ -408,3 +422,77 @@ test('mapping source ids must belong to the selected form', async () => {
   assert.match(response.body.error, /Source field does not belong to this form/);
   assert.equal(state.stage_field_mapping_action.length, 0);
 });
+
+test('schema-aware mock rejects unknown preference projections', async () => {
+  for (const column of ['read_only', 'is_calculated', 'formula']) {
+    const result = await makeSupabase(makeState()).from('preference_field').select(`id, ${column}`);
+    assert.equal(result.error.code, '42703');
+  }
+});
+
+for (const entity of ['member', 'organization']) {
+  for (const type of ['custom', 'core']) {
+    test(`${entity} ${type} mappings create, update and reopen on the established schema`, async () => {
+      const state = makeState();
+      state.preference_field[0].entity_scope = entity;
+      if (type === 'core') state.preferenceError = { code: 'XX000', message: 'Must not query definitions' };
+      const mapping = {
+        ...validMemberCustomMapping, target_type: type,
+        target_field: type === 'custom' ? 'member-text' : entity === 'member' ? 'first_name' : 'name',
+      };
+      const handlers = makeHandler(state);
+      const created = makeResponse();
+      await handlers.list({ method: 'POST', body: {
+        form_id: FORM_ID, due_diligence_stage_id: STAGE_ID, target_entity: entity, field_mappings: [mapping],
+      } }, created);
+      assert.equal(created.statusCode, 201);
+      const id = created.body.field_mapping_action.id;
+      const updatedMapping = { ...mapping, source_type: 'static', static_value: 'Reviewed value' };
+      for (const method of ['PUT', 'PATCH']) {
+        const updated = makeResponse();
+        await handlers.item({ method, query: { id }, body: { field_mappings: [updatedMapping] } }, updated);
+        assert.equal(updated.statusCode, 200);
+      }
+      const reopened = makeResponse();
+      await handlers.item({ method: 'GET', query: { id } }, reopened);
+      assert.deepEqual(reopened.body.field_mapping_action.field_mappings, [updatedMapping]);
+      const listed = makeResponse();
+      await handlers.list({ method: 'GET', query: { formId: FORM_ID, stageId: STAGE_ID } }, listed);
+      assert.deepEqual(listed.body.field_mapping_actions[0].field_mappings, [updatedMapping]);
+    });
+  }
+}
+
+for (const invalid of [
+  { label: 'missing', remove: true },
+  { label: 'foreign', tenant_id: OTHER_TENANT_ID },
+  { label: 'wrong scope', entity_scope: 'organization' },
+  { label: 'inactive', is_active: false },
+  { label: 'unsupported', field_type: 'file' },
+  ...['read_only', 'readonly', 'is_readonly', 'is_calculated', 'calculated', 'is_computed', 'formula', 'calculation']
+    .map(column => ({ label: column, [column]: column === 'formula' || column === 'calculation' ? '1 + 1' : true })),
+  { label: 'query error', error: { code: 'XX000', message: 'Database unavailable' } },
+  { label: 'schema error', error: { code: '42703', message: 'Unexpected schema failure' } },
+]) {
+  test(`invalid custom target (${invalid.label}) fails closed on create and update`, async () => {
+    const state = makeState();
+    const created = await postMemberMapping(state);
+    const id = created.body.field_mapping_action.id;
+    const before = clone(state.stage_field_mapping_action);
+    if (invalid.remove) state.preference_field = [];
+    else Object.assign(state.preference_field[0], invalid);
+    state.optionalPreferenceColumns = Object.keys(invalid);
+    state.preferenceError = invalid.error;
+    const expectedStatus = invalid.error ? 500 : 400;
+    const response = await postMemberMapping(state, validMemberCustomMapping);
+    assert.equal(response.statusCode, expectedStatus);
+    for (const method of ['PUT', 'PATCH']) {
+      const updated = makeResponse();
+      await makeHandler(state).item({
+        method, query: { id }, body: { field_mappings: [validMemberCustomMapping] },
+      }, updated);
+      assert.equal(updated.statusCode, expectedStatus);
+    }
+    assert.deepEqual(state.stage_field_mapping_action, before);
+  });
+}

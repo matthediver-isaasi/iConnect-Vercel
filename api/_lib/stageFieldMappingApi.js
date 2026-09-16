@@ -140,7 +140,9 @@ export async function loadPreferenceDefinitions(supabase, {
   if (ids.length === 0) return { data: [], error: null };
   return queryRows(
     supabase.from('preference_field')
-      .select('id, tenant_id, entity_scope, is_active, field_type, read_only, is_calculated, formula')
+      // Optional writability metadata must be preserved when present, not
+      // named in the projection: older schemas do not define those columns.
+      .select('*')
       .eq('tenant_id', tenantId)
       .in('id', ids),
   );

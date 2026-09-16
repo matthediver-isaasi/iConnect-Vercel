@@ -205,7 +205,8 @@ export default async function handler(req, res) {
     if (mappedPreferenceIds.length) {
       const prefResult = await supabase
         .from('preference_field')
-        .select('id, tenant_id, entity_scope, is_active, field_type, read_only, is_calculated, formula')
+        // Preserve optional writability metadata without requiring its columns.
+        .select('*')
         .eq('tenant_id', tenantId)
         .in('id', mappedPreferenceIds);
       if (prefResult.error) throw prefResult.error;

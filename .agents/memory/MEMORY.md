@@ -155,3 +155,4 @@
 - [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
 - [Due Diligence applicant identity](due-diligence-applicant-identity.md) — form application type selects the name; organisation applicants can also have contact members.
 - [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
+- [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
