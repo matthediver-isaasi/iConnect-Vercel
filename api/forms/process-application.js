@@ -1504,6 +1504,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           submission: persistedSubmission,
           memberId: existingSubmission.created_member_id,
           organizationId: existingSubmission.created_organization_id,
+          authorization: processingAuthorization,
         });
         const stripeAddressMappings = await processPersistedStripeAddressMappings({
           db: supabase,
@@ -4789,6 +4790,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       memberId: primaryMemberId,
       organizationId: primaryOrganizationId,
       serverCreatedOrganizations,
+      authorization: processingAuthorization,
     });
     for (const outcome of relatedRecords?.outcomes || []) {
       addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });

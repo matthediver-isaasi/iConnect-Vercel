@@ -266,6 +266,8 @@ async function installHarness(page, {
   forms = [],
   discoveryModeByForm = {},
   discoveryTenantByForm = {},
+  relationshipDefinitionsByForm = {},
+  structuredRelationships = null,
   discoveryDelay = 0,
 } = {}) {
   const state = {
@@ -280,6 +282,8 @@ async function installHarness(page, {
     parentOptionsLoaded: false,
     discoveryModeByForm,
     discoveryTenantByForm,
+    relationshipDefinitionsByForm,
+    structuredRelationships,
     discoveryDelay,
     tenantUserTenant: null,
   };
@@ -297,6 +301,7 @@ async function installHarness(page, {
   const json = (route, body, status = 200) => route.fulfill({
     status,
     contentType: "application/json",
+      headers: { "cache-control": "no-store" },
     body: JSON.stringify(body),
   });
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -416,6 +421,9 @@ async function installHarness(page, {
       if (mode === "loading") await delay(state.discoveryDelay || 800);
       if (mode === "error") return json(route, { error: "discovery fixture failure" }, 503);
       if (mode === "empty") return json(route, { data: [], custom_objects: [] });
+      if (state.relationshipDefinitionsByForm[formId]) {
+        return json(route, { data: state.relationshipDefinitionsByForm[formId], custom_objects: [] });
+      }
       const form = state.forms.find(candidate => candidate.id === formId);
       const children = form?.fields?.[0]?.children || [];
       const tenantKey = state.discoveryTenantByForm[formId]
@@ -466,6 +474,7 @@ async function installHarness(page, {
     }
     const objectRelationshipsMatch = path.match(/^\/api\/custom-objects\/([^/]+)\/relationship-definitions$/);
     if (objectRelationshipsMatch && method === "GET") {
+      if (state.structuredRelationships) return json(route, { data: state.structuredRelationships });
       return json(route, { data: [discoveryFixture({ tenantKey: "alpha" }).data[0]] });
     }
 
@@ -587,6 +596,130 @@ test("an unsaved builder does not discover objects and saves a field before disc
   expect(state.creates[0].fields[0].option_source).toBeUndefined();
   expect(state.unexpectedWrites).toEqual([]);
   await expect(page).toHaveURL(/\/FormManagement/);
+});
+
+test("Not listed / Other policy fixture saves and reopens Related Records include and skip", async ({ page }) => {
+  const form = {
+    ...builderForm({ formId: "71000000-0000-4000-8000-000000000099" }),
+    fields: [{
+      id: "policy-email",
+      type: "email",
+      label: "Member email",
+    }, {
+      id: "policy-organisation",
+      type: "relationship_dropdown",
+      label: "Organisation",
+      related_kind: "organization",
+      selection_mode: "multiple",
+      not_listed_choice: { enabled: true, label: "Other organisation" },
+    }],
+    entity_pipelines: {
+      members: [{
+        id: "policy-primary-member",
+        label: "Primary Member",
+        isPrimary: true,
+        mappings: [{
+          id: "policy-member-email",
+          source_field_id: "policy-email",
+          target_field: "email",
+          target_type: "core",
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  const relationship = {
+    id: "policy-member-organisation",
+    status: "active",
+    source_kind: "member",
+    target_kind: "organization",
+    source_label: "Member",
+    target_label: "Organisation",
+  };
+  const state = await installHarness(page, {
+    authenticated: true,
+    forms: [form],
+    relationshipDefinitionsByForm: { [form.id]: [relationship] },
+    structuredRelationships: [relationship],
+  });
+
+  await page.goto(`/FormBuilder?tenant=${tenants.alpha.slug}&formId=${form.id}`);
+  await page.getByTestId("tab-submission").click();
+  const relatedRecords = page.getByTestId("related-records-member");
+  await expect(relatedRecords).toBeVisible();
+  await relatedRecords.getByRole("button", { name: "Add link" }).click();
+  await relatedRecords.getByRole("combobox").nth(0).click();
+  await page.getByRole("option", { name: "Member ↔ Organisation" }).click();
+  await relatedRecords.getByRole("combobox").nth(1).click();
+  await page.getByRole("option", { name: "Organisation", exact: true }).click();
+
+  const policy = page.getByTestId("select-related-records-not-listed-policy-member-0");
+  await expect(policy).toContainText("Skip Not listed / Other");
+  await policy.click();
+  await page.getByRole("option", { name: "Create and link the entered value" }).click();
+  const identity = page.getByTestId("select-related-records-identity-member-0");
+  await identity.click();
+  await page.getByRole("option", { name: "Organisation Name" }).click();
+  await page.screenshot({ path: "screenshots/task4443-not-listed-policy-fixture.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Save Form" }).click();
+  await expect.poll(() => state.saves.length).toBe(1);
+  expect(state.saves[0].entity_pipelines.members[0].related_records[0]).toMatchObject({
+    relationship_definition_id: relationship.id,
+    source_field_id: "policy-organisation",
+    not_listed_policy: "include",
+    not_listed_operation: "upsert",
+    uniqueness_field: "name",
+    identity_mapping: {
+      source_type: "not_listed_text",
+      source_field_id: "policy-organisation",
+      target_field_id: "name",
+      target_type: "core",
+    },
+    companion_mappings: [],
+  });
+  const includedRelatedRecords = JSON.parse(JSON.stringify(
+    state.saves[0].entity_pipelines.members[0].related_records,
+  ));
+
+  await page.reload();
+  await page.getByTestId("tab-submission").click();
+  await expect(page.getByTestId("select-related-records-not-listed-policy-member-0"))
+    .toContainText("Create and link the entered value");
+  await page.getByTestId("select-related-records-not-listed-policy-member-0").click();
+  await page.getByRole("option", { name: "Skip Not listed / Other" }).click();
+  await page.getByRole("button", { name: "Save Form" }).click();
+  await expect.poll(() => state.saves.length).toBe(2);
+  const skipped = state.saves[1].entity_pipelines.members[0].related_records[0];
+  expect(skipped.not_listed_policy).toBe("skip");
+  expect(skipped.identity_mapping).toBeUndefined();
+  expect(skipped.companion_mappings).toBeUndefined();
+  expect(skipped.not_listed_operation).toBeUndefined();
+  expect(skipped.uniqueness_field).toBeUndefined();
+
+  await page.reload();
+  await page.getByTestId("tab-submission").click();
+  await expect(page.getByTestId("select-related-records-not-listed-policy-member-0"))
+    .toContainText("Skip Not listed / Other");
+
+  // Simulate an editor disabling the field's Other option after an include
+  // mapping was already saved. The Related Records controls are intentionally
+  // hidden in this state, so the remaining alert must still block a stale
+  // include payload from reaching the server.
+  state.forms[0].fields.find(field => field.id === "policy-organisation").not_listed_choice = {
+    enabled: false,
+    label: "Other organisation",
+  };
+  state.forms[0].entity_pipelines.members[0].related_records = includedRelatedRecords;
+  await page.reload();
+  await page.getByTestId("tab-submission").click();
+  await expect(page.getByRole("alert")).toContainText(
+    "no longer offers Not listed / Other",
+  );
+  await page.getByRole("button", { name: "Save Form" }).click();
+  expect(state.saves).toHaveLength(2);
+  expect(state.unexpectedWrites).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
 });
 
 test("builder discovery exposes loading, failure, and confirmed-empty states", async ({ page }) => {

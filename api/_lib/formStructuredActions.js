@@ -26,6 +26,7 @@ import {
 } from './formMappingFallbacks.js';
 import {
   FORM_NOT_LISTED_TEXT_KEY,
+  FORM_NOT_LISTED_VALUE,
   isFormNotListedValue,
 } from '../../shared/formNotListedChoice.js';
 import { isRelationshipMultiSelect } from '../../shared/formRelationshipSelection.js';
@@ -142,6 +143,14 @@ const recordReferenceFieldId = (action) => action?.record_reference_field_id
   || action?.source?.field_id
   || null;
 const notListedOperation = (action) => action?.not_listed_operation || null;
+const NOT_LISTED_POLICIES = new Set(['include', 'skip']);
+// Record-reference actions historically created/upserted an entered value. A
+// Related Records link historically ignored it. Keep those defaults at their
+// respective persisted-contract boundaries rather than making a missing
+// setting mean something different after a form is reopened.
+const structuredNotListedPolicy = (action) => action?.not_listed_policy ?? 'include';
+const relatedRecordNotListedPolicy = (link) => link?.not_listed_policy ?? 'skip';
+const isNotListedPolicySkip = (action) => structuredNotListedPolicy(action) === 'skip';
 const relationshipEndpoints = (action) => ({
   source: action?.source_endpoint,
   target: action?.target_endpoint,
@@ -405,7 +414,9 @@ export function validateStructuredActionsContract(input, fields = []) {
           errors.push(`${prefix}.record_reference_field_id is incompatible with the action target`);
         }
       }
-      if (!action?.identity_mapping && (action?.reference_field_id || action?.companion_mappings)) {
+      if (!isNotListedPolicySkip(action)
+        && !action?.identity_mapping
+        && (action?.reference_field_id || action?.companion_mappings)) {
         errors.push(`${prefix}.identity_mapping is required`);
       }
       if (action?.identity_mapping
@@ -413,14 +424,20 @@ export function validateStructuredActionsContract(input, fields = []) {
           || String(action.identity_mapping.source_field_id) !== String(selectorId))) {
         errors.push(`${prefix}.identity_mapping must explicitly map this picker's Not listed text`);
       }
-      if (!['create', 'upsert'].includes(notListedOperation(action))) {
+      if (!NOT_LISTED_POLICIES.has(structuredNotListedPolicy(action))) {
+        errors.push(`${prefix}.not_listed_policy must be include or skip`);
+      }
+      if (!isNotListedPolicySkip(action) && !['create', 'upsert'].includes(notListedOperation(action))) {
         errors.push(`${prefix}.not_listed_operation must be create or upsert`);
       }
       if (action?.relationship_definition_id || action?.relationship_parent_field_id) {
         errors.push(`${prefix} cannot create a relationship as part of record-reference resolution`);
       }
     }
-    if (actionMappings(action).length === 0) errors.push(`${prefix}.mappings must not be empty`);
+    if (actionMappings(action).length === 0
+      && !(isRecordReferenceAction(action) && isNotListedPolicySkip(action))) {
+      errors.push(`${prefix}.mappings must not be empty`);
+    }
     const mappedTargets = new Set();
     const mappingIds = new Set();
     const sourceFields = sourceFieldsFor(action, fields);
@@ -580,7 +597,8 @@ export function validateStructuredActionsContract(input, fields = []) {
       errors.push(`${prefix} cannot configure organization_group_source and map organization_group_id separately`);
     }
     const effectiveCreateOperation = isRecordReferenceAction(action) ? notListedOperation(action) : action?.operation;
-    if (isRecordReferenceAction(action) && effectiveCreateOperation === 'upsert') {
+    if (isRecordReferenceAction(action) && !isNotListedPolicySkip(action)
+      && effectiveCreateOperation === 'upsert') {
       if (!action?.identity_mapping
         || String(action.uniqueness_field || '') !== String(action.identity_mapping.target_field_id || '')) {
         errors.push(`${prefix}.uniqueness_field must equal identity_mapping.target_field_id for record-reference upsert`);
@@ -594,7 +612,8 @@ export function validateStructuredActionsContract(input, fields = []) {
         errors.push(`${prefix}.identity_mapping.target_type does not match the target field metadata`);
       }
     }
-    if (effectiveCreateOperation === 'upsert') {
+    if (!isRecordReferenceAction(action) || !isNotListedPolicySkip(action)) {
+      if (effectiveCreateOperation === 'upsert') {
       if (!action.uniqueness_field) errors.push(`${prefix}.uniqueness_field is required for upsert`);
       const uniqueMappings = actionMappings(action).filter(mapping =>
         String(targetField(mapping)) === String(action.uniqueness_field));
@@ -613,8 +632,10 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (entity === 'custom_object' && uniqueMappings[0]?.target_type !== 'custom') {
         errors.push(`${prefix}.custom object uniqueness_field must be a custom field`);
       }
+      }
     }
-    if (action?.operation !== 'update_selected') {
+    if (action?.operation !== 'update_selected'
+      && !(isRecordReferenceAction(action) && isNotListedPolicySkip(action))) {
       const requiredCore = entity === 'member' ? 'email'
         : ['organization', 'organization_group'].includes(entity) ? 'name' : null;
       if (requiredCore && !actionMappings(action).some(mapping =>
@@ -740,9 +761,23 @@ function visibleValues(values, hidden) {
   return Object.fromEntries(Object.entries(values).filter(([key]) => !hidden.has(String(key))));
 }
 
+function visibleSubmissionValues(values, hidden) {
+  const visible = visibleValues(values, hidden);
+  // The canonical Not-listed text is stored under one metadata key rather
+  // than alongside its picker. Keep metadata for visible pickers, while
+  // removing stale text belonging to a hidden picker.
+  const notListedText = visible[FORM_NOT_LISTED_TEXT_KEY];
+  if (notListedText && typeof notListedText === 'object' && !Array.isArray(notListedText)) {
+    visible[FORM_NOT_LISTED_TEXT_KEY] = Object.fromEntries(
+      Object.entries(notListedText).filter(([fieldId]) => !hidden.has(String(fieldId))),
+    );
+  }
+  return visible;
+}
+
 export function expandStructuredActionInvocations(contract, form, submissionData, visibilityOptions = {}) {
   const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions);
-  const rootValues = visibleValues(submissionData, hidden);
+  const rootValues = visibleSubmissionValues(submissionData, hidden);
   const fields = new Map((form?.fields || []).filter(f => f?.id).map(f => [String(f.id), f]));
   const invocations = [];
   for (const action of contract.actions) {
@@ -750,7 +785,21 @@ export function expandStructuredActionInvocations(contract, form, submissionData
     if (!containerId) {
       const values = rootValues;
       const selectedRecordId = selectedRelationshipRecordId(action, form?.fields || [], values);
-      const base = { action, rowIndex: null, values, rootValues, selectedRecordId, invocationKey: `${action.id}:top` };
+      const sourceHidden = isRecordReferenceAction(action)
+        && hidden.has(String(recordReferenceFieldId(action)));
+      const base = {
+        action, rowIndex: null, values, rootValues, selectedRecordId,
+        invocationKey: `${action.id}:top`,
+        ...(sourceHidden ? { hiddenRecordReferenceSource: true } : {}),
+      };
+      if (sourceHidden && isMultiRecordReferenceAction(action)) {
+        invocations.push({
+          ...base,
+          recordReferenceItemIdentity: 'hidden-source',
+          recordReferenceItemValue: null,
+        });
+        continue;
+      }
       invocations.push(...expandRecordReferenceItems(base));
       continue;
     }
@@ -761,11 +810,25 @@ export function expandStructuredActionInvocations(contract, form, submissionData
     const visibleChildren = repeatableRowChildren(container).filter(child => !hidden.has(String(child?.id)));
     rows.forEach((row, rowIndex) => {
       if (!row || typeof row !== 'object' || row._deleted === true || row.deleted === true || row.active === false) return;
-      const values = visibleValues(row, hidden);
+      const values = visibleSubmissionValues(row, hidden);
       if (isRepeatableRowEmpty(values, visibleChildren)) return;
       if (!row._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
       const selectedRecordId = selectedRelationshipRecordId(action, visibleChildren, values);
-      const base = { action, rowIndex, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` };
+      const sourceHidden = isRecordReferenceAction(action)
+        && hidden.has(String(recordReferenceFieldId(action)));
+      const base = {
+        action, rowIndex, rowId: String(row._row_id), values, rootValues, selectedRecordId,
+        invocationKey: `${action.id}:row:${row._row_id}`,
+        ...(sourceHidden ? { hiddenRecordReferenceSource: true } : {}),
+      };
+      if (sourceHidden && isMultiRecordReferenceAction(action)) {
+        invocations.push({
+          ...base,
+          recordReferenceItemIdentity: 'hidden-source',
+          recordReferenceItemValue: null,
+        });
+        return;
+      }
       invocations.push(...expandRecordReferenceItems(base));
     });
   }
@@ -889,6 +952,36 @@ function pipelineRelatedRecords(pipeline) {
   return Array.isArray(pipeline?.related_records) ? pipeline.related_records : [];
 }
 
+function relatedRecordResolverAction(kind, link, field) {
+  const descriptor = fieldRecordDescriptor(field);
+  return {
+    // This is intentionally a synthetic structured action, not persisted form
+    // structured_actions. It allows Related Records to use the same target
+    // validation and write adapters while keeping its creation settings on the
+    // relationship link where the builder stores them.
+    id: `primary-related:${kind}:${link.id}`,
+    source: { scope: 'top_level' },
+    target: {
+      kind: descriptor?.kind,
+      ...(descriptor?.kind === 'custom_object'
+        ? { custom_object_id: descriptor.customObjectId }
+        : {}),
+    },
+    // Related Records can be backed by the builder's multiple-selection
+    // Relationship Dropdown. Match the saved picker cardinality so contract
+    // validation and Not-listed invocation semantics stay aligned.
+    operation: isRelationshipMultiSelect(field)
+      ? RESOLVE_RECORD_REFERENCES_OPERATION
+      : 'resolve_record_reference',
+    record_reference_field_id: link.source_field_id,
+    not_listed_policy: relatedRecordNotListedPolicy(link),
+    not_listed_operation: link.not_listed_operation,
+    uniqueness_field: link.uniqueness_field,
+    identity_mapping: link.identity_mapping,
+    companion_mappings: link.companion_mappings,
+  };
+}
+
 export function validatePrimaryPipelineRelatedRecordsContract(form) {
   const errors = [];
   const fields = Array.isArray(form?.fields) ? form.fields : [];
@@ -906,6 +999,36 @@ export function validatePrimaryPipelineRelatedRecordsContract(form) {
       const field = fields.find(candidate => String(candidate?.id) === String(link?.source_field_id));
       if (!field || field.type !== 'relationship_dropdown' || !fieldRecordDescriptor(field)) {
         errors.push(`${prefix}.source_field_id must identify a submitted Relationship Dropdown field`);
+        continue;
+      }
+      if (!NOT_LISTED_POLICIES.has(relatedRecordNotListedPolicy(link))) {
+        errors.push(`${prefix}.not_listed_policy must be include or skip`);
+        continue;
+      }
+      if (relatedRecordNotListedPolicy(link) === 'include') {
+        // The link itself owns resolver configuration. Do not accept the
+        // obsolete nested creation object: a saved link must be inspectable
+        // and executable without lossy shape translation.
+        if (!link?.identity_mapping
+          || link.identity_mapping.source_type !== 'not_listed_text'
+          || String(link.identity_mapping.source_field_id) !== String(link.source_field_id)) {
+          errors.push(`${prefix}.identity_mapping must explicitly map this field's Not listed text`);
+          continue;
+        }
+        if (!Array.isArray(link.companion_mappings)) {
+          errors.push(`${prefix}.companion_mappings must be an array when not_listed_policy is include`);
+          continue;
+        }
+        try {
+          validateStructuredActionsContract({
+            version: STRUCTURED_ACTIONS_VERSION,
+            actions: [relatedRecordResolverAction(kind, link, field)],
+          }, fields);
+        } catch (error) {
+          for (const detail of error.details || [error.message]) {
+            errors.push(`${prefix}.${String(detail).replace(/^actions\[0\]\.?/, '')}`);
+          }
+        }
       }
     }
   }
@@ -913,6 +1036,138 @@ export function validatePrimaryPipelineRelatedRecordsContract(form) {
     throw new StructuredActionContractError('Invalid primary pipeline Related Records configuration', errors);
   }
   return definitions.filter(([, pipeline]) => pipelineRelatedRecords(pipeline).length > 0);
+}
+
+async function resolvePrimaryPipelineRelatedNotListedRecord({
+  db,
+  tenantId,
+  kind,
+  link,
+  field,
+  form,
+  submission,
+  preferenceFields,
+  authorization,
+}) {
+  const action = relatedRecordResolverAction(kind, link, field);
+  if (authorization?.allowPersistedRecordReferenceWrites !== true) {
+    throw new StructuredActionAuthorizationError(
+      'Creating a Related Records target from a Not-listed reference requires trusted persisted processing',
+    );
+  }
+  const answers = submission?.submission_data || {};
+  const invocation = {
+    action,
+    values: answers,
+    rootValues: answers,
+    formFields: form?.fields || [],
+    invocationKey: `${action.id}:not-listed`,
+    primaryRecords: {},
+    contractActions: [action],
+    // The Related Records processor links listed selections itself and calls
+    // this resolver only for its one Other item. Multi-reference structured
+    // actions therefore need the same item-local sentinel expanded by
+    // expandRecordReferenceItems, without reprocessing listed IDs.
+    ...(isMultiRecordReferenceAction(action) ? {
+      recordReferenceItemValue: FORM_NOT_LISTED_VALUE,
+      recordReferenceItemIdentity: 'not-listed',
+    } : {}),
+  };
+  // This is intentionally before the durable ledger claim. Otherwise an
+  // invalid current required-field configuration could reserve a creation
+  // identity and leave a retryable row despite no permissible target write.
+  assertRequiredRelatedRecordPreferenceValues({
+    action,
+    entity: entityName(action),
+    payload: mappedPayload(invocation, entityName(action), preferenceFields),
+    preferenceFields,
+  });
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    version: STRUCTURED_ACTIONS_VERSION,
+    action,
+    values: invocationFingerprintValues(invocation),
+  })).digest('hex');
+  const rowIdentity = 'not-listed';
+  let claimedRecordId = null;
+  let claimToken = null;
+  if (typeof db.rpc === 'function') {
+    const { data: rawClaim, error: claimError } = await db.rpc('claim_form_structured_action', {
+      p_tenant_id: tenantId,
+      p_submission_id: submission?.id,
+      p_action_id: action.id,
+      p_row_identity: rowIdentity,
+      p_fingerprint: fingerprint,
+    });
+    if (claimError) throw claimError;
+    const claim = Array.isArray(rawClaim) ? rawClaim[0] : rawClaim;
+    claimedRecordId = claim?.record_id || null;
+    claimToken = claim?.claim_token || null;
+    if (claim?.status === 'completed') {
+      if (!claimedRecordId) {
+        throw new StructuredActionContractError('Completed Related Records resolver has no target record');
+      }
+      await recordReferenceTargetAdapter(action).validateSelected({
+        db, tenantId, action, recordId: claimedRecordId,
+      });
+      return {
+        status: 'already_completed',
+        record_id: claimedRecordId,
+        entity_type: entityName(action),
+        record_reference: canonicalRecordReference(action, claimedRecordId),
+      };
+    }
+    if (claim && claim.claimed === false) {
+      return {
+        status: 'already_running',
+        reason: 'related_record_resolver_running',
+        retryable: true,
+      };
+    }
+  }
+  let outcome;
+  try {
+    outcome = await executeInvocation(
+      db,
+      tenantId,
+      invocation,
+      preferenceFields,
+      claimedRecordId,
+      null,
+      authorization,
+    );
+    if (outcome.status !== 'completed') {
+      throw new StructuredActionContractError('Related Records resolver did not create a target record');
+    }
+  } catch (error) {
+    if (typeof db.rpc === 'function' && claimToken) {
+      const { error: finalizeError } = await db.rpc('finalize_form_structured_action', {
+        p_tenant_id: tenantId,
+        p_submission_id: submission?.id,
+        p_action_id: action.id,
+        p_row_identity: rowIdentity,
+        p_status: 'failed',
+        p_record_id: null,
+        p_outcome: { status: 'failed', error: error.message || String(error) },
+        p_claim_token: claimToken,
+      });
+      if (finalizeError) throw finalizeError;
+    }
+    throw error;
+  }
+  if (typeof db.rpc === 'function' && claimToken) {
+    const { error: finalizeError } = await db.rpc('finalize_form_structured_action', {
+      p_tenant_id: tenantId,
+      p_submission_id: submission?.id,
+      p_action_id: action.id,
+      p_row_identity: rowIdentity,
+      p_status: 'completed',
+      p_record_id: outcome.record_id,
+      p_outcome: outcome,
+      p_claim_token: claimToken,
+    });
+    if (finalizeError) throw finalizeError;
+  }
+  return outcome;
 }
 
 export async function processPrimaryPipelineRelatedRecords({
@@ -923,6 +1178,7 @@ export async function processPrimaryPipelineRelatedRecords({
   memberId = null,
   organizationId = null,
   serverCreatedOrganizations,
+  authorization = {},
 }) {
   let configured;
   try {
@@ -931,7 +1187,15 @@ export async function processPrimaryPipelineRelatedRecords({
     return {
       success: false,
       partial: false,
-      outcomes: [{ status: 'failed', error: error.message || String(error), details: error.details || [], reason: 'invalid_configuration' }],
+      outcomes: [{
+        status: 'failed',
+        // Keep individual contract details visible to processing callers. The
+        // generic heading alone is not actionable for a persisted form an
+        // administrator must repair.
+        error: [error.message || String(error), ...(error.details || [])].join(': '),
+        details: error.details || [],
+        reason: 'invalid_configuration',
+      }],
       linked_count: 0,
       skipped_count: 0,
       failed_count: 1,
@@ -941,6 +1205,7 @@ export async function processPrimaryPipelineRelatedRecords({
   // Rules must see the respondent's original Not-listed choice. Resolve the
   // server-created identity only at the relationship reference boundary.
   const answers = submission?.submission_data || {};
+  const fields = Array.isArray(form?.fields) ? form.fields : [];
   const outcomes = [];
   let visibilityOptions;
   let hidden;
@@ -959,6 +1224,11 @@ export async function processPrimaryPipelineRelatedRecords({
       failed_count: 1,
     };
   }
+  const resolverAnswers = visibleSubmissionValues(answers, hidden);
+  const resolverSubmission = {
+    ...submission,
+    submission_data: resolverAnswers,
+  };
   try {
     await createFormRelationshipService({ db, tenantId }).validateSubmission({
       form,
@@ -976,6 +1246,38 @@ export async function processPrimaryPipelineRelatedRecords({
       skipped_count: 0,
       failed_count: 1,
     };
+  }
+  const includeResolvers = configured.flatMap(([kind, pipeline]) =>
+    pipelineRelatedRecords(pipeline)
+      .filter(link => relatedRecordNotListedPolicy(link) === 'include')
+      .map(link => {
+        const field = fields.find(candidate => String(candidate?.id) === String(link.source_field_id));
+        return relatedRecordResolverAction(kind, link, field);
+      }));
+  let resolverPreferenceFields = null;
+  if (includeResolvers.length) {
+    try {
+      resolverPreferenceFields = await loadPreferenceFields(db, tenantId);
+      validateRuntimeMappingCompatibility(
+        { version: STRUCTURED_ACTIONS_VERSION, actions: includeResolvers },
+        fields,
+        resolverPreferenceFields,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        partial: false,
+        outcomes: [{
+          status: 'failed',
+          error: error.message || String(error),
+          details: error.details || [],
+          reason: 'invalid_not_listed_creation_configuration',
+        }],
+        linked_count: 0,
+        skipped_count: 0,
+        failed_count: 1,
+      };
+    }
   }
   for (const [kind, pipeline] of configured) {
     const primaryId = kind === 'member' ? memberId : organizationId;
@@ -996,12 +1298,13 @@ export async function processPrimaryPipelineRelatedRecords({
         outcomes.push({ ...base, status: 'skipped', reason: 'source_field_hidden' });
         continue;
       }
-      const selected = answers?.[link.source_field_id];
-      const selectedIds = [...new Set(
-        (Array.isArray(selected) ? selected : [selected])
-          .filter(value => value && !isFormNotListedValue(value)),
+      const selected = resolverAnswers?.[link.source_field_id];
+      const selectedValues = [...new Set(
+        (Array.isArray(selected) ? selected : [selected]).filter(Boolean),
       )];
-      if (selectedIds.length === 0) {
+      const selectedIds = selectedValues.filter(value => !isFormNotListedValue(value));
+      const includesNotListed = selectedValues.some(isFormNotListedValue);
+      if (selectedValues.length === 0) {
         outcomes.push({ ...base, status: 'skipped', reason: 'relationship_selection_missing' });
         continue;
       }
@@ -1019,6 +1322,47 @@ export async function processPrimaryPipelineRelatedRecords({
           && String(definition[`${relatedSide}_custom_object_id`] || '')
             === String(relatedDescriptor?.customObjectId || '');
         if (!compatible) throw new StructuredActionContractError('Related Records relationship is inactive, cross-tenant, or incompatible');
+        if (includesNotListed) {
+          if (relatedRecordNotListedPolicy(link) === 'skip') {
+            outcomes.push({
+              ...base,
+              status: 'skipped',
+              reason: 'not_listed_policy_skip',
+              intentional: true,
+            });
+          } else {
+            try {
+              const resolved = await resolvePrimaryPipelineRelatedNotListedRecord({
+                db,
+                tenantId,
+                kind,
+                link,
+                field,
+                form,
+                submission: resolverSubmission,
+                preferenceFields: resolverPreferenceFields,
+                authorization,
+              });
+              if (resolved.status === 'already_running') {
+                outcomes.push({
+                  ...base,
+                  status: 'skipped',
+                  reason: resolved.reason,
+                  retryable: true,
+                });
+              } else if (resolved.record_id) {
+                selectedIds.push(resolved.record_id);
+              }
+            } catch (error) {
+              outcomes.push({
+                ...base,
+                status: 'failed',
+                reason: 'not_listed_record_resolution_failed',
+                error: error.message || String(error),
+              });
+            }
+          }
+        }
         for (const selectedId of selectedIds) {
           let endpointQuery = db.from(TABLES[relatedDescriptor.kind]).select('id')
             .eq('tenant_id', tenantId).eq('id', selectedId);
@@ -1052,13 +1396,16 @@ export async function processPrimaryPipelineRelatedRecords({
     }
   }
   const failed = outcomes.filter(outcome => outcome.status === 'failed');
+  const incomplete = outcomes.filter(outcome => outcome.reason === 'related_record_resolver_running');
   return {
-    success: failed.length === 0,
-    partial: failed.length > 0 && outcomes.some(outcome => ['linked', 'already_linked'].includes(outcome.status)),
+    success: failed.length === 0 && incomplete.length === 0,
+    partial: (failed.length > 0 || incomplete.length > 0)
+      && outcomes.some(outcome => ['linked', 'already_linked'].includes(outcome.status)),
     outcomes,
     linked_count: outcomes.filter(outcome => outcome.status === 'linked').length,
     skipped_count: outcomes.filter(outcome => ['skipped', 'already_linked'].includes(outcome.status)).length,
     failed_count: failed.length,
+    incomplete_count: incomplete.length,
   };
 }
 
@@ -1331,6 +1678,38 @@ export function mappedPayload(invocation, entity, preferenceFields) {
   return { core, custom, clearCustom, match };
 }
 
+function isMissingRequiredPreferenceValue(value) {
+  return value == null
+    || value === ''
+    || (typeof value === 'string' && value.trim() === '')
+    || (Array.isArray(value) && value.length === 0);
+}
+
+// Related Records creation is configured independently of the ordinary
+// primary-pipeline mappings. Re-read current active field metadata at the
+// execution boundary so an administrator cannot create a new Member or
+// Organisation missing a field made required after the form was saved.
+function assertRequiredRelatedRecordPreferenceValues({
+  action,
+  entity,
+  payload,
+  preferenceFields,
+}) {
+  if (!['member', 'organization'].includes(entity)) return;
+  const missing = [...preferenceFields.values()]
+    .filter(field => field?.entity_scope === entity
+      && field?.is_active !== false
+      && !field?.archived_at
+      && (field?.is_required === true || field?.required === true))
+    .filter(field => isMissingRequiredPreferenceValue(payload.custom?.[String(field.id)]));
+  if (missing.length) {
+    throw new StructuredActionContractError(
+      `Related Records resolver ${action.id} is missing active required ${entity} field mappings or values`,
+      missing.map(field => String(field.label || field.name || field.id)),
+    );
+  }
+}
+
 async function findExisting(db, tenantId, entity, action, payload) {
   const explicitId = action.record_id || action.target_record_id || payload.core.id;
   let query = db.from(TABLES[entity]).select('*').eq('tenant_id', tenantId);
@@ -1481,18 +1860,35 @@ function relationshipOutputKey(actionId, invocation) {
   return `${actionId}:${invocation.rowId ? `row:${invocation.rowId}` : 'top'}`;
 }
 
-function appendActionOutput(actionOutputs, invocation, recordId, status = 'completed') {
+function appendActionOutput(
+  actionOutputs,
+  invocation,
+  recordId,
+  status = 'completed',
+  reason = null,
+) {
   const key = relationshipOutputKey(invocation.action.id, invocation);
   if (!isMultiRecordReferenceAction(invocation.action)) {
-    actionOutputs.set(key, { recordId, status });
+    actionOutputs.set(key, {
+      recordId,
+      status,
+      intentionalSkip: status === 'skipped'
+        && ['not_listed_policy_skip', 'source_field_hidden'].includes(reason),
+      intentionalSkipReason: reason,
+    });
     return;
   }
   const current = actionOutputs.get(key) || {
     recordIds: [],
     recordReferences: [],
     itemStatuses: new Map(),
+    intentionallySkippedItems: new Set(),
   };
   current.itemStatuses.set(invocation.recordReferenceItemIdentity, status);
+  if (status === 'skipped' && ['not_listed_policy_skip', 'source_field_hidden'].includes(reason)) {
+    current.intentionallySkippedItems.add(invocation.recordReferenceItemIdentity);
+    current.intentionalSkipReason = reason;
+  }
   if (recordId && !current.recordIds.includes(recordId)) {
     current.recordIds.push(recordId);
     current.recordReferences.push(canonicalRecordReference(invocation.action, recordId));
@@ -1623,6 +2019,7 @@ async function preflightMemberOrganizationGroupInvocations({
   preferenceFields,
 }) {
   for (const invocation of invocations || []) {
+    if (invocation.hiddenRecordReferenceSource) continue;
     if (isRelationshipAction(invocation.action) || entityName(invocation.action) !== 'member') continue;
     // A selected record-reference invocation returns the authoritative
     // existing record before mapped companion fields are evaluated. Its
@@ -1975,7 +2372,8 @@ function relationshipEndpointRecordId(endpoint, invocation, actionOutputs, prima
       );
     }
     if (dependency.itemStatuses
-      && [...dependency.itemStatuses.values()].some(status => status !== 'completed')) {
+      && [...dependency.itemStatuses.entries()].some(([item, status]) =>
+        status !== 'completed' && !dependency.intentionallySkippedItems?.has(item))) {
       throw new StructuredActionContractError(
         `Relationship action is blocked: dependency ${input.action_id} has incomplete record items`,
       );
@@ -2073,9 +2471,23 @@ function assertInvocationDependenciesComplete(invocation, actionOutputs, primary
       relationshipOutputKey(String(input.action_id), invocation),
     );
     const incompleteCollection = dependency?.itemStatuses
-      && [...dependency.itemStatuses.values()].some(status => status !== 'completed');
+      && [...dependency.itemStatuses.entries()].some(([item, status]) =>
+        status !== 'completed' && !dependency.intentionallySkippedItems?.has(item));
     const incompleteScalar = !dependency?.itemStatuses
       && (dependency?.status !== 'completed' || !dependency?.recordId);
+    const intentionallySkipped = dependency?.intentionalSkip
+      || (dependency?.itemStatuses
+        && dependency.recordIds.length === 0
+        && [...dependency.itemStatuses.keys()].every(item =>
+          dependency.intentionallySkippedItems?.has(item)));
+    if (intentionallySkipped && isRelationshipAction(invocation.action)) {
+      const error = new StructuredActionContractError(
+        `Relationship action is intentionally skipped: dependency ${input.action_id} has no visible record-reference value`,
+      );
+      error.code = 'DEPENDENCY_INTENTIONALLY_SKIPPED';
+      error.intentionalSkipReason = dependency?.intentionalSkipReason;
+      throw error;
+    }
     if (!dependency || incompleteCollection || incompleteScalar) {
       throw new StructuredActionContractError(
         `Action is blocked: dependency ${input.action_id} has incomplete record items`,
@@ -2089,6 +2501,7 @@ function assertRelationshipFieldEndpointsAuthorized(invocation, authorization) {
     const input = endpointInput(endpoint);
     if (input.type !== 'field') continue;
     const recordId = relationshipEndpointRecordId(endpoint, invocation, new Map());
+    if (isFormNotListedValue(recordId)) continue;
     assertStructuredMutationAuthorized({
       action: { target: { kind: endpointDescriptor(endpoint).kind } },
       recordId,
@@ -2188,6 +2601,14 @@ async function executeInvocation(
   if (isRecordReferenceAction(action)) {
     const resolved = await resolveSelectedRecordReference(db, tenantId, invocation);
     if (resolved) return resolved;
+    if (isNotListedPolicySkip(action)) {
+      return {
+        status: 'skipped',
+        reason: 'not_listed_policy_skip',
+        intentional: true,
+        entity_type: entity,
+      };
+    }
     const selector = sourceFieldsFor(action, invocation.formFields || [])
       .find(field => String(field?.id) === String(recordReferenceFieldId(action)));
     if (!recordReferenceFieldCapability(selector)?.supportsNotListed) {
@@ -2522,6 +2943,7 @@ export async function processPersistedStructuredActions({
   // target class requires admin access or a selected update is outside the
   // caller's verified ownership.
   for (const invocation of invocations) {
+    if (invocation.hiddenRecordReferenceSource) continue;
     if (isRelationshipAction(invocation.action)) {
       assertRelationshipFieldEndpointsAuthorized(invocation, authorization);
       continue;
@@ -2535,6 +2957,7 @@ export async function processPersistedStructuredActions({
         authorization,
       });
     } else if (!invocation.selectedRecordId
+      && !isNotListedPolicySkip(invocation.action)
       && authorization.allowPersistedRecordReferenceWrites !== true) {
       throw new StructuredActionAuthorizationError(
         'Creating a record from a Not-listed reference requires trusted persisted processing',
@@ -2589,6 +3012,7 @@ export async function processPersistedStructuredActions({
         recordIds: [],
         recordReferences: [],
         itemStatuses: new Map(),
+        intentionallySkippedItems: new Set(),
       });
     }
     actionOutputs.get(key).itemStatuses.set(invocation.recordReferenceItemIdentity, 'pending');
@@ -2596,6 +3020,28 @@ export async function processPersistedStructuredActions({
   for (const invocation of invocations) {
     invocation.contractActions = contract.actions;
     invocation.primaryRecords = primaryRecordsForInvocation;
+    if (invocation.hiddenRecordReferenceSource) {
+      const skipped = {
+        invocation_key: invocation.invocationKey,
+        action_id: invocation.action.id,
+        row_index: invocation.rowIndex,
+        status: 'skipped',
+        reason: 'source_field_hidden',
+        intentional: true,
+        retryable: false,
+        entity_type: entityName(invocation.action),
+      };
+      outcomes.push(skipped);
+      appendActionOutput(
+        actionOutputs,
+        invocation,
+        null,
+        skipped.status,
+        skipped.reason,
+      );
+      notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...skipped });
+      continue;
+    }
     if (missingPrimaryKinds.length) {
       const blocked = {
         invocation_key: invocation.invocationKey,
@@ -2657,13 +3103,23 @@ export async function processPersistedStructuredActions({
       assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecordsForInvocation);
     } catch (error) {
       const waitingForPrimary = error?.code === 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
+      const intentionallySkipped = error?.code === 'DEPENDENCY_INTENTIONALLY_SKIPPED';
       const blocked = {
         invocation_key: invocation.invocationKey,
         action_id: invocation.action.id,
         row_index: invocation.rowIndex,
-        status: waitingForPrimary ? 'skipped' : 'failed',
+        status: (waitingForPrimary || intentionallySkipped) ? 'skipped' : 'failed',
         ...(waitingForPrimary
           ? { reason: 'primary_pipeline_output_unavailable', retryable: true }
+          : {}),
+        ...(intentionallySkipped
+          ? {
+            reason: error.intentionalSkipReason === 'source_field_hidden'
+              ? 'dependent_source_field_hidden'
+              : 'dependent_not_listed_policy_skip',
+            intentional: true,
+            retryable: false,
+          }
           : {}),
         error: error.message || String(error),
         ...(error?.code ? { code: error.code } : {}),
@@ -2776,6 +3232,7 @@ export async function processPersistedStructuredActions({
         invocation,
         outcome.status === 'completed' ? outcome.record_id || null : null,
         outcome.status,
+          outcome.reason,
       );
     }
     if (typeof db.rpc === 'function') {

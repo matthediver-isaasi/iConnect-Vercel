@@ -72,9 +72,12 @@ test('builder and schema expose metadata-driven record-reference resolution', ()
   assert.ok(action.properties.companion_mappings);
   assert.equal(action.properties.not_listed_operation.type, 'string');
   assert.deepEqual(action.properties.not_listed_operation.enum, ['create', 'upsert']);
-  assert.deepEqual(action.allOf[2].then.required, [
+  assert.deepEqual(action.properties.not_listed_policy.enum, ['include', 'skip']);
+  assert.deepEqual(action.allOf[2].then.required, ['target', 'reference_field_id']);
+  assert.deepEqual(action.allOf[3].then.else.required, [
     'target', 'reference_field_id', 'identity_mapping', 'companion_mappings', 'not_listed_operation',
   ]);
+  assert.deepEqual(action.allOf[3].then.then.required, ['target', 'reference_field_id']);
   assert.match(builder, /compatibleRecordReferencePickers/);
   assert.match(builder, /select-action-reference-field-/);
   assert.match(builder, /select-action-reference-identity-/);
@@ -86,6 +89,25 @@ test('builder and schema expose metadata-driven record-reference resolution', ()
   assert.match(builder, /Create a new record/);
   assert.match(builder, /Reuse or create by identity/);
   assert.match(builder, /resolverInitialConfig/);
-  assert.match(builder, /not_listed_operation: 'upsert'/);
+  assert.match(builder, /withNotListedPolicy\(\{/);
+  assert.match(builder, /NOT_LISTED_POLICY_INCLUDE/);
+  assert.match(builder, /Create and link the entered value/);
+  assert.match(builder, /Skip Not listed \/ Other/);
   assert.match(builder, /recordReferenceConfigurationWarning\(action, formData\.fields\)/);
+});
+
+test('Related Records persists its own entered-value policy and creation configuration', () => {
+  const related = schema.$defs.primaryPipelineRelatedRecord;
+  assert.deepEqual(related.properties.not_listed_policy.enum, ['include', 'skip']);
+  assert.ok(related.properties.not_listed_operation);
+  assert.ok(related.properties.uniqueness_field);
+  assert.ok(related.properties.identity_mapping);
+  assert.ok(related.properties.companion_mappings);
+  assert.deepEqual(related.allOf[0].then.required, [
+    'identity_mapping', 'companion_mappings', 'not_listed_operation',
+  ]);
+  assert.match(builder, /function PipelineRelatedRecordCreationConfig/);
+  assert.match(builder, /select-related-records-not-listed-policy-/);
+  assert.match(builder, /notListedPolicy\(link, NOT_LISTED_POLICY_SKIP\)/);
+  assert.match(builder, /pipelineRelatedRecordCreationError/);
 });

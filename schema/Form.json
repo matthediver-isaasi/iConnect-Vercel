@@ -220,7 +220,33 @@
     },
     "entity_pipelines": {
       "type": "object",
-      "description": "Legacy rich Member and Organisation pipelines. The primary pipeline may include related_records entries with stable id, relationship_definition_id, and source_field_id; each entry links the exact primary pipeline result to submitted record-reference selections after persistence."
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "related_records": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/primaryPipelineRelatedRecord" }
+              }
+            }
+          }
+        },
+        "organisations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "related_records": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/primaryPipelineRelatedRecord" }
+              }
+            }
+          }
+        }
+      },
+      "description": "Legacy rich Member and Organisation pipelines. The primary pipeline may include related_records entries with stable id, relationship_definition_id, and source_field_id; each entry links the exact primary pipeline result to submitted record-reference selections after persistence. An absent not_listed_policy retains the legacy Related Records skip behaviour."
     },
     "structured_actions": {
       "type": "object",
@@ -302,6 +328,11 @@
                  "enum": ["create", "upsert"],
                  "description": "For resolve_record_reference, whether a Not-listed identity always creates a record or upserts a unique matching target."
                },
+                "not_listed_policy": {
+                  "type": "string",
+                  "enum": ["include", "skip"],
+                  "description": "Whether a selected Not listed / Other value creates and links a record (include) or is intentionally skipped. Absent structured resolver policy remains include for backward compatibility."
+                },
                "source_endpoint": {
                  "type": "object",
                  "description": "For link_relationship, the persisted relationship definition's canonical source endpoint and the submitted-field or earlier-action source of its record ID.",
@@ -412,8 +443,21 @@
                   "properties": { "operation": { "enum": ["resolve_record_reference", "resolve_record_references"] } },
                  "required": ["operation"]
                },
+                "then": { "required": ["target", "reference_field_id"] }
+             }, {
+               "if": {
+                 "properties": { "operation": { "enum": ["resolve_record_reference", "resolve_record_references"] } },
+                 "required": ["operation"]
+               },
                "then": {
-                 "required": ["target", "reference_field_id", "identity_mapping", "companion_mappings", "not_listed_operation"]
+                 "if": {
+                   "properties": { "not_listed_policy": { "const": "skip" } },
+                   "required": ["not_listed_policy"]
+                 },
+                 "then": { "required": ["target", "reference_field_id"] },
+                 "else": {
+                   "required": ["target", "reference_field_id", "identity_mapping", "companion_mappings", "not_listed_operation"]
+                 }
                }
             }]
           }
@@ -448,5 +492,65 @@
     "name",
     "slug",
     "layout_type"
-  ]
+  ],
+  "$defs": {
+    "primaryPipelineRelatedRecord": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "relationship_definition_id": { "type": ["string", "null"] },
+        "source_field_id": { "type": ["string", "null"] },
+        "not_listed_policy": {
+          "type": "string",
+          "enum": ["include", "skip"],
+          "description": "Whether a selected Not listed / Other value creates and links a target record or is intentionally skipped. Absent policy preserves legacy Related Records skip behaviour."
+        },
+        "not_listed_operation": {
+          "type": ["string", "null"],
+          "enum": ["create", "upsert", null],
+          "description": "For include policy, whether the entered identity always creates or reuses an existing target."
+        },
+        "uniqueness_field": {
+          "type": ["string", "null"],
+          "description": "For include/upsert, the identity target field used to resolve an existing record."
+        },
+        "identity_mapping": {
+          "type": ["object", "null"],
+          "properties": {
+            "id": { "type": "string" },
+            "source_type": { "type": "string", "enum": ["not_listed_text"] },
+            "source_field_id": { "type": "string" },
+            "target_field_id": { "type": "string" },
+            "target_type": { "type": "string", "enum": ["core", "custom"] }
+          },
+          "required": ["id", "source_type", "source_field_id", "target_field_id", "target_type"]
+        },
+        "companion_mappings": {
+          "type": "array",
+          "description": "Same-submission scalar mappings used only while including an entered Not listed / Other record.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "source_type": { "type": "string" },
+              "source_field_id": { "type": "string" },
+              "static_value": { "type": "string" },
+              "target_field_id": { "type": "string" },
+              "target_type": { "type": "string", "enum": ["core", "custom"] }
+            },
+            "required": ["id", "target_field_id", "target_type"]
+          }
+        }
+      },
+      "allOf": [{
+        "if": {
+          "properties": { "not_listed_policy": { "const": "include" } },
+          "required": ["not_listed_policy"]
+        },
+        "then": {
+          "required": ["identity_mapping", "companion_mappings", "not_listed_operation"]
+        }
+      }]
+    }
+  }
 }

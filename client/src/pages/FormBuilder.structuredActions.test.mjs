@@ -146,3 +146,14 @@ test('conditional field copy persists an explicit record display-name mode witho
   assert.match(source, /Object\.hasOwn\(rule, 'copy_mode'\)/);
   assert.match(source, /displayNameCopyConfigurationError\(action, formData\.fields \|\| \[\]\)/);
 });
+
+test('both mapping builders expose matching Not listed / Other handling choices', () => {
+  const choices = /Create and link the entered value[\s\S]*?Skip Not listed \/ Other/g;
+  assert.equal([...source.matchAll(choices)].length, 2,
+    'Structured actions and primary-pipeline Related Records must offer the same choices');
+  assert.match(source, /notListedPolicy\(action, NOT_LISTED_POLICY_INCLUDE\)/);
+  assert.match(source, /notListedPolicy\(link, NOT_LISTED_POLICY_SKIP\)/);
+  assert.match(source, /withNotListedPolicy\(action, not_listed_policy\)/);
+  assert.match(source, /withoutNotListedPolicy\(action\)/);
+  assert.match(source, /pipelineRelatedRecordCreationError[\s\S]*?notListedPolicy\(link, NOT_LISTED_POLICY_SKIP\)/);
+});

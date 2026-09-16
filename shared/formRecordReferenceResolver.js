@@ -13,6 +13,62 @@ export const RESOLVE_RECORD_REFERENCE_OPERATION = 'resolve_record_reference';
 export const RESOLVE_RECORD_REFERENCES_OPERATION = 'resolve_record_references';
 export const RECORD_REFERENCE_IDENTITY_SOURCE = 'not_listed_text';
 export const NOT_LISTED_RECORD_OPERATIONS = Object.freeze(['create', 'upsert']);
+export const NOT_LISTED_POLICIES = Object.freeze(['include', 'skip']);
+export const NOT_LISTED_POLICY_INCLUDE = 'include';
+export const NOT_LISTED_POLICY_SKIP = 'skip';
+
+// The two mapping surfaces deliberately have different legacy behaviour:
+// structured resolvers have always created/resolved an entered value, while
+// primary-pipeline Related Records have always ignored it. Keep the fallback
+// explicit at each call site so an absent persisted property remains safe.
+export function notListedPolicy(mapping, defaultPolicy = NOT_LISTED_POLICY_INCLUDE) {
+  return NOT_LISTED_POLICIES.includes(mapping?.not_listed_policy)
+    ? mapping.not_listed_policy
+    : defaultPolicy;
+}
+
+export function includesNotListedRecord(mapping, defaultPolicy = NOT_LISTED_POLICY_INCLUDE) {
+  return notListedPolicy(mapping, defaultPolicy) === NOT_LISTED_POLICY_INCLUDE;
+}
+
+// Persist the optional policy as an absent property when a mapping no longer
+// has an Other-capable source. Do not serialize UI reset values as null: the
+// persisted contract deliberately models this as an optional string.
+export function withoutNotListedPolicy(mapping = {}) {
+  const {
+    not_listed_policy: _policy,
+    not_listed_operation: _operation,
+    uniqueness_field: _uniquenessField,
+    identity_mapping: _identityMapping,
+    companion_mappings: _companionMappings,
+    ...rest
+  } = mapping;
+  return rest;
+}
+
+export function withNotListedPolicy(mapping = {}, policy, {
+  defaultPolicy = NOT_LISTED_POLICY_INCLUDE,
+  defaultOperation = 'upsert',
+} = {}) {
+  if (policy === NOT_LISTED_POLICY_SKIP) {
+    return {
+      ...withoutNotListedPolicy(mapping),
+      not_listed_policy: NOT_LISTED_POLICY_SKIP,
+    };
+  }
+  if (policy === NOT_LISTED_POLICY_INCLUDE) {
+    const { not_listed_policy: _policy, ...rest } = mapping;
+    return {
+      ...rest,
+      not_listed_policy: NOT_LISTED_POLICY_INCLUDE,
+      not_listed_operation: mapping.not_listed_operation || defaultOperation,
+      companion_mappings: Array.isArray(mapping.companion_mappings) ? mapping.companion_mappings : [],
+    };
+  }
+  return defaultPolicy === NOT_LISTED_POLICY_SKIP
+    ? withoutNotListedPolicy(mapping)
+    : { ...mapping };
+}
 // Scalar Custom Object identity destinations supported by both the builder's
 // upsert selector and the server resolver. Target-domain validation remains
 // authoritative for the submitted value.
@@ -113,6 +169,10 @@ export function recordReferenceConfigurationWarning(action, fields) {
     : RELATIONSHIP_SELECTION_SINGLE;
   const compatibility = recordReferencePickerCompatibility(selected, action.target, expectedCardinality);
   if (!compatibility.compatible) return compatibility.message;
+  if (action.not_listed_policy !== undefined && !NOT_LISTED_POLICIES.includes(action.not_listed_policy)) {
+    return 'Choose whether Not listed / Other is created and linked or skipped.';
+  }
+  if (!includesNotListedRecord(action)) return '';
   if (!action.identity_mapping?.target_field_id) {
     return 'Map the picker Not listed text to an identity field.';
   }

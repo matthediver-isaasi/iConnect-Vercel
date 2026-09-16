@@ -32,6 +32,236 @@ test('validates subordinate Related Records configuration against persisted rela
   }), /Related Records configuration/);
 });
 
+test('Not-listed policy defaults remain backward compatible and skip needs no unused resolver mappings', () => {
+  const picker = {
+    id: 'organisation',
+    type: 'relationship_dropdown',
+    related_kind: 'organization',
+    not_listed_choice: { enabled: true, label: 'Not listed / Other' },
+  };
+  const structuredSkip = {
+    version: 1,
+    actions: [{
+      id: 'skip-other-organisation',
+      source: { scope: 'top_level' },
+      target: { kind: 'organization' },
+      operation: 'resolve_record_reference',
+      record_reference_field_id: 'organisation',
+      not_listed_policy: 'skip',
+    }],
+  };
+  assert.doesNotThrow(() => validateStructuredActionsContract(structuredSkip, [picker]));
+  assert.throws(() => validateStructuredActionsContract({
+    ...structuredSkip,
+    actions: [{ ...structuredSkip.actions[0], not_listed_policy: 'discard' }],
+  }, [picker]), error => {
+    assert.match(error.details.join(' '), /not_listed_policy must be include or skip/);
+    return true;
+  });
+
+  const legacyRelated = {
+    fields: [picker],
+    entity_pipelines: {
+      members: [{
+        isPrimary: true,
+        related_records: [{
+          id: 'legacy-related-link',
+          relationship_definition_id: 'member-organisation',
+          source_field_id: 'organisation',
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  assert.doesNotThrow(() => validatePrimaryPipelineRelatedRecordsContract(legacyRelated));
+  assert.throws(() => validatePrimaryPipelineRelatedRecordsContract({
+    ...legacyRelated,
+    entity_pipelines: {
+      ...legacyRelated.entity_pipelines,
+      members: [{
+        ...legacyRelated.entity_pipelines.members[0],
+        related_records: [{
+          ...legacyRelated.entity_pipelines.members[0].related_records[0],
+          not_listed_policy: 'include',
+        }],
+      }],
+    },
+  }), error => {
+    assert.match(error.details.join(' '), /identity_mapping must explicitly map/);
+    return true;
+  });
+});
+
+test('Related Records resolver recovers create link crashes, upserts before finalization, and completed-claim relinking', async () => {
+  for (const operation of ['create', 'upsert']) {
+    const tenantId = `related-durable-${operation}`;
+    const organizations = [];
+    const edges = [];
+    const ledger = new Map();
+    let failNextRelationshipInsert = operation === 'create';
+    let failCompletedFinalizeOnce = operation === 'upsert';
+    const definition = {
+      id: 'member-organization',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+    };
+    const rowsFor = (table) => ({
+      organization: organizations,
+      custom_object_relationship: edges,
+      custom_object_relationship_definition: [definition],
+      preference_field: [],
+    }[table] || []);
+    class Query {
+      constructor(table) {
+        this.table = table;
+        this.filters = [];
+        this.nullFilters = [];
+        this.payload = null;
+      }
+      select() { return this; }
+      eq(column, value) { this.filters.push([column, value]); return this; }
+      is(column, value) { this.nullFilters.push([column, value]); return this; }
+      ilike(column, value) { this.filters.push([column, value]); return this; }
+      limit() { return this; }
+      insert(payload) { this.payload = payload; return this; }
+      update(payload) { this.updatePayload = payload; return this; }
+      matches(row) {
+        return this.filters.every(([column, value]) => {
+          if (column === 'name' && this.table === 'organization') {
+            return String(row.name).toLowerCase() === String(value).toLowerCase();
+          }
+          return String(row[column]) === String(value);
+        }) && this.nullFilters.every(([column, value]) => row[column] === value);
+      }
+      async maybeSingle() {
+        const record = rowsFor(this.table).find(row => this.matches(row)) || null;
+        if (record && this.updatePayload) Object.assign(record, this.updatePayload);
+        return { data: record, error: null };
+      }
+      async single() {
+        if (this.table === 'organization' && this.payload) {
+          const record = { id: `organization-${organizations.length + 1}`, ...this.payload };
+          organizations.push(record);
+          return { data: record, error: null };
+        }
+        return this.maybeSingle();
+      }
+      then(resolve, reject) {
+        if (this.table === 'custom_object_relationship' && this.payload) {
+          if (failNextRelationshipInsert) {
+            failNextRelationshipInsert = false;
+            return Promise.resolve({ data: null, error: new Error('simulated edge write interruption') })
+              .then(resolve, reject);
+          }
+          edges.push({ id: `edge-${edges.length + 1}`, archived_at: null, ...this.payload });
+          return Promise.resolve({ data: this.payload, error: null }).then(resolve, reject);
+        }
+        return Promise.resolve({ data: rowsFor(this.table).filter(row => this.matches(row)), error: null })
+          .then(resolve, reject);
+      }
+    }
+    const db = {
+      from: table => new Query(table),
+      async rpc(name, input) {
+        const key = `${input.p_action_id}:${input.p_row_identity}`;
+        if (name === 'claim_form_structured_action') {
+          const prior = ledger.get(key);
+          if (prior && prior.fingerprint !== input.p_fingerprint) {
+            return { data: null, error: new Error('request fingerprint drift') };
+          }
+          if (prior?.status === 'completed') {
+            return { data: [{ status: 'completed', record_id: prior.record_id }], error: null };
+          }
+          ledger.set(key, { status: 'processing', fingerprint: input.p_fingerprint });
+          return { data: [{ claimed: true, claim_token: 'claim-token' }], error: null };
+        }
+        if (name === 'finalize_form_structured_action') {
+          if (input.p_status === 'completed' && failCompletedFinalizeOnce) {
+            failCompletedFinalizeOnce = false;
+            // Model a process interruption between the upsert write and its
+            // ledger completion. The subsequent claim is the lease takeover.
+            return { data: null, error: new Error('simulated completion interruption') };
+          }
+          ledger.set(key, {
+            ...ledger.get(key),
+            status: input.p_status,
+            record_id: input.p_record_id,
+          });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    };
+    const fieldId = 'related-organization';
+    const form = {
+      fields: [{
+        id: fieldId,
+        type: 'relationship_dropdown',
+        related_kind: 'organization',
+        not_listed_choice: { enabled: true, label: 'Not listed' },
+      }],
+      entity_pipelines: {
+        members: [{
+          isPrimary: true,
+          related_records: [{
+            id: `related-${operation}`,
+            relationship_definition_id: definition.id,
+            source_field_id: fieldId,
+            not_listed_policy: 'include',
+            not_listed_operation: operation,
+            ...(operation === 'upsert' ? { uniqueness_field: 'name' } : {}),
+            identity_mapping: {
+              id: `related-${operation}-name`,
+              source_type: 'not_listed_text',
+              source_field_id: fieldId,
+              target_type: 'core',
+              target_field_id: 'name',
+            },
+            companion_mappings: [],
+          }],
+        }],
+        organisations: [],
+      },
+    };
+    const submission = {
+      id: `submission-${operation}`,
+      submission_data: {
+        [fieldId]: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { [fieldId]: `${operation} durable target` },
+      },
+    };
+    const args = {
+      db, tenantId, form, submission, memberId: `member-${operation}`,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    };
+
+    const interrupted = await processPrimaryPipelineRelatedRecords(args);
+    assert.equal(interrupted.success, false, operation);
+    assert.equal(
+      interrupted.outcomes.at(-1).reason,
+      operation === 'create' ? 'relationship_link_failed' : 'not_listed_record_resolution_failed',
+      JSON.stringify(interrupted),
+    );
+    assert.equal(organizations.length, 1, `${operation} must create exactly once before interruption`);
+    assert.equal([...ledger.values()][0].status, operation === 'create' ? 'completed' : 'processing');
+
+    const retried = await processPrimaryPipelineRelatedRecords(args);
+    assert.equal(retried.success, true, JSON.stringify(retried));
+    assert.equal(organizations.length, 1, `${operation} retry must reuse completed resolver target`);
+    assert.equal(edges.length, 1, `${operation} retry must create exactly one edge`);
+    assert.equal(retried.outcomes.at(-1).record_id, organizations[0].id);
+
+    const completedRetry = await processPrimaryPipelineRelatedRecords(args);
+    assert.equal(completedRetry.outcomes.at(-1).status, 'already_linked');
+    assert.equal(organizations.length, 1);
+    assert.equal(edges.length, 1);
+  }
+});
+
 test('links the exact primary pipeline result and treats a retry as already linked', async () => {
   const tenantId = 'tenant-1';
   const edges = [{
@@ -189,6 +419,63 @@ test('links the exact primary pipeline result and treats a retry as already link
   });
   assert.equal(createdRetry.outcomes[0].status, 'already_linked');
   assert.equal(edges.filter(edge => edge.source_record_id === 'member-new-org').length, 1);
+
+  // A persisted mapping alone is not authority to materialize a Custom Object
+  // for an authenticated form respondent. Related Records must use the same
+  // trusted persisted-processing capability as structured resolvers.
+  const deniedForm = {
+    ...form,
+    fields: form.fields.map(field => field.id === 'department' ? {
+      ...field,
+      not_listed_choice: { enabled: true, label: 'Not listed' },
+    } : field),
+    entity_pipelines: {
+      members: [{
+        isPrimary: true,
+        related_records: [{
+          id: 'department-create-denied',
+          relationship_definition_id: 'member-department',
+          source_field_id: 'department',
+          not_listed_policy: 'include',
+          not_listed_operation: 'create',
+          identity_mapping: {
+            id: 'department-create-denied-name',
+            source_type: 'not_listed_text',
+            source_field_id: 'department',
+            target_type: 'custom',
+            target_field_id: 'department-name',
+          },
+          companion_mappings: [],
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  const recordsBeforeDeniedAttempt = rows.custom_object_record.length;
+  const denied = await processPrimaryPipelineRelatedRecords({
+    db,
+    tenantId,
+    form: deniedForm,
+    submission: {
+      submission_data: {
+        ...submission.submission_data,
+        department: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { department: 'Forbidden Custom Object target' },
+      },
+    },
+    memberId: 'member-non-internal',
+    authorization: {
+      isAdmin: false,
+      verifiedMemberId: 'authenticated-respondent',
+      allowPersistedRecordReferenceWrites: false,
+    },
+  });
+  assert.equal(denied.success, false);
+  assert.equal(denied.outcomes[0].reason, 'not_listed_record_resolution_failed');
+  assert.match(denied.outcomes[0].error, /trusted persisted processing/);
+  assert.equal(rows.custom_object_record.length, recordsBeforeDeniedAttempt);
+  assert.equal(edges.some(edge => edge.source_record_id === 'member-non-internal'), false);
+
   for (const visible of [true, false]) {
     const ruleForm = {
       ...newOrganizationForm,
@@ -3663,6 +3950,126 @@ test('fans out a multi-record picker with stable item retries and collection rel
   assert.equal(fixture.store.custom_object_relationship.length, 3);
 });
 
+test('hidden repeatable record-reference pickers intentionally skip scalar and multi resolvers while visible row work continues', async () => {
+  for (const multi of [false, true]) {
+    const fixture = customResolverFixture({ includeLink: true });
+    const resolver = fixture.form.structured_actions.actions[0];
+    const link = fixture.form.structured_actions.actions[1];
+    const children = fixture.form.fields[0].repeatable_row.child_fields;
+    fixture.picker.starts_hidden = true;
+    fixture.picker.selection_mode = multi ? 'multiple' : 'single';
+    if (multi) resolver.operation = 'resolve_record_references';
+    children.push({ id: 'visible-note', type: 'text' });
+    fixture.submission.submission_data.rows = fixture.submission.submission_data.rows.map(row => ({
+      ...row,
+      department: multi ? [FORM_NOT_LISTED_VALUE] : FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { department: 'stale Other text from the hidden picker' },
+      'visible-note': `row remains active (${multi ? 'multi' : 'scalar'})`,
+    }));
+    // This independent visible action proves that removing the hidden picker
+    // does not discard the row wholesale. Its update must still run while
+    // the resolver and dependent relationship are intentional no-ops.
+    fixture.form.structured_actions.actions.push({
+      id: 'write-visible-note',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+      target: { kind: 'organization' },
+      operation: 'create',
+      mappings: [{
+        id: 'visible-note-name',
+        source_type: 'field',
+        source_field_id: 'visible-note',
+        target_type: 'core',
+        target_field_id: 'name',
+      }],
+    });
+    const recordsBefore = fixture.store.custom_object_record.length;
+    const edgesBefore = fixture.store.custom_object_relationship.length;
+    try {
+      validateStructuredActionsContract(fixture.form.structured_actions, fixture.form.fields);
+    } catch (error) {
+      assert.fail(`${multi ? 'multi' : 'scalar'} hidden picker contract: ${(error.details || []).join('; ')}`);
+    }
+    const result = await processPersistedStructuredActions({
+      db: fixture.db,
+      formId: fixture.form.id,
+      submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(result.success, true, JSON.stringify(result.outcomes));
+    const resolverOutcomes = result.outcomes.filter(outcome => outcome.action_id === resolver.id);
+    assert.equal(resolverOutcomes.length, 2);
+    assert.ok(resolverOutcomes.every(outcome =>
+      outcome.status === 'skipped' && outcome.reason === 'source_field_hidden' && outcome.intentional === true));
+    const linkOutcomes = result.outcomes.filter(outcome => outcome.action_id === link.id);
+    assert.equal(linkOutcomes.length, 2);
+    assert.ok(linkOutcomes.every(outcome =>
+      outcome.status === 'skipped'
+        && outcome.reason === 'dependent_source_field_hidden'
+        && outcome.intentional === true));
+    assert.equal(
+      result.outcomes.filter(outcome => outcome.action_id === 'write-visible-note' && outcome.status === 'completed').length,
+      2,
+    );
+    assert.equal(fixture.store.custom_object_record.length, recordsBefore);
+    assert.equal(fixture.store.custom_object_relationship.length, edgesBefore);
+  }
+});
+
+test('a hidden top-level record-reference picker is an intentional no-op even with stored Other metadata', async () => {
+  const fixture = customResolverFixture();
+  const picker = {
+    id: 'hidden-organization',
+    type: 'organisation_dropdown',
+    starts_hidden: true,
+    not_listed_choice: { enabled: true, label: 'Not listed' },
+  };
+  fixture.form.fields = [picker];
+  fixture.form.structured_actions = {
+    version: 1,
+    actions: [{
+      id: 'hidden-organization-resolver',
+      source: { scope: 'top_level' },
+      target: { kind: 'organization' },
+      operation: 'resolve_record_reference',
+      record_reference_field_id: picker.id,
+      not_listed_operation: 'create',
+      identity_mapping: {
+        id: 'hidden-organization-name',
+        source_type: 'not_listed_text',
+        source_field_id: picker.id,
+        target_type: 'core',
+        target_field_id: 'name',
+      },
+      companion_mappings: [],
+    }],
+  };
+  fixture.submission.submission_data = {
+    [picker.id]: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { [picker.id]: 'Stored Other value must not create an organization' },
+  };
+  const organizationsBefore = fixture.store.organization.length;
+  const result = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(result.success, true, JSON.stringify(result.outcomes));
+  assert.deepEqual(result.outcomes.map(outcome => ({
+    status: outcome.status,
+    reason: outcome.reason,
+    intentional: outcome.intentional,
+  })), [{
+    status: 'skipped',
+    reason: 'source_field_hidden',
+    intentional: true,
+  }]);
+  assert.equal(fixture.store.organization.length, organizationsBefore);
+  assert.equal(fixture.ledger.size, 0);
+});
+
 test('blocks a relationship until every multi-reference item has completed', async () => {
   const fixture = customResolverFixture({ includeLink: true });
   const resolver = fixture.form.structured_actions.actions[0];
@@ -3731,6 +4138,72 @@ test('blocks a relationship until every multi-reference item has completed', asy
       .map(edge => edge.source_record_id),
     ['department-existing', 'department-second'],
   );
+});
+
+test('Not-listed skip preserves selected multi-reference links and intentionally skips only dependent links', async () => {
+  const mixed = customResolverFixture({ includeLink: true });
+  const resolver = mixed.form.structured_actions.actions[0];
+  resolver.operation = 'resolve_record_references';
+  resolver.not_listed_policy = 'skip';
+  delete resolver.not_listed_operation;
+  delete resolver.uniqueness_field;
+  delete resolver.identity_mapping;
+  resolver.companion_mappings = [];
+  mixed.picker.selection_mode = 'multiple';
+  mixed.submission.submission_data.rows[0].department = [
+    'department-existing',
+    FORM_NOT_LISTED_VALUE,
+  ];
+  mixed.submission.submission_data.rows[0][FORM_NOT_LISTED_TEXT_KEY] = {
+    department: 'This text remains stored but is intentionally skipped',
+  };
+  mixed.submission.submission_data.rows[1]._deleted = true;
+  const mixedResult = await processPersistedStructuredActions({
+    db: mixed.db,
+    formId: mixed.form.id,
+    submissionId: mixed.submission.id,
+    tenantId: mixed.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(mixedResult.success, true, JSON.stringify(mixedResult.outcomes));
+  assert.deepEqual(
+    mixedResult.outcomes.filter(outcome => outcome.action_id === resolver.id)
+      .map(outcome => [outcome.status, outcome.reason]),
+    [['completed', undefined], ['skipped', 'not_listed_policy_skip']],
+  );
+  assert.equal(
+    mixedResult.outcomes.find(outcome => outcome.action_id === 'link-department').status,
+    'completed',
+  );
+  assert.equal(mixed.store.custom_object_record.length, 1, 'skip must not create an Other record');
+
+  const onlyOther = customResolverFixture({ includeLink: true });
+  const onlyOtherResolver = onlyOther.form.structured_actions.actions[0];
+  onlyOtherResolver.operation = 'resolve_record_references';
+  onlyOtherResolver.not_listed_policy = 'skip';
+  delete onlyOtherResolver.not_listed_operation;
+  delete onlyOtherResolver.uniqueness_field;
+  delete onlyOtherResolver.identity_mapping;
+  onlyOtherResolver.companion_mappings = [];
+  onlyOther.picker.selection_mode = 'multiple';
+  onlyOther.submission.submission_data.rows[0].department = [FORM_NOT_LISTED_VALUE];
+  onlyOther.submission.submission_data.rows[0][FORM_NOT_LISTED_TEXT_KEY] = {
+    department: 'This text remains stored but is intentionally skipped',
+  };
+  onlyOther.submission.submission_data.rows[1]._deleted = true;
+  const onlyOtherResult = await processPersistedStructuredActions({
+    db: onlyOther.db,
+    formId: onlyOther.form.id,
+    submissionId: onlyOther.submission.id,
+    tenantId: onlyOther.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(onlyOtherResult.success, true, JSON.stringify(onlyOtherResult.outcomes));
+  assert.equal(
+    onlyOtherResult.outcomes.find(outcome => outcome.action_id === 'link-department').reason,
+    'dependent_not_listed_policy_skip',
+  );
+  assert.equal(onlyOther.store.custom_object_relationship.length, 1);
 });
 
 test('does not claim a relationship while a scalar action-output dependency is incomplete', async () => {
