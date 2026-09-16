@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemberMembershipHandler } from './member-membership.js';
+import { calculateMembershipYearWindow } from '../_lib/membershipYear.js';
+import { supabase } from '../_lib/database.js';
+import {
+  findHistoricalMemberConfigs,
+  getAllActiveConfigsStrict,
+} from '../_lib/membershipConfigResolver.js';
 
 function response() {
   return {
@@ -106,6 +112,7 @@ function memberSummaryLedgerDb({
   plans = {},
   gcRows = [],
   errors = {},
+  memberPreferenceRows = [],
 } = {}) {
   const calls = [];
   const db = {
@@ -178,6 +185,11 @@ function memberSummaryLedgerDb({
               && state.filters.plan_id?.includes(row.plan_id)
               && state.filters.status?.includes(row.status)
             ));
+          } else if (table === 'member_preference_value') {
+            data = memberPreferenceRows.filter((row) => (
+              row.member_id === state.filters.member_id
+              && (!state.filters.field_id || state.filters.field_id.includes(row.field_id))
+            ));
           }
           const count = state.count === 'exact' ? data.length : null;
           return Promise.resolve({ data, count, error: errors[table] || null }).then(resolve, reject);
@@ -206,6 +218,8 @@ function endpoint({
   },
   admin = false,
   resolveConfig,
+  resolveConfigById,
+  resolveActiveConfigs = async () => [],
   simulateMember,
 } = {}) {
   return createMemberMembershipHandler({
@@ -214,6 +228,8 @@ function endpoint({
     getTenantContext: async () => context,
     hasAdminAccess: async () => admin,
     getConfigForMember: resolveConfig,
+    getConfigByIdDirect: resolveConfigById,
+    getAllActiveConfigs: resolveActiveConfigs,
     simulateMembershipForMember: simulateMember,
   });
 }
@@ -793,6 +809,429 @@ test('summary tolerates an explicitly missing organisation history table but kee
     res.payload.history.map((row) => row.membership_source),
     ['personal'],
   );
+});
+
+test('paid current annual history restores an authoritative read-only pricing snapshot', async () => {
+  const config = {
+    id: 'form-member-config',
+    name: 'Form member tier',
+    structure_scope_type: 'member',
+    structure_field_id: 'membership-class-field',
+    structure_match_value: 'Full junior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+    pricing_model: 'flat',
+    flat_cost: 128,
+    currency: 'GBP',
+    billing_period: 'annual',
+  };
+  const currentYear = calculateMembershipYearWindow(config);
+  const personalFormHistory = {
+    ...personalHistory,
+    id: 'paid-form-history',
+    membership_year: currentYear.label,
+    billing_period: 'annual',
+    payment_method: 'stripe',
+    payment_status: 'paid',
+    config_id: config.id,
+    tier_label: 'Flat Rate',
+    annual_cost: 128,
+    final_cost: 128,
+    currency: 'GBP',
+  };
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [personalFormHistory],
+  });
+  const simulationCalls = [];
+  const handler = endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveConfigById: async (tenantId, configId) => {
+      assert.equal(tenantId, 'tenant-1');
+      assert.equal(configId, config.id);
+      return config;
+    },
+    simulateMember: async (_tenantId, _memberId, options) => {
+      simulationCalls.push(options);
+      return {
+        success: true,
+        membershipYear: { label: options.targetYear },
+        yearNumber: 2,
+        tierLabel: 'Flat Rate',
+        annualCost: 128,
+        annualCostBeforeDiscounts: 128,
+        finalCost: 128,
+        currency: 'GBP',
+        billingPeriod: 'annual',
+      };
+    },
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config.id, config.id);
+  assert.equal(res.payload.config.source, 'paid_history');
+  assert.equal(res.payload.pricingCapability.mode, 'historical_read_only');
+  assert.equal(res.payload.pricingCapability.status, 'paid_snapshot');
+  assert.equal(res.payload.pricingCapability.canSimulate, false);
+  assert.equal(res.payload.pricingCapability.canRenew, false);
+  assert.equal(res.payload.currentYearCost.finalCost, 128);
+  assert.equal(res.payload.currentYearCost.membershipYear, currentYear.label);
+  assert.equal(res.payload.nextYearPreview, null);
+  assert.equal(simulationCalls.length, 0);
+});
+
+test('stale paid history is not presented as the current pricing year', async () => {
+  const config = {
+    id: 'current-member-config',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'membership-class-field',
+    structure_match_value: 'Full junior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const currentYear = calculateMembershipYearWindow(config);
+  const priorYear = `${Number(currentYear.label.slice(0, 4)) - 1}/${Number(currentYear.label.slice(0, 4))}`;
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: priorYear,
+      billing_period: 'annual',
+      payment_method: 'stripe',
+      payment_status: 'paid',
+      config_id: config.id,
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveActiveConfigs: async () => [config],
+    resolveConfigById: async () => config,
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.currentYearCost, null);
+  assert.equal(res.payload.pricingCapability.status, 'no_matching_tier');
+});
+
+test('explicit unmatched selector is not overridden by the old paid snapshot', async () => {
+  const config = {
+    id: 'old-member-config',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'membership-class-field',
+    structure_match_value: 'Full junior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const currentYear = calculateMembershipYearWindow(config);
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_method: 'stripe',
+      payment_status: 'paid',
+      config_id: config.id,
+    }],
+    memberPreferenceRows: [{
+      member_id: member.id,
+      field_id: config.structure_field_id,
+      value: 'Full senior',
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveActiveConfigs: async () => [config],
+    resolveConfigById: async () => config,
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.pricingCapability.status, 'no_matching_tier');
+});
+
+test('a new selector field also prevents an old paid snapshot from being reused', async () => {
+  const historicalConfig = {
+    id: 'old-member-config-different-field',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'old-tier-field',
+    structure_match_value: 'Full junior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const newConfig = {
+    id: 'new-member-config-different-field',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'new-tier-field',
+    structure_match_value: 'Full senior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const currentYear = calculateMembershipYearWindow(historicalConfig);
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_status: 'paid',
+      config_id: historicalConfig.id,
+    }],
+    memberPreferenceRows: [{
+      member_id: member.id,
+      field_id: newConfig.structure_field_id,
+      value: 'Full senior',
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveActiveConfigs: async () => [newConfig],
+    resolveConfigById: async (_tenantId, configId) => (
+      configId === historicalConfig.id ? historicalConfig : null
+    ),
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.pricingCapability.status, 'no_matching_tier');
+});
+
+test('paid snapshot keeps its recorded year when the live schedule changes', async () => {
+  const historicalConfig = {
+    id: 'old-schedule-config',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'old-tier-field',
+    structure_match_value: 'Full junior',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const changedLiveConfig = {
+    id: 'new-schedule-config',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    structure_field_id: 'new-tier-field',
+    structure_match_value: 'Full senior',
+    membership_start_month: 10,
+    membership_start_day: 1,
+  };
+  const currentYear = calculateMembershipYearWindow(historicalConfig);
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_method: 'stripe',
+      payment_status: 'paid',
+      config_id: historicalConfig.id,
+      tier_label: 'Flat Rate',
+      annual_cost: 128,
+      final_cost: 128,
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveActiveConfigs: async () => [changedLiveConfig],
+    resolveConfigById: async (_tenantId, configId) => (
+      configId === historicalConfig.id ? historicalConfig : null
+    ),
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.pricingCapability.mode, 'historical_read_only');
+  assert.equal(res.payload.currentYearCost.membershipYear, currentYear.label);
+  assert.equal(res.payload.currentYearCost.tierLabel, 'Flat Rate');
+  assert.equal(res.payload.currentYearCost.finalCost, 128);
+  assert.equal(res.payload.nextYearPreview, null);
+});
+
+test('history snapshot fails closed for a tenant-mismatched config', async () => {
+  const currentYear = calculateMembershipYearWindow({
+    membership_start_month: 9,
+    membership_start_day: 1,
+  });
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_method: 'stripe',
+      payment_status: 'paid',
+      config_id: 'wrong-tenant-config',
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveConfigById: async () => ({
+      id: 'wrong-tenant-config',
+      tenant_id: 'tenant-2',
+      structure_scope_type: 'member',
+      membership_start_month: 9,
+      membership_start_day: 1,
+    }),
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.currentYearCost, null);
+  assert.equal(res.payload.pricingCapability.status, 'none_configured');
+});
+
+test('paid snapshot selection excludes monthly or unpaid rows', () => {
+  const base = {
+    id: 'history',
+    config_id: 'config',
+    payment_method: 'stripe',
+    payment_status: 'paid',
+    billing_period: 'annual',
+  };
+  assert.equal(findHistoricalMemberConfigs([{ ...base, billing_period: 'monthly_card' }]).length, 0);
+  assert.equal(findHistoricalMemberConfigs([{ ...base, payment_status: 'unpaid' }]).length, 0);
+  assert.equal(findHistoricalMemberConfigs([{ ...base }])[0].config_id, 'config');
+});
+
+test('paid snapshot selection rejects an organisation-scoped config', async () => {
+  const currentYear = calculateMembershipYearWindow({
+    membership_start_month: 9,
+    membership_start_day: 1,
+  });
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_method: 'stripe',
+      payment_status: 'paid',
+      config_id: 'organisation-config',
+    }],
+  });
+  const handler = endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveConfigById: async () => ({
+      id: 'organisation-config',
+      structure_scope_type: 'organization',
+    }),
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.currentYearCost, null);
+  assert.equal(res.payload.history[0].membership_source, 'personal');
+});
+
+test('strict active config resolver propagates an actual Supabase read failure', async () => {
+  const originalFrom = supabase.from;
+  supabase.from = () => {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      or: () => chain,
+      order: async () => ({
+        data: null,
+        error: { code: '42501', message: 'simulated active config read failure' },
+      }),
+    };
+    return chain;
+  };
+  try {
+    await assert.rejects(
+      () => getAllActiveConfigsStrict('tenant-1'),
+      (error) => error?.code === '42501' && /simulated active config read failure/.test(error.message),
+    );
+  } finally {
+    supabase.from = originalFrom;
+  }
+});
+
+test('active config read failure does not promote a paid snapshot', async () => {
+  const config = {
+    id: 'unreadable-active-config',
+    tenant_id: 'tenant-1',
+    structure_scope_type: 'member',
+    membership_start_month: 9,
+    membership_start_day: 1,
+  };
+  const currentYear = calculateMembershipYearWindow(config);
+  const db = memberSummaryLedgerDb({
+    memberRow: member,
+    personalRows: [{
+      ...personalHistory,
+      membership_year: currentYear.label,
+      billing_period: 'annual',
+      payment_status: 'paid',
+      config_id: config.id,
+    }],
+  });
+  const res = response();
+
+  await endpoint({
+    db,
+    resolveConfig: async () => null,
+    resolveActiveConfigs: async () => {
+      throw { code: '42501', message: 'simulated active config read failure' };
+    },
+    resolveConfigById: async () => config,
+  })({
+    method: 'GET',
+    query: { memberId: member.id },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.config, null);
+  assert.equal(res.payload.currentYearCost, null);
+  assert.equal(res.payload.pricingCapability.status, 'pricing_unavailable');
 });
 
 test('selects only the owner column that exists on each history table', async () => {

@@ -219,6 +219,119 @@ test("organisation history remains visible when the member has no personal confi
   }
 });
 
+test("paid historical snapshot is visibly read-only and exposes no pricing controls", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes("/api/membership/member-membership?memberId=")) {
+      return {
+        ok: true,
+        json: async () => ({
+          member: { id: "member-paid-snapshot", email: "paid@example.test" },
+          config: {
+            id: "historical-config",
+            name: "Historical member tier",
+            source: "paid_history",
+            currency: "GBP",
+            billing_period: "annual",
+          },
+          pricingCapability: {
+            mode: "historical_read_only",
+            status: "paid_snapshot",
+            readOnly: true,
+            canSimulate: false,
+            canEmail: false,
+            canOverride: false,
+            canRenew: false,
+            canInvoice: false,
+          },
+          currentYearCost: {
+            membershipYear: "2026/2027",
+            yearNumber: 1,
+            tierLabel: "Flat Rate",
+            annualCost: 128,
+            finalCost: 128,
+            totalWithVat: 128,
+            currency: "GBP",
+            billingPeriod: "annual",
+          },
+          nextYearPreview: null,
+          history: [{
+            id: "paid-snapshot-history",
+            membership_source: "personal",
+            membership_year: "2026/2027",
+            tier_label: "Flat Rate",
+            annual_cost: 128,
+            final_cost: 128,
+            total_with_vat: 128,
+            currency: "GBP",
+            payment_method: "stripe",
+            payment_status: "paid",
+            billing_period: "annual",
+            status: "active",
+          }],
+        }),
+      };
+    }
+    if (requestUrl.includes("/api/membership/member-membership-invoicing")) {
+      return { ok: true, json: async () => ({ settings: {} }) };
+    }
+    if (requestUrl.includes("/api/membership/member-membership-override")) {
+      return { ok: true, json: async () => ({}) };
+    }
+    if (requestUrl.includes("/api/membership/membership-settings")) {
+      return { ok: true, json: async () => ({ require_approval: false }) };
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(MemberMembershipTab, {
+            memberId: "member-paid-snapshot",
+            memberEmail: "paid@example.test",
+          }),
+        ),
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    assert.ok(container.querySelector('[data-testid="badge-member-paid-snapshot-current-year"]'));
+    assert.ok(container.querySelector('[data-testid="card-member-paid-snapshot-future"]'));
+    assert.match(container.textContent, /Future pricing is unavailable/);
+    assert.match(container.textContent, /Paid by card/);
+    assert.match(container.textContent, /Flat Rate/);
+    assert.equal(container.querySelector('[data-testid="button-member-simulate-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-member-email-fees-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-member-override-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-member-renew-now-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-member-save-invoicing-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="radio-member-invoicing-mode-current-year"]'), null);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    queryClient.clear();
+    container.remove();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("collapsing an in-flight page clears its guard so re-expand retries", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];

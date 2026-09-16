@@ -660,6 +660,69 @@ function sourceValue(mapping, values, resolvedValues = null) {
   return value;
 }
 
+function isBlankPersistedActionValue(value) {
+  if (value == null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+function isRequiredPersistedFormField(field) {
+  const flags = [field?.required, field?.is_required]
+    .filter(value => value !== undefined && value !== null);
+  // The form renderer only has unconditional `required` today. Treat any
+  // future conditional-required metadata as required until this processor
+  // understands its rule language; an unknown requirement must not widen the
+  // no-op path.
+  const conditionalFlags = [
+    field?.conditional_required,
+    field?.required_if,
+    field?.required_when,
+    field?.required_conditions,
+    field?.required_rules,
+  ].filter(value => value !== undefined && value !== null);
+  return flags.some(value => value !== false)
+    || conditionalFlags.length > 0;
+}
+
+// A top-level Organisation Group action is often backed by an optional text
+// field (for example, an applicant's optional group name).  An unanswered
+// field means that there is no record to create/upsert, not a malformed record
+// with a missing required name.  The persisted source field must be present and
+// optional; missing/unknown fields and required fields stay fail-closed. Keep
+// this narrow: static mappings and actions with any populated mapping must
+// still take the normal required-field path.
+export function shouldSkipUnansweredOrganizationGroupAction(invocation) {
+  const action = invocation?.action;
+  if (entityName(action) !== 'organization_group'
+    || action?.source?.scope !== 'top_level'
+    || !['create', 'upsert'].includes(operationName(action))) {
+    return false;
+  }
+  const mappings = actionMappings(action);
+  if (mappings.length === 0) return false;
+
+  const sourceFields = sourceFieldsFor(action, invocation.formFields || []);
+  let foundFieldMapping = false;
+  for (const mapping of mappings) {
+    if ((mapping.source_type && mapping.source_type !== 'field')
+      || mapping.static_value !== undefined) return false;
+    if (!mapping.source_field_id) return false;
+    const sourceField = sourceFields.find(field =>
+      String(field?.id) === String(mapping.source_field_id));
+    if (!sourceField || isRequiredPersistedFormField(sourceField)) return false;
+    foundFieldMapping = true;
+    if (!isBlankPersistedActionValue(sourceValue(
+      mapping,
+      invocation.values,
+      invocation.resolvedMappingValues,
+    ))) {
+      return false;
+    }
+  }
+  return foundFieldMapping;
+}
+
 function visibilityForm(form) {
   const fields = Array.isArray(form?.fields) ? form.fields : [];
   return {
@@ -2400,6 +2463,20 @@ export async function processPersistedStructuredActions({
       if (!isRelationshipAction(invocation.action) && prior.record_id) {
         appendActionOutput(actionOutputs, invocation, prior.record_id);
       }
+      continue;
+    }
+    if (shouldSkipUnansweredOrganizationGroupAction(invocation)) {
+      const skipped = {
+        invocation_key: invocation.invocationKey,
+        action_id: invocation.action.id,
+        row_index: invocation.rowIndex,
+        status: 'skipped',
+        reason: 'optional_source_unavailable',
+        retryable: false,
+        entity_type: entityName(invocation.action),
+      };
+      outcomes.push(skipped);
+      notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...skipped });
       continue;
     }
     try {

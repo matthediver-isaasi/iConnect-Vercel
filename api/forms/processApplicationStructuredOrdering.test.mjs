@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import handler from './process-application.js';
+import { finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
 import {
   isCleanPrimaryOutputDependencyWait,
 } from './process-application.js';
@@ -59,6 +60,26 @@ function primaryOutputRelationshipAction() {
         kind: 'organization',
         source: { type: 'field', field_id: 'organization' },
       },
+    }],
+  };
+}
+
+function optionalOrganizationGroupAction() {
+  return {
+    version: 1,
+    actions: [{
+      id: 'optional-organization-group',
+      source: { scope: 'top_level' },
+      operation: 'upsert',
+      target: { kind: 'organization_group' },
+      uniqueness_field: 'name',
+      mappings: [{
+        id: 'optional-organization-group-name',
+        source_type: 'field',
+        source_field_id: 'optional-group-name',
+        target_type: 'core',
+        target_field_id: 'name',
+      }],
     }],
   };
 }
@@ -138,7 +159,13 @@ function makeOrderingDb({
     matching() {
       const tableRows = rows[this.table] || [];
       return tableRows.filter(row => this.filters.every(([operator, column, value]) => {
-        if (operator === 'eq') return String(row[column] ?? '') === String(value ?? '');
+        if (operator === 'eq') {
+          if (column === 'payment_meta' && row[column]
+            && typeof row[column] === 'object' && typeof value === 'string') {
+            return JSON.stringify(row[column]) === value;
+          }
+          return String(row[column] ?? '') === String(value ?? '');
+        }
         if (operator === 'neq') return String(row[column] ?? '') !== String(value ?? '');
         if (operator === 'is') return row[column] === value;
         if (operator === 'in') return value.map(String).includes(String(row[column]));
@@ -154,7 +181,7 @@ function makeOrderingDb({
       if (this.operation === 'insert') {
         const values = Array.isArray(this.payload) ? this.payload : [this.payload];
         this.inserted = values.map(value => ({ ...value }));
-        if (['member', 'organization', 'custom_object_relationship'].includes(this.table)) {
+        if (['member', 'organization', 'organization_group', 'custom_object_relationship'].includes(this.table)) {
           this.inserted = this.inserted.map((value, index) => ({
             id: `${this.table}-created-${index + 1}`,
             ...value,
@@ -245,6 +272,7 @@ async function invokeOrderingProcessor(payload, {
   },
   roleRows = [],
   resumeUpdateError = null,
+  invokeHandler = true,
 } = {}) {
   const form = {
     id: 'form-structured-ordering',
@@ -332,11 +360,17 @@ async function invokeOrderingProcessor(payload, {
     status(code) { response.statusCode = code; return this; },
     json(body) { response.body = body; return body; },
   };
-  try {
-    await handler(req, res, { supabase: db.client });
-  } finally {
-    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
-    else process.env.SESSION_SECRET = previousSecret;
+  if (invokeHandler) {
+    try {
+      await handler(req, res, { supabase: db.client });
+    } finally {
+      if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = previousSecret;
+    }
+  } else if (previousSecret === undefined) {
+    delete process.env.SESSION_SECRET;
+  } else {
+    process.env.SESSION_SECRET = previousSecret;
   }
   return { response, ...db };
 }
@@ -397,6 +431,113 @@ test('paid handler runs a primary pipeline before its primary-output relationshi
     retry.inserts.some(entry => entry.table === 'member'),
     false,
   );
+});
+
+test('paid finalizer keeps one-off DD readiness for optional group blanks and creates configured groups', async () => {
+  const originalFetch = global.fetch;
+  const originalAppUrl = process.env.APP_URL;
+  const originalSecret = process.env.SESSION_SECRET;
+  const finalizeThroughSharedProcessor = async (groupName) => {
+    const payload = relationshipPayload({
+      structuredActions: optionalOrganizationGroupAction(),
+    });
+    payload.fields = [
+      ...payload.fields,
+      { id: 'optional-group-name', type: 'text', required: false },
+    ];
+    payload.form_values = {
+      ...payload.form_values,
+      'optional-group-name': groupName,
+    };
+    const context = await invokeOrderingProcessor(payload, { invokeHandler: false });
+    const rpcNames = [];
+    const originalRpc = context.client.rpc.bind(context.client);
+    context.client.rpc = async (name, args) => {
+      rpcNames.push(name);
+      if (name === 'mark_one_off_form_due_diligence_ready') return { data: true, error: null };
+      if (name === 'claim_form_due_diligence_initialization') {
+        return { data: { claimed: false, code: 'NOT_ELIGIBLE' }, error: null };
+      }
+      return originalRpc(name, args);
+    };
+    process.env.APP_URL = 'https://structured-ordering.test';
+    process.env.SESSION_SECRET = 'structured-ordering-test-secret';
+    global.fetch = async (url, options) => {
+      if (!String(url).endsWith('/api/forms/process-application')) {
+        return {
+          ok: false,
+          status: 404,
+          async json() { return {}; },
+          async text() { return ''; },
+        };
+      }
+      const request = {
+        method: options.method,
+        headers: options.headers,
+        body: JSON.parse(options.body),
+      };
+      const response = { statusCode: 200, body: null };
+      await handler(request, {
+        status(code) { response.statusCode = code; return this; },
+        json(body) { response.body = body; return body; },
+      }, { supabase: context.client });
+      const serialized = JSON.stringify(response.body);
+      return {
+        ok: response.statusCode >= 200 && response.statusCode < 300,
+        status: response.statusCode,
+        async json() { return JSON.parse(serialized); },
+        async text() { return serialized; },
+      };
+    };
+    try {
+      const result = await finalizeFormSubmission({
+        supabase: context.client,
+        submission: context.rows.form_submission[0],
+        form: context.rows.form[0],
+        baseUrl: '',
+      });
+      return { ...context, result, rpcNames };
+    } finally {
+      global.fetch = originalFetch;
+      if (originalAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = originalAppUrl;
+      if (originalSecret === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = originalSecret;
+    }
+  };
+
+  try {
+    const blank = await finalizeThroughSharedProcessor('');
+    assert.equal(blank.result.finalized, true);
+    assert.equal(blank.result.retriedUnreadyFinalization, undefined);
+    assert.equal(blank.rows.organization_group.length, 0);
+    assert.equal(blank.rows.form_submission[0].entity_processing_completed_at !== null, true);
+    assert.equal(blank.rows.form_submission[0].payment_meta.structured_actions_pending, false);
+    assert.deepEqual(
+      blank.rpcNames.filter(name => [
+        'mark_one_off_form_due_diligence_ready',
+        'claim_form_due_diligence_initialization',
+      ].includes(name)),
+      [
+        'mark_one_off_form_due_diligence_ready',
+        'claim_form_due_diligence_initialization',
+      ],
+    );
+
+    const configured = await finalizeThroughSharedProcessor('Configured group');
+    assert.equal(configured.result.finalized, true);
+    assert.deepEqual(
+      configured.rows.organization_group.map(row => row.name),
+      ['Configured group'],
+    );
+    assert.equal(configured.rows.form_submission[0].payment_meta.structured_actions_pending, false);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = originalAppUrl;
+    if (originalSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = originalSecret;
+  }
 });
 
 test('genuine structured failure still blocks the primary pipeline', async () => {

@@ -1,7 +1,12 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
-import { getConfigForMember } from '../_lib/membershipConfigResolver.js';
+import {
+  findHistoricalMemberConfigs,
+  getAllActiveConfigsStrict,
+  getConfigByIdDirect,
+  getConfigForMember,
+} from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 
@@ -555,6 +560,8 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const getMember = dependencies.getSessionMember || getSessionMember;
   const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
   const resolveConfig = dependencies.getConfigForMember || getConfigForMember;
+  const resolveConfigById = dependencies.getConfigByIdDirect || getConfigByIdDirect;
+  const resolveActiveConfigs = dependencies.getAllActiveConfigs || getAllActiveConfigsStrict;
   const simulateMember = dependencies.simulateMembershipForMember || simulateMembershipForMember;
 
   return async function handler(req, res) {
@@ -588,6 +595,8 @@ export function createMemberMembershipHandler(dependencies = {}) {
           getMember,
           checkAdmin,
           resolveConfig,
+          resolveConfigById,
+          resolveActiveConfigs,
           simulateMember,
         });
       }
@@ -644,11 +653,87 @@ function mapSimResultToYearData(sim, startDate) {
   };
 }
 
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+/**
+ * Detect a current member selector without treating unrelated member
+ * preferences as a tier selection. A historical paid snapshot is only safe
+ * to display when there is no explicit current selector for any active
+ * member-scoped structure (or for the recorded structure itself).
+ */
+async function hasExplicitMemberTierSelector(db, tenantId, memberId, configs = [], historicalConfig = null) {
+  const selectorConfigs = (Array.isArray(configs) ? configs : [])
+    .filter((config) => config?.structure_scope_type === 'member' && config?.structure_field_id)
+    .filter((config, index, all) => (
+      all.findIndex((candidate) => candidate.structure_field_id === config.structure_field_id) === index
+    ));
+  if (selectorConfigs.length === 0) return false;
+
+  const coreConfigs = selectorConfigs.filter((config) => config.structure_field_id.startsWith('core:'));
+  const customFieldIds = selectorConfigs
+    .filter((config) => !config.structure_field_id.startsWith('core:'))
+    .map((config) => config.structure_field_id);
+  const values = new Map();
+
+  if (coreConfigs.length > 0) {
+    const columns = ['id', ...coreConfigs.map((config) => config.structure_field_id.slice(5))];
+    const { data: memberRow, error } = await db
+      .from('member')
+      .select([...new Set(columns)].join(', '))
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    // A failed selector read must fail closed: displaying an old paid
+    // snapshot over an explicit current selector is worse than showing no
+    // live tier.
+    if (error) return true;
+    for (const config of coreConfigs) {
+      const column = config.structure_field_id.slice(5);
+      if (hasValue(memberRow?.[column])) values.set(config.structure_field_id, memberRow[column]);
+    }
+  }
+
+  if (customFieldIds.length > 0) {
+    const { data: preferenceRows, error } = await db
+      .from('member_preference_value')
+      .select('field_id, value')
+      .eq('member_id', memberId)
+      .in('field_id', customFieldIds);
+    if (error) return true;
+    for (const row of preferenceRows || []) {
+      if (hasValue(row?.value)) values.set(row.field_id, row.value);
+    }
+  }
+
+  const historicalFieldId = historicalConfig?.structure_field_id || null;
+  const historicalMatch = historicalConfig?.structure_match_value;
+  for (const [fieldId, value] of values) {
+    // A persisted value matching the recorded structure is not a new
+    // selection. Any value on another active selector, or a changed value on
+    // the recorded selector, must win over an old paid snapshot.
+    if (fieldId !== historicalFieldId) return true;
+    if (String(value).toLowerCase().trim() !== String(historicalMatch ?? '').toLowerCase().trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isTenantMemberConfig(config, tenantId) {
+  return !!config
+    && (!config.tenant_id || config.tenant_id === tenantId)
+    && config.structure_scope_type === 'member';
+}
+
 async function handleGet(req, res, tenantId, db = supabase, {
   tenantContext = null,
   getMember = getSessionMember,
   checkAdmin = hasAdminAccess,
   resolveConfig = getConfigForMember,
+  resolveConfigById = getConfigByIdDirect,
+  resolveActiveConfigs = getAllActiveConfigsStrict,
   simulateMember = simulateMembershipForMember,
 } = {}) {
   const { memberId } = req.query;
@@ -779,7 +864,86 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
 
-  const config = await resolveConfig(tenantId, memberId);
+  const liveConfig = await resolveConfig(tenantId, memberId);
+  let config = liveConfig;
+  let historicalSnapshot = null;
+  let activeMemberConfigs = [];
+  let activeConfigLookupFailed = false;
+  if (!config) {
+    try {
+      const activeConfigs = await resolveActiveConfigs(tenantId);
+      activeMemberConfigs = (Array.isArray(activeConfigs) ? activeConfigs : [])
+        .filter((candidate) => candidate?.structure_scope_type === 'member');
+    } catch {
+      // A resolver failure must not turn an old paid row into a synthetic
+      // current tier. Keep the status truthful and fail closed below.
+      activeConfigLookupFailed = true;
+    }
+
+    const historicalCandidates = findHistoricalMemberConfigs(personalHistory);
+    for (const historicalRecord of activeConfigLookupFailed ? [] : historicalCandidates) {
+      if (!historicalRecord?.config_id) continue;
+      const historicalConfig = await resolveConfigById(tenantId, historicalRecord.config_id);
+      if (!isTenantMemberConfig(historicalConfig, tenantId)) continue;
+
+      // The saved config's schedule is used only to decide whether this
+      // particular paid row is the current membership year. It is never used
+      // to simulate a new price or to manufacture a future year.
+      const historicalCurrentYear = calculateMembershipYearWindow(historicalConfig);
+      if (historicalRecord.membership_year !== historicalCurrentYear.label) continue;
+
+      const hasExplicitSelector = await hasExplicitMemberTierSelector(
+        db,
+        tenantId,
+        memberId,
+        [...activeMemberConfigs, historicalConfig],
+        historicalConfig,
+      );
+      if (hasExplicitSelector) continue;
+
+      historicalSnapshot = {
+        record: historicalRecord,
+        config: historicalConfig,
+      };
+      config = historicalConfig;
+      break;
+    }
+  }
+  const configResolvedFromPaidHistory = !!historicalSnapshot;
+  const pricingCapability = configResolvedFromPaidHistory
+    ? {
+      mode: 'historical_read_only',
+      status: 'paid_snapshot',
+      readOnly: true,
+      canSimulate: false,
+      canEmail: false,
+      canOverride: false,
+      canRenew: false,
+      canInvoice: false,
+    }
+    : config
+      ? {
+        mode: 'live',
+        status: 'matched',
+        readOnly: false,
+        canSimulate: true,
+        canEmail: true,
+        canOverride: true,
+        canRenew: true,
+        canInvoice: true,
+      }
+      : {
+        mode: 'unavailable',
+        status: activeConfigLookupFailed
+          ? 'pricing_unavailable'
+          : activeMemberConfigs.length > 0 ? 'no_matching_tier' : 'none_configured',
+        readOnly: true,
+        canSimulate: false,
+        canEmail: false,
+        canOverride: false,
+        canRenew: false,
+        canInvoice: false,
+      };
   if (!config) {
     return res.json({
       member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
@@ -788,13 +952,20 @@ async function handleGet(req, res, tenantId, db = supabase, {
       nextYearPreview: null,
       history,
       pause,
+      pricingCapability,
     });
   }
 
-  const currentYear = calculateMembershipYearWindow(config);
-  const nextYear = calculateNextMembershipYearWindow(config);
-  const currentYearStartDate = currentYear.start.toISOString().split('T')[0];
-  const nextYearStartDate = nextYear.start.toISOString().split('T')[0];
+  const currentYear = configResolvedFromPaidHistory
+    ? { label: historicalSnapshot.record.membership_year, start: null }
+    : calculateMembershipYearWindow(config);
+  const nextYear = configResolvedFromPaidHistory ? null : calculateNextMembershipYearWindow(config);
+  const currentYearStartDate = currentYear.start
+    ? currentYear.start.toISOString().split('T')[0]
+    : null;
+  const nextYearStartDate = nextYear?.start
+    ? nextYear.start.toISOString().split('T')[0]
+    : null;
 
   let currentYearCost = null;
   let nextYearPreview = null;
@@ -802,7 +973,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
   // Pricing and simulation remain member-scoped. Organisation history is
   // included in the ledger display above, but must not make a member's
   // personal year card appear recorded.
-  const currentYearRecord = personalHistory.find(h => h.membership_year === currentYear.label);
+  const currentYearRecord = historicalSnapshot?.record
+    || personalHistory.find(h => h.membership_year === currentYear.label);
 
   if (currentYearRecord) {
     const recAnnual = parseFloat(currentYearRecord.annual_cost);
@@ -831,8 +1003,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
       dailyCost: null,
       prorataDays: currentYearRecord.prorata_days || null,
       freePeriodDaysApplied: currentYearRecord.free_period_days_applied || 0,
-      freePeriodAmount: config.free_period_amount,
-      freePeriodUnit: config.free_period_unit,
+      freePeriodAmount: configResolvedFromPaidHistory ? null : config.free_period_amount,
+      freePeriodUnit: configResolvedFromPaidHistory ? null : config.free_period_unit,
       billableDays: null,
       vatRatePercent: currentYearRecord.vat_rate_percent != null ? parseFloat(currentYearRecord.vat_rate_percent) : null,
       vatAmount: currentYearRecord.vat_amount != null ? parseFloat(currentYearRecord.vat_amount) : 0,
@@ -844,7 +1016,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       isNewMember: false,
       recordedFromHistory: true,
     };
-  } else {
+  } else if (!configResolvedFromPaidHistory) {
     try {
       const simResult = await simulateMember(tenantId, memberId, {
         source: 'tab',
@@ -858,17 +1030,19 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
   }
 
-  try {
-    const nextSimResult = await simulateMember(tenantId, memberId, {
-      source: 'tab',
-      targetYear: nextYear.label,
-      asOfDate: nextYearStartDate,
-    });
-    if (nextSimResult.success) {
-      nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
+  if (!configResolvedFromPaidHistory && nextYear) {
+    try {
+      const nextSimResult = await simulateMember(tenantId, memberId, {
+        source: 'tab',
+        targetYear: nextYear.label,
+        asOfDate: nextYearStartDate,
+      });
+      if (nextSimResult.success) {
+        nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
+      }
+    } catch (simErr) {
+      console.warn('[Member Membership] Next year simulation failed:', simErr.message);
     }
-  } catch (simErr) {
-    console.warn('[Member Membership] Next year simulation failed:', simErr.message);
   }
 
   return res.json({
@@ -882,11 +1056,13 @@ async function handleGet(req, res, tenantId, db = supabase, {
       membership_start_month: config.membership_start_month,
       membership_start_day: config.membership_start_day,
       online_card_payment: !!config.online_card_payment,
+      source: configResolvedFromPaidHistory ? 'paid_history' : 'live',
     },
     pause,
     currentYearCost,
     nextYearPreview,
     history,
     currentYear: currentYear.label,
+    pricingCapability,
   });
 }

@@ -96,6 +96,7 @@ function MemberYearCostSection({
   onEmailFees,
   emailFeesPending,
   memberEmail,
+  readOnly = false,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -110,6 +111,15 @@ function MemberYearCostSection({
             <Wallet className="w-3 h-3" />
             {yearLabel}
           </p>
+          {readOnly && (
+            <Badge
+              variant="outline"
+              className="text-xs text-blue-700 border-blue-300 dark:text-blue-400 dark:border-blue-700"
+              data-testid={`badge-member-paid-snapshot-${testIdPrefix}`}
+            >
+              Paid record · read-only
+            </Badge>
+          )}
           {!currentYearRecorded && (
             <Badge
               variant="outline"
@@ -127,7 +137,7 @@ function MemberYearCostSection({
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {!currentYearRecorded && onEmailFees && (
+          {!readOnly && !currentYearRecorded && onEmailFees && (
             <Button
               size="sm"
               variant="outline"
@@ -142,7 +152,7 @@ function MemberYearCostSection({
               Email Fees
             </Button>
           )}
-          {!currentYearRecorded && !feesApproved && (
+          {!readOnly && !currentYearRecorded && !feesApproved && (
             <Button
               size="sm"
               variant={hasOverride ? "secondary" : "outline"}
@@ -153,21 +163,23 @@ function MemberYearCostSection({
               {hasOverride ? 'Edit Override' : 'Override'}
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onSimulate(yearData.membershipYear)}
-            disabled={simulatePending}
-            data-testid={`button-member-simulate-${testIdPrefix}`}
-          >
-            {simulatePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
-            Simulate
-          </Button>
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onSimulate(yearData.membershipYear)}
+              disabled={simulatePending}
+              data-testid={`button-member-simulate-${testIdPrefix}`}
+            >
+              {simulatePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+              Simulate
+            </Button>
+          )}
         </div>
       </div>
       <p className="font-semibold" data-testid={`text-member-year-${testIdPrefix}`}>{yearData.membershipYear}</p>
 
-      {hasOverride && (
+      {!readOnly && hasOverride && (
         <div className="mt-2 p-2 rounded-md bg-warning/10 dark:bg-warning/30 border border-warning/30 dark:border-warning">
           <div className="flex items-start gap-2">
             <ShieldAlert className="w-4 h-4 text-warning dark:text-warning mt-0.5 shrink-0" />
@@ -262,13 +274,13 @@ function MemberYearCostSection({
           </>
         )}
       </div>
-      {!currentYearRecorded && !memberEmail && (
+      {!readOnly && !currentYearRecorded && !memberEmail && (
         <p className="text-xs text-warning mt-2 flex items-center gap-1" data-testid={`text-member-email-missing-${testIdPrefix}`}>
           <AlertTriangle className="w-3 h-3" />
           Add an email address before sending this fee preview.
         </p>
       )}
-      {!currentYearRecorded && approvalRequired && !feesApproved && (
+      {!readOnly && !currentYearRecorded && approvalRequired && !feesApproved && (
         <p className="text-xs text-warning mt-2 flex items-center gap-1" data-testid={`text-member-email-approval-required-${testIdPrefix}`}>
           <ShieldAlert className="w-3 h-3" />
           Fees must be approved before the fee email can be sent.
@@ -309,6 +321,14 @@ function MemberYearCostSection({
               </div>
             </div>
           )}
+        </>
+      ) : readOnly ? (
+        <>
+          <Separator className="my-3" />
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-member-pricing-read-only-${testIdPrefix}`}>
+            <Lock className="w-3 h-3" />
+            <span>Paid membership snapshot — live pricing and invoicing controls are unavailable.</span>
+          </div>
         </>
       ) : hideInvoicing ? (
         <>
@@ -1173,8 +1193,19 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const currentYearData = data?.currentYearCost || null;
   const nextYearData = data?.nextYearPreview || null;
   const config = data?.config || null;
-  const currency = config?.currency || 'GBP';
-  const periodLabel = config?.billing_period === 'monthly' ? 'Monthly' : config?.billing_period === 'quarterly' ? 'Quarterly' : 'Annual';
+  const pricingCapability = data?.pricingCapability || null;
+  const historicalReadOnly = pricingCapability?.mode === 'historical_read_only'
+    || (
+      pricingCapability?.readOnly === true
+      && pricingCapability?.status === 'paid_snapshot'
+    );
+  const currency = historicalReadOnly
+    ? (currentYearData?.currency || config?.currency || 'GBP')
+    : (config?.currency || 'GBP');
+  const billingPeriod = historicalReadOnly
+    ? (currentYearData?.billingPeriod || config?.billing_period)
+    : config?.billing_period;
+  const periodLabel = billingPeriod === 'monthly' ? 'Monthly' : billingPeriod === 'quarterly' ? 'Quarterly' : 'Annual';
 
   const currentYearRecorded = currentYearData
     ? personalHistory.find(h => h.membership_year === currentYearData.membershipYear)
@@ -1257,8 +1288,20 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p data-testid="text-member-no-config">No member-scoped membership tier structure has been configured</p>
-            <p className="text-sm mt-1">Set up member-scoped tier bands in Membership Tier Management to see pricing here.</p>
+            <p data-testid="text-member-no-config">
+              {pricingCapability?.status === 'pricing_unavailable'
+                ? 'Membership pricing is temporarily unavailable'
+                : pricingCapability?.status === 'no_matching_tier'
+                ? 'No member-scoped membership tier matched this member for the current year'
+                : 'No member-scoped membership tier structure has been configured'}
+            </p>
+            <p className="text-sm mt-1">
+              {pricingCapability?.status === 'pricing_unavailable'
+                ? 'The current pricing configuration could not be read. Try again later; membership fee history remains available.'
+                : pricingCapability?.status === 'no_matching_tier'
+                ? 'Check the member’s current tier selector or configure a matching member-scoped tier.'
+                : 'Set up member-scoped tier bands in Membership Tier Management to see pricing here.'}
+            </p>
             <p className="text-sm mt-1">Pricing controls are unavailable, but membership fee history remains visible below.</p>
           </CardContent>
         </Card>
@@ -1269,6 +1312,15 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             <CardTitle className="text-base flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
               Membership Tier
+                {historicalReadOnly && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-blue-700 border-blue-300 dark:text-blue-400 dark:border-blue-700"
+                    data-testid="badge-member-tier-paid-snapshot"
+                  >
+                    Paid record · read-only
+                  </Badge>
+                )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1332,6 +1384,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                   onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                   removeOverridePending={removeOverrideMutation.isPending}
                   onlineCardPayment={!!config?.online_card_payment}
+                   readOnly={historicalReadOnly}
                   {...makeInvoicingHandlers(currentYearData, 'current-year')}
                 />
               ) : (
@@ -1342,48 +1395,57 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <ArrowRight className="w-4 h-4" />
-                {nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {nextYearData ? (
-                <MemberYearCostSection
-                  yearData={nextYearData}
-                  yearLabel={nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
-                  currency={currency}
-                  periodLabel={periodLabel}
-                  showRecordFee={true}
-                  currentYearRecorded={nextYearRecorded}
-                  memberEmail={effectiveMemberEmail}
-                  onEmailFees={openEmailFeesDialog}
-                  emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === nextYearData?.membershipYear}
-                  testIdPrefix="next-year"
-                  onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
-                    ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
-                    : null}
-                  manualRenewalPending={manualRenewalMutation.isPending}
-                  hideInvoicing={!nextYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
-                  onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
-                  simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
-                  onOpenOverride={handleOpenOverrideModal}
-                  hasOverride={hasOverrideForYear(nextYearData?.membershipYear)}
-                  onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
-                  removeOverridePending={removeOverrideMutation.isPending}
-                  onlineCardPayment={!!config?.online_card_payment}
-                  {...makeInvoicingHandlers(nextYearData, 'next-year')}
-                />
-              ) : (
-                <div className="text-center py-4 text-muted-foreground">
-                  <p className="text-sm" data-testid="text-member-no-next-tier">No tier matched for the next year</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {!historicalReadOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ArrowRight className="w-4 h-4" />
+                  {nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {nextYearData ? (
+                  <MemberYearCostSection
+                    yearData={nextYearData}
+                    yearLabel={nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
+                    currency={currency}
+                    periodLabel={periodLabel}
+                    showRecordFee={true}
+                    currentYearRecorded={nextYearRecorded}
+                    memberEmail={effectiveMemberEmail}
+                    onEmailFees={openEmailFeesDialog}
+                    emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === nextYearData?.membershipYear}
+                    testIdPrefix="next-year"
+                    onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
+                      ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
+                      : null}
+                    manualRenewalPending={manualRenewalMutation.isPending}
+                    hideInvoicing={!nextYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
+                    onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
+                    simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
+                    onOpenOverride={handleOpenOverrideModal}
+                    hasOverride={hasOverrideForYear(nextYearData?.membershipYear)}
+                    onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+                    removeOverridePending={removeOverrideMutation.isPending}
+                    onlineCardPayment={!!config?.online_card_payment}
+                    {...makeInvoicingHandlers(nextYearData, 'next-year')}
+                  />
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <p className="text-sm" data-testid="text-member-no-next-tier">No tier matched for the next year</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
+      )}
+      {config && historicalReadOnly && (
+        <Card data-testid="card-member-paid-snapshot-future">
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Future pricing is unavailable until a live member-scoped tier is matched.
+          </CardContent>
+        </Card>
       )}
 
       <Card>

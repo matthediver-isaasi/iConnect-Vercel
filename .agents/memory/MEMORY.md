@@ -154,3 +154,4 @@
 - [Form derived label lifecycle](form-derived-label-lifecycle.md) — picker unmount is navigation, not revocation; retain scoped labels and validate copies before paid persistence too.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
+- [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.

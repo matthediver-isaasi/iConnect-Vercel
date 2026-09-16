@@ -1,5 +1,44 @@
 import { supabase } from './database.js';
 
+function membershipYearValue(value) {
+  const match = String(value ?? '').trim().match(/^(-?\d+)/);
+  if (!match) return Number.NEGATIVE_INFINITY;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function timestampValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * Return paid annual history rows in newest-year order. These rows are only
+ * snapshots; callers must still verify the recorded year and config scope
+ * before displaying one as the current paid membership.
+ */
+export function findHistoricalMemberConfigs(historyRecords = []) {
+  return (Array.isArray(historyRecords) ? historyRecords : [])
+    .filter((record) => (
+      record
+      && record.config_id
+      && record.payment_status === 'paid'
+      && record.billing_period === 'annual'
+    ))
+    .sort((left, right) => {
+      const yearDifference = membershipYearValue(right.membership_year)
+        - membershipYearValue(left.membership_year);
+      if (yearDifference !== 0) return yearDifference;
+      const createdDifference = timestampValue(right.created_at)
+        - timestampValue(left.created_at);
+      if (createdDifference !== 0) return createdDifference;
+      return String(right.id ?? '').localeCompare(String(left.id ?? ''));
+    });
+}
+
 export async function getAllActiveConfigs(tenantId, onDate = null) {
   const asOf = onDate || new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
@@ -14,6 +53,23 @@ export async function getAllActiveConfigs(tenantId, onDate = null) {
     console.error('[membershipConfigResolver] Error fetching active configs:', error);
     return [];
   }
+  return data || [];
+}
+
+// The member summary endpoint uses this opt-in strict variant so a database
+// read failure cannot be mistaken for "no configs" and promote a historical
+// paid snapshot. Existing callers intentionally keep the tolerant behavior
+// above.
+export async function getAllActiveConfigsStrict(tenantId, onDate = null) {
+  const asOf = onDate || new Date().toISOString().split('T')[0];
+  const { data, error } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .or(`effective_from.is.null,effective_from.lte.${asOf}`)
+    .or(`effective_to.is.null,effective_to.gte.${asOf}`)
+    .order('effective_from', { ascending: false, nullsFirst: true });
+  if (error) throw error;
   return data || [];
 }
 

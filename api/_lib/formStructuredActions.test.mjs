@@ -11,6 +11,7 @@ import {
   processPersistedStructuredActions,
   processPrimaryPipelineRelatedRecords,
   recordReferenceFieldCapability,
+  shouldSkipUnansweredOrganizationGroupAction,
   validatePrimaryPipelineRelatedRecordsContract,
   validateStructuredActionsContract,
 } from './formStructuredActions.js';
@@ -266,6 +267,251 @@ test('links the exact primary pipeline result and treats a retry as already link
   assert.match(incompatible.outcomes[0].error, /incompatible/);
   assert.equal(edges.some(edge =>
     edge.source_record_id === 'member-incompatible' && edge.target_record_id === 'department-1'), false);
+});
+
+test('unanswered optional Organisation Group actions are skipped without claiming a record', async () => {
+  const tenantId = 'tenant-optional-organization-group';
+  const form = {
+    id: 'optional-organization-group-form',
+    tenant_id: tenantId,
+    fields: [{ id: 'optional-group-name', type: 'text', required: false }],
+    structured_actions: {
+      version: 1,
+      actions: [{
+        id: 'optional-group-action',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization_group' },
+        operation: 'upsert',
+        uniqueness_field: 'name',
+        mappings: [{
+          id: 'optional-group-name-map',
+          source_field_id: 'optional-group-name',
+          target_type: 'core',
+          target_field_id: 'name',
+        }],
+      }],
+    },
+  };
+  const submission = {
+    id: 'optional-organization-group-submission',
+    form_id: form.id,
+    tenant_id: tenantId,
+    submission_data: {},
+    processing_notes: [],
+  };
+  const touchedTables = [];
+  let allowOrganizationGroupReads = false;
+  const db = {
+    from(table) {
+      touchedTables.push(table);
+      let operation = 'select';
+      let payload = null;
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        ilike() { return query; },
+        limit() { return query; },
+        update(next) {
+          operation = 'update';
+          payload = next;
+          return query;
+        },
+        async maybeSingle() {
+          if (table === 'form') return { data: form, error: null };
+          if (table === 'form_submission') return { data: submission, error: null };
+          return { data: null, error: null };
+        },
+        then(resolve, reject) {
+          if (operation === 'update') Object.assign(submission, payload);
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+        },
+      };
+      if (table === 'organization_group' && !allowOrganizationGroupReads) {
+        throw new Error('an unanswered optional action must not query or write organization_group');
+      }
+      return query;
+    },
+  };
+
+  const result = await processPersistedStructuredActions({
+    db,
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { isAdmin: true },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.failed_count, 0);
+  assert.equal(result.skipped_count, 1);
+  assert.equal(result.outcomes[0].reason, 'optional_source_unavailable');
+  assert.equal(touchedTables.includes('organization_group'), false);
+
+  // A real dependency cannot turn the no-op into a successful downstream
+  // write: skipped actions do not emit an action output.
+  form.structured_actions.actions.push({
+    id: 'dependent-organization-action',
+    source: { scope: 'top_level' },
+    target: { kind: 'organization' },
+    operation: 'create',
+    organization_group_source: {
+      type: 'action_output',
+      action_id: 'optional-group-action',
+    },
+    mappings: [{
+      id: 'dependent-organization-name',
+      source_type: 'static',
+      static_value: 'Dependent organization',
+      target_type: 'core',
+      target_field_id: 'name',
+    }],
+  });
+  const dependentResult = await processPersistedStructuredActions({
+    db,
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { isAdmin: true },
+  });
+  assert.equal(dependentResult.success, false, JSON.stringify(dependentResult));
+  assert.equal(dependentResult.failed_count, 1);
+  assert.match(dependentResult.outcomes.find(outcome =>
+    outcome.action_id === 'dependent-organization-action')?.error || '', /dependency optional-group-action/);
+
+  // Required source metadata and static empty values still fail through the
+  // ordinary required-name path rather than being treated as optional.
+  form.structured_actions.actions = [form.structured_actions.actions[0]];
+  form.fields[0].required = true;
+  allowOrganizationGroupReads = true;
+  submission.processing_notes = [];
+  const requiredResult = await processPersistedStructuredActions({
+    db,
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { isAdmin: true },
+  });
+  assert.equal(requiredResult.success, false, JSON.stringify(requiredResult));
+  assert.equal(requiredResult.failed_count, 1);
+  assert.match(requiredResult.outcomes[0].error, /organization_group name is required/);
+
+  form.fields[0].required = false;
+  form.structured_actions.actions[0].mappings[0] = {
+    id: 'static-empty-name',
+    source_type: 'static',
+    static_value: '',
+    target_type: 'core',
+    target_field_id: 'name',
+  };
+  submission.processing_notes = [];
+  const staticResult = await processPersistedStructuredActions({
+    db,
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { isAdmin: true },
+  });
+  assert.equal(staticResult.success, false, JSON.stringify(staticResult));
+  assert.equal(staticResult.failed_count, 1);
+  assert.match(staticResult.outcomes[0].error, /organization_group name is required/);
+});
+
+test('optional Organisation Group no-op is fail-closed for malformed, unknown, and repeatable sources', () => {
+  const baseAction = {
+    id: 'group-action',
+    source: { scope: 'top_level' },
+    target: { kind: 'organization_group' },
+    operation: 'upsert',
+    uniqueness_field: 'name',
+    mappings: [{
+      id: 'group-name-map',
+      source_type: 'field',
+      source_field_id: 'group-name',
+      target_type: 'core',
+      target_field_id: 'name',
+    }],
+  };
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{ ...baseAction, mappings: [] }],
+  }, [{ id: 'group-name', type: 'text', required: false }]), error => {
+    assert.match(error.details.join(' '), /mappings must not be empty/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      ...baseAction,
+      mappings: [{ ...baseAction.mappings[0], source_field_id: 'missing-source' }],
+    }],
+  }, [{ id: 'group-name', type: 'text', required: false }]), error => {
+    assert.match(error.details.join(' '), /source_field_id is not in the persisted action source scope/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      ...baseAction,
+      mappings: [{
+        ...baseAction.mappings[0],
+        target_field_id: 'description',
+      }],
+    }],
+  }, [{ id: 'group-name', type: 'text', required: false }]), error => {
+    assert.match(error.details.join(' '), /must map required core field name/);
+    return true;
+  });
+
+  const repeatableAction = {
+    ...baseAction,
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+  };
+  assert.equal(shouldSkipUnansweredOrganizationGroupAction({
+    action: repeatableAction,
+    formFields: [{ id: 'group-name', type: 'text', required: false }],
+    values: { 'group-name': '' },
+  }), false);
+  assert.equal(shouldSkipUnansweredOrganizationGroupAction({
+    action: baseAction,
+    formFields: [{ id: 'group-name', type: 'text', required: false, required_if: {} }],
+    values: { 'group-name': '' },
+  }), false);
+});
+
+test('hidden optional group sources remain authoritative and discard stale answers', () => {
+  const action = {
+    id: 'hidden-group-action',
+    source: { scope: 'top_level' },
+    target: { kind: 'organization_group' },
+    operation: 'upsert',
+    uniqueness_field: 'name',
+    mappings: [{
+      id: 'hidden-group-name-map',
+      source_type: 'field',
+      source_field_id: 'hidden-group-name',
+      target_type: 'core',
+      target_field_id: 'name',
+    }],
+  };
+  const form = {
+    fields: [{ id: 'hidden-group-name', type: 'text', required: false, starts_hidden: true }],
+    pages: [],
+    visibility_rules: [],
+  };
+  const [invocation] = expandStructuredActionInvocations(
+    { version: 1, actions: [action] },
+    form,
+    { 'hidden-group-name': 'stale answer must not write' },
+  );
+  assert.deepEqual(invocation.values, {});
+  assert.equal(shouldSkipUnansweredOrganizationGroupAction({
+    ...invocation,
+    formFields: form.fields,
+  }), true);
+  assert.equal(shouldSkipUnansweredOrganizationGroupAction({
+    ...invocation,
+    formFields: [{ ...form.fields[0], required: true }],
+  }), false);
 });
 
 test('links a conditionally revealed Department to an already-created Member in Department-to-Member orientation', async () => {
