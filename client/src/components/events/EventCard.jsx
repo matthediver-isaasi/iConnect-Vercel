@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Calendar, CalendarDays, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock, Info } from "lucide-react";
+import { Calendar, CalendarDays, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock, Info, MousePointerClick } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -23,6 +23,7 @@ import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import { resolveEventClickCountDisplay } from "@/lib/eventClickCountDisplay";
 import TrainingMiniAgenda from "@/components/events/TrainingMiniAgenda";
 import {
   Dialog,
@@ -183,7 +184,32 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false }) {
+export function EventClickCountMetric({
+  eventId,
+  count,
+  isLoading = false,
+  isError = false,
+}) {
+  const display = resolveEventClickCountDisplay({ count, isLoading, isError });
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600"
+      role="status"
+      aria-label={display.ariaLabel}
+      title={display.ariaLabel}
+      data-testid={`text-event-click-count-${eventId}`}
+    >
+      <MousePointerClick className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+      {display.kind === 'loading' ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        <span aria-live="polite">{display.text}</span>
+      )}
+    </span>
+  );
+}
+
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false, eventClickTrackingEnabled = false, eventClickCountEnabled = false, onEventClick, eventClickCount = null, eventClickCountLoading = false, eventClickCountError = false }) {
   const queryClient = useQueryClient();
   const attendeeCountDisplay = resolveEventAttendeeCountDisplay({
     count: attendeeCount,
@@ -195,6 +221,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   // action buttons and enable the admin dialogs/queries independently of the
   // tenant RBAC feature-exclusion checks. Tenant-admin behavior is unchanged.
   const canManageEvent = isAdmin || groupAdminMode === true;
+  const canShowAttendeeAction = !!memberInfo
+    && (groupAdminMode || !isFeatureExcluded?.('events.browse-events.view-attendees'));
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showAttendeesModal, setShowAttendeesModal] = useState(false);
@@ -742,6 +770,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const parsedEventTypes = parseEventTypes(event.event_type);
   const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || parsedEventTypes.length > 0 || event.program_tag || event.member_group_id;
 
+  const trackEventClick = (interactionEvent) => {
+    if (!eventClickTrackingEnabled || !onEventClick) return;
+    onEventClick(event, interactionEvent);
+  };
+  const handleBuyTicketsClick = (interactionEvent) => {
+    trackEventClick(interactionEvent);
+    window.location.href = createPageUrl('BuyProgramTickets');
+  };
+
   return (
     <>
       <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white">
@@ -1012,6 +1049,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TooltipContent>{attendeeCountDisplay.ariaLabel}</TooltipContent>
                     </Tooltip>
                   )}
+                  {eventClickCountEnabled && canShowAttendeeAction && (
+                    <EventClickCountMetric
+                      eventId={event.id}
+                      count={eventClickCount}
+                      isLoading={eventClickCountLoading}
+                      isError={eventClickCountError}
+                    />
+                  )}
                   {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.create')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1101,9 +1146,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       Join group to access
                     </Button>
                   ) : (
-                    <Button 
+                    <Button
                       className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                      onClick={() => window.location.href = createPageUrl('BuyProgramTickets')}
+                      onClick={handleBuyTicketsClick}
                       data-testid={`button-buy-tickets-${event.id}`}
                     >
                       <ShoppingCart className="w-4 h-4 mr-2" />
@@ -1130,7 +1175,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   // the tenant Primary button style (falls back to the existing
                   // gradient / blue when no Primary style is configured).
                   const isActiveCta = !isRegistrationClosed && !isSoldOut;
-                  const handleRegisterClick = () => {
+                  const handleRegisterClick = (interactionEvent) => {
+                    trackEventClick(interactionEvent);
                     if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
                       window.location.href = event.cta_override_url;
                     } else {

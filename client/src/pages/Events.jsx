@@ -47,7 +47,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import EventCard from "../components/events/EventCard";
+import EventCard, { EventClickCountMetric } from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { base44 } from "@/api/base44Client";
@@ -56,6 +56,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useEventsData, useMyGroupIds, filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { useTrainingAgendaSummaries } from "@/hooks/useTrainingAgendaSummaries";
+import { useEventClickTracking, useEventClickCounts } from "@/hooks/useEventClickTracking";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import {
@@ -168,7 +169,10 @@ export default function EventsPage({
   const memberInfo = contextMemberInfo || propsMemberInfo;
   // Use context isFeatureExcluded if available, otherwise use prop
   const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
-  const { isFeatureExcluded: hookIsFeatureExcluded, memberRole: hookMemberRole } = useMemberAccess();
+  const {
+    isFeatureExcluded: hookIsFeatureExcluded,
+    memberRole: hookMemberRole,
+  } = useMemberAccess();
   // Use prop memberRole if available, otherwise fall back to hook
   const resolvedMemberRole = memberRole || hookMemberRole;
   // Derive admin status from feature exclusion - admins can create/manage events
@@ -323,6 +327,15 @@ export default function EventsPage({
     () => simpleEvents.map((event) => event.id).filter(Boolean),
     [simpleEvents],
   );
+  // Event click tracking is intentionally opted into only by this page.
+  // Administrative controls never count; only CTA activations do, so direct
+  // visits do not create engagement rows. Tenant admins can still activate
+  // public CTAs and those activations are tracked like any other visitor.
+  const {
+    tenantScope: eventClickTenantScope,
+    trackEventClick,
+    trackEventAuxClick,
+  } = useEventClickTracking({ enabled: true });
   const {
     data: eventAttendeeCounts,
     isLoading: eventAttendeeCountsLoading,
@@ -338,6 +351,21 @@ export default function EventsPage({
     isLoading: eventAttendeeCountsLoading,
     isError: eventAttendeeCountsError,
   });
+  const {
+    data: eventClickCounts = { simple: {}, complex: {} },
+    isLoading: eventClickCountsLoading,
+    isError: eventClickCountsError,
+  } = useEventClickCounts({
+    simpleEventIds,
+    complexEventIds,
+    enabled: canViewAttendees,
+    tenantScope: eventClickTenantScope,
+  });
+  const getEventClickCount = (event) => (
+    event?.is_complex
+      ? eventClickCounts?.complex?.[event.id]
+      : eventClickCounts?.simple?.[event.id]
+  );
 
   // Mini agenda data for Training event cards (one batched fetch keyed by
   // the training event ids on the page; dates + item type only).
@@ -1889,6 +1917,8 @@ export default function EventsPage({
                     {featuredEvents.map((event) => {
                       if (event.is_complex) {
                         const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                        // Complex CTAs remain router links so modified and
+                        // middle clicks preserve their existing navigation.
                         const detailUrl = event.slug
                           ? `/session-events/${event.slug}`
                           : `/ComplexEventDetail?id=${event.id}`;
@@ -2083,6 +2113,14 @@ export default function EventsPage({
                                           <TooltipContent>Attendees</TooltipContent>
                                         </Tooltip>
                                       )}
+                                      {canViewAttendees && (
+                                        <EventClickCountMetric
+                                          eventId={event.id}
+                                          count={getEventClickCount(event)}
+                                          isLoading={eventClickCountsLoading}
+                                          isError={eventClickCountsError}
+                                        />
+                                      )}
                                       {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -2163,7 +2201,11 @@ export default function EventsPage({
 
                                       if (!isActiveCta) {
                                         return (
-                                          <Link to={detailUrl}>
+                                          <Link
+                                            to={detailUrl}
+                                            onClick={!isSoldOut ? (interactionEvent) => trackEventClick(event, interactionEvent) : undefined}
+                                            onAuxClick={!isSoldOut ? (interactionEvent) => trackEventAuxClick(event, interactionEvent) : undefined}
+                                          >
                                             <Button 
                                               variant={isRegistrationClosed ? "secondary" : "default"}
                                               className={`w-full ${!isRegistrationClosed && isGradient 
@@ -2186,6 +2228,8 @@ export default function EventsPage({
                                           fallbackClassName={isGradient
                                             ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
                                             : 'bg-blue-600'}
+                                          onClick={(interactionEvent) => trackEventClick(event, interactionEvent)}
+                                          onAuxClick={(interactionEvent) => trackEventAuxClick(event, interactionEvent)}
                                           data-testid={`button-register-event-${event.id}`}
                                         >
                                           {buttonLabel}
@@ -2215,6 +2259,12 @@ export default function EventsPage({
                           attendeeCount={eventAttendeeCounts?.[event.id]}
                           attendeeCountLoading={eventAttendeeCountsLoading}
                           attendeeCountError={eventAttendeeCountsError}
+                          eventClickTrackingEnabled
+                          eventClickCountEnabled={canViewAttendees}
+                          onEventClick={trackEventClick}
+                          eventClickCount={getEventClickCount(event)}
+                          eventClickCountLoading={eventClickCountsLoading}
+                          eventClickCountError={eventClickCountsError}
                           agendaSummary={trainingAgendaSummaries[event.id]}
                         />
                         </React.Fragment>
@@ -2233,6 +2283,8 @@ export default function EventsPage({
                       : null;
                   if (event.is_complex) {
                     const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                    // Complex CTAs remain router links so modified and middle
+                    // clicks preserve their existing navigation.
                     const detailUrl = event.slug
                       ? `/session-events/${event.slug}`
                       : `/ComplexEventDetail?id=${event.id}`;
@@ -2442,6 +2494,14 @@ export default function EventsPage({
                                      <span>Attendees</span>
                                   </Button>
                                 )}
+                                {canViewAttendees && (
+                                  <EventClickCountMetric
+                                    eventId={event.id}
+                                    count={getEventClickCount(event)}
+                                    isLoading={eventClickCountsLoading}
+                                    isError={eventClickCountsError}
+                                  />
+                                )}
                                 {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
                                   <Button 
                                     variant="outline" 
@@ -2486,7 +2546,11 @@ export default function EventsPage({
 
                                   if (!isActiveCta) {
                                     return (
-                                      <Link to={detailUrl}>
+                                      <Link
+                                        to={detailUrl}
+                                        onClick={!isSoldOut ? (interactionEvent) => trackEventClick(event, interactionEvent) : undefined}
+                                        onAuxClick={!isSoldOut ? (interactionEvent) => trackEventAuxClick(event, interactionEvent) : undefined}
+                                      >
                                         <Button 
                                           variant={isRegistrationClosed ? "secondary" : "default"}
                                           className={`w-full ${!isRegistrationClosed && isGradient 
@@ -2509,6 +2573,8 @@ export default function EventsPage({
                                       fallbackClassName={isGradient
                                         ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
                                         : 'bg-blue-600'}
+                                        onClick={(interactionEvent) => trackEventClick(event, interactionEvent)}
+                                        onAuxClick={(interactionEvent) => trackEventAuxClick(event, interactionEvent)}
                                       data-testid={`button-register-event-${event.id}`}
                                     >
                                       {buttonLabel}
@@ -2539,6 +2605,12 @@ export default function EventsPage({
                       attendeeCount={eventAttendeeCounts?.[event.id]}
                       attendeeCountLoading={eventAttendeeCountsLoading}
                       attendeeCountError={eventAttendeeCountsError}
+                      eventClickTrackingEnabled
+                      eventClickCountEnabled={canViewAttendees}
+                      onEventClick={trackEventClick}
+                      eventClickCount={getEventClickCount(event)}
+                      eventClickCountLoading={eventClickCountsLoading}
+                      eventClickCountError={eventClickCountsError}
                       agendaSummary={trainingAgendaSummaries[event.id]}
                     />
                     </React.Fragment>

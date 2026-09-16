@@ -15,3 +15,13 @@ test("catch-all API routes consume all nested action segments", async () => {
   assert.equal(typeof result?.handler, "function");
   assert.deepEqual(result?.params, { path: "quote-id/issue" });
 });
+
+test("event click endpoints are discoverable through the Vercel API adapter", async () => {
+  const ingestion = await findHandler("/api/public/event-click");
+  const counts = await findHandler("/api/admin/events/click-counts");
+
+  assert.equal(typeof ingestion?.handler, "function");
+  assert.deepEqual(ingestion?.params, {});
+  assert.equal(typeof counts?.handler, "function");
+  assert.deepEqual(counts?.params, {});
+});

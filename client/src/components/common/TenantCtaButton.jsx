@@ -29,6 +29,7 @@ export default function TenantCtaButton({
   to,
   href,
   onClick,
+  onAuxClick,
   className = '',
   fallbackClassName = '',
   fallbackVariant,
@@ -64,7 +65,7 @@ export default function TenantCtaButton({
           asChild
           {...rest}
         >
-          <Link to={to} onClick={onClick}>
+          <Link to={to} onClick={onClick} onAuxClick={onAuxClick}>
             {children}
           </Link>
         </Button>
@@ -81,7 +82,7 @@ export default function TenantCtaButton({
           asChild
           {...rest}
         >
-          <a href={href} onClick={onClick}>
+          <a href={href} onClick={onClick} onAuxClick={onAuxClick}>
             {children}
           </a>
         </Button>
@@ -92,6 +93,7 @@ export default function TenantCtaButton({
         variant={fallbackVariant}
         size={size}
         onClick={onClick}
+        onAuxClick={onAuxClick}
         disabled={disabled}
         className={cn(className, fallbackClassName)}
         style={{ ...suppliedStyle, ...radiusStyle }}
@@ -131,6 +133,7 @@ export default function TenantCtaButton({
       <Link
         to={to}
         onClick={onClick}
+        onAuxClick={onAuxClick}
         className={baseLayout}
         style={inlineStyle}
         {...hoverProps}
@@ -145,6 +148,7 @@ export default function TenantCtaButton({
       <a
         href={href}
         onClick={onClick}
+        onAuxClick={onAuxClick}
         className={baseLayout}
         style={inlineStyle}
         {...hoverProps}
@@ -158,6 +162,7 @@ export default function TenantCtaButton({
     <button
       type="button"
       onClick={onClick}
+      onAuxClick={onAuxClick}
       className={baseLayout}
       style={inlineStyle}
       {...hoverProps}

@@ -292,6 +292,7 @@ const entityToTable = {
   'MemberCommunicationPreference': 'member_communication_preference',
   'PreferenceField': 'preference_field',
   'MemberPreferenceValue': 'member_preference_value',
+  'MemberResourceCategory': 'member_resource_category',
   'OrganizationPreferenceValue': 'organization_preference_value',
   'OrganizationGroupPreferenceValue': 'organization_group_preference_value',
   'Speaker': 'speaker',
@@ -357,7 +358,8 @@ const entityToTable = {
   'HelpArticle': 'help_article',
 };
 
-const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+const normalizeEntityName = (entity) => String(entity || '').replace(/[-_]/g, '').toLowerCase();
+const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
 // Check if a member is deleted (anonymized) based on email pattern
 const isDeletedMember = (member) => {
@@ -367,14 +369,21 @@ const isDeletedMember = (member) => {
 
 export default async function handler(req, res) {
   const { entity } = req.query;
+  if (typeof entity !== 'string') {
+    return res.status(400).json({ error: 'Entity is required' });
+  }
   if (rejectGenericCpdPointsEntity(entity, res)) return;
   if (rejectGenericServerOwnedEntity(entity, res)) return;
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
+  const entityNorm = normalizeEntityName(entity);
+  if (!isCustomObjectStorageEntity(entityNorm) && !entityTableByNormalizedName.has(entityNorm)) {
+    return res.status(404).json({ error: 'Unsupported entity' });
+  }
+
   const tableName = getTableName(entity);
-  const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);
@@ -2919,3 +2928,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Failed to process request' });
   }
 }
+
+const entityTableByNormalizedName = new Map(
+  Object.entries(entityToTable).map(([entity, table]) => [normalizeEntityName(entity), table]),
+);

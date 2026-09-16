@@ -80,7 +80,11 @@ export default async function handler(req, res) {
       complexRows,
     ] = await Promise.all([
       hasAdminAccess(context),
-      hasFeatureAccess(context.roleId, ATTENDEE_VIEW_FEATURE),
+      hasFeatureAccess(
+        context.roleId,
+        ATTENDEE_VIEW_FEATURE,
+        context.memberExcludedFeatures,
+      ),
       getCallerGroupMembershipIds(req),
       getCallerGroupEventsAccess(req),
       loadEventRows('event', simpleEventIds, context.tenantId),

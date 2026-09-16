@@ -181,6 +181,7 @@ const entityToTable = {
   'MemberCommunicationPreference': 'member_communication_preference',
   'PreferenceField': 'preference_field',
   'MemberPreferenceValue': 'member_preference_value',
+  'MemberResourceCategory': 'member_resource_category',
   'OrganizationPreferenceValue': 'organization_preference_value',
   'OrganizationGroupPreferenceValue': 'organization_group_preference_value',
   'Speaker': 'speaker',
@@ -225,19 +226,49 @@ const entityToTable = {
   'ExternalWriter': 'external_writer',
   'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
+  'ComplexEventSessionCheckin': 'complex_event_session_checkin',
+  'FormSubmissionEmail': 'form_submission_email',
+  'ContractDocument': 'contract_document',
+  'ContractSigner': 'contract_signer',
+  'ContractReminder': 'contract_reminder',
+  'EmailCampaign': 'email_campaign',
+  'EmailCampaignRecipient': 'email_campaign_recipient',
+  'EmailLinkClick': 'email_link_click',
+  'EmailEvent': 'email_event',
+  'EmailUnsubscribe': 'email_unsubscribe',
+  'ComplexEventBooking': 'complex_event_booking',
+  'MemberInboxFolder': 'member_inbox_folder',
+  'MemberInboxMessageState': 'member_inbox_message_state',
+  'Vacancy': 'vacancy',
+  'VacancyApplication': 'vacancy_application',
+  'VacancyAward': 'vacancy_award',
+  'VacancyDecline': 'vacancy_decline',
+  'VacancyDecisionEmail': 'vacancy_decision_email',
   'HelpArticle': 'help_article',
 };
 
-const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+const normalizeEntityName = (entity) => String(entity || '').replace(/[-_]/g, '').toLowerCase();
+const entityTableByNormalizedName = new Map(
+  Object.entries(entityToTable).map(([entity, table]) => [normalizeEntityName(entity), table]),
+);
+const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
 export default async function handler(req, res) {
   const { entity, id } = req.query;
   console.log(`[Entity ${req.method}] Incoming request: entity="${entity}", id="${id}"`);
+  if (typeof entity !== 'string' || typeof id !== 'string') {
+    return res.status(400).json({ error: 'Entity and id are required' });
+  }
   if (rejectGenericCpdPointsEntity(entity, res)) return;
   if (rejectGenericServerOwnedEntity(entity, res)) return;
   
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const entityNorm = normalizeEntityName(entity);
+  if (!isCustomObjectStorageEntity(entityNorm) && !entityTableByNormalizedName.has(entityNorm)) {
+    return res.status(404).json({ error: 'Unsupported entity' });
   }
 
   const tableName = getTableName(entity);
@@ -272,7 +303,6 @@ export default async function handler(req, res) {
   
   let allowsTenantWideAccess = false;
 
-  const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
   if ((entityNorm === 'gallery' || entityNorm === 'galleryphoto') && req.method !== 'GET') {
     if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
     const canManageGallery = !!tenantCtx.tenantUserId
