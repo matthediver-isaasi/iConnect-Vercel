@@ -22,6 +22,10 @@ import {
   writeMemberContentGeneration,
   reindexAllMemberContentGeneration,
 } from './memberContentGenerationWriter.js';
+import {
+  deleteMemberContentGenerationTombstone,
+  sweepMemberContentGenerationTombstones,
+} from './memberContentGenerationTombstones.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
 
@@ -210,6 +214,31 @@ export function isIndexable(contentType, item) {
   }
 }
 
+async function resolveGenerationTenantForDelete(supabase, contentType, sourceId) {
+  const { data, error } = await supabase
+    .from('member_content_source')
+    .select('tenant_id')
+    .eq('content_type', contentType)
+    .eq('source_id', sourceId)
+    .limit(2);
+  if (error) throw error;
+  const tenants = Array.from(
+    new Set(
+      (Array.isArray(data) ? data : data ? [data] : [])
+        .map((row) => row?.tenant_id)
+        .filter((value) => typeof value === 'string' && value.length > 0)
+    )
+  );
+  if (tenants.length !== 1) {
+    const errorWithCode = new Error(
+      'Generation-safe deletion requires exactly one tenant registry row'
+    );
+    errorWithCode.code = 'MEMBER_CONTENT_TOMBSTONE_TENANT_REQUIRED';
+    throw errorWithCode;
+  }
+  return tenants[0];
+}
+
 function buildMetadata(contentType, item) {
   const cfg = CONTENT_TYPE_CONFIG[contentType];
   return {
@@ -262,10 +291,23 @@ export async function deleteMemberContentChunks(
   { supabase, tenantId = null, schemaContext = null } = {}
 ) {
   if (!supabase) throw new Error('deleteMemberContentChunks requires a supabase client');
-  await preflightMemberContentSchema(
+  const context = await detectMemberContentSchema(
     supabase,
     schemaContext || createMemberContentSchemaContext()
   );
+  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    const resolvedTenant =
+      tenantId || (await resolveGenerationTenantForDelete(supabase, contentType, sourceId));
+    return deleteMemberContentGenerationTombstone({
+      contentType,
+      sourceId,
+      tenantId: resolvedTenant,
+      supabase,
+    });
+  }
+  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
+    throw schemaMismatchError();
+  }
 
   let query = supabase
     .from('member_content_chunk')
@@ -294,12 +336,33 @@ export async function sweepOrphanedMemberContentChunks({
   tenantId = null,
   contentType = null,
   schemaContext = null,
+  maxItems = 50,
+  deadlineMs = null,
+  cursor = null,
 } = {}) {
   if (!supabase) throw new Error('sweepOrphanedMemberContentChunks requires a supabase client');
-  await preflightMemberContentSchema(
+  const context = await detectMemberContentSchema(
     supabase,
     schemaContext || createMemberContentSchemaContext()
   );
+  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    const swept = await sweepMemberContentGenerationTombstones({
+      supabase,
+      tenantId,
+      contentType,
+      maxItems,
+      deadlineMs,
+      cursor,
+    });
+    return {
+      ...swept,
+      removedChunks: 0,
+      removedSources: swept.tombstoned || 0,
+    };
+  }
+  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
+    throw schemaMismatchError();
+  }
 
   const types = contentType ? [contentType] : CONTENT_TYPES;
   const summary = { removedChunks: 0, removedSources: 0, byType: {} };

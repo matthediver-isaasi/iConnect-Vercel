@@ -15,10 +15,9 @@ import {
   CONTENT_TYPES,
 } from './memberContentVisibility.js';
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
+import { buildCanvasGenerationSnapshot } from './memberContentCanvasGeneration.js';
 
-export const GENERATION_MEMBER_CONTENT_TYPES = CONTENT_TYPES.filter(
-  (type) => type !== 'canvas_page'
-);
+export const GENERATION_MEMBER_CONTENT_TYPES = CONTENT_TYPES;
 export const MAX_GENERATION_CHUNKS = 100;
 export const MAX_GENERATION_CONTENT_BYTES = 500 * 1024;
 export const DEFAULT_SINGLE_ITEM_EMBEDDING_CHUNKS = 10;
@@ -64,6 +63,13 @@ const SOURCE_CONFIG = {
     feature: 'content.articles',
     columns:
       'id, tenant_id, title, slug, summary, content, tags, status, published_date',
+  },
+  canvas_page: {
+    table: 'i_edit_page',
+    feature: null,
+    columns:
+      'id, tenant_id, title, slug, status, layout_type, builder_type',
+    filterEq: { builder_type: 'canvas' },
   },
 };
 
@@ -406,15 +412,18 @@ function generationRows({
   generation,
   chunks,
   existingRows,
+  metadataOverride = null,
+  provenanceOverride = null,
 }) {
-  const metadata = buildMetadata(contentType, item);
-  const provenance = {
-    kind: 'authored_repair',
-    tenant_id: item.tenant_id,
-    content_type: contentType,
-    source_id: item.id,
-    generation,
-  };
+  const metadata = metadataOverride || buildMetadata(contentType, item);
+  const provenance =
+    provenanceOverride || {
+      kind: 'authored_repair',
+      tenant_id: item.tenant_id,
+      content_type: contentType,
+      source_id: item.id,
+      generation,
+    };
   const existingByIndex = new Map(
     existingRows.map((row) => [row.chunk_index, row])
   );
@@ -505,6 +514,15 @@ function validateBuiltChunks(chunks) {
     );
   }
   return contentBytes;
+}
+
+async function runGenerationTombstoneSweep(options) {
+  // Keep this import lazy: the tombstone helper delegates back to this writer,
+  // and a static import would turn that safe one-way dependency into a cycle.
+  const { sweepMemberContentGenerationTombstones } = await import(
+    './memberContentGenerationTombstones.js'
+  );
+  return sweepMemberContentGenerationTombstones(options);
 }
 
 /**
@@ -603,14 +621,6 @@ export async function writeMemberContentGeneration(
   };
 
   try {
-    // This is intentionally after claimGeneration: the publish RPC compares
-    // this snapshot's source generation against the locked source row.
-    const canonical = await readCanonicalSource(
-      supabase,
-      contentType,
-      tenantId,
-      item.id
-    );
     const existing = await readExistingRows(
       supabase,
       contentType,
@@ -627,6 +637,56 @@ export async function writeMemberContentGeneration(
       );
     }
 
+    // This is intentionally after claimGeneration: both the authored source
+    // reread and the Canvas projection compare this snapshot against the
+    // claimed source generation.
+    let canonical;
+    let chunks;
+    let metadataOverride = null;
+    let provenanceOverride = null;
+    if (contentType === 'canvas_page') {
+      const canvas = await buildCanvasGenerationSnapshot({
+        supabase,
+        tenantId,
+        sourceId: item.id,
+        claim: claimed.claim,
+      });
+      if (!canvas.indexable) {
+        await publishRows(
+          supabase,
+          tenantId,
+          contentType,
+          item.id,
+          generation,
+          claimToken,
+          []
+        );
+        return {
+          contentType,
+          sourceId: item.id,
+          tenantId,
+          chunks: 0,
+          embedded: 0,
+          reused: 0,
+          removed: true,
+          deferred: false,
+          alreadyActive: !!alreadyActive,
+          embeddingChunksSpent,
+        };
+      }
+      canonical = canvas.item;
+      chunks = canvas.chunks;
+      metadataOverride = canvas.metadata;
+      provenanceOverride = canvas.provenance;
+    } else {
+      canonical = await readCanonicalSource(
+        supabase,
+        contentType,
+        tenantId,
+        item.id
+      );
+    }
+
     // Rich PDFs and private Canvas pages are intentionally not silently
     // replaced by the authored extractor.  A resource linked to an event is
     // the same unsupported extension as the historical event-linked resource
@@ -637,7 +697,7 @@ export async function writeMemberContentGeneration(
         `event-linked resource ${contentType}/${item.id} is not supported by authored repair`
       );
     }
-    if (!canonical || !isIndexable(contentType, canonical)) {
+    if (!canonical || (contentType !== 'canvas_page' && !isIndexable(contentType, canonical))) {
       await publishRows(
         supabase,
         tenantId,
@@ -661,7 +721,7 @@ export async function writeMemberContentGeneration(
       };
     }
 
-    const built = chunkMemberContent(canonical, contentType);
+    const built = chunks || chunkMemberContent(canonical, contentType);
     validateBuiltChunks(built);
     if (!built.length) {
       await publishRows(
@@ -693,6 +753,8 @@ export async function writeMemberContentGeneration(
       generation,
       chunks: built,
       existingRows: existing,
+      metadataOverride,
+      provenanceOverride,
     });
     const maxEmbeddings = embeddingBudgetValue(
       embeddingBudget,
@@ -766,7 +828,9 @@ export async function writeMemberContentGeneration(
       embeddingChunksSpent,
     };
   } catch (error) {
-    error.embeddingChunksSpent = embeddingChunksSpent;
+    if (error && (typeof error === 'object' || typeof error === 'function')) {
+      error.embeddingChunksSpent = embeddingChunksSpent;
+    }
     await fail(error);
   }
   // `fail` always throws.  This keeps static analysers from treating the
@@ -813,12 +877,7 @@ export async function reindexAllMemberContentGeneration({
     deferred: 0,
     errors: 0,
     details: [],
-    orphanSweepDeferred: true,
-    orphansSweep: 'deferred',
-    orphanSweep: {
-      deferred: true,
-      reason: 'generation-aware publication has no legacy orphan sweep',
-    },
+    orphanSweep: { done: false, pending: true },
   };
   const { itemLimit: max, budget } = bulkOptions({
     maxItems,
@@ -831,6 +890,32 @@ export async function reindexAllMemberContentGeneration({
     ...value,
     embeddingChunksSpent: budget - sharedBudget.maxEmbeddingChunks,
   });
+  const finishSweep = (swept, sweepCursor) => {
+    results.items += swept.items || 0;
+    results.removed += swept.removed || 0;
+    results.deferred += swept.deferred || 0;
+    results.errors += swept.errors || 0;
+    if (Array.isArray(swept.details) && swept.details.length) {
+      results.details.push(...swept.details);
+    }
+    results.orphanSweep = {
+      deferred: false,
+      done: !!swept.done,
+      items: swept.items || 0,
+      tombstoned: swept.tombstoned || 0,
+      resurfaced: swept.resurfaced || 0,
+    };
+    return withBudgetSpent({
+      ...results,
+      nextCursor: swept.done
+        ? null
+        : {
+            phase: 'sweep',
+            ...(swept.nextCursor || sweepCursor || {}),
+          },
+      done: !!swept.done,
+    });
+  };
   if (capabilityProbe != null) {
     if (typeof capabilityProbe !== 'function') {
       throw new Error('capabilityProbe must be a function when provided');
@@ -847,7 +932,23 @@ export async function reindexAllMemberContentGeneration({
   // but retaining a terminal cursor makes an accidentally replayed cursor
   // explicit rather than silently running a second unbounded pass.
   if (startInSweep) {
-    return withBudgetSpent({ ...results, nextCursor: null, done: true });
+    const sweepCursor = cursor.cursor || (
+      cursor.tenantId ? {
+        tenantId: cursor.tenantId,
+        contentType: cursor.contentType,
+        sourceId: cursor.sourceId,
+      } : null
+    );
+    const swept = await runGenerationTombstoneSweep({
+      supabase,
+      tenantId,
+      contentType,
+      cursor: sweepCursor,
+      maxItems: Math.min(50, max),
+      deadlineMs,
+      publisherReady: true,
+    });
+    return finishSweep(swept, sweepCursor);
   }
   const resumeType = cursor?.type || null;
   const resumeAfterId = cursor?.lastId ?? null;
@@ -856,18 +957,6 @@ export async function reindexAllMemberContentGeneration({
 
   for (let typeIndex = 0; typeIndex < typesToRun.length; typeIndex += 1) {
     const type = typesToRun[typeIndex];
-    // A canvas generation item is deliberately surfaced as an error; it must
-    // not fall through to the legacy extractor.  Report the unsupported type
-    // even when the source table currently has no rows.
-    if (type === 'canvas_page') {
-      results.errors += 1;
-      results.details.push({
-        contentType: type,
-        sourceId: null,
-        error: `${MEMBER_CONTENT_UNSUPPORTED}: canvas_page is not supported by the generation writer`,
-      });
-      continue;
-    }
     const cfg = SOURCE_CONFIG[type];
     let lastId =
       typeIndex === 0 && resumeType === type ? resumeAfterId : null;
@@ -964,6 +1053,14 @@ export async function reindexAllMemberContentGeneration({
       if (rows.length < pageSize) break;
     }
   }
-  return withBudgetSpent({ ...results, nextCursor: null, done: true });
+  const swept = await runGenerationTombstoneSweep({
+    supabase,
+    tenantId,
+    contentType,
+    maxItems: Math.min(50, Math.max(1, max - results.items)),
+    deadlineMs,
+    publisherReady: true,
+  });
+  return finishSweep(swept, null);
 }
 
