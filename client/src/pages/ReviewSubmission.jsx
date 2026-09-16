@@ -38,7 +38,10 @@ import {
   collectRelationshipRecordIds,
   formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
+  isRelationshipDropdownField,
+  resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
+import { getDueDiligenceReferenceLabel } from "../../../shared/dueDiligenceReference.js";
 import MeetingRequestsCard from "@/components/due-diligence/MeetingRequestsCard";
 import DocumentDetailModal from "@/components/due-diligence/DocumentDetailModal";
 async function apiRequest(method, url, body = null) {
@@ -1282,10 +1285,17 @@ export default function ReviewSubmissionPage() {
   const ddSubmission = ddSubmissionData?.submission;
   const ddConfig = ddSubmissionData?.config;
   const form = ddSubmissionData?.form;
+  const member = ddSubmissionData?.member;
   const organization = ddSubmissionData?.organization;
+  const reviewFields = useMemo(() => [
+    ...(Array.isArray(form?.fields) ? form.fields : []),
+    ...(Array.isArray(form?.pages)
+      ? form.pages.flatMap((page) => (Array.isArray(page?.fields) ? page.fields : []))
+      : []),
+  ], [form]);
 
   const relationshipRecordIds = collectRelationshipRecordIds(
-    form?.fields || [],
+    reviewFields,
     ddSubmission?.original_form_values,
   ).slice(0, 2000);
   const { data: relationshipLabelsByRecordId = {} } = useQuery({
@@ -1375,15 +1385,49 @@ export default function ReviewSubmissionPage() {
       return String(val);
     };
     
-    if (cardReferenceField === '__organization_name__' && organization?.name) {
-      return organization.name;
-    } else if (cardReferenceField && formValues[cardReferenceField]) {
-      return toDisplayString(formValues[cardReferenceField]);
-    }
-    
-    const fallbackValue = organization?.name || formValues.organization_name || formValues.company_name || formValues.name || ddSubmission.application_uid;
-    return toDisplayString(fallbackValue);
-  }, [ddSubmission, ddConfig, organization]);
+    const configuredField = resolveSubmissionField(reviewFields, cardReferenceField);
+    const rawConfiguredValue = configuredField
+      ? getSubmissionFieldValue(formValues, configuredField)
+      : cardReferenceField
+        ? formValues[cardReferenceField]
+        : undefined;
+    const configuredValue = isRelationshipDropdownField(configuredField)
+      ? formatRelationshipAnswerDisplayValue(
+        configuredField,
+        rawConfiguredValue,
+        relationshipLabelsByRecordId,
+        formValues,
+      )
+      : toDisplayString(rawConfiguredValue);
+
+    return getDueDiligenceReferenceLabel({
+      member,
+      memberId: ddSubmission.member_reference_id
+        || ddSubmission.form_submission?.member_reference_id
+        || ddSubmission.form_submission?.created_member_id
+        || ddSubmission.form_submission?.member_id,
+      organization,
+      organizationId: ddSubmission.organization_reference_id
+        || ddSubmission.form_submission?.organization_reference_id
+        || ddSubmission.form_submission?.created_organization_id
+        || ddSubmission.form_submission?.organization_id,
+      applicationLevel: form?.application_level
+        || ddSubmission.application_level
+        || 'member',
+      cardReferenceField,
+      configuredValue,
+      formValues,
+      applicationUid: ddSubmission.application_uid,
+    });
+  }, [
+    ddSubmission,
+    ddConfig,
+    form,
+    reviewFields,
+    member,
+    organization,
+    relationshipLabelsByRecordId,
+  ]);
 
   const workflowStages = useMemo(() => {
     return ddConfig?.workflow_stages?.length > 0 

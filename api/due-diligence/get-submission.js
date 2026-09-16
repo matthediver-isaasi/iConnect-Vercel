@@ -1,6 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import {
+  attachDueDiligenceReferences,
+  getDueDiligenceReferenceProjection,
+  resolveDueDiligenceSubmissionReferences,
+} from './submissionReferences.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -34,16 +39,21 @@ export default async function handler(req, res) {
       .from('form_submission_due_diligence')
       .select(`
         *,
-        form_submission:form_submission_id(
+         form_submission:form_submission_id!inner(
           id,
           form_id,
+           tenant_id,
           submission_data,
           status,
           created_date,
-          organization_id
+           organization_id,
+           member_id,
+           created_member_id,
+           created_organization_id
         )
       `)
-      .eq('tenant_id', tenantCtx.tenantId);
+       .eq('tenant_id', tenantCtx.tenantId)
+       .eq('form_submission.tenant_id', tenantCtx.tenantId);
 
     if (id) {
       query = query.eq('id', id);
@@ -71,26 +81,25 @@ export default async function handler(req, res) {
     // Get form details with tenant isolation (include pages for multi-step forms)
     const { data: form } = await supabase
       .from('form')
-      .select('id, name, slug, fields, pages, due_diligence_required')
+      .select('id, name, slug, fields, pages, due_diligence_required, application_level')
       .eq('id', ddSubmission.form_submission?.form_id)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
 
-    // Look up organization name if there's an organization_id (tenant-scoped for security)
-    let organization = null;
-    const orgId = ddSubmission.form_submission?.organization_id;
-    if (orgId) {
-      const { data: org } = await supabase
-        .from('organization')
-        .select('id, name')
-        .eq('id', orgId)
-        .eq('tenant_id', tenantCtx.tenantId)
-        .single();
-      
-      if (org) {
-        organization = org;
-      }
-    }
+    // Resolve member and organisation references independently.  This keeps a
+    // member UUID out of the organisation lookup and gives member-based DD
+    // submissions a stable human-readable header even when both entities are
+    // present.
+    const references = await resolveDueDiligenceSubmissionReferences({
+      db: supabase,
+      tenantId: tenantCtx.tenantId,
+      formSubmissions: [ddSubmission.form_submission],
+    });
+    const enrichedFormSubmission = attachDueDiligenceReferences(
+      ddSubmission.form_submission,
+      references,
+    );
+    const reference = references[String(ddSubmission.form_submission?.id || '')] || {};
 
     // Look up reviewer name if there's a reviewed_by email
     let reviewerName = null;
@@ -111,11 +120,24 @@ export default async function handler(req, res) {
       success: true,
       submission: {
         ...ddSubmission,
+        application_level: form?.application_level || 'member',
+        ...getDueDiligenceReferenceProjection(ddSubmission.form_submission, references, {
+          applicationLevel: form?.application_level || 'member',
+          cardReferenceField: ddConfig?.card_reference_field || null,
+          applicationUid: ddSubmission.application_uid,
+          formValues: ddSubmission.original_form_values
+            || ddSubmission.form_submission?.submission_data
+            || {},
+        }),
+        form_submission: enrichedFormSubmission,
         reviewed_by_name: reviewerName
       },
       config: ddConfig,
       form: form,
-      organization: organization
+      member: reference.member || null,
+      organization: reference.organization || null,
+      member_reference_id: reference.memberId || null,
+      organization_reference_id: reference.organizationId || null,
     });
 
   } catch (error) {

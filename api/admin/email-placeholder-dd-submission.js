@@ -44,6 +44,7 @@ import {
   isRelationshipDropdownField,
   loadTenantRelationshipDisplayLabels,
 } from '../_lib/relationshipDisplayLabels.js';
+import { getDueDiligenceReferenceLabel } from '../../shared/dueDiligenceReference.js';
 
 const SEARCH_LIMIT = 25;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -275,7 +276,7 @@ async function loadDdBundle(tenantId, ddRow) {
   if (formSubmission?.form_id) {
     const { data } = await supabase
       .from('form')
-      .select('id, name, fields, pages, tenant_id')
+      .select('id, name, fields, pages, application_level, tenant_id')
       .eq('id', formSubmission.form_id)
       .eq('tenant_id', tenantId)
       .maybeSingle();
@@ -374,6 +375,15 @@ async function loadDdBundle(tenantId, ddRow) {
   return {
     id: ddRow.id,
     form_name: form?.name || 'Due Diligence Form',
+    application_level: form?.application_level || 'member',
+    reference_name: getDueDiligenceReferenceLabel({
+      applicationLevel: form?.application_level || 'member',
+      member,
+      memberId,
+      organization,
+      organizationId: orgId,
+      applicationUid: ddRow.application_uid || '',
+    }),
     status: ddRow.workflow_status || '',
     stage: ddRow.workflow_status || '',
     score: ddRow.due_diligence_score ?? null,
@@ -563,13 +573,17 @@ async function searchDdRows(tenantId, query) {
 
   const formIds = Array.from(new Set(Object.values(submissionToForm).filter(Boolean)));
   const formNames = {};
+  const formApplicationLevels = {};
   if (formIds.length > 0) {
     const { data: formRows } = await supabase
       .from('form')
-      .select('id, name, tenant_id')
+      .select('id, name, application_level, tenant_id')
       .in('id', formIds)
       .eq('tenant_id', tenantId);
-    for (const row of formRows || []) formNames[row.id] = row.name;
+    for (const row of formRows || []) {
+      formNames[row.id] = row.name;
+      formApplicationLevels[row.id] = row.application_level || 'member';
+    }
   }
 
   const orgIds = Array.from(new Set(Object.values(submissionToOrg).filter(Boolean)));
@@ -599,13 +613,28 @@ async function searchDdRows(tenantId, query) {
 
   return ddRows.map((r) => {
     const subId = r.form_submission_id;
+    const formId = submissionToForm[subId];
+    const applicationLevel = formApplicationLevels[formId] || 'member';
+    const memberId = submissionToMember[subId] || null;
+    const organizationId = submissionToOrg[subId] || null;
+    const memberName = memberNames[memberId] || '';
+    const organizationName = orgNames[organizationId] || '';
     return {
       id: r.id,
       application_uid: r.application_uid || '',
-      form_name: formNames[submissionToForm[subId]] || 'Due Diligence Form',
+      form_name: formNames[formId] || 'Due Diligence Form',
+      application_level: applicationLevel,
       status: r.workflow_status || '',
-      organization_name: orgNames[submissionToOrg[subId]] || '',
-      member_name: memberNames[submissionToMember[subId]] || '',
+      organization_name: organizationName,
+      member_name: memberName,
+      reference_name: getDueDiligenceReferenceLabel({
+        applicationLevel,
+        member: memberName ? { full_name: memberName } : null,
+        memberId,
+        organization: organizationName ? { name: organizationName } : null,
+        organizationId,
+        applicationUid: r.application_uid || '',
+      }),
     };
   });
 }

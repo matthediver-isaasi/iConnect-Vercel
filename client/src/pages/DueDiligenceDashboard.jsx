@@ -38,6 +38,7 @@ import {
   isRelationshipDropdownField,
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
+import { getDueDiligenceReferenceLabel } from "../../../shared/dueDiligenceReference.js";
 
 const DEFAULT_COLUMN_WIDTHS = {
   reference: 200,
@@ -586,7 +587,10 @@ export default function DueDiligenceDashboardPage() {
     const formId = submission.form_submission?.form_id;
     const cardReferenceField = formId ? cardReferenceFieldByFormId[formId] : null;
     const formValues = submission.form_submission?.submission_data || {};
-    const linkedOrgName = submission.form_submission?.organization?.name;
+    const linkedMember = submission.form_submission?.member
+      || (submission.member_name ? { full_name: submission.member_name } : null);
+    const linkedOrg = submission.form_submission?.organization
+      || (submission.organization_name ? { name: submission.organization_name } : null);
     const configuredField = resolveSubmissionField(formsById[formId]?.fields, cardReferenceField);
     const configuredValue = configuredField
       ? getSubmissionFieldValue(formValues, configuredField)
@@ -595,20 +599,36 @@ export default function DueDiligenceDashboardPage() {
       && configuredValue !== null
       && configuredValue !== '';
 
-    if (cardReferenceField === '__organization_name__' && linkedOrgName) {
-      return linkedOrgName;
-    } else if (cardReferenceField && hasConfiguredValue) {
-      return isRelationshipDropdownField(configuredField)
-        ? formatRelationshipAnswerDisplayValue(
-          configuredField,
-          configuredValue,
-          relationshipLabelsByRecordId,
-          formValues,
-        )
-        : configuredValue;
-    } else {
-      return linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
-    }
+    const displayConfiguredValue = cardReferenceField && hasConfiguredValue
+      ? (
+        isRelationshipDropdownField(configuredField)
+          ? formatRelationshipAnswerDisplayValue(
+            configuredField,
+            configuredValue,
+            relationshipLabelsByRecordId,
+            formValues,
+          )
+          : configuredValue
+      )
+      : undefined;
+
+    return getDueDiligenceReferenceLabel({
+      member: linkedMember,
+      memberId: submission.form_submission?.member_reference_id
+        || submission.form_submission?.created_member_id
+        || submission.form_submission?.member_id,
+      organization: linkedOrg,
+      organizationId: submission.form_submission?.organization_reference_id
+        || submission.form_submission?.created_organization_id
+        || submission.form_submission?.organization_id,
+      applicationLevel: submission.application_level
+        || formsById[formId]?.application_level
+        || 'member',
+      cardReferenceField,
+      configuredValue: displayConfiguredValue,
+      formValues,
+      applicationUid: submission.application_uid,
+    });
   }, [cardReferenceFieldByFormId, formsById, relationshipLabelsByRecordId]);
   
   const stats = useMemo(() => {

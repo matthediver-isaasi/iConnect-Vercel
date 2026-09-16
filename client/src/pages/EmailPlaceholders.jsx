@@ -404,7 +404,7 @@ function DueDiligencePicker({
                             {r.application_uid || r.id}
                           </span>
                           <span className="text-xs text-muted-foreground truncate">
-                            {[r.form_name, r.organization_name || r.member_name, r.status]
+                            {[r.form_name, r.reference_name || r.member_name || r.organization_name, r.status]
                               .filter(Boolean)
                               .join(" · ")}
                           </span>
@@ -456,12 +456,13 @@ function DueDiligencePicker({
             {selectedRecord.submission?.application_uid || selectedRecord.id}
           </span>
           {selectedRecord.form_name ? ` — ${selectedRecord.form_name}` : ""}
-          {selectedRecord._bundle?.organization?.name
-            ? ` · ${selectedRecord._bundle.organization.name}`
-            : ""}
-          {selectedRecord._bundle?.member?.full_name
-            ? ` · ${selectedRecord._bundle.member.full_name}`
-            : ""}
+          {selectedRecord.reference_name
+            ? ` · ${selectedRecord.reference_name}`
+            : selectedRecord._bundle?.member?.full_name
+              ? ` · ${selectedRecord._bundle.member.full_name}`
+              : selectedRecord._bundle?.organization?.name
+                ? ` · ${selectedRecord._bundle.organization.name}`
+                : ""}
         </div>
       )}
       {lookupError && (

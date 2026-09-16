@@ -129,5 +129,8 @@ test('review saves validate effective relationship amendments before persistence
 });
 
 test('due-diligence submission reads include the form slug required by review relationship options', () => {
-  assert.match(read('get-submission.js'), /\.select\('id, name, slug, fields, pages, due_diligence_required'\)/);
+  assert.match(
+    read('get-submission.js'),
+    /\.select\('id, name, slug, fields, pages, due_diligence_required(?:, application_level)?'\)/,
+  );
 });

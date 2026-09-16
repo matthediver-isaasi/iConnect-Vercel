@@ -2,6 +2,32 @@ import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { canonicalizeKey, findCurrentStageEnteredAt } from '../reports/_ddReportHelpers.js';
+import {
+  attachDueDiligenceReferences,
+  getDueDiligenceReferenceProjection,
+  resolveDueDiligenceSubmissionReferences,
+} from './submissionReferences.js';
+
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+const MAX_OFFSET = 1_000_000;
+
+function parseBoundedInteger(value, fallback, { min, max, name }) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const text = String(value);
+  if (!/^\d+$/.test(text)) {
+    const error = new Error(`${name} must be a finite non-negative integer`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    const error = new Error(`${name} must be between ${min} and ${max}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed;
+}
 
 /**
  * Reports cards link out to this endpoint with canonical status keys
@@ -66,7 +92,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { formId, status, riskLevel, startDate, endDate, limit = 50, offset = 0 } = req.query;
+    const { formId, status, riskLevel, startDate, endDate } = req.query;
+    const limit = parseBoundedInteger(req.query.limit, DEFAULT_LIMIT, {
+      min: 1,
+      max: MAX_LIMIT,
+      name: 'limit',
+    });
+    const offset = parseBoundedInteger(req.query.offset, 0, {
+      min: 0,
+      max: MAX_OFFSET,
+      name: 'offset',
+    });
 
     // Optional submission-date range (ISO datetimes, inclusive). Reject
     // unparseable values explicitly rather than silently ignoring them.
@@ -114,18 +150,23 @@ export default async function handler(req, res) {
         swapped_to_submission_id,
         owner_member_id,
         owner_name,
-        form_submission:form_submission_id(
+         form_submission:form_submission_id!inner(
           id,
           form_id,
+           tenant_id,
           submission_data,
           status,
           created_date,
-          organization_id
+           organization_id,
+           member_id,
+           created_member_id,
+           created_organization_id
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantCtx.tenantId)
+       .eq('form_submission.tenant_id', tenantCtx.tenantId)
       .order('created_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+       .range(offset, offset + limit - 1);
 
     // By default, exclude archived submissions
     if (!includeArchived) {
@@ -145,6 +186,12 @@ export default async function handler(req, res) {
       query = query.eq('risk_level', riskLevel);
     }
 
+    // Apply the form filter to the joined relation before range/limit so the
+    // returned page and exact count describe the same cohort.
+    if (formId) {
+      query = query.eq('form_submission.form_id', formId);
+    }
+
     if (startIso) {
       query = query.gte('created_at', startIso);
     }
@@ -159,13 +206,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to list submissions' });
     }
 
-    // Filter by formId if provided (need to filter after join)
     let filteredSubmissions = submissions || [];
-    if (formId) {
-      filteredSubmissions = filteredSubmissions.filter(
-        s => s.form_submission?.form_id === formId
-      );
-    }
 
     // Compute current_stage_entered_at from history_log so the dashboard's
     // outstanding-days drill-through is accurate (falls back to updated_at /
@@ -183,47 +224,25 @@ export default async function handler(req, res) {
       };
     });
 
-    // Collect all organization IDs from submissions
-    const orgIds = [...new Set(
-      filteredSubmissions
-        .map(s => s.form_submission?.organization_id)
-        .filter(Boolean)
-    )];
-    
-    console.log('[DD List] Found organization IDs:', orgIds);
-
-    // Fetch organization names (tenant-scoped for security)
-    let orgMap = {};
-    if (orgIds.length > 0) {
-      const { data: orgs, error: orgError } = await supabase
-        .from('organization')
-        .select('id, name')
-        .in('id', orgIds)
-        .eq('tenant_id', tenantCtx.tenantId);
-      
-      if (orgError) {
-        console.error('[DD List] Org lookup error:', orgError);
-      }
-      if (orgs) {
-        orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
-        console.log('[DD List] Organization map:', orgMap);
-      }
-    }
-
-    // Attach organization names to submissions
-    filteredSubmissions = filteredSubmissions.map(sub => {
-      const orgId = sub.form_submission?.organization_id;
-      if (orgId && orgMap[orgId]) {
-        return {
-          ...sub,
-          form_submission: {
-            ...sub.form_submission,
-            organization: { id: orgId, name: orgMap[orgId] }
-          }
-        };
-      }
-      return sub;
+    // Resolve member and organisation references independently.  A member
+    // UUID must never be sent through the organisation lookup; the resolver
+    // also checks the typed pipeline entity links for legacy submissions.
+    const formSubmissions = filteredSubmissions
+      .map((submission) => submission.form_submission)
+      .filter(Boolean);
+    const references = await resolveDueDiligenceSubmissionReferences({
+      db: supabase,
+      tenantId: tenantCtx.tenantId,
+      formSubmissions,
     });
+    filteredSubmissions = filteredSubmissions.map((submission) => ({
+      ...submission,
+      ...getDueDiligenceReferenceProjection(submission.form_submission, references),
+      form_submission: attachDueDiligenceReferences(
+        submission.form_submission,
+        references,
+      ),
+    }));
 
     // Collect all reviewed_by emails to look up member names
     const reviewerEmails = [...new Set(
@@ -271,36 +290,57 @@ export default async function handler(req, res) {
     if (formIds.length > 0) {
       const { data: forms } = await supabase
         .from('form')
-        .select('id, name')
+       .select('id, name, application_level')
         .in('id', formIds)
         .eq('tenant_id', tenantCtx.tenantId);
       
       if (forms) {
-        formMap = Object.fromEntries(forms.map(f => [f.id, f.name]));
+        formMap = Object.fromEntries(forms.map(f => [
+          f.id,
+          { name: f.name, application_level: f.application_level || 'member' },
+        ]));
       }
     }
 
     // Attach form names to submissions
     filteredSubmissions = filteredSubmissions.map(sub => {
       const formId = sub.form_submission?.form_id;
-      if (formId && formMap[formId]) {
+       if (formId && formMap[formId]) {
         return {
           ...sub,
-          form_name: formMap[formId]
+           form_name: formMap[formId].name,
+           application_level: formMap[formId].application_level,
         };
       }
       return sub;
+    });
+    // Recompute the entity label once the form's application level is known.
+    // This prevents organisation applications that also create a contact
+    // from being labelled with the member name.
+    filteredSubmissions = filteredSubmissions.map((sub) => {
+      const formId = sub.form_submission?.form_id;
+      const form = formId ? formMap[formId] : null;
+      return {
+        ...sub,
+        ...getDueDiligenceReferenceProjection(sub.form_submission, references, {
+          applicationLevel: form?.application_level || 'member',
+          applicationUid: sub.application_uid,
+        }),
+      };
     });
 
     return res.status(200).json({
       success: true,
       submissions: filteredSubmissions,
-      total: count,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+       total: count || 0,
+       limit,
+       offset
     });
 
   } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
     console.error('[DD List] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

@@ -91,6 +91,7 @@ function makeOrderingDb({
   existingMember,
   existingOrganization,
   relationshipDefinitions,
+  organizationGroups = [],
   roleRows = [],
   resumeUpdateError = null,
   ledger,
@@ -105,11 +106,11 @@ function makeOrderingDb({
     form_submission_pipeline_entity: [],
     form_submission_entity_creation: [],
     preference_field: [],
-    organization_group: [],
     member_preference_value: [],
     organization_preference_value: [],
     member_resource_category: [],
     role: roleRows,
+    organization_group: organizationGroups,
   };
   const inserts = [];
   const updates = [];
@@ -185,6 +186,7 @@ function makeOrderingDb({
         if (['member', 'organization', 'organization_group', 'custom_object_relationship'].includes(this.table)) {
           this.inserted = this.inserted.map((value, index) => ({
             id: `${this.table}-created-${index + 1}`,
+            ...(this.table === 'member' ? { organization_group_id: null } : {}),
             ...value,
           }));
         }
@@ -274,6 +276,7 @@ async function invokeOrderingProcessor(payload, {
     role_id: null,
   },
   roleRows = [],
+  organizationGroups = [],
   resumeUpdateError = null,
   invokeHandler = true,
 } = {}) {
@@ -332,6 +335,7 @@ async function invokeOrderingProcessor(payload, {
       target_kind: 'organization',
       target_custom_object_id: null,
     }],
+    organizationGroups,
     roleRows,
     resumeUpdateError,
     ledger,
@@ -451,6 +455,7 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       organization_group_id: null,
       role_id: null,
     },
+    organizationGroups = [],
     monthly = false,
     runPaidOneOffRetry = false,
   } = {}) => {
@@ -468,6 +473,7 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
     const context = await invokeOrderingProcessor(payload, {
       invokeHandler: false,
       existingMember,
+      organizationGroups,
       paymentProvider,
       paymentStatus,
     });
@@ -604,6 +610,144 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
   }
 });
 
+test('GroupUPSERT assigns existing groups once and leaves organisation-backed members unchanged', async () => {
+  invokeOrderingProcessor.ledger = new Map();
+  const originalFetch = global.fetch;
+  const originalAppUrl = process.env.APP_URL;
+  const originalSecret = process.env.SESSION_SECRET;
+  const existingGroup = {
+    id: 'existing-organization-group',
+    tenant_id: TENANT_ID,
+    name: 'Existing configured group',
+  };
+  const run = async (existingMember, {
+    groups = [existingGroup],
+  } = {}) => {
+    const payload = relationshipPayload({
+      structuredActions: optionalOrganizationGroupAction(),
+    });
+    payload.fields = [
+      ...payload.fields,
+      { id: 'optional-group-name', type: 'text', required: false },
+    ];
+    payload.form_values = {
+      ...payload.form_values,
+      'optional-group-name': existingGroup.name,
+    };
+    const context = await invokeOrderingProcessor(payload, {
+      invokeHandler: false,
+      existingMember,
+      organizationGroups: groups.map(group => ({ ...group })),
+    });
+    process.env.APP_URL = 'https://structured-ordering.test';
+    process.env.SESSION_SECRET = 'structured-ordering-test-secret';
+    const request = {
+      method: 'POST',
+      headers: buildFormProcessingHeaders({
+        tenantId: TENANT_ID,
+        formId: context.rows.form[0].id,
+        submissionId: context.rows.form_submission[0].id,
+        verifiedSubmitterMemberId: null,
+        verifiedAdminAccess: true,
+      }),
+      body: {
+        form_id: context.rows.form[0].id,
+        submission_id: context.rows.form_submission[0].id,
+        tenant_id: TENANT_ID,
+        form_values: payload.form_values,
+        fields: payload.fields,
+        entity_pipelines: payload.entity_pipelines,
+        verified_submitter_member_id: null,
+        verified_admin_access: true,
+      },
+    };
+    const response = { statusCode: 200, body: null };
+    await handler(request, {
+      status(code) { response.statusCode = code; return this; },
+      json(body) { response.body = body; return body; },
+    }, { supabase: context.client });
+    return { ...context, response };
+  };
+
+  try {
+    const first = await run({
+      id: MEMBER_ID,
+      tenant_id: TENANT_ID,
+      email: 'ordering@example.test',
+      organization_id: null,
+      organization_group_id: null,
+      role_id: null,
+    });
+    assert.equal(first.response.statusCode, 200, JSON.stringify(first.response.body));
+    assert.equal(first.rows.organization_group.length, 1);
+    assert.equal(first.rows.organization_group[0].id, existingGroup.id);
+    assert.equal(first.rows.member[0].organization_group_id, existingGroup.id);
+
+    // A successful group ledger entry can outlive the member write (for
+    // example, a crash between those two writes). The retry must reconcile
+    // the member without replaying the group upsert.
+    invokeOrderingProcessor.ledger = new Map([[
+      'optional-organization-group:top',
+      { status: 'completed', record_id: existingGroup.id },
+    ]]);
+    const cached = await run({
+      id: MEMBER_ID,
+      tenant_id: TENANT_ID,
+      email: 'ordering@example.test',
+      organization_id: null,
+      organization_group_id: null,
+      role_id: null,
+    });
+    assert.equal(cached.response.statusCode, 200, JSON.stringify(cached.response.body));
+    assert.equal(cached.inserts.some(entry => entry.table === 'organization_group'), false);
+    assert.equal(cached.rows.member[0].organization_group_id, existingGroup.id);
+
+    // A cached success from another tenant must not become a direct member
+    // link. The tenant-scoped group lookup turns this into a retryable
+    // structured-action failure instead.
+    const crossTenantGroup = {
+      ...existingGroup,
+      id: 'cross-tenant-organization-group',
+      tenant_id: 'tenant-other',
+    };
+    invokeOrderingProcessor.ledger = new Map([[
+      'optional-organization-group:top',
+      { status: 'completed', record_id: crossTenantGroup.id },
+    ]]);
+    const conflicting = await run({
+      id: MEMBER_ID,
+      tenant_id: TENANT_ID,
+      email: 'ordering@example.test',
+      organization_id: null,
+      organization_group_id: null,
+      role_id: null,
+    }, { groups: [crossTenantGroup] });
+    assert.equal(conflicting.response.statusCode, 400);
+    assert.equal(conflicting.response.body.code, 'INVALID_STRUCTURED_ACTIONS');
+    assert.equal(conflicting.rows.member[0].organization_group_id, null);
+
+    invokeOrderingProcessor.ledger = new Map();
+    const populated = await run({
+      id: MEMBER_ID,
+      tenant_id: TENANT_ID,
+      email: 'ordering@example.test',
+      organization_id: ORGANIZATION_ID,
+      organization_group_id: null,
+      role_id: null,
+    });
+    assert.equal(populated.response.statusCode, 200, JSON.stringify(populated.response.body));
+    assert.equal(populated.rows.organization_group.length, 1);
+    assert.equal(populated.rows.member[0].organization_id, ORGANIZATION_ID);
+    assert.equal(populated.rows.member[0].organization_group_id, null);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = originalAppUrl;
+    if (originalSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = originalSecret;
+  }
+});
+
 test('monthly setup waits for optional organisation settlement, creates the member/group, and one-off paid retry stays idempotent', async () => {
   invokeOrderingProcessor.ledger = new Map();
   const payload = relationshipPayload({
@@ -713,6 +857,11 @@ test('monthly setup waits for optional organisation settlement, creates the memb
     );
     assert.equal(rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
     assert.equal(context.rows.member.length, 1);
+    assert.equal(
+      context.rows.member[0].organization_group_id,
+      context.rows.organization_group[0].id,
+      'a populated GroupUPSERT assigns the no-Organisation primary member',
+    );
     assert.equal(context.rows.organization_group.length, 1);
     assert.equal(context.rows.organization.length, 1);
     assert.equal(context.inserts.some(entry => entry.table === 'organization'), false);
@@ -728,6 +877,7 @@ test('monthly setup waits for optional organisation settlement, creates the memb
     assert.equal(paid.finalized, true);
     assert.equal(rpcNames.includes('mark_one_off_form_due_diligence_ready'), true);
     assert.equal(context.rows.member.length, 1);
+    assert.equal(context.rows.member[0].organization_group_id, context.rows.organization_group[0].id);
     assert.equal(context.rows.organization_group.length, 1);
 
     const retry = await finalizeFormSubmission({
@@ -738,6 +888,7 @@ test('monthly setup waits for optional organisation settlement, creates the memb
     });
     assert.equal(retry.alreadyFinalized, true);
     assert.equal(context.rows.member.length, 1);
+    assert.equal(context.rows.member[0].organization_group_id, context.rows.organization_group[0].id);
     assert.equal(context.rows.organization_group.length, 1);
     assert.equal(context.rows.organization.length, 1);
   } finally {

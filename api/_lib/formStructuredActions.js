@@ -861,6 +861,7 @@ function primaryPipelineEndpointKinds(contract, form = null) {
   // form, rather than inventing a dependency for a missing entity plan.
   if (contract.actions.some(action =>
     entityName(action) === 'organization_group'
+    && action?.source?.scope === 'top_level'
     && ['create', 'upsert'].includes(operationName(action)))) {
     if (primaryPipelineFor(form?.entity_pipelines?.members)) kinds.add('member');
     if (primaryPipelineFor(form?.entity_pipelines?.organisations)) kinds.add('organization');
@@ -1695,6 +1696,128 @@ async function applyMemberOrganizationGroupPreflight({
   });
 }
 
+function isImplicitOrganizationGroupAssignmentAction(action) {
+  return entityName(action) === 'organization_group'
+    && action?.source?.scope === 'top_level'
+    && ['create', 'upsert'].includes(operationName(action));
+}
+
+/**
+ * A configured Organisation Group upsert is evaluated after the primary
+ * pipelines.  When the form has no Organisation output, that group is also
+ * the direct group for the primary Member.  Keep this reconciliation
+ * separate from the group action itself: the group action's durable ledger
+ * can already be completed when an earlier invocation crashed between the
+ * group write and this member write.
+ *
+ * The Member is always re-read in the effective tenant before deciding
+ * whether to write.  An Organisation is authoritative when present, and an
+ * existing direct group is left untouched (including a different group).
+ * The conditional update makes a retry/race idempotent and prevents a stale
+ * Organisation reference from being converted into a direct assignment.
+ */
+async function reconcileImplicitPrimaryMemberOrganizationGroup({
+  db,
+  tenantId,
+  invocation,
+  groupId,
+}) {
+  const memberId = invocation?.primaryRecords?.memberId;
+  if (!memberId || !groupId) return null;
+
+  // Do not trust a cached action record id as a cross-tenant reference. This
+  // also keeps a recovered ledger entry subject to the same tenant boundary
+  // as the original GroupUPSERT.
+  const { data: group, error: groupError } = await db.from('organization_group')
+    .select('id, tenant_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', groupId)
+    .maybeSingle();
+  if (groupError) throw groupError;
+  if (!group) {
+    throw new StructuredActionContractError(
+      'The Organisation Group output is unavailable in this tenant',
+    );
+  }
+
+  const { data: member, error: memberError } = await db.from('member')
+    .select('id, tenant_id, organization_id, organization_group_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', memberId)
+    .maybeSingle();
+  if (memberError) throw memberError;
+  if (!member) {
+    throw new StructuredActionContractError(
+      'The primary Member output is unavailable for Organisation Group assignment',
+    );
+  }
+
+  if (member.organization_id) {
+    return {
+      status: 'skipped',
+      reason: 'organization_backed',
+      member_id: member.id,
+    };
+  }
+  if (member.organization_group_id) {
+    return {
+      status: 'already_assigned',
+      reason: String(member.organization_group_id) === String(groupId)
+        ? 'same_group'
+        : 'existing_direct_assignment',
+      member_id: member.id,
+      group_id: member.organization_group_id,
+    };
+  }
+
+  const { data: updatedRows, error: updateError } = await db.from('member')
+    .update({ organization_group_id: groupId })
+    .eq('tenant_id', tenantId)
+    .eq('id', member.id)
+    .is('organization_id', null)
+    .is('organization_group_id', null)
+    .select('id, organization_id, organization_group_id');
+  if (updateError) throw updateError;
+  const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows;
+  if (updated) {
+    return {
+      status: 'assigned',
+      member_id: member.id,
+      group_id: groupId,
+    };
+  }
+
+  // A concurrent pipeline may have populated either reference after the
+  // authoritative read above.  Re-read before reporting a conflict, but
+  // never overwrite the value that won that race.
+  const { data: current, error: currentError } = await db.from('member')
+    .select('id, organization_id, organization_group_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', member.id)
+    .maybeSingle();
+  if (currentError) throw currentError;
+  if (!current) {
+    throw new StructuredActionContractError(
+      'The primary Member output is unavailable for Organisation Group assignment',
+    );
+  }
+  if (current.organization_id) {
+    return {
+      status: 'skipped',
+      reason: 'organization_backed',
+      member_id: current.id,
+    };
+  }
+  return {
+    status: 'already_assigned',
+    reason: String(current.organization_group_id || '') === String(groupId)
+      ? 'same_group'
+      : 'existing_direct_assignment',
+    member_id: current.id,
+    group_id: current.organization_group_id || null,
+  };
+}
+
 /**
  * Read-only preflight for process-application. The caller should invoke this
  * after persisted form/submission loading and before any lease, ledger claim,
@@ -2501,6 +2624,15 @@ export async function processPersistedStructuredActions({
           ? { record_reference: canonicalRecordReference(invocation.action, prior.record_id) }
           : {}),
       };
+      if (isImplicitOrganizationGroupAssignmentAction(invocation.action) && prior.record_id) {
+        alreadyCompleted.implicit_member_assignment =
+          await reconcileImplicitPrimaryMemberOrganizationGroup({
+            db,
+            tenantId,
+            invocation,
+            groupId: prior.record_id,
+          });
+      }
       outcomes.push(alreadyCompleted);
       if (!isRelationshipAction(invocation.action) && prior.record_id) {
         appendActionOutput(actionOutputs, invocation, prior.record_id);
@@ -2565,6 +2697,15 @@ export async function processPersistedStructuredActions({
           ...(isRecordReferenceAction(invocation.action) && ledger.record_id
             ? { record_reference: canonicalRecordReference(invocation.action, ledger.record_id) }
             : {}) };
+        if (isImplicitOrganizationGroupAssignmentAction(invocation.action) && ledger.record_id) {
+          alreadyCompleted.implicit_member_assignment =
+            await reconcileImplicitPrimaryMemberOrganizationGroup({
+              db,
+              tenantId,
+              invocation,
+              groupId: ledger.record_id,
+            });
+        }
         outcomes.push(alreadyCompleted);
         notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...alreadyCompleted });
         if (!isRelationshipAction(invocation.action) && ledger.record_id) {
@@ -2606,6 +2747,17 @@ export async function processPersistedStructuredActions({
           authorization,
           actionOutputs,
         );
+      if (outcome.status === 'completed'
+        && isImplicitOrganizationGroupAssignmentAction(invocation.action)
+        && outcome.record_id) {
+        outcome.implicit_member_assignment =
+          await reconcileImplicitPrimaryMemberOrganizationGroup({
+            db,
+            tenantId,
+            invocation,
+            groupId: outcome.record_id,
+          });
+      }
     } catch (error) {
       outcome = {
         status: 'failed',

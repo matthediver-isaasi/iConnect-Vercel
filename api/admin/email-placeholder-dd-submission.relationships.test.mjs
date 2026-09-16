@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { buildDdSubmissionFieldValues } from './email-placeholder-dd-submission.js';
 import { FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
+
+const source = readFileSync(fileURLToPath(new URL('./email-placeholder-dd-submission.js', import.meta.url)), 'utf8');
 
 const currentId = '33333333-3333-4333-8333-333333333333';
 const missingId = '44444444-4444-4444-8444-444444444444';
@@ -49,4 +53,11 @@ test('DD placeholder preview resolves real relationships alongside inclusive Oth
     { [currentId]: 'Finance' },
   );
   assert.equal(values.byId.department, 'Finance, Other department — Research partnerships');
+});
+
+test('DD picker hydrates application level and chooses a typed reference label', () => {
+  assert.match(source, /\.select\('id, name, application_level, tenant_id'\)/);
+  assert.match(source, /applicationLevel/);
+  assert.match(source, /reference_name/);
+  assert.match(source, /getDueDiligenceReferenceLabel/);
 });

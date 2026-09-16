@@ -142,18 +142,16 @@
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
 - [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
-- [Row-source answer semantics](form-row-source-answer-types.md) — projected distinct values are scalars, not record references, even when they share the legacy relationship dropdown type.
+- [Form answer lifecycle](form-answer-lifecycle-index.md) — scalar row sources, temporal validation, retained derived labels, and hidden-answer authority.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
-- [Temporal form validation](temporal-form-validation.md) — midnight must not invalidate accepted retries, provider callbacks, or unchanged historical answers.
 - [Canvas dashboard embedding](canvas-dashboard-embedding.md) — tenant-shared is not public; reuse dashboard authorization/presentation and keep viewer sizing inside the authored frame.
 - [Form author schema discovery](form-author-schema-discovery.md) — schema visibility is not record access; preserve author gates and explicit field denials in respondent-facing metadata.
 - [Paid form DD eligibility](paid-form-dd-eligibility.md) — prospective eligibility must survive checkout retries without backfilling historical submissions; ambiguous external effects cannot be blindly replayed.
 - [Canvas preview authorization](canvas-preview-authorization.md) — preview intent and absent member sessions cannot authorize cached editor content; verify either login system positively.
 - [Organisation access revocation](organisation-access-revocation.md) — restoration must not revive old sessions; fence concurrent member creation without revoking unrelated organisations.
 - [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility, not name-list roles; viewer organisation is authorization-relevant.
-- [Form derived label lifecycle](form-derived-label-lifecycle.md) — picker unmount is navigation, not revocation; retain scoped labels and validate copies before paid persistence too.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
 - [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
-- [Hidden form answer boundary](form-hidden-answer-boundary.md) — page hiding skips client validation, but pruning raw API answers can change server conditions and membership pricing.
+- [Due Diligence applicant identity](due-diligence-applicant-identity.md) — form application type selects the name; organisation applicants can also have contact members.
 - [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
