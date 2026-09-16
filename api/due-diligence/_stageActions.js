@@ -8,6 +8,11 @@ import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } 
 import { prepareMemberCustomPreferenceValue } from './memberCustomMapping.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import {
+  MEMBER_MAPPING_CORE_FIELDS,
+  validateMemberMappingAction,
+  validateStageFieldMapping,
+} from '../../shared/stageMemberMappingContract.js';
+import {
   applyFieldMappingMutationWithFanout,
   dispatchFieldMappingWorkflowFanouts,
   enqueueFieldMappingWorkflowFanout,
@@ -2165,6 +2170,348 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
   return results;
 }
 
+const MEMBER_FIELD_MAPPING_CORE_FIELDS = new Set(MEMBER_MAPPING_CORE_FIELDS);
+
+function coerceMemberCoreMappingValue(value, targetField) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'object') {
+    const unwrapped = unwrapStageMappingPrimitive(value);
+    return unwrapped === value ? JSON.stringify(value) : String(unwrapped);
+  }
+  return String(value);
+}
+
+function unwrapStageMappingPrimitive(value) {
+  if (value === null || value === undefined || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.length > 0 ? unwrapStageMappingPrimitive(value[0]) : null;
+  }
+  for (const key of ['url', 'href', 'value', 'text', 'label', 'name']) {
+    if (value[key] !== undefined && value[key] !== null && typeof value[key] !== 'object') {
+      return value[key];
+    }
+  }
+  return value;
+}
+
+function resolveStageMappingSource(mapping, {
+  originalData,
+  reviewedData,
+  fieldReviewStatus,
+  sourceFormFields,
+}) {
+  const {
+    source_type: sourceType,
+    source_field_id: sourceFieldId,
+    static_value: staticValue,
+    transformation,
+  } = mapping || {};
+  if (sourceType === 'clear') {
+    return { value: null, source: 'clear', key: null, explicitEmpty: true };
+  }
+  if (sourceType === 'static') {
+    const value = resolveStaticTodayToken(staticValue);
+    return { value, source: 'static', key: null, explicitEmpty: value === null || value === '' };
+  }
+  if (sourceType === 'current_date' || transformation === 'current_date') {
+    return {
+      value: applyTransformation('', 'current_date'),
+      source: 'current_date',
+      key: null,
+      explicitEmpty: false,
+    };
+  }
+  const resolved = resolveReviewedFieldValue({
+    sourceFieldId,
+    originalData,
+    reviewedData,
+    fieldReviewStatus,
+    sourceFormFields,
+  });
+  let value = resolved.value;
+  if (transformation && transformation !== 'none') {
+    value = applyTransformation(value, transformation);
+  }
+  return {
+    ...resolved,
+    value,
+    explicitEmpty: resolved.source === 'amended'
+      && (value === null || value === undefined || value === ''),
+  };
+}
+
+/**
+ * Execute field mappings whose action target is a linked member. Member
+ * mappings deliberately use the atomic mutation/outbox RPC even for ordinary
+ * stage transitions: a member write without its recoverable workflow payload
+ * cannot be safely retried.
+ */
+async function executeMemberFieldMappingActions({
+  memberActions,
+  formSubmission,
+  ddSubmission,
+  tenantId,
+  formId,
+  stageId,
+  stageConfig,
+  triggeredBy,
+  options,
+  sourceFormFields,
+  sourceFormAvailable = true,
+  originalData,
+  reviewedData,
+  fieldReviewStatus,
+}) {
+  const results = [];
+  if (!memberActions.length) return results;
+  const memberMappingOccurrenceId = options.stageActionOccurrenceId
+    || options.executionId
+    || ddSubmission?.stage_action_occurrence_id
+    || ddSubmission?.id
+    || 'legacy';
+
+  const validMemberActions = [];
+  for (const action of memberActions) {
+    const validation = validateMemberMappingAction(action, {
+      tenantId,
+      formId,
+      stageId,
+      stageConfig,
+      sourceFormFields,
+      sourceFormAvailable,
+    });
+    if (!validation.ok) {
+      results.push({
+        action: 'field_mapping',
+        field_mapping_action_id: action?.id,
+        target_entity: 'member',
+        status: 'error',
+        error: 'Invalid persisted member field-mapping action',
+        validation_errors: validation.errors,
+      });
+    } else {
+      validMemberActions.push(action);
+    }
+  }
+  memberActions = validMemberActions;
+  if (!memberActions.length) return results;
+
+  const linkedMemberId = formSubmission.created_member_id || formSubmission.member_id || null;
+  if (!linkedMemberId) {
+    return [...results, ...memberActions.map((action) => ({
+      action: 'field_mapping',
+      field_mapping_action_id: action.id,
+      target_entity: 'member',
+      status: 'skipped',
+      reason: 'Form submission has no linked member',
+    }))];
+  }
+
+  const { data: member, error: memberError } = await supabase
+    .from('member')
+    .select('*')
+    .eq('id', linkedMemberId)
+    .eq('tenant_id', tenantId)
+    .single();
+  if (memberError && !isMissingRowError(memberError) && shouldFailOnQueryError(options)) {
+    throw createKnownQueryError('Could not load linked member for field mappings', memberError);
+  }
+  if (memberError || !member) {
+    // A stale created_member_id must never cause a fallback to an unrelated
+    // organization/member. It is safe to skip member actions while allowing
+    // organization actions in the same stage to continue.
+    return [...results, ...memberActions.map((action) => ({
+      action: 'field_mapping',
+      field_mapping_action_id: action.id,
+      target_entity: 'member',
+      status: 'skipped',
+      reason: 'Linked member not found in this tenant',
+    }))];
+  }
+
+  const customIds = [...new Set(memberActions.flatMap((action) => (
+    (action.field_mappings || [])
+      .filter((mapping) => mapping?.target_type === 'custom' && mapping.target_field)
+      .map((mapping) => mapping.target_field)
+  )))];
+  const customPrefFieldMap = new Map();
+  if (customIds.length) {
+    const { data: fields, error } = await supabase
+      .from('preference_field')
+      .select('*')
+      .in('id', customIds)
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'member')
+      .eq('is_active', true);
+    if (error) {
+      if (shouldFailOnQueryError(options)) {
+        throw createKnownQueryError('Could not load member preference definitions', error);
+      }
+    } else {
+      for (const field of fields || []) customPrefFieldMap.set(field.id, field);
+    }
+  }
+
+  let currentMember = { ...member };
+  for (const action of memberActions) {
+    if (options.completedActionKeys?.has(`field_mapping:${action.id}`)) continue;
+    const mappingResults = [];
+    for (const [mappingIndex, mapping] of (action.field_mappings || []).entries()) {
+      const {
+        target_type: targetType,
+        target_field: targetField,
+      } = mapping || {};
+      const contractValidation = validateStageFieldMapping(mapping, {
+        targetEntity: 'member',
+        preferenceFields: customPrefFieldMap,
+        requireCustomFieldDefinition: true,
+        sourceFields: sourceFormFields,
+        tenantId,
+      });
+      if (!contractValidation.ok) {
+        mappingResults.push({
+          field: targetField,
+          status: 'error',
+          error: contractValidation.error,
+        });
+        continue;
+      }
+      if (!targetType || !targetField || !['core', 'custom'].includes(targetType)) {
+        mappingResults.push({
+          field: targetField,
+          status: 'error',
+          error: 'Invalid member field mapping target',
+        });
+        continue;
+      }
+
+      const resolved = resolveStageMappingSource(mapping, {
+        originalData,
+        reviewedData,
+        fieldReviewStatus,
+        sourceFormFields,
+      });
+      if (
+        !resolved.explicitEmpty
+        && (resolved.value === undefined || resolved.value === null || resolved.value === '')
+      ) {
+        mappingResults.push({ field: targetField, status: 'skipped', reason: 'Source value is empty' });
+        continue;
+      }
+
+      if (targetType === 'core') {
+        if (!MEMBER_FIELD_MAPPING_CORE_FIELDS.has(targetField)) {
+          mappingResults.push({
+            field: targetField,
+            status: 'error',
+            error: 'Invalid member core field',
+          });
+          continue;
+        }
+        const storedValue = resolved.explicitEmpty
+          ? null
+          : coerceMemberCoreMappingValue(resolved.value, targetField);
+        if (currentMember[targetField] === storedValue) {
+          mappingResults.push({ field: targetField, status: 'noop', type: 'core', target_entity: 'member' });
+          continue;
+        }
+        const before = { ...currentMember };
+        const persisted = await applyFieldMappingMutationWithFanout({
+          tenantId,
+          dueDiligenceSubmissionId: ddSubmission.id,
+          eventKey: `core:member:${memberMappingOccurrenceId}:${action.id}:${mappingIndex}`,
+          eventType: 'core',
+          targetEntity: 'member',
+          memberId: linkedMemberId,
+          mutation: { [targetField]: storedValue },
+        });
+        if (!persisted.applied) {
+          mappingResults.push({ field: targetField, status: 'noop', type: 'core', target_entity: 'member' });
+        } else {
+          currentMember = { ...currentMember, ...(persisted.after || { [targetField]: storedValue }) };
+          mappingResults.push({ field: targetField, status: 'updated', type: 'core', target_entity: 'member' });
+        }
+        continue;
+      }
+
+      const prefField = customPrefFieldMap.get(targetField);
+      if (!prefField) {
+        mappingResults.push({
+          field: targetField,
+          status: 'error',
+          error: 'Member preference field is not tenant-owned or active',
+        });
+        continue;
+      }
+
+      let storedValue;
+      if (resolved.explicitEmpty) {
+        storedValue = null;
+      } else {
+        const prepared = prepareMemberCustomPreferenceValue(resolved.value, prefField);
+        if (!prepared.ok) {
+          mappingResults.push({ field: targetField, status: 'skipped', reason: prepared.reason });
+          continue;
+        }
+        storedValue = prepared.storedValue;
+      }
+
+      const { data: existing, error: existingError } = await supabase
+        .from('member_preference_value')
+        .select('id, value')
+        .eq('member_id', linkedMemberId)
+        .eq('field_id', targetField)
+        .maybeSingle();
+      if (existingError) {
+        if (shouldFailOnQueryError(options)) {
+          throw createKnownQueryError('Could not load member preference value', existingError);
+        }
+        mappingResults.push({ field: targetField, status: 'error', error: existingError.message });
+        continue;
+      }
+      if ((existing?.value ?? null) === storedValue) {
+        mappingResults.push({ field: targetField, status: 'noop', type: 'custom', target_entity: 'member' });
+        continue;
+      }
+
+      const persisted = await applyFieldMappingMutationWithFanout({
+        tenantId,
+        dueDiligenceSubmissionId: ddSubmission.id,
+        eventKey: `preference:member:${memberMappingOccurrenceId}:${action.id}:${mappingIndex}`,
+        eventType: 'preference',
+        targetEntity: 'member',
+        memberId: linkedMemberId,
+        preferenceFieldId: targetField,
+        preferenceValue: storedValue,
+      });
+      mappingResults.push({
+        field: targetField,
+        status: persisted.applied ? 'updated' : 'noop',
+        type: 'custom',
+        target_entity: 'member',
+      });
+    }
+
+    const result = {
+      action: 'field_mapping',
+      field_mapping_action_id: action.id,
+      target_entity: 'member',
+      member_id: linkedMemberId,
+      mappings: mappingResults,
+      status: mappingResults.some((mapping) => mapping.status === 'error') ? 'partial' : 'success',
+    };
+    results.push(result);
+    await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
+      mappings_count: mappingResults.filter((mapping) => mapping.status !== 'error').length,
+      member_id: linkedMemberId,
+    });
+    if (result.status === 'success') {
+      await checkpointCompletedAction(options, result);
+    }
+  }
+  return results;
+}
+
 export async function executeFieldMappingActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const results = [];
   
@@ -2178,7 +2525,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
     // form-scoping guard already in place for executeMemberCreationActions.
     const { data: formSubmission, error: fsError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id')
+      .select('form_id, submission_data, organization_id, created_member_id, member_id')
       .eq('id', ddSubmission.form_submission_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -2195,7 +2542,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
     }
 
     // Fetch field mapping actions for this stage, scoped to this submission's form.
-    const { data: fieldMappingActions, error: fmaError } = await supabase
+    let { data: fieldMappingActions, error: fmaError } = await supabase
       .from('stage_field_mapping_action')
       .select('*')
       .eq('due_diligence_stage_id', stageId)
@@ -2229,8 +2576,71 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
     console.log(`[DD Field Mapping] Loaded ${fieldMappingActions.length} field-mapping action(s) scoped to form ${formSubmission.form_id} stage ${stageId}`);
 
     const organizationId = formSubmission.organization_id;
-    if (!organizationId) {
-      console.log('[DD Field Mapping] No organization_id on form submission, skipping field mappings');
+    const memberFieldMappingActions = fieldMappingActions.filter(
+      (action) => (action.target_entity || 'organization') === 'member',
+    );
+    fieldMappingActions = fieldMappingActions.filter(
+      (action) => (action.target_entity || 'organization') !== 'member',
+    );
+
+    if (memberFieldMappingActions.length) {
+      let memberStageConfig = options.memberMappingConfigPersisted
+        ? options.memberMappingStageConfig
+        : null;
+      if (!memberStageConfig) {
+        const { data: persistedStageConfig, error: stageConfigError } = await supabase
+          .from('form_due_diligence_config')
+          .select('id, workflow_stages')
+          .eq('form_id', formSubmission.form_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        if (stageConfigError && !isMissingRowError(stageConfigError) && shouldFailOnQueryError(options)) {
+          throw createKnownQueryError(
+            'Could not load due-diligence stage configuration for member mappings',
+            stageConfigError,
+          );
+        }
+        memberStageConfig = persistedStageConfig || { workflow_stages: [] };
+      }
+
+      let memberSourceFormFields = [];
+      let memberSourceFormAvailable = false;
+      const memberSourceFormId = formSubmission.form_id || ddSubmission.form_id || ddSubmission.form_submission?.form_id;
+      if (memberSourceFormId) {
+        const { data: sourceForm, error: sourceFormError } = await supabase
+          .from('form')
+          .select('fields')
+          .eq('id', memberSourceFormId)
+          .eq('tenant_id', tenantId)
+          .single();
+        if (sourceFormError) {
+          if (shouldFailOnQueryError(options)) {
+            throw createKnownQueryError('Could not load source form fields for member mappings', sourceFormError);
+          }
+        } else {
+          memberSourceFormFields = sourceForm?.fields || [];
+          memberSourceFormAvailable = Boolean(sourceForm);
+        }
+      }
+      results.push(...await executeMemberFieldMappingActions({
+        memberActions: memberFieldMappingActions,
+        formSubmission,
+        ddSubmission,
+        tenantId,
+        formId: formSubmission.form_id,
+        stageId,
+        stageConfig: memberStageConfig,
+        triggeredBy,
+        options,
+        sourceFormFields: memberSourceFormFields,
+        sourceFormAvailable: memberSourceFormAvailable,
+        originalData: formSubmission.submission_data || {},
+        reviewedData: ddSubmission.reviewed_form_values || {},
+        fieldReviewStatus: ddSubmission.field_review_status || {},
+      }));
+    }
+
+    if (!organizationId || fieldMappingActions.length === 0) {
       let noOrganizationBaseUrl = options.baseUrl;
       if (!noOrganizationBaseUrl) {
         const { data: baseUrlTenant } = await supabase
@@ -3674,6 +4084,11 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   });
   
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
+  const stageActionOccurrenceId = options.stageActionOccurrenceId
+    || options.executionId
+    || ddSubmission.stage_action_occurrence_id
+    || ddSubmission.id
+    || `${stageId}:${formId || 'unknown'}`;
   
   if (!formId) {
     console.log('[DD Stage Actions] No formId in submission, looking up from form_submission table');
@@ -3800,7 +4215,13 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     ddSubmission,
     tenantId,
     triggeredBy,
-    options
+    {
+      ...options,
+      stageActionOccurrenceId,
+      memberMappingStageConfig: ddConfig,
+      memberMappingConfigPersisted: true,
+      memberMappingFormId: effectiveFormId,
+    }
   );
   results.push(...fieldMappingResults);
 
@@ -3823,9 +4244,12 @@ export const __testables = {
   applyContractDelivery,
   checkpointCompletedAction,
   checkpointMemberCreation,
+  coerceMemberCoreMappingValue,
   createAmbiguousContractPersistenceError,
   createEmailDeliveryError,
   contractDeliveryStatus,
+  executeMemberFieldMappingActions,
+  resolveStageMappingSource,
   isMissingRowError,
   pendingContractSigners,
   shouldFailOnQueryError,

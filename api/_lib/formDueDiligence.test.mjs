@@ -76,6 +76,7 @@ test('reconciliation surfaces expired work as attention without reexecuting it',
 
 test('successful action is checkpointed before lifecycle completion', async () => {
   const calls = [];
+  const stageOccurrences = [];
   const checkpointQuery = {
     eq() { return this; },
     then(resolve) { return resolve({ data: [], error: null }); },
@@ -104,6 +105,7 @@ test('successful action is checkpointed before lifecycle completion', async () =
     submissionId: 'submission',
     tenantId: 'tenant',
     executeActions: async (_stage, _dd, _tenant, _actor, options) => {
+      stageOccurrences.push(options.stageActionOccurrenceId);
       await options.onActionCompleted('email:configured-action');
       return { stage_actions_results: [{ action: 'send_email_template', email_action_id: 'configured-action', status: 'success' }] };
     },
@@ -112,6 +114,7 @@ test('successful action is checkpointed before lifecycle completion', async () =
   const checkpointAt = calls.findIndex(([fn]) => fn === 'checkpoint_form_due_diligence_actions');
   const finishAt = calls.findIndex(([fn]) => fn === 'finish_form_due_diligence_initialization');
   assert.ok(checkpointAt > -1 && checkpointAt < finishAt);
+  assert.deepEqual(stageOccurrences, ['initial:dd:new']);
 });
 
 test('checkpoint read failure is a retryable lifecycle failure before effects', async () => {

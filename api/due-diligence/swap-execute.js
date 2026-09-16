@@ -307,7 +307,12 @@ export default async function handler(req, res) {
           initialStatus,
           ddSubmissionData,
           tenantCtx.tenantId,
-          member.email
+          member.email,
+          {
+            stageActionOccurrenceId: createdDDSubmission.stage_action_occurrence_id
+              || createdDDSubmission.id
+              || `${createdDDSubmission.id}:${initialStatus}`,
+          }
         );
         stageActionsResults = actionResults.stage_actions_results || [];
       } catch (actionError) {

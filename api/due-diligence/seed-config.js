@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
-import { getTenantContext } from '../_lib/tenantContext.js';
-import { remapFieldMappings } from '../_lib/fieldMappingRemap.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { remapStageFieldMappingAction } from '../_lib/fieldMappingRemap.js';
+import {
+  normalizeTargetEntity,
+} from '../../shared/stageMemberMappingContract.js';
 
 const supabaseUrl =
   process.env.DEST_SUPABASE_URL ||
@@ -64,6 +67,7 @@ const MEMBER_ACTION_CLONE_COLUMNS = [
 const FIELD_MAPPING_ACTION_CLONE_COLUMNS = [
   'due_diligence_stage_id',
   'field_mappings',
+  'target_entity',
   'sort_order',
   'is_active',
 ];
@@ -104,6 +108,17 @@ export default async function handler(req, res) {
   const tenantCtx = await getTenantContext(req);
   if (!tenantCtx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const canConfigure = await hasAdminAccess(tenantCtx)
+    || (tenantCtx.roleId
+      ? await hasFeatureAccess(
+        tenantCtx.roleId,
+        'forms.due-diligence-config',
+        tenantCtx.memberExcludedFeatures || [],
+      )
+      : false);
+  if (!canConfigure) {
+    return res.status(403).json({ error: 'Access denied - requires due diligence config permission' });
   }
   const tenantId = tenantCtx.tenantId;
   if (!tenantId || tenantId === 'undefined') {
@@ -177,6 +192,24 @@ export default async function handler(req, res) {
     ]);
     for (const r of [srcEmail, srcMember, srcFm, srcZoho, srcMtg]) {
       if (r.error) throw r.error;
+    }
+
+    // Preference definitions are tenant-owned destinations. Load only fields
+    // referenced by copied mappings so member custom targets cannot smuggle a
+    // cross-tenant, inactive, or non-scalar destination into the target form.
+    const mappedPreferenceIds = [...new Set((srcFm.data || [])
+      .flatMap(row => Array.isArray(row.field_mappings) ? row.field_mappings : [])
+      .filter(mapping => mapping?.target_type === 'custom' && mapping.target_field)
+      .map(mapping => String(mapping.target_field)))];
+    let mappingPreferenceFields = [];
+    if (mappedPreferenceIds.length) {
+      const prefResult = await supabase
+        .from('preference_field')
+        .select('id, tenant_id, entity_scope, is_active, field_type, read_only, is_calculated, formula')
+        .eq('tenant_id', tenantId)
+        .in('id', mappedPreferenceIds);
+      if (prefResult.error) throw prefResult.error;
+      mappingPreferenceFields = prefResult.data || [];
     }
 
     // ============================================================
@@ -275,26 +308,36 @@ export default async function handler(req, res) {
       let droppedMappings = 0;
       const rows = srcFm.data.map(r => {
         const picked = pickColumns(r, FIELD_MAPPING_ACTION_CLONE_COLUMNS);
+        const targetEntity = normalizeTargetEntity(picked.target_entity);
+        const sourceAction = {
+          ...picked,
+          target_entity: targetEntity,
+        };
         // Translate each mapping's source_field_id from the source form's field
         // to the target form's equivalent (by label, then name, then key) so the
         // copied mappings don't carry dangling source ids that point at fields
         // which only exist on the source form.
-        const { mappings, dropped } = remapFieldMappings(
-          picked.field_mappings || [],
+        const { action, dropped } = remapStageFieldMappingAction(
+          sourceAction,
           sourceFormFields,
           targetFormFields,
-          { dropUnmatched: true }
+          {
+            dropUnmatched: true,
+            preferenceFields: mappingPreferenceFields,
+            tenantId,
+            validateTargets: true,
+          },
         );
         droppedMappings += dropped.length;
+        if (!action) return null;
         return {
-          ...picked,
-          field_mappings: mappings,
+          ...action,
           tenant_id: tenantId,
           form_id: targetFormId,
         };
       // Skip actions left with no mappings after remapping (would violate the
       // NOT NULL / non-empty invariant enforced by the API on save).
-      }).filter(row => Array.isArray(row.field_mappings) && row.field_mappings.length > 0);
+      }).filter(row => row && Array.isArray(row.field_mappings) && row.field_mappings.length > 0);
       if (rows.length) {
         const { error } = await supabase.from('stage_field_mapping_action').insert(rows);
         if (error) throw error;

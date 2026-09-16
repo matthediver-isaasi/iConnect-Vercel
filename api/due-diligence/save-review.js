@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { randomUUID } from 'node:crypto';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { executeStageActions } from './_stageActions.js';
@@ -322,19 +323,6 @@ export default async function handler(req, res) {
 
               console.log(`[DD Review] First edit auto-transition skipped - reviewer already on stage ${currentStatus} (initial was ${initialStageId})`);
             } else if (!alreadyTriggered) {
-              // Set the flag to prevent duplicate transitions
-              const { error: flagError } = await supabase
-                .from('form_submission_due_diligence')
-                .update({ 
-                  first_edit_triggered: true,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', submissionId)
-                .eq('tenant_id', tenantCtx.tenantId);
-
-              if (flagError) {
-                console.log(`[DD Review] Failed to set first_edit_triggered flag: ${flagError.message}`);
-              }
               const previousStatus = ddSubmission.workflow_status;
 
               // Check selection conditions (same as update-status.js for consistency)
@@ -342,70 +330,105 @@ export default async function handler(req, res) {
               console.log(`[DD Review] Condition check: canSelect=${conditionCheck.canSelect}, reasons=${JSON.stringify(conditionCheck.reasons)}, stageConditions=${JSON.stringify(targetStage.selection_conditions || 'none')}`);
               
               if (conditionCheck.canSelect) {
-                // Update the submission status
-                await supabase
+                const transitionOccurrenceId = previousStatus === targetStageId
+                  ? (ddSubmission.stage_action_occurrence_id || randomUUID())
+                  : randomUUID();
+                // Set the first-edit guard and status in one compare-and-swap.
+                // A concurrent save must not launch a second stage occurrence.
+                const { data: transitionedSubmission, error: transitionError } = await supabase
                   .from('form_submission_due_diligence')
                   .update({
+                    first_edit_triggered: true,
                     workflow_status: targetStageId,
+                    stage_action_occurrence_id: transitionOccurrenceId,
                     updated_at: new Date().toISOString()
                   })
                   .eq('id', submissionId)
-                  .eq('tenant_id', tenantCtx.tenantId);
-
-                // Refetch updated submission for webhooks and stage actions
-                const { data: updatedSubmission } = await supabase
-                  .from('form_submission_due_diligence')
-                  .select('*, form_submission:form_submission_id(id, form_id)')
-                  .eq('id', submissionId)
                   .eq('tenant_id', tenantCtx.tenantId)
-                  .single();
+                  .eq('workflow_status', previousStatus)
+                  .eq('first_edit_triggered', false)
+                  .select('id, workflow_status, stage_action_occurrence_id')
+                  .maybeSingle();
 
-                // Add to history log
-                await addHistoryLogEntry(submissionId, tenantCtx.tenantId, 'status_changed', member.email, {
-                  previous_status: previousStatus,
-                  new_status: targetStageId,
-                  trigger: 'first_edit_auto_transition'
-                });
+                if (transitionError || !transitionedSubmission) {
+                  console.log('[DD Review] First edit transition lost a concurrent status CAS');
+                  firstEditTransition = {
+                    triggered: false,
+                    skipped_reason: 'concurrent_stage_transition',
+                  };
+                } else {
 
-                // Trigger status change webhooks using updated submission
-                const webhooksTriggered = [];
-                const statusWebhooks = ddConfig.status_change_webhooks || [];
+                  // Refetch updated submission for webhooks and stage actions
+                  const { data: updatedSubmission } = await supabase
+                    .from('form_submission_due_diligence')
+                    .select('*, form_submission:form_submission_id(id, form_id)')
+                    .eq('id', submissionId)
+                    .eq('tenant_id', tenantCtx.tenantId)
+                    .single();
+
+                  // Add to history log
+                  await addHistoryLogEntry(submissionId, tenantCtx.tenantId, 'status_changed', member.email, {
+                    previous_status: previousStatus,
+                    new_status: targetStageId,
+                    trigger: 'first_edit_auto_transition'
+                  });
+
+                  // Trigger status change webhooks using updated submission
+                  const webhooksTriggered = [];
+                  const statusWebhooks = ddConfig.status_change_webhooks || [];
                 
-                for (const webhook of statusWebhooks) {
-                  if (webhook.enabled !== false && webhook.trigger_status_id === targetStageId) {
-                    try {
-                      await triggerWebhook(webhook, updatedSubmission, ddConfig, null, member.email);
-                      webhooksTriggered.push({ id: webhook.id, name: webhook.name, success: true });
-                      await updateWebhookReminderStatus(submissionId, tenantCtx.tenantId, webhook.id, null, member.email);
-                    } catch (webhookErr) {
-                      console.error(`[DD Review Webhook] Failed to trigger ${webhook.name}:`, webhookErr);
-                      webhooksTriggered.push({ id: webhook.id, name: webhook.name, success: false, error: webhookErr.message });
+                  for (const webhook of statusWebhooks) {
+                    if (webhook.enabled !== false && webhook.trigger_status_id === targetStageId) {
+                      try {
+                        await triggerWebhook(webhook, updatedSubmission, ddConfig, null, member.email);
+                        webhooksTriggered.push({ id: webhook.id, name: webhook.name, success: true });
+                        await updateWebhookReminderStatus(submissionId, tenantCtx.tenantId, webhook.id, null, member.email);
+                      } catch (webhookErr) {
+                        console.error(`[DD Review Webhook] Failed to trigger ${webhook.name}:`, webhookErr);
+                        webhooksTriggered.push({ id: webhook.id, name: webhook.name, success: false, error: webhookErr.message });
+                      }
                     }
                   }
+
+                  // Execute stage actions
+                  const actionResults = await executeStageActions(
+                    targetStageId,
+                    updatedSubmission,
+                    tenantCtx.tenantId,
+                    member.email,
+                    {
+                      stageActionOccurrenceId: updatedSubmission.stage_action_occurrence_id
+                        || transitionOccurrenceId,
+                    }
+                  );
+
+                  firstEditTransition = {
+                    triggered: true,
+                    previous_status: previousStatus,
+                    new_status: targetStageId,
+                    stage_label: targetStage.label,
+                    webhooks_triggered: webhooksTriggered,
+                    stage_actions_results: actionResults.stage_actions_results || []
+                  };
+
+                  console.log(`[DD Review] First edit auto-transition: ${previousStatus} -> ${targetStageId}`);
                 }
-
-                // Execute stage actions
-                const actionResults = await executeStageActions(
-                  targetStageId,
-                  updatedSubmission,
-                  tenantCtx.tenantId,
-                  member.email,
-                  {}
-                );
-
-                firstEditTransition = {
-                  triggered: true,
-                  previous_status: previousStatus,
-                  new_status: targetStageId,
-                  stage_label: targetStage.label,
-                  webhooks_triggered: webhooksTriggered,
-                  stage_actions_results: actionResults.stage_actions_results || []
-                };
-
-                console.log(`[DD Review] First edit auto-transition: ${previousStatus} -> ${targetStageId}`);
               } else {
                 // Conditions not met - log but don't transition
                 console.log(`[DD Review] First edit auto-transition skipped - conditions not met: ${conditionCheck.reasons.join(', ')}`);
+                const { error: flagError } = await supabase
+                  .from('form_submission_due_diligence')
+                  .update({
+                    first_edit_triggered: true,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', submissionId)
+                  .eq('tenant_id', tenantCtx.tenantId)
+                  .eq('workflow_status', previousStatus)
+                  .eq('first_edit_triggered', false);
+                if (flagError) {
+                  console.log(`[DD Review] Failed to set first_edit_triggered flag: ${flagError.message}`);
+                }
                 firstEditTransition = {
                   triggered: false,
                   skipped_reason: 'selection_conditions_not_met',

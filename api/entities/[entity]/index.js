@@ -8,7 +8,10 @@ import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
-import { rejectGenericServerOwnedEntity } from '../../_lib/serverOwnedEntityBoundary.js';
+import {
+  rejectGenericServerOwnedEntity,
+  stripGenericServerOwnedFields,
+} from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
@@ -1408,9 +1411,13 @@ export default async function handler(req, res) {
       
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
-      const sanitizedBody = entityNorm === 'jobposting'
+      const bodyBeforeGenericSanitization = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
-        : { ...req.body };
+        : req.body;
+      const genericSanitizedBody = stripGenericServerOwnedFields(entity, bodyBeforeGenericSanitization);
+      const sanitizedBody = Array.isArray(genericSanitizedBody)
+        ? genericSanitizedBody
+        : { ...genericSanitizedBody };
       if (entityNorm === 'organization' && (
         Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked')
         || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_at')

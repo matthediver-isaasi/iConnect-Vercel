@@ -11,6 +11,7 @@ import {
   getZohoCrmModuleFieldTypes,
   getZohoCrmModuleFields
 } from './zohoCrmClient.js';
+import { normalizeTargetEntity } from '../../shared/stageMemberMappingContract.js';
 
 /**
  * Self-heal `is_multi_pick` and `is_rich_text` flags on legacy mapping
@@ -404,7 +405,7 @@ async function getStaticAssertedCustomFieldIds(tenantId, entityType) {
   try {
     const { data, error } = await supabase
       .from('stage_field_mapping_action')
-      .select('field_mappings')
+      .select('field_mappings, target_entity')
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
     if (error) {
@@ -413,6 +414,10 @@ async function getStaticAssertedCustomFieldIds(tenantId, entityType) {
     }
     const result = new Set();
     for (const row of data || []) {
+      // Member-targeted stage actions must not make an organization custom
+      // field iConnect-authoritative. Legacy rows without target_entity are
+      // organization actions by contract.
+      if (normalizeTargetEntity(row?.target_entity) !== 'organization') continue;
       const mappings = Array.isArray(row?.field_mappings) ? row.field_mappings : [];
       for (const m of mappings) {
         if (!m) continue;

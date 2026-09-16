@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
@@ -72,20 +73,34 @@ export default async function handler(req, res) {
     }
 
     const previousStatus = ddSubmission.workflow_status;
+    // The occurrence is persisted independently of updated_at. A retry of a
+    // committed same-stage request reuses it; an actual transition gets a new
+    // UUID in the same CAS update as workflow_status.
+    const transitionOccurrenceId = previousStatus === newStatus
+      ? (ddSubmission.stage_action_occurrence_id || randomUUID())
+      : randomUUID();
 
-    // Update the status with tenant isolation
-    const { error: updateError } = await supabase
+    // Update the status with tenant isolation and compare-and-swap on the
+    // status read above. Only the winner may create a new stage occurrence.
+    const { data: transitionedSubmission, error: updateError } = await supabase
       .from('form_submission_due_diligence')
       .update({
         workflow_status: newStatus,
+        stage_action_occurrence_id: transitionOccurrenceId,
         updated_at: new Date().toISOString()
       })
       .eq('id', submissionId)
-      .eq('tenant_id', tenantCtx.tenantId);
+      .eq('tenant_id', tenantCtx.tenantId)
+      .eq('workflow_status', previousStatus)
+      .select('id, workflow_status, stage_action_occurrence_id')
+      .maybeSingle();
 
     if (updateError) {
       console.error('[DD Status] Update error:', updateError);
       return res.status(500).json({ error: 'Failed to update status' });
+    }
+    if (!transitionedSubmission) {
+      return res.status(409).json({ error: 'Due diligence status changed concurrently; retry the transition' });
     }
 
     // Add to history log
@@ -132,7 +147,13 @@ export default async function handler(req, res) {
       ddSubmission,
       tenantCtx.tenantId,
       member.email,
-      { selectedAgentId, customMessage, baseUrl }
+      {
+        selectedAgentId,
+        customMessage,
+        baseUrl,
+        stageActionOccurrenceId: transitionedSubmission.stage_action_occurrence_id
+          || transitionOccurrenceId,
+      }
     );
     const stageActionsResults = actionResults.stage_actions_results || [];
 

@@ -7,6 +7,7 @@ import {
   triggerWorkflows,
   workflowEmailActionResult,
 } from '../_lib/workflows.js';
+import { dispatchFieldMappingWorkflowFanouts } from './fieldMappingWorkflowFanout.js';
 
 function createFieldMappingClient(state) {
   return {
@@ -373,6 +374,51 @@ test('preference workflow query failure retries, while an unconfirmed preference
     );
     assert.equal(state.outbox[0].status, 'requires_attention');
   });
+});
+
+test('member workflow fanout uses the persisted member target without falling back to its organization', async () => {
+  const state = {
+    outbox: [{
+      id: 'member-event',
+      status: 'pending',
+      attempt_count: 0,
+      form_submission_due_diligence_id: 'dd',
+      tenant_id: 'tenant',
+      event_key: 'core:member-action:0',
+      event_type: 'core',
+      target_entity: 'member',
+      organization_id: 'organization',
+      member_id: 'member',
+      payload: {
+        before: { first_name: 'Before' },
+        after: { first_name: 'After' },
+      },
+    }],
+    organization: { id: 'organization', tenant_id: 'tenant' },
+  };
+  const targets = [];
+
+  await withFieldMappingClient(state, async () => {
+    await dispatchFieldMappingWorkflowFanouts({
+      dueDiligenceSubmissionId: 'dd',
+      tenantId: 'tenant',
+      baseUrl: 'https://tenant.example',
+      dependencies: {
+        triggerWorkflows: async (entity, id, before, after) => {
+          targets.push({ entity, id, before, after });
+          return { delivery: { status: 'completed' } };
+        },
+      },
+    });
+  });
+
+  assert.deepEqual(targets, [{
+    entity: 'member',
+    id: 'member',
+    before: { first_name: 'Before' },
+    after: { first_name: 'After' },
+  }]);
+  assert.equal(state.outbox[0].status, 'completed');
 });
 
 test('partial mapping retains each successful mutation fanout until a sibling write recovers', async () => {

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus, Copy, Wand2 } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus, Copy, Wand2, ArrowUp, ArrowDown } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -24,6 +24,10 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { cn } from "@/lib/utils";
+import {
+  MEMBER_MAPPING_CORE_FIELDS,
+  isSupportedMemberCustomFieldType,
+} from "@shared/stageMemberMappingContract.js";
 
 const TRANSFORMATIONS = [
   { value: 'none', label: 'No transformation', description: 'Use value as-is' },
@@ -66,6 +70,97 @@ const DEFAULT_LIGHT_OPTIONS = [
   { id: 'amber', label: 'Amber', color: '#f59e0b', score: 1 },
   { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
+
+// Keep this list deliberately small. These are the member columns that a
+// reviewer can safely update from a DD submission; identifiers, tenant and
+// organisation links, role/access flags, and timestamps are never exposed as
+// mapping targets.
+const MEMBER_CORE_FIELD_LABELS = {
+  first_name: 'First name',
+  last_name: 'Last name',
+  job_title: 'Job title',
+  mobile: 'Mobile',
+  landline: 'Landline',
+};
+
+const MEMBER_CORE_FIELD_OPTIONS = MEMBER_MAPPING_CORE_FIELDS.map(value => ({
+  value,
+  label: MEMBER_CORE_FIELD_LABELS[value] || value,
+}));
+
+const ORGANIZATION_CORE_FIELD_OPTIONS = [
+  { value: 'address.city', label: 'Address - City' },
+  { value: 'address.country', label: 'Address - Country' },
+  { value: 'address.line1', label: 'Address - Line 1' },
+  { value: 'address.line2', label: 'Address - Line 2' },
+  { value: 'address.postcode', label: 'Address - Post Code' },
+  { value: 'address.region', label: 'Address - Region' },
+  { value: 'description', label: 'Description' },
+  { value: 'email', label: 'Email' },
+  { value: 'invoicing_address', label: 'Invoice address' },
+  { value: 'invoicing_email', label: 'Invoicing email' },
+  { value: 'logo_url', label: 'Logo' },
+  { value: 'name', label: 'Organisation Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'website', label: 'Website' },
+];
+
+const PICKLIST_FIELD_TYPES = ['select', 'dropdown', 'radio', 'picklist', 'multiselect'];
+const DATE_FIELD_TYPES = ['date', 'datetime', 'date_time'];
+
+const getResponseErrorMessage = async (response, fallbackMessage) => {
+  try {
+    const rawBody = await response.text();
+    if (rawBody.trim()) {
+      try {
+        const payload = JSON.parse(rawBody);
+        if (typeof payload === 'string' && payload.trim()) return payload.trim();
+        if (payload && typeof payload === 'object') {
+          const message = payload.error || payload.message || payload.detail;
+          if (typeof message === 'string' && message.trim()) return message.trim();
+        }
+      } catch {
+        return rawBody.trim();
+      }
+    }
+  } catch {
+    // Use the operation-specific fallback below when the response body cannot be read.
+  }
+  return fallbackMessage;
+};
+
+const getFieldMappingTargetEntity = (action) => (
+  action?.target_entity === 'member' || action?.targetEntity === 'member'
+    ? 'member'
+    : 'organization'
+);
+
+const getFieldMappingSourceModes = (targetField, targetEntity = 'organization') => {
+  const fieldType = targetField?.field_type;
+  const formFieldMode = targetEntity === 'member' ? 'form_field' : 'field';
+  const modes = [
+    { value: formFieldMode, label: 'Form field' },
+    { value: 'static', label: 'Static value' },
+  ];
+  if (targetEntity === 'member') {
+    modes.push({ value: 'clear', label: 'Clear value' });
+  }
+  if (DATE_FIELD_TYPES.includes(fieldType)) {
+    modes.push({ value: 'current_date', label: 'Current date' });
+  }
+  return modes;
+};
+
+const hasFieldMappingSource = (mapping) => {
+  if (mapping?.source_type === 'clear') return true;
+  if (mapping?.source_type === 'static') {
+    return mapping.static_value !== undefined
+      && mapping.static_value !== null
+      && mapping.static_value !== '';
+  }
+  if (mapping?.source_type === 'current_date' || mapping?.transformation === 'current_date') return true;
+  return Boolean(mapping?.source_field_id);
+};
 
 export default function DueDiligenceConfigPage() {
   const navigate = useNavigate();
@@ -207,7 +302,14 @@ export default function DueDiligenceConfigPage() {
     },
     enabled: accessChecked
   });
-  const memberCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'member' && f.is_active !== false);
+  const memberCustomFields = (memberFieldsData || []).filter(f => (
+    f.entity_scope === 'member'
+    && f.is_active !== false
+    && f.read_only !== true
+    && f.is_calculated !== true
+    && !f.formula
+    && isSupportedMemberCustomFieldType(f.field_type)
+  ));
   const organizationCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'organization' && f.is_active !== false);
 
   // A field-mapping's source_field_id is a form field id (id || name). When DD
@@ -467,7 +569,7 @@ export default function DueDiligenceConfigPage() {
   });
   const stageFieldMappingActions = stageFieldMappingActionsData || [];
 
-  const addStageFieldMappingAction = async (stageId, mappings) => {
+  const addStageFieldMappingAction = async (stageId, mappings, targetEntity = 'organization') => {
     try {
       const response = await fetch('/api/stage-field-mapping-actions', {
         method: 'POST',
@@ -476,14 +578,19 @@ export default function DueDiligenceConfigPage() {
         body: JSON.stringify({
           due_diligence_stage_id: stageId,
           field_mappings: mappings,
-          form_id: formId
+          form_id: formId,
+          target_entity: targetEntity === 'member' ? 'member' : 'organization'
         })
       });
-      if (!response.ok) throw new Error('Failed to add field mapping action');
+      if (!response.ok) {
+        throw new Error(await getResponseErrorMessage(response, 'Failed to add field mapping action'));
+      }
       await refetchStageFieldMappingActions();
       toast.success('Field mapping action added');
+      return true;
     } catch (err) {
       toast.error(err.message || 'Failed to add field mapping action');
+      return false;
     }
   };
 
@@ -501,22 +608,42 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const updateStageFieldMappingAction = async (id, mappings) => {
+  const updateStageFieldMappingAction = async (
+    id,
+    mappings,
+    targetEntity = 'organization',
+    isActive
+  ) => {
     try {
       const response = await fetch(`/api/stage-field-mapping-actions/${id}`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          field_mappings: mappings
+          field_mappings: mappings,
+          target_entity: targetEntity === 'member' ? 'member' : 'organization',
+          ...(isActive === undefined ? {} : { is_active: isActive })
         })
       });
-      if (!response.ok) throw new Error('Failed to update field mapping action');
+      if (!response.ok) {
+        throw new Error(await getResponseErrorMessage(response, 'Failed to update field mapping action'));
+      }
       await refetchStageFieldMappingActions();
       toast.success('Field mapping action updated');
+      return true;
     } catch (err) {
       toast.error(err.message || 'Failed to update field mapping action');
+      return false;
     }
+  };
+
+  const toggleStageFieldMappingAction = async (action) => {
+    await updateStageFieldMappingAction(
+      action.id,
+      action.field_mappings || [],
+      action.target_entity === 'member' ? 'member' : 'organization',
+      action.is_active === false
+    );
   };
 
   const { data: stageZohoCrmActionsData, refetch: refetchStageZohoCrmActions } = useQuery({
@@ -647,6 +774,7 @@ export default function DueDiligenceConfigPage() {
     setOpenStageSection({});
     setPendingMeetingRequest(null);
     setPendingEmailAction(null);
+    setPendingFieldMappingAction(null);
   }, [formId]);
 
   useEffect(() => {
@@ -2691,17 +2819,31 @@ export default function DueDiligenceConfigPage() {
                                         </p>
                                         <div className="space-y-2">
                                           {(() => {
-                                            const stageActions = stageFieldMappingActions.filter(fma => fma.due_diligence_stage_id === stage.id);
+                                             const stageActions = stageFieldMappingActions.filter(fma =>
+                                               fma.due_diligence_stage_id === stage.id
+                                               && getFieldMappingTargetEntity(fma) === 'organization'
+                                             );
                                             return (
                                               <>
                                                 {stageActions.map((fma) => {
                                                   const mappingCount = (fma.field_mappings || []).length;
                                                   const brokenCount = countBrokenMappings(fma.field_mappings);
                                                   return (
-                                                    <div key={fma.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                     <div key={fma.id} className={cn(
+                                                       "flex items-center justify-between gap-2 p-2 border rounded",
+                                                       fma.is_active === false ? "bg-muted/20 opacity-60" : "bg-muted/50"
+                                                     )}>
                                                       <div className="flex items-center gap-2 flex-wrap">
                                                         <FileText className="w-4 h-4 text-muted-foreground" />
                                                         <span className="text-sm">Field Mappings</span>
+                                                        <Switch
+                                                          checked={fma.is_active !== false}
+                                                          onCheckedChange={() => toggleStageFieldMappingAction(fma)}
+                                                          data-testid={`switch-toggle-field-mapping-${fma.id}`}
+                                                        />
+                                                        {fma.is_active === false && (
+                                                          <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                                                        )}
                                                         <Badge variant="outline" className="text-xs">{mappingCount} field{mappingCount !== 1 ? 's' : ''}</Badge>
                                                         {brokenCount > 0 && (
                                                           <Badge variant="warning" className="text-xs" data-testid={`badge-broken-field-mapping-${fma.id}`}>
@@ -2717,6 +2859,7 @@ export default function DueDiligenceConfigPage() {
                                                           onClick={() => setPendingFieldMappingAction({
                                                             stageId: stage.id,
                                                             mappings: fma.field_mappings || [],
+                                                             targetEntity: 'organization',
                                                             editId: fma.id
                                                           })}
                                                           data-testid={`button-edit-field-mapping-${fma.id}`}
@@ -2736,10 +2879,11 @@ export default function DueDiligenceConfigPage() {
                                                   );
                                                 })}
                                                 
-                                                {pendingFieldMappingAction?.stageId === stage.id ? (
-                                                  <div className="space-y-3 p-3 border rounded bg-muted/30">
+                                                 {pendingFieldMappingAction?.stageId === stage.id
+                                                   && getFieldMappingTargetEntity(pendingFieldMappingAction) === 'organization' ? (
+                                                   <div className="space-y-3 p-3 border rounded bg-muted/30">
                                                     <Label className="text-xs font-medium">Field Mappings</Label>
-                                                    <p className="text-xs text-muted-foreground">
+                                                               <p className="text-xs text-muted-foreground">
                                                       Map form fields to organisation fields. You can add multiple mappings.
                                                     </p>
                                                     
@@ -2765,8 +2909,12 @@ export default function DueDiligenceConfigPage() {
                                                                   newMappings[mapIdx] = { 
                                                                     ...newMappings[mapIdx], 
                                                                     source_type: v, 
-                                                                    source_field_id: v === 'static' ? '' : newMappings[mapIdx].source_field_id,
-                                                                    static_value: v === 'field' ? '' : newMappings[mapIdx].static_value
+                                                                     source_field_id: ['static', 'current_date'].includes(v)
+                                                                       ? ''
+                                                                       : newMappings[mapIdx].source_field_id,
+                                                                     static_value: ['field', 'current_date'].includes(v)
+                                                                       ? ''
+                                                                       : newMappings[mapIdx].static_value
                                                                   };
                                                                   return { ...prev, mappings: newMappings };
                                                                 });
@@ -2775,13 +2923,14 @@ export default function DueDiligenceConfigPage() {
                                                               <SelectTrigger data-testid={`select-source-type-${mapIdx}`}>
                                                                 <SelectValue placeholder="Source type..." />
                                                               </SelectTrigger>
-                                                              <SelectContent>
-                                                                <SelectItem value="field">Form Field</SelectItem>
-                                                                <SelectItem value="static">Static Value</SelectItem>
-                                                              </SelectContent>
+                                                               <SelectContent>
+                                                                 {getFieldMappingSourceModes(targetCustomField).map(mode => (
+                                                                   <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                                                                 ))}
+                                                               </SelectContent>
                                                             </Select>
                                                             
-                                                            {sourceType === 'field' ? (
+                                                             {sourceType === 'field' ? (
                                                               (() => {
                                                                 const sourceBroken = isMappingSourceBroken(mapping);
                                                                 return (
@@ -2819,7 +2968,11 @@ export default function DueDiligenceConfigPage() {
                                                                   </div>
                                                                 );
                                                               })()
-                                                            ) : (
+                                                             ) : sourceType === 'current_date' ? (
+                                                               <div className="col-span-1 flex items-center text-xs text-muted-foreground">
+                                                                 Current date when this stage runs
+                                                               </div>
+                                                             ) : (
                                                               <div className="col-span-1">
                                                                 {/* Static value input - shown after target is selected */}
                                                                 {!mapping.target_field ? (
@@ -2931,22 +3084,7 @@ export default function DueDiligenceConfigPage() {
                                                                 <SelectValue placeholder="Core field..." />
                                                               </SelectTrigger>
                                                               <SelectContent>
-                                                                {[
-                                                                  { value: 'address.city', label: 'Address - City' },
-                                                                  { value: 'address.country', label: 'Address - Country' },
-                                                                  { value: 'address.line1', label: 'Address - Line 1' },
-                                                                  { value: 'address.line2', label: 'Address - Line 2' },
-                                                                  { value: 'address.postcode', label: 'Address - Post Code' },
-                                                                  { value: 'address.region', label: 'Address - Region' },
-                                                                  { value: 'description', label: 'Description' },
-                                                                  { value: 'email', label: 'Email' },
-                                                                  { value: 'invoicing_address', label: 'Invoice address' },
-                                                                  { value: 'invoicing_email', label: 'Invoicing email' },
-                                                                  { value: 'logo_url', label: 'Logo' },
-                                                                  { value: 'name', label: 'Organisation Name' },
-                                                                  { value: 'phone', label: 'Phone' },
-                                                                  { value: 'website', label: 'Website' },
-                                                                ].map(opt => (
+                                                                 {ORGANIZATION_CORE_FIELD_OPTIONS.map(opt => (
                                                                   <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                                                                 ))}
                                                               </SelectContent>
@@ -2983,8 +3121,8 @@ export default function DueDiligenceConfigPage() {
                                                             </Select>
                                                           )}
 
-                                                          {/* Transformation row - only show for field-sourced mappings */}
-                                                          {sourceType === 'field' && (
+                                                           {/* Transformation row - only show for field-sourced mappings */}
+                                                           {sourceType === 'field' && (
                                                             <div className="flex items-center gap-2 pt-2 border-t">
                                                               <Wand2 className="w-4 h-4 text-muted-foreground shrink-0" />
                                                               <Label className="text-xs text-muted-foreground whitespace-nowrap">Transform:</Label>
@@ -3015,9 +3153,41 @@ export default function DueDiligenceConfigPage() {
                                                           </div>
                                                         </div>
                                                         
-                                                        <Button
+                                                         <div className="flex flex-col gap-0.5">
+                                                         <Button
                                                           size="icon"
                                                           variant="ghost"
+                                                           disabled={mapIdx === 0}
+                                                           onClick={() => {
+                                                             setPendingFieldMappingAction(prev => {
+                                                               const newMappings = [...(prev.mappings || [])];
+                                                               [newMappings[mapIdx - 1], newMappings[mapIdx]] = [newMappings[mapIdx], newMappings[mapIdx - 1]];
+                                                               return { ...prev, mappings: newMappings };
+                                                             });
+                                                           }}
+                                                           data-testid={`button-move-mapping-up-${mapIdx}`}
+                                                         >
+                                                           <ArrowUp className="w-4 h-4" />
+                                                         </Button>
+                                                         <Button
+                                                           size="icon"
+                                                           variant="ghost"
+                                                           disabled={mapIdx === (pendingFieldMappingAction.mappings || []).length - 1}
+                                                           onClick={() => {
+                                                             setPendingFieldMappingAction(prev => {
+                                                               const newMappings = [...(prev.mappings || [])];
+                                                               [newMappings[mapIdx], newMappings[mapIdx + 1]] = [newMappings[mapIdx + 1], newMappings[mapIdx]];
+                                                               return { ...prev, mappings: newMappings };
+                                                             });
+                                                           }}
+                                                           data-testid={`button-move-mapping-down-${mapIdx}`}
+                                                         >
+                                                           <ArrowDown className="w-4 h-4" />
+                                                         </Button>
+                                                         </div>
+                                                         <Button
+                                                           size="icon"
+                                                           variant="ghost"
                                                           onClick={() => {
                                                             setPendingFieldMappingAction(prev => {
                                                               const newMappings = [...(prev.mappings || [])];
@@ -3064,23 +3234,26 @@ export default function DueDiligenceConfigPage() {
                                                             const hasValidSource = m.source_type === 'static' 
                                                               ? (m.static_value !== undefined && m.static_value !== '') 
                                                               : !!m.source_field_id;
-                                                            return !hasValidSource || !m.target_type || !m.target_field;
+                                                             return !hasFieldMappingSource(m) || !m.target_type || !m.target_field;
                                                           })}
                                                         onClick={async () => {
                                                           const validMappings = (pendingFieldMappingAction.mappings || []).filter(m => {
-                                                            const hasValidSource = m.source_type === 'static' 
-                                                              ? (m.static_value !== undefined && m.static_value !== '') 
-                                                              : !!m.source_field_id;
+                                                               const hasValidSource = hasFieldMappingSource(m);
                                                             return hasValidSource && m.target_type && m.target_field;
                                                           });
                                                           if (validMappings.length === 0) return;
                                                           
                                                           if (pendingFieldMappingAction.editId) {
-                                                            await updateStageFieldMappingAction(pendingFieldMappingAction.editId, validMappings);
+                                                            const saved = await updateStageFieldMappingAction(
+                                                             pendingFieldMappingAction.editId,
+                                                             validMappings,
+                                                             'organization'
+                                                           );
+                                                            if (saved) setPendingFieldMappingAction(null);
                                                           } else {
-                                                            await addStageFieldMappingAction(stage.id, validMappings);
+                                                            const saved = await addStageFieldMappingAction(stage.id, validMappings, 'organization');
+                                                            if (saved) setPendingFieldMappingAction(null);
                                                           }
-                                                          setPendingFieldMappingAction(null);
                                                         }}
                                                         data-testid={`button-confirm-field-mapping-${index}`}
                                                       >
@@ -3092,10 +3265,11 @@ export default function DueDiligenceConfigPage() {
                                                   <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() => setPendingFieldMappingAction({ 
-                                                      stageId: stage.id, 
-                                                      mappings: [] 
-                                                    })}
+                                                     onClick={() => setPendingFieldMappingAction({
+                                                       stageId: stage.id,
+                                                       targetEntity: 'organization',
+                                                       mappings: []
+                                                     })}
                                                     className="mt-2"
                                                     data-testid={`button-add-field-mapping-${index}`}
                                                   >
@@ -3108,6 +3282,23 @@ export default function DueDiligenceConfigPage() {
                                           })()}
                                         </div>
                                       </div>
+
+                                      <StageMemberFieldMappingCard
+                                        stage={stage}
+                                        stageIndex={index}
+                                        stageFieldMappingActions={stageFieldMappingActions}
+                                        memberCustomFields={memberCustomFields}
+                                        availableFields={availableFields}
+                                        pendingFieldMappingAction={pendingFieldMappingAction}
+                                        setPendingFieldMappingAction={setPendingFieldMappingAction}
+                                        isMappingSourceBroken={isMappingSourceBroken}
+                                        countBrokenMappings={countBrokenMappings}
+                                        addStageFieldMappingAction={addStageFieldMappingAction}
+                                        updateStageFieldMappingAction={updateStageFieldMappingAction}
+                                        removeStageFieldMappingAction={removeStageFieldMappingAction}
+                                        toggleStageFieldMappingAction={toggleStageFieldMappingAction}
+                                        getFieldLabel={getFieldLabel}
+                                      />
 
                                       <div className="p-3 border rounded-lg bg-background">
                                         <div className="flex items-center gap-2 mb-3">
@@ -3383,6 +3574,514 @@ export default function DueDiligenceConfigPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function StageMemberFieldMappingCard({
+  stage,
+  stageIndex,
+  stageFieldMappingActions,
+  memberCustomFields,
+  availableFields,
+  pendingFieldMappingAction,
+  setPendingFieldMappingAction,
+  isMappingSourceBroken,
+  countBrokenMappings,
+  addStageFieldMappingAction,
+  updateStageFieldMappingAction,
+  removeStageFieldMappingAction,
+  toggleStageFieldMappingAction,
+}) {
+  const stageActions = stageFieldMappingActions
+    .filter(action => (
+      action.due_diligence_stage_id === stage.id
+      && getFieldMappingTargetEntity(action) === 'member'
+    ));
+  const setMapping = (mapIdx, patch) => {
+    setPendingFieldMappingAction(previous => {
+      const mappings = [...(previous?.mappings || [])];
+      mappings[mapIdx] = { ...mappings[mapIdx], ...patch };
+      return { ...previous, mappings };
+    });
+  };
+  const addMapping = () => {
+    setPendingFieldMappingAction(previous => ({
+      ...previous,
+      mappings: [
+        ...(previous?.mappings || []),
+        {
+          source_type: 'form_field',
+          source_field_id: '',
+          target_type: '',
+          target_field: '',
+          static_value: '',
+          transformation: 'none',
+        },
+      ],
+    }));
+  };
+  const moveMapping = (mapIdx, direction) => {
+    setPendingFieldMappingAction(previous => {
+      const mappings = [...(previous?.mappings || [])];
+      const nextIndex = mapIdx + direction;
+      if (nextIndex < 0 || nextIndex >= mappings.length) return previous;
+      [mappings[mapIdx], mappings[nextIndex]] = [mappings[nextIndex], mappings[mapIdx]];
+      return { ...previous, mappings };
+    });
+  };
+
+  return (
+    <div className="p-3 border rounded-lg bg-background" data-testid={`card-update-member-fields-${stageIndex}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <UserCheck className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Update Member Fields</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Map reviewed form values to safe core or custom fields on the member linked to this submission.
+        The runtime uses <code className="bg-muted px-1 rounded">created_member_id</code> first, then
+        <code className="bg-muted px-1 rounded ml-1">member_id</code>. If neither is a valid member ID,
+        it skips the update; it never guesses a member from email or name.
+      </p>
+
+      <div className="space-y-2">
+        {stageActions.map(action => {
+          const mappingCount = (action.field_mappings || []).length;
+          const brokenCount = countBrokenMappings(action.field_mappings);
+          return (
+            <div
+              key={action.id}
+              className={cn(
+                "flex items-center justify-between gap-2 p-2 border rounded",
+                action.is_active === false ? "bg-muted/20 opacity-60" : "bg-muted/50"
+              )}
+              data-testid={`member-field-mapping-action-${action.id}`}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <FileText className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm">Member field mappings</span>
+                <Switch
+                  checked={action.is_active !== false}
+                  onCheckedChange={() => toggleStageFieldMappingAction(action)}
+                  data-testid={`switch-toggle-member-field-mapping-${action.id}`}
+                />
+                {action.is_active === false && (
+                  <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                )}
+                <Badge variant="outline" className="text-xs">
+                  {mappingCount} field{mappingCount !== 1 ? 's' : ''}
+                </Badge>
+                {brokenCount > 0 && (
+                  <Badge
+                    variant="warning"
+                    className="text-xs"
+                    data-testid={`badge-broken-member-field-mapping-${action.id}`}
+                  >
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    {brokenCount} need{brokenCount === 1 ? 's' : ''} re-select
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setPendingFieldMappingAction({
+                    stageId: stage.id,
+                    targetEntity: 'member',
+                    mappings: action.field_mappings || [],
+                    editId: action.id,
+                  })}
+                  data-testid={`button-edit-member-field-mapping-${action.id}`}
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => removeStageFieldMappingAction(action.id)}
+                  data-testid={`button-remove-member-field-mapping-${action.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+
+        {pendingFieldMappingAction?.stageId === stage.id
+          && getFieldMappingTargetEntity(pendingFieldMappingAction) === 'member' ? (
+          <div className="space-y-3 p-3 border rounded bg-muted/30">
+            <Label className="text-xs font-medium">Member Field Mappings</Label>
+            <p className="text-xs text-muted-foreground">
+              Only safe member core fields and active member custom fields are available as targets.
+            </p>
+
+            {(pendingFieldMappingAction.mappings || []).map((mapping, mapIdx) => {
+              const sourceType = mapping.source_type === 'field'
+                ? 'form_field'
+                : (mapping.source_type || 'form_field');
+              const targetCustomField = mapping.target_type === 'custom' && mapping.target_field
+                ? memberCustomFields.find(field => field.id === mapping.target_field)
+                : null;
+              const isPicklistTarget = targetCustomField
+                && PICKLIST_FIELD_TYPES.includes(targetCustomField.field_type);
+              const isBooleanTarget = targetCustomField?.field_type === 'boolean';
+              const isDateTarget = targetCustomField
+                && DATE_FIELD_TYPES.includes(targetCustomField.field_type);
+              const targetOptions = targetCustomField?.options || [];
+              const isTodayToken = isDateTarget
+                && typeof mapping.static_value === 'string'
+                && mapping.static_value.trim().toLowerCase() === '{today}';
+              const sourceModes = getFieldMappingSourceModes(targetCustomField, 'member');
+
+              return (
+                <div
+                  key={`${mapping.target_field || 'mapping'}-${mapIdx}`}
+                  className="flex items-center gap-2 p-2 border rounded bg-background"
+                  data-testid={`member-field-mapping-row-${mapIdx}`}
+                >
+                  <div className="flex-1 space-y-2">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                      <Select
+                        value={sourceType}
+                        onValueChange={(value) => setMapping(mapIdx, {
+                          source_type: value,
+                          source_field_id: ['static', 'current_date', 'clear'].includes(value)
+                            ? ''
+                            : mapping.source_field_id,
+                          static_value: ['form_field', 'current_date', 'clear'].includes(value)
+                            ? ''
+                            : mapping.static_value,
+                        })}
+                      >
+                        <SelectTrigger data-testid={`select-member-source-type-${mapIdx}`}>
+                          <SelectValue placeholder="Source type..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sourceModes.map(mode => (
+                            <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {sourceType === 'form_field' ? (
+                        <div className="space-y-1">
+                          <Select
+                            value={isMappingSourceBroken(mapping) ? '' : (mapping.source_field_id || '')}
+                            onValueChange={value => setMapping(mapIdx, { source_field_id: value })}
+                          >
+                            <SelectTrigger
+                              data-testid={`select-member-source-field-${mapIdx}`}
+                              className={isMappingSourceBroken(mapping) ? 'border-warning text-warning' : undefined}
+                            >
+                              <SelectValue
+                                placeholder={isMappingSourceBroken(mapping)
+                                  ? 'Source field missing — re-select'
+                                  : 'Form field...'}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableFields.filter(field => field.id || field.name).map(field => (
+                                <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                  {field.label || field.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {isMappingSourceBroken(mapping) && (
+                            <p
+                              className="flex items-center gap-1 text-xs text-warning"
+                              data-testid={`text-broken-member-source-${mapIdx}`}
+                            >
+                              <AlertCircle className="w-3 h-3 shrink-0" />
+                              Source field missing on this form — re-select
+                            </p>
+                          )}
+                        </div>
+                      ) : sourceType === 'clear' ? (
+                        <div className="flex items-center text-xs text-muted-foreground">
+                          Clear this member field when the stage runs
+                        </div>
+                      ) : sourceType === 'current_date' ? (
+                        <div className="flex items-center text-xs text-muted-foreground">
+                          Current date when this stage runs
+                        </div>
+                      ) : (
+                        <div>
+                          {!mapping.target_field ? (
+                            <Input placeholder="Select target first..." disabled />
+                          ) : isDateTarget ? (
+                            <div className="space-y-1">
+                              <Input
+                                type="date"
+                                value={isTodayToken ? '' : (mapping.static_value || '')}
+                                onChange={event => setMapping(mapIdx, { static_value: event.target.value })}
+                                disabled={isTodayToken}
+                                data-testid={`input-member-static-date-${mapIdx}`}
+                              />
+                              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                                <Checkbox
+                                  checked={isTodayToken}
+                                  onCheckedChange={checked => setMapping(mapIdx, {
+                                    static_value: checked ? '{today}' : '',
+                                  })}
+                                  data-testid={`checkbox-member-static-today-${mapIdx}`}
+                                />
+                                <span>Use today's date when this runs</span>
+                              </label>
+                            </div>
+                          ) : isBooleanTarget ? (
+                            <Select
+                              value={mapping.static_value || ''}
+                              onValueChange={value => setMapping(mapIdx, { static_value: value })}
+                            >
+                              <SelectTrigger data-testid={`select-member-static-boolean-${mapIdx}`}>
+                                <SelectValue placeholder="Select value..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true">Yes</SelectItem>
+                                <SelectItem value="false">No</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : isPicklistTarget && targetOptions.length > 0 ? (
+                            <Select
+                              value={mapping.static_value || ''}
+                              onValueChange={value => setMapping(mapIdx, { static_value: value })}
+                            >
+                              <SelectTrigger data-testid={`select-member-static-option-${mapIdx}`}>
+                                <SelectValue placeholder="Select value..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {targetOptions.map((option, optionIndex) => {
+                                  const value = typeof option === 'object'
+                                    ? (option.value ?? option.id ?? option.label)
+                                    : option;
+                                  const label = typeof option === 'object'
+                                    ? (option.label ?? option.value ?? option.id)
+                                    : option;
+                                  return (
+                                    <SelectItem key={value || optionIndex} value={String(value)}>
+                                      {label}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={mapping.static_value || ''}
+                              onChange={event => setMapping(mapIdx, { static_value: event.target.value })}
+                              placeholder="Enter static value..."
+                              type={
+                                ['number', 'decimal'].includes(targetCustomField?.field_type)
+                                  ? 'number'
+                                  : targetCustomField?.field_type === 'email'
+                                    ? 'email'
+                                    : targetCustomField?.field_type === 'url'
+                                      ? 'url'
+                                      : 'text'
+                              }
+                              data-testid={`input-member-static-value-${mapIdx}`}
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      <Select
+                        value={mapping.target_type || ''}
+                        onValueChange={value => setMapping(mapIdx, {
+                          target_type: value,
+                          target_field: '',
+                        })}
+                      >
+                        <SelectTrigger data-testid={`select-member-target-type-${mapIdx}`}>
+                          <SelectValue placeholder="Field type..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="core">Core field</SelectItem>
+                          <SelectItem value="custom">Custom field</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {mapping.target_type === 'core' && (
+                        <Select
+                          value={mapping.target_field || ''}
+                          onValueChange={value => setMapping(mapIdx, { target_field: value })}
+                        >
+                          <SelectTrigger data-testid={`select-member-core-target-${mapIdx}`}>
+                            <SelectValue placeholder="Core field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MEMBER_CORE_FIELD_OPTIONS.map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
+                      {mapping.target_type === 'custom' && (
+                        <Select
+                          value={mapping.target_field || ''}
+                          onValueChange={value => setMapping(mapIdx, { target_field: value })}
+                        >
+                          <SelectTrigger data-testid={`select-member-custom-target-${mapIdx}`}>
+                            <SelectValue placeholder="Custom field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {memberCustomFields.length === 0 ? (
+                              <SelectItem value="__none__" disabled>No active member fields available</SelectItem>
+                            ) : (
+                              memberCustomFields.map(field => (
+                                <SelectItem key={field.id} value={field.id}>
+                                  {field.label || field.name || field.id}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {sourceType === 'form_field' && (
+                      <div className="flex items-center gap-2 pt-2 border-t">
+                        <Wand2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <Label className="text-xs text-muted-foreground whitespace-nowrap">Transform:</Label>
+                        <Select
+                          value={mapping.transformation || 'none'}
+                          onValueChange={value => setMapping(mapIdx, { transformation: value })}
+                        >
+                          <SelectTrigger className="flex-1" data-testid={`select-member-transformation-${mapIdx}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TRANSFORMATIONS.map(transformation => (
+                              <SelectItem key={transformation.value} value={transformation.value}>
+                                <span>{transformation.label}</span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  - {transformation.description}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-0.5">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      disabled={mapIdx === 0}
+                      onClick={() => moveMapping(mapIdx, -1)}
+                      data-testid={`button-move-member-mapping-up-${mapIdx}`}
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      disabled={mapIdx === (pendingFieldMappingAction.mappings || []).length - 1}
+                      onClick={() => moveMapping(mapIdx, 1)}
+                      data-testid={`button-move-member-mapping-down-${mapIdx}`}
+                    >
+                      <ArrowDown className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setPendingFieldMappingAction(previous => ({
+                      ...previous,
+                      mappings: (previous?.mappings || []).filter((_, index) => index !== mapIdx),
+                    }))}
+                    data-testid={`button-remove-member-mapping-${mapIdx}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              );
+            })}
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addMapping}
+              data-testid={`button-add-member-mapping-row-${stageIndex}`}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add Mapping
+            </Button>
+
+            <div className="flex gap-2 justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPendingFieldMappingAction(null)}
+                data-testid={`button-cancel-member-field-mapping-${stageIndex}`}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={
+                  (pendingFieldMappingAction.mappings || []).length === 0
+                  || (pendingFieldMappingAction.mappings || []).some(mapping => (
+                    !hasFieldMappingSource(mapping) || !mapping.target_type || !mapping.target_field
+                  ))
+                }
+                onClick={async () => {
+                  const mappings = (pendingFieldMappingAction.mappings || [])
+                    .filter(mapping => (
+                      hasFieldMappingSource(mapping)
+                      && mapping.target_type
+                      && mapping.target_field
+                    ))
+                    .map(mapping => ({
+                      ...mapping,
+                      source_type: mapping.source_type === 'field'
+                        ? 'form_field'
+                        : (mapping.source_type || 'form_field'),
+                    }));
+                  if (mappings.length === 0) return;
+                  if (pendingFieldMappingAction.editId) {
+                    const saved = await updateStageFieldMappingAction(
+                      pendingFieldMappingAction.editId,
+                      mappings,
+                      'member'
+                    );
+                    if (saved) setPendingFieldMappingAction(null);
+                  } else {
+                    const saved = await addStageFieldMappingAction(stage.id, mappings, 'member');
+                    if (saved) setPendingFieldMappingAction(null);
+                  }
+                }}
+                data-testid={`button-confirm-member-field-mapping-${stageIndex}`}
+              >
+                {pendingFieldMappingAction.editId ? 'Update' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setPendingFieldMappingAction({
+              stageId: stage.id,
+              targetEntity: 'member',
+              mappings: [],
+            })}
+            className="mt-2"
+            data-testid={`button-add-member-field-mapping-${stageIndex}`}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add Update Member Fields
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

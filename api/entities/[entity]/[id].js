@@ -15,7 +15,10 @@ import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
-import { rejectGenericServerOwnedEntity } from '../../_lib/serverOwnedEntityBoundary.js';
+import {
+  rejectGenericServerOwnedEntity,
+  stripGenericServerOwnedFields,
+} from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { deleteOrDeactivateBadge } from '../../_lib/badgeDelete.js';
@@ -1036,9 +1039,13 @@ export default async function handler(req, res) {
 
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
-      const sanitizedBody = entityNormalized === 'jobposting'
+      const bodyBeforeGenericSanitization = entityNormalized === 'jobposting'
         ? stripManagedJobProvenance(req.body)
-        : { ...req.body };
+        : req.body;
+      const genericSanitizedBody = stripGenericServerOwnedFields(entity, bodyBeforeGenericSanitization);
+      const sanitizedBody = Array.isArray(genericSanitizedBody)
+        ? genericSanitizedBody
+        : { ...genericSanitizedBody };
       // The organisation member-login kill switch has one audited write path.
       // Generic entity mutation must never become an unscoped bypass.
       if (entityNormalized === 'organization' && (

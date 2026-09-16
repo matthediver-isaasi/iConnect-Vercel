@@ -13,6 +13,11 @@
 // form and (b) translate a source id from one form to another by matching on
 // field label (falling back to name, then key).
 
+import {
+  normalizeTargetEntity,
+  validateStageFieldMapping,
+} from '../../shared/stageMemberMappingContract.js';
+
 function normalizeMatchKey(value) {
   if (value === null || value === undefined) return '';
   return String(value).trim().toLowerCase();
@@ -112,13 +117,37 @@ export function remapSourceFieldId(sourceId, sourceFormFields = [], targetFormFi
 // Returns { mappings, remapped, unchanged, dropped } where `dropped` lists the
 // mappings whose source could not be translated (caller decides whether to drop
 // or flag them).
-export function remapFieldMappings(mappings = [], sourceFormFields = [], targetFormFields = [], { dropUnmatched = true } = {}) {
+export function remapFieldMappings(
+  mappings = [],
+  sourceFormFields = [],
+  targetFormFields = [],
+  {
+    dropUnmatched = true,
+    targetEntity = undefined,
+    preferenceFields = null,
+    tenantId = null,
+    validateTargets = false,
+  } = {},
+) {
   const out = [];
   const dropped = [];
   let remapped = 0;
   let unchanged = 0;
 
   for (const mapping of mappings || []) {
+    if (validateTargets && targetEntity !== undefined) {
+      const validation = validateStageFieldMapping(mapping, {
+        targetEntity: normalizeTargetEntity(targetEntity),
+        preferenceFields,
+        tenantId,
+        requireCustomFieldDefinition: true,
+      });
+      if (!validation.ok) {
+        dropped.push({ mapping, reason: 'invalid_mapping_target', error: validation.error });
+        continue;
+      }
+    }
+
     if (!isFieldSourceMapping(mapping)) {
       out.push(mapping);
       unchanged += 1;
@@ -145,4 +174,43 @@ export function remapFieldMappings(mappings = [], sourceFormFields = [], targetF
   }
 
   return { mappings: out, remapped, unchanged, dropped };
+}
+
+/**
+ * Copy helper used by DD seed/copy paths. It preserves action-level target
+ * entity, validates destination metadata, and drops dangling source mappings.
+ */
+export function remapStageFieldMappingAction(
+  action,
+  sourceFormFields = [],
+  targetFormFields = [],
+  options = {},
+) {
+  const targetEntity = normalizeTargetEntity(action?.target_entity);
+  if (!targetEntity) {
+    return {
+      action: null,
+      dropped: [{ mapping: action, reason: 'invalid_target_entity' }],
+      targetEntity: null,
+    };
+  }
+  const result = remapFieldMappings(
+    Array.isArray(action?.field_mappings) ? action.field_mappings : [],
+    sourceFormFields,
+    targetFormFields,
+    {
+      ...options,
+      targetEntity,
+      validateTargets: options.validateTargets !== false,
+    },
+  );
+  return {
+    action: {
+      ...action,
+      target_entity: targetEntity,
+      field_mappings: result.mappings,
+    },
+    ...result,
+    targetEntity,
+  };
 }

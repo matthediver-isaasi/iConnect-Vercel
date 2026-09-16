@@ -152,6 +152,11 @@ export async function initializeFormDueDiligence({
       'system_init',
       {
         completedActionKeys: completed,
+        // The DD row's persisted occurrence survives replacement leases. The
+        // fallback is deterministic for older test/legacy rows; never use the
+        // per-attempt lease token as an event identity.
+        stageActionOccurrenceId: ddSubmission.stage_action_occurrence_id
+          || `initial:${ddSubmission.id}:${stageId}`,
         // Each executor awaits this callback before it begins its next
         // configured action. Thus a known later failure can retry without
         // replaying already completed effects.

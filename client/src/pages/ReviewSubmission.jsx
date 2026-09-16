@@ -59,6 +59,73 @@ async function apiRequest(method, url, body = null) {
   return response.json();
 }
 
+const MEMBER_FIELD_MAPPING_ISSUE_STATUSES = new Set(['skipped', 'error', 'partial']);
+
+/**
+ * Stage actions are allowed to be best-effort: a missing linked member must
+ * not prevent unrelated organisation actions or the stage transition itself.
+ * Keep those outcomes visible, however, rather than treating a successful
+ * status transition as proof that every configured action ran.
+ *
+ * The server reports mapping-level skips/errors inside a successful/partial
+ * field_mapping result, so inspect both the action and its individual rows.
+ */
+export function isMemberFieldMappingIssue(result) {
+  if (!result || result.action !== 'field_mapping' || result.target_entity !== 'member') {
+    return false;
+  }
+  if (MEMBER_FIELD_MAPPING_ISSUE_STATUSES.has(result.status)) {
+    return true;
+  }
+  return (result.mappings || []).some(mapping => (
+    MEMBER_FIELD_MAPPING_ISSUE_STATUSES.has(mapping?.status)
+  ));
+}
+
+export function getMemberFieldMappingIssues(result) {
+  if (!isMemberFieldMappingIssue(result)) return [];
+  return (result.mappings || []).filter(mapping => (
+    MEMBER_FIELD_MAPPING_ISSUE_STATUSES.has(mapping?.status)
+  ));
+}
+
+/**
+ * API validation errors can be strings or structured objects. React cannot
+ * render the latter directly, so normalize every server-provided detail
+ * before it reaches the warning dialog.
+ */
+export function formatStageActionDetail(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(formatStageActionDetail).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    const preferredMessage = value.message || value.error || value.reason || value.detail;
+    if (preferredMessage !== undefined && preferredMessage !== null) {
+      const message = formatStageActionDetail(preferredMessage);
+      const field = value.field || value.target_field;
+      return field ? `${formatStageActionDetail(field)}: ${message}` : message;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Unable to display action detail]';
+    }
+  }
+  return String(value);
+}
+
+export function getStageActionValidationErrors(result) {
+  if (result?.validation_errors === undefined || result?.validation_errors === null) return [];
+  return Array.isArray(result.validation_errors)
+    ? result.validation_errors
+    : [result.validation_errors];
+}
+
 const DEFAULT_WORKFLOW_STAGES = [
   { id: "new", label: "New", color: "#f97316", is_initial: true, order: 0 },
   { id: "in_review", label: "In Review", color: "#a855f7", is_initial: false, order: 1 },
@@ -1486,6 +1553,28 @@ export default function ReviewSubmissionPage() {
     setHasUnsavedChanges(true);
   }, []);
 
+  const showMemberFieldMappingIssues = useCallback((stageActionResults = []) => {
+    const memberFieldMappingIssues = stageActionResults.filter(isMemberFieldMappingIssue);
+    if (memberFieldMappingIssues.length === 0) return memberFieldMappingIssues;
+
+    const skippedCount = memberFieldMappingIssues.reduce((count, result) => (
+      count + getMemberFieldMappingIssues(result).filter(mapping => mapping.status === 'skipped').length
+    ), 0);
+    const errorCount = memberFieldMappingIssues.reduce((count, result) => (
+      count
+      + (['error', 'partial'].includes(result.status) ? 1 : 0)
+      + getMemberFieldMappingIssues(result).filter(mapping => ['error', 'partial'].includes(mapping.status)).length
+    ), 0);
+    const detail = [
+      skippedCount > 0 ? `${skippedCount} skipped` : null,
+      errorCount > 0 ? `${errorCount} failed` : null,
+    ].filter(Boolean).join(', ');
+    toast.warning(
+      `Member field updates need attention${detail ? ` (${detail})` : ''}. The stage changed, but some linked-member fields were not updated.`,
+    );
+    return memberFieldMappingIssues;
+  }, []);
+
   const saveMutation = useMutation({
     mutationFn: async (data) => {
       return await apiRequest('POST', '/api/due-diligence/save-review', data);
@@ -1498,6 +1587,12 @@ export default function ReviewSubmissionPage() {
       if (data.first_edit_transition?.triggered) {
         setWorkflowStatus(data.first_edit_transition.new_status);
         toast.success(`Review saved - Stage changed to "${data.first_edit_transition.stage_label}"`);
+        const memberFieldMappingIssues = showMemberFieldMappingIssues(
+          data.first_edit_transition.stage_actions_results || [],
+        );
+        if (memberFieldMappingIssues.length > 0) {
+          setStageActionResultsModal({ open: true, results: memberFieldMappingIssues });
+        }
       } else {
         toast.success('Review saved successfully');
       }
@@ -1563,13 +1658,19 @@ export default function ReviewSubmissionPage() {
         const memberCreationResults = data.stage_actions_results.filter(r => r.action === 'create_member');
         const skippedMembers = memberCreationResults.filter(r => r.status === 'skipped');
         const successfulMembers = memberCreationResults.filter(r => r.status === 'success');
+        const memberFieldMappingIssues = showMemberFieldMappingIssues(data.stage_actions_results);
         
         if (successfulMembers.length > 0) {
           toast.success(`${successfulMembers.length} member(s) created successfully`);
         }
-        
+
         if (skippedMembers.length > 0) {
-          setStageActionResultsModal({ open: true, results: skippedMembers });
+          setStageActionResultsModal({
+            open: true,
+            results: [...skippedMembers, ...memberFieldMappingIssues],
+          });
+        } else if (memberFieldMappingIssues.length > 0) {
+          setStageActionResultsModal({ open: true, results: memberFieldMappingIssues });
         }
       }
     },
@@ -2743,32 +2844,79 @@ export default function ReviewSubmissionPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="w-5 h-5" />
-              Member Creation Warning
+              {stageActionResultsModal.results.some(result => result.action === 'field_mapping')
+                ? 'Member Field Update Warning'
+                : 'Member Creation Warning'}
             </DialogTitle>
             <DialogDescription>
-              Some members could not be created during this stage transition. The stage change was successful, but the following members were skipped:
+              {stageActionResultsModal.results.some(result => result.action === 'field_mapping')
+                ? 'The stage transition completed, but some linked-member field updates need attention. Unrelated organisation actions were allowed to continue. This outcome is also recorded in the submission history.'
+                : 'Some members could not be created during this stage transition. The stage change was successful, but the following members were skipped:'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
             {stageActionResultsModal.results.map((result, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-warning/10 dark:bg-warning/30" data-testid={`row-member-skip-${idx}`}>
-                <UserPlus className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  {result.email && (
-                    <div className="text-sm font-medium text-foreground" data-testid={`text-member-email-${idx}`}>
-                      {result.first_name || result.last_name 
-                        ? `${result.first_name || ''} ${result.last_name || ''}`.trim() 
-                        : result.email}
-                      {(result.first_name || result.last_name) && (
-                        <span className="text-muted-foreground font-normal"> ({result.email})</span>
+              <div
+                key={idx}
+                className="flex items-start gap-3 p-3 rounded-lg border bg-warning/10 dark:bg-warning/30"
+                data-testid={`${result.action === 'field_mapping' ? 'row-member-action' : 'row-member-skip'}-${idx}`}
+              >
+                {result.action === 'field_mapping'
+                  ? <User className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
+                  : <UserPlus className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />}
+                <div className="flex-1 min-w-0 space-y-1">
+                  {result.action === 'field_mapping' ? (
+                    <>
+                      <div className="text-sm font-medium text-foreground">
+                        Member field update
+                        {result.member_id ? ` (${result.member_id})` : ''}
+                      </div>
+                      <div className="text-sm text-muted-foreground" data-testid={`text-member-mapping-status-${idx}`}>
+                        Action {formatStageActionDetail(result.status) || 'unknown'}
+                      </div>
+                      {result.reason && (
+                        <div className="text-sm font-medium text-foreground" data-testid={`text-member-mapping-reason-${idx}`}>
+                          {formatStageActionDetail(result.reason)}
+                        </div>
                       )}
-                    </div>
+                      {result.error && (
+                        <div className="text-sm font-medium text-destructive" data-testid={`text-member-mapping-error-${idx}`}>
+                          {formatStageActionDetail(result.error)}
+                        </div>
+                      )}
+                      {getStageActionValidationErrors(result).length > 0 && (
+                        <ul className="list-disc pl-5 text-sm text-destructive" data-testid={`list-member-mapping-validation-${idx}`}>
+                          {getStageActionValidationErrors(result).map((validationError, validationIndex) => (
+                            <li key={validationIndex}>{formatStageActionDetail(validationError)}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {getMemberFieldMappingIssues(result).map((mapping, mappingIndex) => (
+                        <div key={mappingIndex} className="text-sm text-muted-foreground border-l-2 border-warning pl-2" data-testid={`text-member-mapping-detail-${idx}-${mappingIndex}`}>
+                          <span className="font-medium">{formatStageActionDetail(mapping.field || 'Field')}:</span>{' '}
+                          {formatStageActionDetail(mapping.reason || mapping.error || mapping.status)}
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {result.email && (
+                        <div className="text-sm font-medium text-foreground" data-testid={`text-member-email-${idx}`}>
+                          {result.first_name || result.last_name
+                            ? `${result.first_name || ''} ${result.last_name || ''}`.trim()
+                            : result.email}
+                          {(result.first_name || result.last_name) && (
+                            <span className="text-muted-foreground font-normal"> ({result.email})</span>
+                          )}
+                        </div>
+                      )}
+                      <div className={`text-sm ${result.email ? 'text-muted-foreground' : 'font-medium text-foreground'}`} data-testid={`text-member-reason-${idx}`}>
+                        {result.existing_member_id
+                          ? 'Already exists in the system'
+                          : result.reason || 'Member could not be created'}
+                      </div>
+                    </>
                   )}
-                  <div className={`text-sm ${result.email ? 'text-muted-foreground' : 'font-medium text-foreground'}`} data-testid={`text-member-reason-${idx}`}>
-                    {result.existing_member_id 
-                      ? 'Already exists in the system' 
-                      : result.reason || 'Member could not be created'}
-                  </div>
                 </div>
               </div>
             ))}

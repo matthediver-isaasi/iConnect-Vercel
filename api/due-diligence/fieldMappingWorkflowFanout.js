@@ -3,6 +3,10 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.
 
 const OUTBOX_TABLE = 'form_due_diligence_field_mapping_workflow_outbox';
 
+function targetLabel(targetEntity) {
+  return targetEntity === 'member' ? 'Member' : 'Organization';
+}
+
 function knownQueryFailure(context, cause) {
   const error = new Error(`${context}: ${cause?.message || 'database error'}`);
   error.ddKnownQueryFailure = true;
@@ -25,9 +29,18 @@ export async function enqueueFieldMappingWorkflowFanout({
   tenantId,
   eventKey,
   eventType,
-  organizationId,
+  targetEntity = 'organization',
+  organizationId = null,
+  memberId = null,
   payload,
 }) {
+  if (!['organization', 'member'].includes(targetEntity)) {
+    throw new Error(`Invalid field-mapping workflow target entity: ${targetEntity}`);
+  }
+  const targetId = targetEntity === 'member' ? memberId : organizationId;
+  if (!targetId) {
+    throw new Error(`Missing ${targetEntity} target for field-mapping workflow fanout`);
+  }
   const { error } = await supabase
     .from(OUTBOX_TABLE)
     .upsert({
@@ -35,7 +48,9 @@ export async function enqueueFieldMappingWorkflowFanout({
       tenant_id: tenantId,
       event_key: eventKey,
       event_type: eventType,
+      target_entity: targetEntity,
       organization_id: organizationId,
+      member_id: memberId,
       payload,
     }, {
       onConflict: 'form_submission_due_diligence_id,event_key',
@@ -55,7 +70,9 @@ export async function applyFieldMappingMutationWithFanout({
   dueDiligenceSubmissionId,
   eventKey,
   eventType,
-  organizationId,
+  targetEntity = 'organization',
+  organizationId = null,
+  memberId = null,
   mutation,
   preferenceFieldId = null,
   preferenceValue = null,
@@ -71,6 +88,8 @@ export async function applyFieldMappingMutationWithFanout({
       p_mutation: mutation || {},
       p_preference_field_id: preferenceFieldId,
       p_preference_value: preferenceValue,
+      p_target_entity: targetEntity,
+      p_member_id: memberId,
     },
   );
   if (error) {
@@ -131,10 +150,17 @@ async function claimFanout(event) {
 
 async function dispatchPreferenceFanout(event, baseUrl, dependencies) {
   const deliveryKey = `dd-field-mapping:${event.id}`;
+  const targetEntity = event.target_entity || 'organization';
+  const targetId = targetEntity === 'member' ? event.member_id : event.organization_id;
+  if (!targetId) {
+    throw ambiguousFanoutFailure(
+      `Field-mapping ${targetEntity} workflow fanout has no persisted target`,
+    );
+  }
   try {
     const outcome = await dependencies.triggerPreferenceWorkflows(
-      'organization',
-      event.organization_id,
+      targetEntity,
+      targetId,
       event.payload.field_id,
       event.payload.new_value,
       baseUrl,
@@ -145,7 +171,9 @@ async function dispatchPreferenceFanout(event, baseUrl, dependencies) {
       await markFanout(event, 'completed');
       return;
     }
-    const unknown = ambiguousFanoutFailure('Preference workflow delivery is not confirmed');
+    const unknown = ambiguousFanoutFailure(
+      `${targetEntity === 'member' ? 'Member preference' : 'Preference'} workflow delivery is not confirmed`,
+    );
     await markFanout(event, 'requires_attention', unknown);
     throw unknown;
   } catch (error) {
@@ -163,16 +191,26 @@ async function dispatchPreferenceFanout(event, baseUrl, dependencies) {
       throw error;
     }
     await markFanout(event, 'requires_attention', error);
-    throw ambiguousFanoutFailure('Preference workflow delivery is unconfirmed', error);
+    throw ambiguousFanoutFailure(
+      `${targetEntity === 'member' ? 'Member preference' : 'Preference'} workflow delivery is unconfirmed`,
+      error,
+    );
   }
 }
 
 async function dispatchCoreFanout(event, baseUrl, dependencies) {
   const deliveryKey = `dd-field-mapping:${event.id}`;
+  const targetEntity = event.target_entity || 'organization';
+  const targetId = targetEntity === 'member' ? event.member_id : event.organization_id;
+  if (!targetId) {
+    throw ambiguousFanoutFailure(
+      `Field-mapping ${targetEntity} workflow fanout has no persisted target`,
+    );
+  }
   try {
     const outcome = await dependencies.triggerWorkflows(
-      'organization',
-      event.organization_id,
+      targetEntity,
+      targetId,
       event.payload.before,
       event.payload.after,
       'field_change',
@@ -183,7 +221,9 @@ async function dispatchCoreFanout(event, baseUrl, dependencies) {
       await markFanout(event, 'completed');
       return;
     }
-    const unknown = ambiguousFanoutFailure('Organization workflow delivery is not confirmed');
+    const unknown = ambiguousFanoutFailure(
+      `${targetLabel(targetEntity)} workflow delivery is not confirmed`,
+    );
     await markFanout(event, 'requires_attention', unknown);
     throw unknown;
   } catch (error) {
@@ -191,14 +231,20 @@ async function dispatchCoreFanout(event, baseUrl, dependencies) {
     // delivery, so it is a confirmed pre-effect query failure and can retry.
     if (error?.message?.startsWith('load workflows for durable delivery failed:')) {
       await markFanout(event, 'pending', error);
-      throw knownQueryFailure('Could not load organization workflows for durable delivery', error);
+      throw knownQueryFailure(
+        `Could not load ${targetLabel(targetEntity).toLowerCase()} workflows for durable delivery`,
+        error,
+      );
     }
     if (error?.ddKnownQueryFailure) {
       await markFanout(event, 'pending', error);
       throw error;
     }
     await markFanout(event, 'requires_attention', error);
-    throw ambiguousFanoutFailure('Organization workflow delivery is unconfirmed', error);
+    throw ambiguousFanoutFailure(
+      `${targetLabel(targetEntity)} workflow delivery is unconfirmed`,
+      error,
+    );
   }
 }
 
