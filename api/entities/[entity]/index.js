@@ -1253,6 +1253,11 @@ export default async function handler(req, res) {
             if ('lte' in value) query = query.lte(key, value.lte);
             if ('like' in value) query = query.like(key, value.like);
             if ('ilike' in value) query = query.ilike(key, value.ilike);
+            // Badge-name literal star searches cannot use ilike: PostgREST
+            // aliases every star to %. Keep this extension badge-name-only.
+            if (entityNorm === 'badge' && key === 'name' && 'imatch' in value) {
+              query = query.filter(key, 'imatch', value.imatch);
+            }
             if ('is' in value) query = query.is(key, value.is);
             if ('in' in value) query = query.in(key, value.in);
           } else {

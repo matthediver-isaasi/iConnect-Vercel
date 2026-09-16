@@ -153,3 +153,4 @@
 - [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility, not name-list roles; viewer organisation is authorization-relevant.
 - [Form derived label lifecycle](form-derived-label-lifecycle.md) — picker unmount is navigation, not revocation; retain scoped labels and validate copies before paid persistence too.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
+- [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.

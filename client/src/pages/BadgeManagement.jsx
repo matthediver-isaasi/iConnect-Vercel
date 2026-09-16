@@ -12,6 +12,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge as BadgeChip } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import BadgeImageLink from "@/components/badges/BadgeImageLink";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
+import { badgeListOptions, badgePageNumbers, BADGE_PAGE_SIZE } from "@/lib/badgeLibraryPagination";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -57,6 +59,15 @@ export default function BadgeManagement() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [isUploading, setIsUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [search, setSearch] = useState("");
+  const [listing, setListing] = useState({ search: "", status: "all", page: 1 });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setListing((current) => current.search === search ? current : { ...current, search, page: 1 });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -68,11 +79,33 @@ export default function BadgeManagement() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: badges = [], isLoading } = useQuery({
-    queryKey: ["badges"],
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ["badges", "library", listing],
     enabled: accessChecked,
-    queryFn: () => base44.entities.Badge.list("-created_date"),
+    queryFn: async () => {
+      const result = await base44.entities.Badge.list(badgeListOptions(listing));
+      if (!Array.isArray(result?.data) || !Number.isInteger(result.count) || result.count < 0) {
+        throw new Error("Invalid badge list response");
+      }
+      return result;
+    },
   });
+  const badges = data?.data ?? [];
+  const total = data?.count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / BADGE_PAGE_SIZE));
+  const outOfRange = !!data && listing.page > pageCount;
+  const hasFilters = !!listing.search || listing.status !== "all";
+
+  useEffect(() => {
+    if (!isFetching && !isError && outOfRange) {
+      setListing((current) => ({ ...current, page: pageCount }));
+    }
+  }, [isFetching, isError, outOfRange, pageCount]);
+
+  const clearSearch = () => {
+    setSearch("");
+    setListing((current) => ({ ...current, search: "", page: 1 }));
+  };
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["badges"] });
 
@@ -184,16 +217,47 @@ export default function BadgeManagement() {
         </Button>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-24">
+      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex-1 space-y-2">
+          <Label htmlFor="badge-search">Search badges</Label>
+          <div className="flex gap-2">
+            <Input id="badge-search" type="search" placeholder="Search by badge name"
+              value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Button variant="outline" onClick={clearSearch} disabled={!search} aria-label="Clear search">
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="badge-status">Status</Label>
+          <select id="badge-status" className="flex h-10 w-full sm:w-44 rounded-md border border-input bg-background px-3 text-sm"
+            value={listing.status}
+            onChange={(e) => setListing((current) => ({ ...current, status: e.target.value, page: 1 }))}>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      {isError ? (
+        <Card>
+          <CardContent className="py-16 text-center space-y-3">
+            <p role="alert">Unable to load badges. Please try again.</p>
+            <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>Retry</Button>
+          </CardContent>
+        </Card>
+      ) : isLoading || outOfRange ? (
+        <div className="flex items-center justify-center gap-2 py-24" role="status">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <span>Loading badges…</span>
         </div>
       ) : badges.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
             <Award className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="font-medium">No badges yet</p>
-            <p className="text-sm">Create your first badge to start building the library.</p>
+            <p className="font-medium">{hasFilters ? "No matching badges" : "No badges yet"}</p>
+            <p className="text-sm">{hasFilters ? "Try a different name or status." : "Create your first badge to start building the library."}</p>
           </CardContent>
         </Card>
       ) : (
@@ -249,6 +313,27 @@ export default function BadgeManagement() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {!isLoading && !isError && !outOfRange && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+          <p className="text-sm text-muted-foreground" role="status">
+            Showing {total ? (listing.page - 1) * BADGE_PAGE_SIZE + 1 : 0}–{Math.min(listing.page * BADGE_PAGE_SIZE, total)} of {total} badges
+          </p>
+          <nav aria-label="Badge pagination" className="flex flex-wrap justify-center gap-1">
+            <Button variant="outline" size="sm" disabled={listing.page <= 1 || isFetching}
+              onClick={() => setListing((current) => ({ ...current, page: current.page - 1 }))}>Previous</Button>
+            {badgePageNumbers(listing.page, pageCount).map((page) => (
+              <PaginationPageButton key={page} active={page === listing.page}
+                aria-label={`Page ${page}`} aria-current={page === listing.page ? "page" : undefined}
+                disabled={isFetching} onClick={() => setListing((current) => ({ ...current, page }))}>
+                {page}
+              </PaginationPageButton>
+            ))}
+            <Button variant="outline" size="sm" disabled={listing.page >= pageCount || isFetching}
+              onClick={() => setListing((current) => ({ ...current, page: current.page + 1 }))}>Next</Button>
+          </nav>
         </div>
       )}
 
