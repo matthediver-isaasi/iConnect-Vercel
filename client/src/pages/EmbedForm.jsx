@@ -33,6 +33,8 @@ import {
 } from "../../../shared/formNotListedChoice.js";
 import { useConditionalFormFieldPrefill, useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
+import { getFormPagination } from "@/lib/formPagination";
+import { resolveFormPageVisibility } from "@/lib/formPageVisibility";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
@@ -46,6 +48,7 @@ import {
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
 const EMPTY_ARRAY = [];
+const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
 export default function EmbedFormPage() {
   const { slug } = useParams();
@@ -656,91 +659,20 @@ export default function EmbedFormPage() {
     evaluateRule: evaluateRuleConditions,
   }), [form?.visibility_rules, form?.fields, formValues, recordSelectionOptionStates, emptyRelationshipParentValues]);
 
-  // Calculate initial hidden field IDs (fields with starts_hidden = true)
-  const initialHiddenFieldIds = useMemo(() => {
-    const hidden = new Set();
-    if (form?.fields) {
-      for (const field of form.fields) {
-        if (field.starts_hidden === true || field.starts_hidden === 'true') {
-          hidden.add(field.id);
-        }
-      }
-    }
-    return hidden;
-  }, [form?.fields]);
-
-  // Visibility rules evaluation - matches FormView exactly
-  const hiddenFieldIds = useMemo(() => {
-    const hidden = new Set(initialHiddenFieldIds);
-    
-    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
-      return hidden;
-    }
-    
-    const fieldVisibility = {};
-    
-    for (const rule of form.visibility_rules) {
-      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
-      
-      const conditionMet = evaluateRuleConditions(rule, formValues);
-
-      if (rule.actions && Array.isArray(rule.actions)) {
-        for (const action of rule.actions) {
-          if (action.action_type === 'visibility' && action.field_states) {
-            for (const [fieldId, state] of Object.entries(action.field_states)) {
-              if (!fieldVisibility[fieldId]) {
-                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
-              }
-              if (state.visible === true) {
-                fieldVisibility[fieldId].showRules.push(conditionMet);
-              } else if (state.visible === false) {
-                fieldVisibility[fieldId].hideRules.push(conditionMet);
-              }
-            }
-          }
-          else if (action.action_type === 'show' || action.action_type === 'hide') {
-            const targetIds = action.target_field_ids || [];
-            targetIds.forEach(fieldId => {
-              if (!fieldVisibility[fieldId]) {
-                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
-              }
-              if (action.action_type === 'show') {
-                fieldVisibility[fieldId].showRules.push(conditionMet);
-              } else if (action.action_type === 'hide') {
-                fieldVisibility[fieldId].hideRules.push(conditionMet);
-              }
-            });
-          }
-        }
-      }
-      else if (rule.target_field_ids?.length) {
-        rule.target_field_ids.forEach(fieldId => {
-          if (!fieldVisibility[fieldId]) {
-            fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
-          }
-          if (rule.action === 'show') {
-            fieldVisibility[fieldId].showRules.push(conditionMet);
-          } else if (rule.action === 'hide') {
-            fieldVisibility[fieldId].hideRules.push(conditionMet);
-          }
-        });
-      }
-    }
-    
-    for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
-      const anyShowConditionMet = showRules.some(result => result === true);
-      if (anyShowConditionMet) {
-        hidden.delete(fieldId);
-      }
-      
-      const anyHideConditionMet = hideRules.some(result => result === true);
-      if (anyHideConditionMet) {
-        hidden.add(fieldId);
-      }
-    }
-    
-    return hidden;
-  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, initialHiddenFieldIds]);
+  const formPages = form?.pages || EMPTY_FORM_COLLECTION;
+  const { hiddenFieldIds, hiddenPageIds } = useMemo(() => resolveFormPageVisibility({
+    fields: form?.fields,
+    pages: formPages,
+    visibilityRules: form?.visibility_rules,
+    formValues,
+    evaluateRuleConditions,
+  }), [
+    form?.fields,
+    formPages,
+    form?.visibility_rules,
+    formValues,
+    emptyRelationshipParentValues,
+  ]);
 
   // Filter visible fields
   const filterVisibleFields = (fields) => {
@@ -978,13 +910,26 @@ export default function EmbedFormPage() {
     enabled: !!visiblePaymentField,
   });
 
+  // Reuse the same page projection used by FormView/IEditFormElement. The
+  // local `pages` projection below additionally supports legacy page_break
+  // fields used by older embedded forms.
+  const { visiblePages } = getFormPagination({
+    form,
+    formValues,
+    hiddenPageIds,
+    currentPageIndex,
+    setCurrentPageIndex,
+    filterVisibleFields,
+    toast,
+  });
+
   // For standard layout with pages
   const pages = useMemo(() => {
     if (!form?.fields) return [];
     
     // If form has explicit pages array, use that
-    if (form.pages && form.pages.length > 0) {
-      return form.pages.map((page, pageIndex) => {
+    if (formPages.length > 0) {
+      return visiblePages.map((page, pageIndex) => {
         // Include unassigned fields (no page_id) on the first page for backwards compatibility
         // This matches FormView behavior
         const pageFields = pageIndex === 0
@@ -1017,11 +962,20 @@ export default function EmbedFormPage() {
     }
     
     return result;
-  }, [form?.fields, form?.pages, hiddenFieldIds]);
+  }, [form?.fields, formPages, visiblePages, hiddenFieldIds]);
 
   const isMultiPage = pages.length > 1;
   const currentPageFields = pages[currentPageIndex]?.fields || [];
   const currentPageTitle = pages[currentPageIndex]?.title;
+
+  // A rule can hide/re-show a page while the respondent is on a later page.
+  // Keep the index inside the projected visible page list without touching
+  // any answers.
+  useEffect(() => {
+    if (pages.length > 0 && currentPageIndex >= pages.length) {
+      setCurrentPageIndex(Math.max(0, pages.length - 1));
+    }
+  }, [pages.length, currentPageIndex]);
 
   const validateCurrentPage = () => {
     const fieldsToValidate = form?.layout_type === 'card_swipe' 
@@ -1030,7 +984,8 @@ export default function EmbedFormPage() {
     
     for (const field of fieldsToValidate) {
       if (!field) continue;
-      if ((field.is_required || field.required) && !isFieldValueFilled(field, formValues[field.id])) {
+      const value = formValues[field.id];
+      if ((field.is_required || field.required) && !isFieldValueFilled(field, value)) {
         return false;
       }
       if (validateFutureDateFields([field], formValues, {
@@ -1163,7 +1118,9 @@ export default function EmbedFormPage() {
       (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
     const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
-      Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
+      Object.entries(formValues).filter(([key]) => (
+        !displayOnlyFieldIds.has(key)
+      ))
     ));
 
     // Match FormView submission structure exactly
@@ -1188,7 +1145,7 @@ export default function EmbedFormPage() {
 
   useEffect(() => {
     notifyParentResize();
-  }, [form, currentPageIndex, currentStep, submitted, hiddenFieldIds]);
+  }, [form, currentPageIndex, currentStep, submitted, hiddenFieldIds, hiddenPageIds]);
 
   const paymentReturnHasParams = useMemo(() => (
     [

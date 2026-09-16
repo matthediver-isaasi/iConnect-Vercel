@@ -155,4 +155,5 @@
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
 - [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
+- [Hidden form answer boundary](form-hidden-answer-boundary.md) — page hiding skips client validation, but pruning raw API answers can change server conditions and membership pricing.
 - [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
