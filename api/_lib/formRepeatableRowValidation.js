@@ -16,7 +16,7 @@ import {
   createFormRelationshipService,
   FormRelationshipError,
 } from './formRelationshipOptions.js';
-import { computeHiddenFieldIds } from './formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from './formFieldVisibility.js';
 
 function submittedValue(submissionData, field) {
   if (Object.prototype.hasOwnProperty.call(submissionData, field.id)) return submissionData[field.id];
@@ -111,7 +111,13 @@ export async function validateRepeatableRowSubmission({
   }
   const fields = Array.isArray(form?.fields) ? form.fields : [];
   const authoritativeHiddenFieldIds = hiddenFieldIds
-    || computeHiddenFieldIds(form, submissionData, visibilityOptions);
+    || await computeAuthoritativeHiddenFieldIds({
+      db,
+      tenantId,
+      form,
+      formValues: submissionData,
+      visibilityOptions,
+    });
   const repeatableFields = fields.filter(field => (
     isRepeatableRowField(field) && !authoritativeHiddenFieldIds.has(field.id)
   ));

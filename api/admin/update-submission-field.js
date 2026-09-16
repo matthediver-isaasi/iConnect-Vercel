@@ -149,6 +149,8 @@ export default async function handler(req, res) {
           tenantId: session.tenant_id,
         }),
         form,
+        db: supabase,
+        tenantId: session.tenant_id,
         submissionData: submission.submission_data,
         originalFormValues: ddRecord?.original_form_values,
         hasDueDiligenceRecord: Boolean(ddRecord),

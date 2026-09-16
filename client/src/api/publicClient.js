@@ -377,7 +377,13 @@ class PublicClient {
   // The server resolves persisted conditional rules from the form definition;
   // callers must never send those trusted rules back from the browser.
   async listFormOrganizationOptions(
-    formSlug, formId, fieldId, answers = {}, containerFieldId = null, rootSourceAnswers = null,
+    formSlug,
+    formId,
+    fieldId,
+    answers = {},
+    containerFieldId = null,
+    rootSourceAnswers = null,
+    { availabilityProbe = false } = {},
   ) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisations', {
@@ -392,6 +398,7 @@ class PublicClient {
         // needed by a form-scoped parent. Existing callers retain the
         // historical answer payload when no projection is supplied.
         sourceAnswers: rootSourceAnswers || answers || {},
+        availabilityProbe: availabilityProbe === true,
       }),
     });
   }

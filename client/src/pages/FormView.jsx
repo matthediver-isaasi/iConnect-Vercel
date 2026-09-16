@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
-import FormRenderer from "../components/forms/FormRenderer";
+import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import { toast } from "sonner";
@@ -121,6 +121,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
+  const [emptyRepeatableFieldIds, setEmptyRepeatableFieldIds] = useState(() => new Set());
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -170,6 +171,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       if (current?.status === next.status && current?.scope === next.scope
         && JSON.stringify(current.options) === JSON.stringify(next.options)) return previous;
       return { ...previous, [fieldId]: next };
+    });
+  }, []);
+  const handleRepeatableVisibilityChange = useCallback((fieldId, hidden, status) => {
+    setEmptyRepeatableFieldIds(previous => {
+      const has = previous.has(fieldId);
+      if (has === hidden) return previous;
+      const next = new Set(previous);
+      if (hidden) next.add(fieldId);
+      else next.delete(fieldId);
+      return next;
     });
   }, []);
   const queryClient = useQueryClient();
@@ -302,6 +313,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
   useEffect(() => {
     setRecordSelectionOptionStates({});
+    setEmptyRepeatableFieldIds(new Set());
   }, [form?.id]);
   useEffect(() => {
     setEmptyRelationshipParentValues({});
@@ -1535,8 +1547,29 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // hiddenFieldIds already includes fields with "show" rules as hidden by default
   // Also excludes due_diligence fields which should not be shown to end users
   const filterVisibleFields = (fields) => {
-    return fields.filter(field => !hiddenFieldIds.has(field.id) && !field.due_diligence);
+    return fields.filter(field => (
+      !hiddenFieldIds.has(field.id)
+      && !emptyRepeatableFieldIds.has(field.id)
+      && !field.due_diligence
+    ));
   };
+
+  const hiddenRepeatableFields = useMemo(() => (
+    (form?.fields || []).filter(field => (
+      emptyRepeatableFieldIds.has(field.id) && !hiddenFieldIds.has(field.id)
+    ))
+  ), [emptyRepeatableFieldIds, form?.fields, hiddenFieldIds]);
+  const effectiveHiddenFieldIds = useMemo(
+    () => new Set([...hiddenFieldIds, ...emptyRepeatableFieldIds]),
+    [emptyRepeatableFieldIds, hiddenFieldIds],
+  );
+
+  useEffect(() => {
+    const count = filterVisibleFields(form?.fields || []).length;
+    if (count > 0 && currentStep >= count) {
+      setCurrentStep(count - 1);
+    }
+  }, [currentStep, emptyRepeatableFieldIds, form?.fields, hiddenFieldIds]);
 
   // Compute initial disabled fields from field.starts_disabled property
   // Only fields with explicit starts_disabled = true start disabled
@@ -2328,7 +2361,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const futureDateErrors = validateFutureDateFields(
       form.fields || [],
       formValues,
-      { now: new Date(), hiddenFieldIds },
+      { now: new Date(), hiddenFieldIds: effectiveHiddenFieldIds },
     );
     if (futureDateErrors.length > 0) {
       const labelsById = new Map((form.fields || []).map(field => [field.id, field.label || 'Date field']));
@@ -2549,14 +2582,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Filter visible fields for card swipe layout
     const visibleCardFields = filterVisibleFields(form.fields);
     const currentField = visibleCardFields[currentStep];
-    const isLastStep = currentStep === visibleCardFields.length - 1;
+    const isLastStep = visibleCardFields.length === 0
+      || currentStep === visibleCardFields.length - 1;
     
     // Check if field has a value (for required check)
     const hasValue = formValues[currentField?.id];
     // Check if field passes format validation (default to true if not tracked)
     const isFormatValid = fieldValidity[currentField?.id] !== false;
     // Can proceed if: (not required OR has value) AND format is valid
-    const canProceed = (!currentField?.required || hasValue) && isFormatValid;
+    const canProceed = !currentField || ((!currentField.required || hasValue) && isFormatValid);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -2576,6 +2610,31 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             </div>
           </CardHeader>
           <CardContent className="min-h-[300px]">
+            {hiddenRepeatableFields.map(hiddenField => (
+              <RepeatableAvailabilityProbe
+                key={`empty-probe-${hiddenField.id}`}
+                field={hiddenField}
+                value={formValues[hiddenField.id]}
+                onChange={value => handleFieldChange(hiddenField.id, value)}
+                onFormNotListedTextChange={text => handleFormNotListedTextChange(hiddenField.id, text)}
+                memberInfo={memberData}
+                organizationInfo={effectiveOrganizationInfo}
+                selectedOrgGuestAccess={selectedOrgGuestAccess}
+                disabled={disabledFieldIds.has(hiddenField.id)}
+                onValidityChange={() => {}}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+                onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
+                formId={form?.id}
+                formSlug={form?.slug}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                communicationEligibilityReady={communicationEligibilityReady}
+                allFormValues={formValues}
+                prefillData={prefillData}
+                allFields={form?.fields || []}
+                membershipFeeQuote={membershipFeeQuote}
+              />
+            ))}
             {currentField && (
               <FormRenderer
                 key={currentStep}
@@ -2593,6 +2652,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formSlug={form?.slug}
@@ -2823,7 +2883,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
             )}
             {showSurveyProgress(form) && (() => {
-              const progress = surveyProgress(form, hiddenFieldIds, formValues);
+              const progress = surveyProgress(form, effectiveHiddenFieldIds, formValues);
               return (
                 <div className="mt-4" data-testid="survey-progress" role="progressbar" aria-valuenow={progress.answered} aria-valuemin={0} aria-valuemax={progress.total} aria-label="Survey progress">
                   <div className="flex items-center justify-between mb-1 text-sm text-slate-600">
@@ -2861,6 +2921,31 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             )}
           </CardHeader>
           <CardContent className="space-y-6">
+            {hiddenRepeatableFields.map(hiddenField => (
+              <RepeatableAvailabilityProbe
+                key={`empty-probe-${hiddenField.id}`}
+                field={hiddenField}
+                value={formValues[hiddenField.id]}
+                onChange={value => handleFieldChange(hiddenField.id, value)}
+                onFormNotListedTextChange={text => handleFormNotListedTextChange(hiddenField.id, text)}
+                memberInfo={memberData}
+                organizationInfo={effectiveOrganizationInfo}
+                selectedOrgGuestAccess={selectedOrgGuestAccess}
+                disabled={disabledFieldIds.has(hiddenField.id)}
+                onValidityChange={() => {}}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+                onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
+                formId={form?.id}
+                formSlug={form?.slug}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                communicationEligibilityReady={communicationEligibilityReady}
+                allFormValues={formValues}
+                prefillData={prefillData}
+                allFields={form?.fields || []}
+                membershipFeeQuote={membershipFeeQuote}
+              />
+            ))}
             {/* Render fields - badge page or standard layout */}
             {(() => {
               const isBadgePage = currentPage?.page_style === 'name_badge';
@@ -2890,6 +2975,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   onValidityChange={handleValidityChange}
                   onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                   onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                  onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                   formId={form?.id}
                   formSlug={form?.slug}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}

@@ -6,7 +6,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Lock } from "lucide-react";
-import FormRenderer from "../components/forms/FormRenderer";
+import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
@@ -62,6 +62,7 @@ export default function EmbedFormPage() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
+  const [emptyRepeatableFieldIds, setEmptyRepeatableFieldIds] = useState(() => new Set());
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -127,6 +128,16 @@ export default function EmbedFormPage() {
       if (current?.status === next.status && current?.scope === next.scope
         && JSON.stringify(current.options) === JSON.stringify(next.options)) return previous;
       return { ...previous, [fieldId]: next };
+    });
+  }, []);
+  const handleRepeatableVisibilityChange = useCallback((fieldId, hidden, status) => {
+    setEmptyRepeatableFieldIds(previous => {
+      const has = previous.has(fieldId);
+      if (has === hidden) return previous;
+      const next = new Set(previous);
+      if (hidden) next.add(fieldId);
+      else next.delete(fieldId);
+      return next;
     });
   }, []);
 
@@ -227,6 +238,7 @@ export default function EmbedFormPage() {
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
   useEffect(() => {
     setRecordSelectionOptionStates({});
+    setEmptyRepeatableFieldIds(new Set());
   }, [form?.id]);
   useEffect(() => {
     setEmptyRelationshipParentValues({});
@@ -424,6 +436,9 @@ export default function EmbedFormPage() {
         fieldDefaults[field.id] = field.default_countries.map(
           code => COUNTRIES.find(c => c.code === code)?.name || code
         );
+      }
+      if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
+        fieldDefaults[field.id] = field.default_value;
       }
       if ((field.starts_hidden === true || field.starts_hidden === 'true') && field.type !== 'boolean') {
         if (fieldDefaults[field.id] === undefined) {
@@ -677,8 +692,24 @@ export default function EmbedFormPage() {
   // Filter visible fields
   const filterVisibleFields = (fields) => {
     if (!fields) return [];
-    return fields.filter(field => !hiddenFieldIds.has(field.id));
+    return fields.filter(field => (
+      !hiddenFieldIds.has(field.id) && !emptyRepeatableFieldIds.has(field.id)
+    ));
   };
+
+  const hiddenRepeatableFields = useMemo(() => (
+    (form?.fields || []).filter(field => (
+      emptyRepeatableFieldIds.has(field.id) && !hiddenFieldIds.has(field.id)
+    ))
+  ), [emptyRepeatableFieldIds, form?.fields, hiddenFieldIds]);
+  const effectiveHiddenFieldIds = useMemo(
+    () => new Set([...hiddenFieldIds, ...emptyRepeatableFieldIds]),
+    [emptyRepeatableFieldIds, hiddenFieldIds],
+  );
+  useEffect(() => {
+    const count = filterVisibleFields(form?.fields || []).length;
+    if (count > 0 && currentStep >= count) setCurrentStep(count - 1);
+  }, [currentStep, emptyRepeatableFieldIds, form?.fields, hiddenFieldIds]);
 
   // Process set_value rules - when conditions are met, update target field values
   useEffect(() => {
@@ -883,7 +914,7 @@ export default function EmbedFormPage() {
   // For card swipe layout
   const visibleFields = useMemo(() => {
     return filterVisibleFields(form?.fields || []);
-  }, [form?.fields, hiddenFieldIds]);
+  }, [form?.fields, hiddenFieldIds, emptyRepeatableFieldIds]);
 
   // Conditional-logic submit control (Task #3474/#3483): shared evaluator
   // with FormView and the server-side enforcement.
@@ -952,7 +983,7 @@ export default function EmbedFormPage() {
           result.push(currentPage);
         }
         currentPage = { fields: [], title: field.page_title || null };
-      } else if (!hiddenFieldIds.has(field.id)) {
+      } else if (!hiddenFieldIds.has(field.id) && !emptyRepeatableFieldIds.has(field.id)) {
         currentPage.fields.push(field);
       }
     }
@@ -962,7 +993,7 @@ export default function EmbedFormPage() {
     }
     
     return result;
-  }, [form?.fields, formPages, visiblePages, hiddenFieldIds]);
+  }, [form?.fields, formPages, visiblePages, hiddenFieldIds, emptyRepeatableFieldIds]);
 
   const isMultiPage = pages.length > 1;
   const currentPageFields = pages[currentPageIndex]?.fields || [];
@@ -990,7 +1021,7 @@ export default function EmbedFormPage() {
       }
       if (validateFutureDateFields([field], formValues, {
         now: new Date(),
-        hiddenFieldIds,
+        hiddenFieldIds: effectiveHiddenFieldIds,
       }).length > 0) {
         return false;
       }
@@ -1053,7 +1084,7 @@ export default function EmbedFormPage() {
     const futureDateErrors = validateFutureDateFields(
       form.fields || [],
       formValues,
-      { now: new Date(), hiddenFieldIds },
+      { now: new Date(), hiddenFieldIds: effectiveHiddenFieldIds },
     );
     if (futureDateErrors.length > 0) {
       const labelsById = new Map((form.fields || []).map(field => [field.id, field.label || 'Date field']));
@@ -1372,10 +1403,12 @@ export default function EmbedFormPage() {
   // Card Swipe Layout
   if (form.layout_type === 'card_swipe') {
     const currentField = visibleFields[currentStep];
-    const isLastStep = currentStep === visibleFields.length - 1;
+    const isLastStep = visibleFields.length === 0
+      || currentStep === visibleFields.length - 1;
     const hasValue = formValues[currentField?.id];
     const isFormatValid = fieldValidity[currentField?.id] !== false;
-    const canProceed = (!(currentField?.is_required || currentField?.required) || hasValue) && isFormatValid;
+    const canProceed = !currentField
+      || ((!(currentField.is_required || currentField.required) || hasValue) && isFormatValid);
 
     return (
       <FormTransitionOverlay active={isTransitioning}>
@@ -1399,6 +1432,27 @@ export default function EmbedFormPage() {
             </div>
           </CardHeader>
           <CardContent className="min-h-[200px]">
+            {hiddenRepeatableFields.map(hiddenField => (
+              <RepeatableAvailabilityProbe
+                key={`empty-probe-${hiddenField.id}`}
+                field={hiddenField}
+                value={formValues[hiddenField.id]}
+                onChange={value => handleFieldChange(hiddenField.id, value)}
+                onFormNotListedTextChange={text => handleFormNotListedTextChange(hiddenField.id, text)}
+                onValidityChange={() => {}}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+                onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
+                disabled={false}
+                formId={form?.id}
+                formSlug={form?.slug}
+                allFormValues={formValues}
+                allFields={form?.fields || []}
+                rootAllFields={form?.fields || []}
+                rootAllFormValues={formValues}
+                membershipFeeQuote={membershipFeeQuote}
+              />
+            ))}
             {currentField && (
               <FormRenderer
                 key={currentStep}
@@ -1411,12 +1465,15 @@ export default function EmbedFormPage() {
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                 onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                 disabled={false}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formSlug={form?.slug}
                 allFormValues={formValues}
                 allFields={form?.fields || []}
+                rootAllFields={form?.fields || []}
+                rootAllFormValues={formValues}
                 membershipFeeQuote={membershipFeeQuote}
               />
             )}
@@ -1520,7 +1577,7 @@ export default function EmbedFormPage() {
             <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
           )}
           {showSurveyProgress(form) && (() => {
-            const progress = surveyProgress(form, hiddenFieldIds, formValues);
+            const progress = surveyProgress(form, effectiveHiddenFieldIds, formValues);
             return (
               <div className="mt-3" data-testid="survey-progress" role="progressbar" aria-valuenow={progress.answered} aria-valuemin={0} aria-valuemax={progress.total} aria-label="Survey progress">
                 <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
@@ -1553,6 +1610,27 @@ export default function EmbedFormPage() {
           )}
         </CardHeader>
         <CardContent>
+          {hiddenRepeatableFields.map(hiddenField => (
+            <RepeatableAvailabilityProbe
+              key={`empty-probe-${hiddenField.id}`}
+              field={hiddenField}
+              value={formValues[hiddenField.id]}
+              onChange={value => handleFieldChange(hiddenField.id, value)}
+              onFormNotListedTextChange={text => handleFormNotListedTextChange(hiddenField.id, text)}
+              onValidityChange={() => {}}
+              onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
+              onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+              onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
+              disabled={false}
+              formId={form?.id}
+              formSlug={form?.slug}
+              allFormValues={formValues}
+              allFields={form?.fields || []}
+              rootAllFields={form?.fields || []}
+              rootAllFormValues={formValues}
+              membershipFeeQuote={membershipFeeQuote}
+            />
+          ))}
           <div className="space-y-4">
             {currentPageFields.map(field => (
               <FormRenderer
@@ -1564,11 +1642,14 @@ export default function EmbedFormPage() {
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 onRecordSelectionOptionsChange={handleRecordSelectionOptionsChange}
+                onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                 disabled={false}
                 formId={form?.id}
                 formSlug={form?.slug}
                 allFormValues={formValues}
                 allFields={form?.fields || []}
+                rootAllFields={form?.fields || []}
+                rootAllFormValues={formValues}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}

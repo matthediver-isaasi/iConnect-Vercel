@@ -7,6 +7,7 @@ import {
   isRepeatableUniqueOptionAvailable,
   isRepeatableRowEmpty,
   normalizeRepeatableRowField,
+  repeatableEmptyAvailabilitySupport,
   repeatableRowAddLabelEditorValue,
   repeatableRowFieldConfigUpdate,
   repeatableSiblingUniqueValueKeys,
@@ -53,6 +54,50 @@ test('normalizes the versioned schema while retaining legacy top-level propertie
     maximum_rows: 4,
     child_fields: [{ id: 'name', type: 'text' }],
   }).min_rows, 2);
+});
+
+test('normalizes availability hiding off by default and supports the reported form-scoped organisation source', () => {
+  const rows = {
+    id: 'additional-sites',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'organisation',
+      type: 'organisation_dropdown',
+      organisation_group_parent_field_id: 'trust-group',
+      organisation_group_parent_scope: 'form',
+      exclude_values_from: { scope: 'form', source_field_id: 'primary-organisation' },
+    }],
+  };
+  assert.equal(normalizeRepeatableRowField(rows).hide_when_first_column_empty, false);
+  assert.deepEqual(repeatableEmptyAvailabilitySupport(rows), {
+    supported: true,
+    reason: null,
+  });
+  assert.equal(normalizeRepeatableRowField({
+    ...rows,
+    repeatable_row: { hide_when_first_column_empty: true, children: rows.children },
+  }).hide_when_first_column_empty, true);
+  for (const value of ['true', 1, '1', {}, []]) {
+    assert.equal(normalizeRepeatableRowField({
+      ...rows,
+      hide_when_first_column_empty: value,
+    }).hide_when_first_column_empty, false);
+  }
+});
+
+test('does not claim deterministic availability for row-scoped or non-option first columns', () => {
+  assert.equal(repeatableEmptyAvailabilitySupport({
+    type: 'repeatable_rows',
+    children: [{
+      id: 'organisation',
+      type: 'organisation_dropdown',
+      organisation_group_parent_field_id: 'group',
+    }],
+  }).reason, 'row_scoped_group_dependency');
+  assert.equal(repeatableEmptyAvailabilitySupport({
+    type: 'repeatable_rows',
+    children: [{ id: 'name', type: 'text' }],
+  }).supported, false);
 });
 
 test('repeatable rows default to cards and accept only the spreadsheet layout', () => {

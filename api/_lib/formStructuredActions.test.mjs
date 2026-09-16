@@ -15,6 +15,7 @@ import {
   validatePrimaryPipelineRelatedRecordsContract,
   validateStructuredActionsContract,
 } from './formStructuredActions.js';
+import { computeAuthoritativeHiddenFieldIds } from './formFieldVisibility.js';
 import { FORM_NOT_LISTED_TEXT_KEY, FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
 test('validates subordinate Related Records configuration against persisted relationship fields', () => {
@@ -799,6 +800,185 @@ test('hidden optional group sources remain authoritative and discard stale answe
     ...invocation,
     formFields: [{ ...form.fields[0], required: true }],
   }), false);
+});
+
+test('authoritative empty repeatable domains suppress structured action mappings', async () => {
+  const tenantId = 'tenant-structured-empty';
+  const form = {
+    fields: [
+      { id: 'country', type: 'dropdown' },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        hide_when_first_column_empty: true,
+        child_fields: [{
+          id: 'organisation',
+          type: 'organisation_dropdown',
+          conditional_filters: {
+            version: 1,
+            rules: [{
+              id: 'gb-only',
+              source_field_id: 'country',
+              operator: 'equals',
+              value: 'GB',
+              is_fallback: false,
+              allowed_values: [],
+              org_filter: null,
+            }],
+          },
+        }],
+      },
+    ],
+    pages: [],
+    visibility_rules: [],
+  };
+  const db = {
+    from(table) {
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        order() {
+          return Promise.resolve({
+            data: table === 'organization' ? [] : [],
+            error: null,
+          });
+        },
+        maybeSingle() {
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+      return query;
+    },
+  };
+  const submissionData = {
+    country: 'US',
+    rows: [{ organisation: 'retained-stale-answer' }],
+  };
+  const hidden = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues: submissionData,
+  });
+  assert.ok(hidden.has('rows'));
+  assert.ok(hidden.has('organisation'));
+
+  const [action] = expandStructuredActionInvocations(
+    {
+      version: 1,
+      actions: [{
+        id: 'create-organisation',
+        source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+        target: { kind: 'organization' },
+        operation: 'create',
+        mappings: [{
+          id: 'organisation-name',
+          source_type: 'field',
+          source_field_id: 'organisation',
+          target_type: 'core',
+          target_field_id: 'name',
+        }],
+      }],
+    },
+    form,
+    submissionData,
+    {},
+    hidden,
+  );
+  assert.equal(action, undefined);
+});
+
+test('conditional Not listed exclusion suppresses structured mappings for every empty fallback mode', async () => {
+  for (const conditional of [
+    { mode: 'include', allowed_values: ['available-org'] },
+    { mode: 'exclude', allowed_values: [FORM_NOT_LISTED_VALUE] },
+  ]) {
+    const tenantId = `tenant-structured-${conditional.mode}`;
+    const form = {
+      fields: [
+        { id: 'country', type: 'dropdown' },
+        {
+          id: 'rows',
+          type: 'repeatable_rows',
+          hide_when_first_column_empty: true,
+          child_fields: [{
+            id: 'organisation',
+            type: 'organisation_dropdown',
+            not_listed_choice: { enabled: true, label: 'Other' },
+            conditional_filters: {
+              version: 1,
+              rules: [{
+                id: `conditional-${conditional.mode}`,
+                source_field_id: 'country',
+                operator: 'equals',
+                value: 'GB',
+                is_fallback: false,
+                allowed_values: conditional.allowed_values,
+                allowed_values_mode: conditional.mode,
+                org_filter: null,
+              }],
+            },
+          }],
+        },
+      ],
+      pages: [],
+      visibility_rules: [],
+    };
+    const db = {
+      from(table) {
+        const query = {
+          select() { return query; },
+          eq() { return query; },
+          order() {
+            return Promise.resolve({
+              data: table === 'organization' ? [] : [],
+              error: null,
+            });
+          },
+          maybeSingle() {
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+        return query;
+      },
+    };
+    const submissionData = {
+      country: 'GB',
+      rows: [{ organisation: 'retained-stale-answer' }],
+    };
+    const hidden = await computeAuthoritativeHiddenFieldIds({
+      db,
+      tenantId,
+      form,
+      formValues: submissionData,
+    });
+    assert.ok(hidden.has('rows'), conditional.mode);
+    assert.ok(hidden.has('organisation'), conditional.mode);
+
+    const [action] = expandStructuredActionInvocations(
+      {
+        version: 1,
+        actions: [{
+          id: `create-organisation-${conditional.mode}`,
+          source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+          target: { kind: 'organization' },
+          operation: 'create',
+          mappings: [{
+            id: 'organisation-name',
+            source_type: 'field',
+            source_field_id: 'organisation',
+            target_type: 'core',
+            target_field_id: 'name',
+          }],
+        }],
+      },
+      form,
+      submissionData,
+      {},
+      hidden,
+    );
+    assert.equal(action, undefined, conditional.mode);
+  }
 });
 
 test('links a conditionally revealed Department to an already-created Member in Department-to-Member orientation', async () => {

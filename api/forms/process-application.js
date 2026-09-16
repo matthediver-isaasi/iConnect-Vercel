@@ -47,7 +47,7 @@ import {
 } from '../_lib/formProcessingPolicy.js';
 import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { resolveMemberRoleAssignment } from '../_lib/formMemberRoleAssignment.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import {
   assertValidExplicitFallbackGroups,
   coalesceExplicitFallbackMappings,
@@ -995,7 +995,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         code: 'SUBMIT_DISABLED_BY_RULE',
       });
     }
-    const hiddenSubmissionFieldIds = computeHiddenFieldIds(persistedForm, authoritativeAnswers, submitControlOptions);
+    const hiddenSubmissionFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: effectiveEntityTenantId,
+      form: persistedForm,
+      formValues: authoritativeAnswers,
+      visibilityOptions: submitControlOptions,
+    });
     const ignoredHiddenMappingNoteKeys = new Set();
     const selectMappingsForSubmission = (mappings, {
       targetEntity = null,

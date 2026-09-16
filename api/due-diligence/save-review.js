@@ -6,7 +6,7 @@ import { executeStageActions } from './_stageActions.js';
 import { calculateTrafficLightScore, calculateDynamicScore, determineRiskLevel } from './_scoring.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { effectiveReviewSubmissionValues } from './reviewSubmissionValues.js';
@@ -106,11 +106,15 @@ export default async function handler(req, res) {
             tenantCtx.tenantId,
           );
         }
-        const hiddenFieldIds = computeHiddenFieldIds(
+        // The authoritative helper extends the legacy computeHiddenFieldIds
+        // baseline with persisted repeatable availability.
+        const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+          db: supabase,
+          tenantId: tenantCtx.tenantId,
           form,
-          submissionData,
+          formValues: submissionData,
           visibilityOptions,
-        );
+        });
         const futureDateErrors = validateFutureDateFields(
           form.fields || [],
           submissionData,

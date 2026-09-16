@@ -144,6 +144,7 @@ import {
   REPEATABLE_ROW_SCHEMA_VERSION,
   repeatableRowFieldConfigUpdate,
   repeatableExclusionSourceFields,
+  repeatableEmptyAvailabilitySupport,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
@@ -6406,6 +6407,7 @@ function RepeatableRowsSettings({
   const config = normalizeRepeatableRowField(field);
   const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
   const children = config.children;
+  const emptyAvailabilitySupport = repeatableEmptyAvailabilitySupport(field);
   const updateConfig = updates => updateField(
     originalIndex,
     repeatableRowFieldConfigUpdate(field, updates),
@@ -6542,6 +6544,32 @@ function RepeatableRowsSettings({
           })}
         />
         <Label htmlFor={`repeatable-initial-required-${field.id}`} className="text-xs">Validate required fields in the initial row even when untouched</Label>
+      </div>
+      <div className="flex items-start gap-2">
+        <Switch
+          id={`repeatable-hide-empty-${field.id}`}
+          checked={config.hide_when_first_column_empty}
+          disabled={!emptyAvailabilitySupport.supported}
+          onCheckedChange={hide_when_first_column_empty => updateConfig({
+            hide_when_first_column_empty,
+          })}
+          data-testid={`switch-repeatable-hide-empty-${field.id}`}
+        />
+        <div>
+          <Label htmlFor={`repeatable-hide-empty-${field.id}`} className="text-xs">
+            Hide when no first-column organisations are available
+          </Label>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Keep this repeatable section out of the form when the organisation
+            resolver confirms an empty domain. Loading, errors, prerequisites,
+            and row-level choice exhaustion leave it visible.
+          </p>
+          {!emptyAvailabilitySupport.supported && (
+            <p className="mt-0.5 text-xs text-amber-700">
+              Available for an Organisation Dropdown first column with a form-level group restriction only.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center justify-between">

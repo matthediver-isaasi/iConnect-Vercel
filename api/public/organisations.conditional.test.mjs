@@ -89,6 +89,27 @@ test('empty matched allowed_values adds no ID restriction while org filter still
   assert.deepEqual(result.map((org) => org.id), ['one', 'two']);
 });
 
+test('availability probes confirm empty when an answered conditional source matches no rule', async () => {
+  const result = await loadConditionalOrganizationOptions({
+    db: db({
+      form: [savedForm([rule({ allowed_values: ['approved'] })])],
+      organization: [{
+        id: 'approved',
+        tenant_id: tenantId,
+        name: 'Approved',
+        is_active: true,
+        status: 'approved',
+      }],
+    }),
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { country: 'US' },
+    availabilityProbe: true,
+  });
+  assert.deepEqual(result, []);
+});
+
 test('dynamic custom Country filter matches the earlier country answer across name and ISO storage', async () => {
   const form = savedForm([rule({
     operator: 'is_not_empty',
@@ -486,6 +507,154 @@ test('POST handler accepts dynamic answers in JSON body and resolves tenant norm
   });
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.payload.map((org) => org.id), ['yes']);
+});
+
+test('opted-in availability probes fail explicitly when organisation lookup fails', async () => {
+  const persistedForm = {
+    id: 'form-probe',
+    tenant_id: tenantId,
+    slug: 'probe',
+    is_active: true,
+    fields: [{
+      id: 'additional-organisations',
+      type: 'repeatable_rows',
+      hide_when_first_column_empty: true,
+      child_fields: [{ id: 'organisation', type: 'organisation_dropdown' }],
+    }],
+  };
+  const database = {
+    from(table) {
+      if (table === 'form') {
+        const query = {
+          select() { return query; },
+          eq() { return query; },
+          maybeSingle: async () => ({ data: persistedForm, error: null }),
+        };
+        return query;
+      }
+      if (table === 'organization') {
+        const query = {
+          select() { return query; },
+          eq() { return query; },
+          order: async () => ({ data: null, error: new Error('database unavailable') }),
+        };
+        return query;
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+  const response = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  await organizationsHandler({
+    method: 'POST',
+    query: {},
+    body: {
+      formId: 'form-probe',
+      fieldId: 'organisation',
+      containerFieldId: 'additional-organisations',
+      sourceAnswers: {},
+      availabilityProbe: true,
+    },
+  }, response, {
+    db: database,
+    resolveTenant: async () => ({ id: tenantId }),
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.payload.code, 'ORGANISATION_AVAILABILITY_UNAVAILABLE');
+});
+
+test('availability probes fail explicitly for every unresolved form or group prerequisite', async () => {
+  const repeatableForm = {
+    id: 'form-probe-prerequisite',
+    tenant_id: tenantId,
+    slug: 'probe-prerequisite',
+    is_active: true,
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      child_fields: [
+        { id: 'group', type: 'organisation_group_dropdown' },
+        {
+          id: 'organisation',
+          type: 'organisation_dropdown',
+          organisation_group_parent_field_id: 'group',
+          organisation_group_parent_scope: 'row',
+        },
+      ],
+    }],
+  };
+  const failingGroupDb = {
+    ...db({ form: [repeatableForm] }),
+    from(table) {
+      if (table !== 'organization_group') return db({ form: [repeatableForm] }).from(table);
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        maybeSingle: async () => ({ data: null, error: new Error('group lookup unavailable') }),
+      };
+      return query;
+    },
+  };
+  const cases = [
+    {
+      name: 'missing form',
+      database: db({ form: [] }),
+      formId: 'missing-form',
+      fieldId: 'organisation',
+      sourceAnswers: {},
+    },
+    {
+      name: 'missing container',
+      database: db({ form: [repeatableForm] }),
+      formId: repeatableForm.id,
+      containerFieldId: 'missing-container',
+      fieldId: 'organisation',
+      sourceAnswers: {},
+    },
+    {
+      name: 'missing child',
+      database: db({ form: [repeatableForm] }),
+      formId: repeatableForm.id,
+      containerFieldId: 'rows',
+      fieldId: 'missing-child',
+      sourceAnswers: {},
+    },
+    {
+      name: 'invalid group',
+      database: db({ form: [repeatableForm], organization_group: [] }),
+      formId: repeatableForm.id,
+      containerFieldId: 'rows',
+      fieldId: 'organisation',
+      sourceAnswers: { group: 'missing-group' },
+    },
+    {
+      name: 'group lookup failure',
+      database: failingGroupDb,
+      formId: repeatableForm.id,
+      containerFieldId: 'rows',
+      fieldId: 'organisation',
+      sourceAnswers: { group: 'group-1' },
+    },
+  ];
+
+  for (const candidate of cases) {
+    await assert.rejects(
+      () => loadConditionalOrganizationOptions({
+        db: candidate.database,
+        tenantId,
+        ...candidate,
+        availabilityProbe: true,
+      }),
+      (error) => (
+        error.code === 'ORGANISATION_AVAILABILITY_UNAVAILABLE'
+        && error.status === 503
+      ),
+      candidate.name,
+    );
+  }
 });
 
 test('POST handler accepts targetFieldId as a compatibility alias', async () => {

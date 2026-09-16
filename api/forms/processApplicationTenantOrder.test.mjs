@@ -54,6 +54,17 @@ test('authorization, paid lifecycle, and stored submit-control all precede struc
   assert.match(src, /code:\s*'PROCESSING_AUTHORITY_MISMATCH'/);
 });
 
+test('authoritative empty repeatable visibility gates submission validation, mappings, and actions', () => {
+  const hidden = idx('const hiddenSubmissionFieldIds = await computeAuthoritativeHiddenFieldIds({');
+  const mappingSelection = idx('partitionIgnoredHiddenMappings(mappings, hiddenSubmissionFieldIds)');
+  const relationshipValidation = idx('collectMemberOrganizationGroupAssignments({');
+  const structured = idx('processPersistedStructuredActions({');
+  assert.ok(hidden < mappingSelection);
+  assert.ok(hidden < relationshipValidation);
+  assert.ok(hidden < structured);
+  assert.match(src, /hiddenFieldIds:\s*hiddenSubmissionFieldIds/);
+});
+
 test('structured actions wait for actual primary pipelines and preserve existing notes', () => {
   assert.match(
     src,

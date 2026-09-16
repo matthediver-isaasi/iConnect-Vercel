@@ -127,11 +127,46 @@ export function normalizeRepeatableRowField(field = {}) {
     min_rows: Math.min(minRows, maxRows),
     max_rows: maxRows,
     first_row_required: firstRequired,
+    hide_when_first_column_empty: source.hide_when_first_column_empty === true,
     add_row_label: typeof source.add_row_label === 'string' && source.add_row_label.trim()
       ? source.add_row_label.trim() : 'Add another',
     layout: (source.layout ?? source.display_style) === REPEATABLE_ROW_LAYOUT_SPREADSHEET
       ? REPEATABLE_ROW_LAYOUT_SPREADSHEET : REPEATABLE_ROW_LAYOUT_CARDS,
   };
+}
+
+/**
+ * Availability-based hiding is deliberately limited to option sources whose
+ * domain can be resolved without inventing a row answer.  In particular, an
+ * organisation child with a form-scoped group parent has a deterministic
+ * domain; a row-scoped parent does not, because every row could have a
+ * different set of choices.
+ *
+ * Keep this contract shared by the editor, renderer and server.  Callers may
+ * explain `reason` to administrators, but must treat unsupported sources as
+ * visible rather than guessing that they are empty.
+ */
+export function repeatableEmptyAvailabilitySupport(field) {
+  if (!isRepeatableRowField(field)) {
+    return { supported: false, reason: 'not_repeatable_row' };
+  }
+  const config = normalizeRepeatableRowField(field);
+  const first = config.children[0];
+  if (!first) return { supported: false, reason: 'missing_first_column' };
+  if (first.type !== 'organisation_dropdown') {
+    return { supported: false, reason: 'unsupported_first_column_type' };
+  }
+  if (first.option_source !== undefined) {
+    return { supported: false, reason: 'unsupported_first_column_source' };
+  }
+  if (first.organisation_group_parent_field_id) {
+    const scope = first.organisation_group_parent_scope
+      ?? first.organisation_group_parent_field_scope ?? 'row';
+    if (scope !== 'form') {
+      return { supported: false, reason: 'row_scoped_group_dependency' };
+    }
+  }
+  return { supported: true, reason: null };
 }
 
 function relationshipValueDescriptor(field) {

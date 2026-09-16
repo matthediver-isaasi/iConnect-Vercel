@@ -16,7 +16,11 @@ import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLi
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
-import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  findPaymentField,
+  derivePaymentAmount,
+} from '../_lib/formFieldVisibility.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
@@ -430,11 +434,13 @@ export default async function handler(req, res, dependencies = {}) {
         if (paymentField && enabledProviders.length > 0) {
           const amountDue = derivePaymentAmount(paymentField, submission_data || {});
           if (amountDue > 0) {
-            const hiddenIds = computeHiddenFieldIds(
-              { ...form, visibility_rules: submitControlRules },
-              submission_data || {},
-              submitControlOptions
-            );
+            const hiddenIds = await computeAuthoritativeHiddenFieldIds({
+              db: supabase,
+              tenantId: tenantData.id,
+              form: { ...form, visibility_rules: submitControlRules },
+              formValues: submission_data || {},
+              visibilityOptions: submitControlOptions,
+            });
             if (!hiddenIds.has(paymentField.id)) {
               return res.status(400).json({
                 error: 'This form requires payment. Please complete payment to submit.',
@@ -452,11 +458,13 @@ export default async function handler(req, res, dependencies = {}) {
       pages: surveyVersion?.pages || [],
       visibility_rules: surveyVersion?.visibility_rules || [],
     } : form;
-    const hiddenRelationshipFieldIds = computeHiddenFieldIds(
-      relationshipForm,
-      submission_data || {},
-      submissionVisibilityOptions,
-    );
+    const hiddenRelationshipFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: tenantData.id,
+      form: relationshipForm,
+      formValues: submission_data || {},
+      visibilityOptions: submissionVisibilityOptions,
+    });
     if (!existingIdempotentSubmission) {
       const invalidAddressFields = invalidRequiredAddressLookupFields(
         relationshipForm.fields || [],

@@ -30,7 +30,11 @@ import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { getStripeCredentials, getStripeIntegrationCredentials, retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
-import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  findPaymentField,
+  derivePaymentAmount,
+} from '../_lib/formFieldVisibility.js';
 import { markFormSubmissionPaid, finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
@@ -283,7 +287,13 @@ export async function validatePaymentRelationships(
     if (!visibilityOptions && rulesUseLmicOperators(form.visibility_rules)) {
       evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
     }
-    const hiddenFieldIds = computeHiddenFieldIds(form, values, evalOptions);
+    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: tenantData.id,
+      form,
+      formValues: values,
+      visibilityOptions: evalOptions,
+    });
     const invalidAddressFields = invalidRequiredAddressLookupFields(
       form.fields || [],
       values,
@@ -397,7 +407,13 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
 
   // Hidden payment field ⇒ payment is not part of this submission; the
   // client must use the normal submit path.
-  const hiddenIds = computeHiddenFieldIds(form, values, evalOptions);
+  const hiddenIds = await computeAuthoritativeHiddenFieldIds({
+    db: supabase,
+    tenantId: tenantData.id,
+    form,
+    formValues: values,
+    visibilityOptions: evalOptions,
+  });
   if (hiddenIds.has(paymentField.id)) {
     return { error: { status: 400, body: { error: 'Payment is not required for these answers', code: 'PAYMENT_NOT_REQUIRED' } } };
   }

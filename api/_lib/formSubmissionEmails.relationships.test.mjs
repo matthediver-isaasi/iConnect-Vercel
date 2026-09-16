@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSubmissionEmailFieldDisplayValue } from './formSubmissionEmails.js';
+import {
+  filterAutoHiddenRepeatableSubmissionData,
+  resolveAutoHiddenRepeatableContainerIds,
+  resolveSubmissionEmailFieldDisplayValue,
+} from './formSubmissionEmails.js';
+import { FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
 const currentId = '11111111-1111-4111-8111-111111111111';
 const missingId = '22222222-2222-4222-8222-222222222222';
@@ -29,6 +34,7 @@ test('configured form-email placeholders render current and missing ID-keyed rel
     'Unavailable record',
   );
 });
+
 
 test('configured form-email placeholders render current and missing legacy name-keyed relationship labels safely', () => {
   assert.equal(
@@ -158,4 +164,169 @@ test('configured form-email placeholders resolve repeatable real relationships w
     },
     relationshipLabelsByRecordId: { 'record-1': 'Finance' },
   }), 'Row 1\nDepartment: Finance, Other department — Research partnerships');
+});
+
+test('submission email side effects omit only auto-hidden repeatable answers without mutating raw data', () => {
+  const repeatable = {
+    id: 'contacts',
+    name: 'Contacts',
+    type: 'repeatable_row',
+    hide_when_first_column_empty: true,
+    children: [
+      { id: 'employer', name: 'Employer', type: 'organisation_dropdown' },
+      { id: 'note', type: 'text' },
+    ],
+  };
+  const raw = {
+    contacts: [{ _row_id: 'retained-row', employer: 'org-1', note: 'retained answer' }],
+    visible_answer: 'keep this',
+    employer: 'top-level child answer',
+  };
+  const sideEffectData = filterAutoHiddenRepeatableSubmissionData({
+    form: { fields: [repeatable] },
+    formValues: raw,
+    containerIds: new Set(['contacts']),
+  });
+
+  assert.deepEqual(raw, {
+    contacts: [{ _row_id: 'retained-row', employer: 'org-1', note: 'retained answer' }],
+    visible_answer: 'keep this',
+    employer: 'top-level child answer',
+  });
+  assert.deepEqual(sideEffectData, { visible_answer: 'keep this' });
+});
+
+test('ordinary hidden repeatable answers stay available to existing email behavior', () => {
+  const repeatable = {
+    id: 'contacts',
+    type: 'repeatable_row',
+    children: [{ id: 'note', type: 'text' }],
+  };
+  const raw = {
+    contacts: [{ note: 'ordinary hidden answer' }],
+    visible_answer: 'keep this',
+  };
+  assert.strictEqual(
+    filterAutoHiddenRepeatableSubmissionData({
+      form: { fields: [repeatable] },
+      formValues: raw,
+      containerIds: new Set(),
+    }),
+    raw,
+  );
+});
+
+function organisationAvailabilityDb(organisations) {
+  return {
+    from(table) {
+      const filters = [];
+      const query = {
+        select() { return query; },
+        eq(column, value) {
+          filters.push([column, value]);
+          return query;
+        },
+        order() {
+          const data = table === 'organization'
+            ? organisations.filter(row => filters.every(([column, value]) => (
+              String(row[column]) === String(value)
+            )))
+            : [];
+          return Promise.resolve({ data, error: null });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+test('email side-effect visibility uses authoritative auto-empty availability', async () => {
+  const repeatable = {
+    id: 'additional-organisations',
+    type: 'repeatable_rows',
+    hide_when_first_column_empty: true,
+    children: [{
+      id: 'organisation',
+      type: 'organisation_dropdown',
+    }],
+  };
+  const form = { id: 'form-1', fields: [repeatable] };
+  const containerIds = await resolveAutoHiddenRepeatableContainerIds({
+    db: organisationAvailabilityDb([]),
+    tenantId: 'tenant-1',
+    form,
+    formValues: {
+      'additional-organisations': [{ organisation: 'retained-org' }],
+    },
+  });
+  assert.deepEqual([...containerIds], ['additional-organisations']);
+
+  const availableIds = await resolveAutoHiddenRepeatableContainerIds({
+    db: organisationAvailabilityDb([{ id: 'org-1', tenant_id: 'tenant-1' }]),
+    tenantId: 'tenant-1',
+    form,
+    formValues: {},
+  });
+  assert.deepEqual([...availableIds], []);
+});
+
+test('email side effects suppress conditional Not listed empty repeatables', async () => {
+  for (const conditional of [
+    { mode: 'include', allowed_values: ['available-org'] },
+    { mode: 'exclude', allowed_values: [FORM_NOT_LISTED_VALUE] },
+  ]) {
+    const repeatable = {
+      id: 'additional-organisations',
+      type: 'repeatable_rows',
+      hide_when_first_column_empty: true,
+      children: [{
+        id: 'organisation',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'Other' },
+        conditional_filters: {
+          version: 1,
+          rules: [{
+            id: `conditional-${conditional.mode}`,
+            source_field_id: 'country',
+            operator: 'equals',
+            value: 'GB',
+            is_fallback: false,
+            allowed_values: conditional.allowed_values,
+            allowed_values_mode: conditional.mode,
+            org_filter: null,
+          }],
+        },
+      }, {
+        id: 'notes',
+        type: 'text',
+      }],
+    };
+    const form = {
+      id: `form-conditional-${conditional.mode}`,
+      fields: [{ id: 'country', type: 'dropdown' }, repeatable],
+    };
+    const formValues = {
+      country: 'GB',
+      'additional-organisations': [{
+        organisation: FORM_NOT_LISTED_VALUE,
+        notes: 'retained stale answer',
+      }],
+    };
+    const containerIds = await resolveAutoHiddenRepeatableContainerIds({
+      db: organisationAvailabilityDb([]),
+      tenantId: 'tenant-1',
+      form,
+      formValues,
+    });
+    assert.deepEqual([...containerIds], ['additional-organisations'], conditional.mode);
+    assert.deepEqual(
+      filterAutoHiddenRepeatableSubmissionData({
+        form,
+        formValues,
+        containerIds,
+      }),
+      { country: 'GB' },
+      conditional.mode,
+    );
+  }
 });

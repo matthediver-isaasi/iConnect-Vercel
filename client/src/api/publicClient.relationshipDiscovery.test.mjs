@@ -86,3 +86,31 @@ test('discovery uses the active tenant header without stale public-client query 
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('repeatable availability probes are sent explicitly to the organisation resolver', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = null;
+  globalThis.fetch = async (_input, options = {}) => {
+    requestBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => [],
+    };
+  };
+  try {
+    const client = new PublicClient();
+    await client.listFormOrganizationOptions(
+      'form-slug',
+      null,
+      'repeatable-organisation',
+      {},
+      'repeatable-container',
+      null,
+      { availabilityProbe: true },
+    );
+    assert.equal(requestBody.availabilityProbe, true);
+    assert.equal(requestBody.containerFieldId, 'repeatable-container');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

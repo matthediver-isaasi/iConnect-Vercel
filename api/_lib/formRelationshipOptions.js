@@ -4,7 +4,7 @@ import { conditionalSelectionAllowed, resolveConditionalFilter } from './formCon
 import { containsFormNotListedValue, hasEnabledFormNotListedChoice, isFormNotListedValue, validateFormNotListedText } from '../../shared/formNotListedChoice.js';
 import { isFormNoRelationshipValue } from '../../shared/formNoRelationshipChoice.js';
 import { isRepeatableRowField, isRepeatableValueEmpty, repeatableRowChildren } from '../../shared/formRepeatableRows.js';
-import { computeHiddenFieldIds } from './formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from './formFieldVisibility.js';
 import {
   isRelationshipMultiSelect,
   relationshipSelectionMode,
@@ -553,11 +553,13 @@ export function createFormRelationshipService({ db, tenantId }) {
   }
   async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText, hiddenFieldIds, visibilityOptions = {}, serverCreatedOrganizations }) {
     const authoritativeForm = rootForm || form;
-    const hidden = hiddenFieldIds || computeHiddenFieldIds(
-      authoritativeForm,
-      rootSubmissionData || submissionData,
+    const hidden = hiddenFieldIds || await computeAuthoritativeHiddenFieldIds({
+      db,
+      tenantId,
+      form: authoritativeForm,
+      formValues: rootSubmissionData || submissionData,
       visibilityOptions,
-    );
+    });
     if (containerFieldId && hidden.has(containerFieldId)) return;
     const fields = (form?.fields || []).filter(field => !hidden.has(field?.id));
     const notListedTextValidation = validateFormNotListedText(fields, submissionData, {

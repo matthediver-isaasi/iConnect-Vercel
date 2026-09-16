@@ -3,7 +3,7 @@ import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { executeStageActions } from './_stageActions.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
@@ -124,11 +124,13 @@ export default async function handler(req, res) {
     const visibilityOptions = rulesUseLmicOperators(targetForm.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantCtx.tenantId) }
       : {};
-    const hiddenFieldIds = computeHiddenFieldIds(
-      targetForm,
-      newFormValues,
+    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: tenantCtx.tenantId,
+      form: targetForm,
+      formValues: newFormValues,
       visibilityOptions,
-    );
+    });
     const futureDateErrors = validateFutureDateFields(
       targetFields,
       newFormValues,

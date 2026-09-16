@@ -4,7 +4,10 @@ import {
   containsFormNotListedValue,
   setFormNotListedText,
 } from '../../shared/formNotListedChoice.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  computeHiddenFieldIds,
+} from '../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 export function effectiveSubmissionFieldEdit(
@@ -65,6 +68,8 @@ export async function validateSubmissionFieldEditCandidates({
   hasNotListedText = false,
   notListedText,
   visibilityOptions = {},
+  db = null,
+  tenantId = null,
 }) {
   const updatedSubmissionData = effectiveSubmissionFieldEdit(
     submissionData,
@@ -81,12 +86,24 @@ export async function validateSubmissionFieldEditCandidates({
     )
     : null;
 
-  const validateFutureDates = (candidate, previous) => {
+  const resolveHiddenFieldIds = async candidate => (
+    db && tenantId
+      ? computeAuthoritativeHiddenFieldIds({
+        db,
+        tenantId,
+        form,
+        formValues: candidate,
+        visibilityOptions,
+      })
+      : computeHiddenFieldIds(form, candidate, visibilityOptions)
+  );
+  const validateFutureDates = async (candidate, previous) => {
+    const hiddenFieldIds = await resolveHiddenFieldIds(candidate);
     const errors = validateFutureDateFields(
       form?.fields || [],
       candidate,
       {
-        hiddenFieldIds: computeHiddenFieldIds(form, candidate, visibilityOptions),
+        hiddenFieldIds,
         previousValues: previous,
       },
     );
@@ -97,14 +114,16 @@ export async function validateSubmissionFieldEditCandidates({
     error.details = errors;
     throw error;
   };
-  validateFutureDates(updatedSubmissionData, submissionData);
+  await validateFutureDates(updatedSubmissionData, submissionData);
   if (hasDueDiligenceRecord) {
-    validateFutureDates(updatedOriginalValues, originalFormValues ?? submissionData);
+    await validateFutureDates(updatedOriginalValues, originalFormValues ?? submissionData);
   }
 
+  const hiddenFieldIds = await resolveHiddenFieldIds(updatedSubmissionData);
   await relationshipService.validateSubmission({
     form,
     submissionData: normalizeSubmissionFieldIds(form, updatedSubmissionData),
+    hiddenFieldIds,
     allowMissingNotListedText: ({ field, containerField }) => (
       (containerField?.id || field?.id) !== fieldId
     ),
@@ -113,6 +132,7 @@ export async function validateSubmissionFieldEditCandidates({
     await relationshipService.validateSubmission({
       form,
       submissionData: normalizeSubmissionFieldIds(form, updatedOriginalValues),
+      hiddenFieldIds: await resolveHiddenFieldIds(updatedOriginalValues),
       allowMissingNotListedText: ({ field, containerField }) => (
         (containerField?.id || field?.id) !== fieldId
       ),

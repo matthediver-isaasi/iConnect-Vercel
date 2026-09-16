@@ -66,6 +66,14 @@ test('builder exposes not-listed controls and validates nested labels', () => {
   assert.match(builder, /value: dependency\.value === FORM_NOT_LISTED_VALUE \? '' : FORM_NOT_LISTED_VALUE/);
 });
 
+test('builder exposes the opt-in empty first-column visibility control', () => {
+  assert.match(builder, /repeatableEmptyAvailabilitySupport\(field\)/);
+  assert.match(builder, /hide_when_first_column_empty/);
+  assert.match(builder, /switch-repeatable-hide-empty-\$\{field\.id\}/);
+  assert.match(renderer, /repeatable-empty-container-\$\{field\.id\}/);
+  assert.match(renderer, /RepeatableAvailabilityProbe/);
+});
+
 test('repeatable multi-select not-listed choices respect whole-cell uniqueness', () => {
   assert.match(renderer, /canToggleNotListedCategory = repeatableSelectionIsAvailable\(nextNotListedCategories\)/);
   assert.match(renderer, /disabled=\{isFieldDisabled \|\| !canToggleNotListedCategory\}/);
@@ -79,7 +87,10 @@ test('unique repeatable dropdowns receive sibling exclusions across option sourc
   assert.match(renderer, /const effectiveOrganisationOptions = organisationOptions\.filter\(/);
   assert.match(renderer, /const effectiveOrganisationGroupOptions = organisationGroupOptions\.filter\(/);
   assert.match(renderer, /relationshipOptions\.filter\(/);
-  assert.match(renderer, /relationshipResultIsEmpty = isConfirmedEmptyRelationshipResult\(\{[\s\S]*?options: rawRelationshipOptions/);
+  assert.match(
+    renderer,
+    /relationshipResultIsEmpty[\s\S]*?isConfirmedEmptyRelationshipResult\(\{[\s\S]*?options: rawRelationshipOptions/,
+  );
   assert.match(renderer, /All available choices are already used in another row/);
   assert.match(renderer, /repeatableOptionIsAvailable\(country\.name\)/);
   assert.match(renderer, /repeatableOptionIsAvailable\(option\?\.value \|\| option\)/);

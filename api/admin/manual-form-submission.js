@@ -8,7 +8,7 @@ import {
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
@@ -82,11 +82,13 @@ export default async function handler(req, res) {
     const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantId) }
       : {};
-    const hiddenFieldIds = computeHiddenFieldIds(
+    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId,
       form,
-      submission_data || {},
+      formValues: submission_data || {},
       visibilityOptions,
-    );
+    });
     const invalidAddressFields = invalidRequiredAddressLookupFields(
       form.fields || [],
       submission_data || {},

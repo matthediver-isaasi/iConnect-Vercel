@@ -37,6 +37,16 @@ import {
   isRepeatableRowsField,
   resolveRepeatableOrganisationLabel,
 } from '../../shared/repeatableFormRowsFormat.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  computeHiddenFieldIds,
+  resolveRepeatableFirstColumnAvailability,
+} from './formFieldVisibility.js';
+import {
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
+  repeatableRowChildren,
+} from '../../shared/formRepeatableRows.js';
 
 const isMissingColumnError = (err) =>
   err && (err.code === '42703' || /submission_email_state/.test(err.message || ''));
@@ -360,6 +370,102 @@ function flattenFormFields(form) {
   return result.filter((field) => field && (field.id != null || field.name != null));
 }
 
+/**
+ * Resolve repeatable containers that are hidden specifically because their
+ * first column has no authoritative choices.
+ *
+ * `computeAuthoritativeHiddenFieldIds` intentionally returns the union of
+ * ordinary visibility and availability visibility. Email delivery needs the
+ * narrower set: ordinary hidden answers retain their existing email
+ * semantics, while an auto-hidden repeatable answer must not influence a
+ * recipient, condition, placeholder, relationship lookup, or attachment.
+ *
+ * The second availability check is only needed when ordinary visibility
+ * already hid the container. In that case the union cannot tell us whether
+ * the empty-availability rule also matched. A failed check is unresolved and
+ * therefore leaves the answer available (fail closed).
+ */
+export async function resolveAutoHiddenRepeatableContainerIds({
+  db,
+  tenantId,
+  form,
+  formValues = {},
+} = {}) {
+  const fields = flattenFormFields(form);
+  const candidates = fields.filter((field) => (
+    isRepeatableRowField(field)
+    && normalizeRepeatableRowField(field).hide_when_first_column_empty === true
+  ));
+  if (candidates.length === 0) return new Set();
+
+  const ordinaryHiddenIds = computeHiddenFieldIds(form, formValues);
+  const authoritativeHiddenIds = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues,
+  });
+  const autoHiddenIds = new Set();
+
+  for (const field of candidates) {
+    const fieldId = String(field.id);
+    if (!authoritativeHiddenIds.has(field.id)
+        && !authoritativeHiddenIds.has(fieldId)) continue;
+    if (!ordinaryHiddenIds.has(field.id) && !ordinaryHiddenIds.has(fieldId)) {
+      autoHiddenIds.add(fieldId);
+      continue;
+    }
+    try {
+      const availability = await resolveRepeatableFirstColumnAvailability({
+        db,
+        tenantId,
+        form,
+        field,
+        formValues,
+      });
+      if (availability.status === 'empty') autoHiddenIds.add(fieldId);
+    } catch {
+      // An unavailable authority must never suppress a retained answer.
+    }
+  }
+  return autoHiddenIds;
+}
+
+/**
+ * Build the answer view used by submission-email side effects without
+ * mutating the persisted submission payload. Only repeatable answers hidden
+ * by the opt-in empty-first-column rule are removed; all other answers remain
+ * available for the established email behavior.
+ */
+export function filterAutoHiddenRepeatableSubmissionData({
+  form,
+  formValues = {},
+  containerIds = new Set(),
+} = {}) {
+  if (!formValues || typeof formValues !== 'object' || Array.isArray(formValues)) {
+    return formValues;
+  }
+  const hiddenIds = containerIds instanceof Set
+    ? containerIds
+    : new Set(Array.isArray(containerIds) ? containerIds.map(String) : []);
+  if (hiddenIds.size === 0) return formValues;
+
+  const fields = flattenFormFields(form);
+  const filtered = { ...formValues };
+  for (const field of fields) {
+    if (!isRepeatableRowField(field) || !hiddenIds.has(String(field.id))) continue;
+    if (field.id != null) delete filtered[field.id];
+    if (field.name != null) delete filtered[field.name];
+    // Child ids can be referenced by an email condition even though their
+    // values normally live inside the container's row objects.
+    repeatableRowChildren(field).forEach((child) => {
+      if (child?.id != null) delete filtered[child.id];
+      if (child?.name != null) delete filtered[child.name];
+    });
+  }
+  return filtered;
+}
+
 export function resolveSubmissionEmailFieldDisplayValue({
   fields,
   fieldKey,
@@ -478,6 +584,33 @@ export async function sendSubmissionEmails({
       }
     }
   }
+
+  // Keep the raw object untouched for the submission record. The email sender
+  // gets a side-effect view that omits only repeatable containers authoritatively
+  // hidden by the empty-first-column rule. This is deliberately done after the
+  // persisted row has been verified, so a caller cannot substitute an answer
+  // for the value used by recipient/condition/placeholder resolution.
+  const rawSubmissionData = persistedSubmissionData || form_values;
+  let autoHiddenRepeatableContainerIds = new Set();
+  try {
+    autoHiddenRepeatableContainerIds = await resolveAutoHiddenRepeatableContainerIds({
+      db: supabase,
+      tenantId,
+      form,
+      formValues: rawSubmissionData,
+    });
+  } catch (error) {
+    // Availability lookup errors are non-authoritative. Keep the answer view
+    // intact rather than turning a failed lookup into a hidden answer.
+    console.warn('[SubmissionEmails] Could not resolve repeatable email visibility:', error?.message || error);
+  }
+  const sideEffectSubmissionData = filterAutoHiddenRepeatableSubmissionData({
+    form,
+    formValues: rawSubmissionData,
+    containerIds: autoHiddenRepeatableContainerIds,
+  });
+  form_values = sideEffectSubmissionData;
+  if (persistedSubmissionData) persistedSubmissionData = sideEffectSubmissionData;
 
   const relationshipRecordIds = persistedSubmissionData
     ? [

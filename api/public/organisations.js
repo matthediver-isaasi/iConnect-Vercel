@@ -6,12 +6,52 @@ import {
 } from '../_lib/organizationEligibility.js';
 import { resolveConditionalFilter } from '../_lib/formConditionalFilters.js';
 import {
+  isRepeatableValueEmpty,
   isRepeatableRowField,
+  normalizeRepeatableRowField,
   repeatableRowChildren,
 } from '../../shared/formRepeatableRows.js';
 
 const DIRECTORY_ORG_TYPE_SETTING = 'org_directory_visible_org_types';
 const DIRECTORY_ORG_TYPE_FIELD_NAMES = ['org_type', 'organisation_type', 'organization_type'];
+const ORGANIZATION_OPTIONS_PAGE_SIZE = 500;
+
+function organisationAvailabilityUnavailable(cause) {
+  const availabilityError = new Error('Organisation availability could not be resolved');
+  availabilityError.code = 'ORGANISATION_AVAILABILITY_UNAVAILABLE';
+  availabilityError.status = 503;
+  if (cause) availabilityError.cause = cause;
+  return availabilityError;
+}
+
+async function loadTenantOrganizationOptions({ db, tenantId, groupId = null }) {
+  const organizations = [];
+  for (let offset = 0; ; offset += ORGANIZATION_OPTIONS_PAGE_SIZE) {
+    let query = db
+      .from('organization')
+      .select('*')
+      .eq('tenant_id', tenantId);
+    if (groupId) query = query.eq('organization_group_id', groupId);
+    // Name is the user-facing order, while ID makes page boundaries stable
+    // when multiple organisations share a name.
+    query = query.order('name', { ascending: true });
+    // Supabase query builders remain chainable. Keep terminal test doubles
+    // compatible as a fail-closed fallback without weakening the production
+    // name-then-ID ordering contract.
+    if (typeof query?.order === 'function') {
+      query = query.order('id', { ascending: true });
+    }
+    const paged = typeof query.range === 'function';
+    const result = paged
+      ? await query.range(offset, offset + ORGANIZATION_OPTIONS_PAGE_SIZE - 1)
+      : await query;
+    if (result?.error) throw result.error;
+    const page = Array.isArray(result?.data) ? result.data : [];
+    organizations.push(...page);
+    if (!paged || page.length < ORGANIZATION_OPTIONS_PAGE_SIZE) break;
+  }
+  return organizations;
+}
 
 function parseSavedArray(value) {
   let parsed = value;
@@ -25,6 +65,35 @@ function parseSavedArray(value) {
   return Array.isArray(parsed)
     ? parsed.map((item) => String(item).trim()).filter((item) => item && item.length <= 200)
     : [];
+}
+
+function hasAnsweredConditionalSource(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)
+      && Object.prototype.hasOwnProperty.call(value, 'value')) {
+    return hasAnsweredConditionalSource(value.value);
+  }
+  return !isRepeatableValueEmpty(value);
+}
+
+function conditionalSourcesAnswered(field, sourceAnswers, fields) {
+  const sourceRules = (field?.conditional_filters?.rules || []).filter(rule => (
+    rule && rule.is_fallback !== true
+  ));
+  if (sourceRules.length === 0) return false;
+  return sourceRules.every(sourceRule => {
+    const sourceField = (fields || []).find(candidate => (
+      String(candidate?.id) === String(sourceRule.source_field_id)
+    ));
+    const sourceValue = Object.prototype.hasOwnProperty.call(
+      sourceAnswers || {},
+      sourceRule.source_field_id,
+    )
+      ? sourceAnswers[sourceRule.source_field_id]
+      : sourceField?.name
+        ? sourceAnswers?.[sourceField.name]
+        : undefined;
+    return hasAnsweredConditionalSource(sourceValue);
+  });
 }
 
 async function resolveDirectoryOrgTypeFilter(db, tenantId) {
@@ -57,16 +126,31 @@ async function resolveDirectoryOrgTypeFilter(db, tenantId) {
 
 /**
  * Resolves a dynamic organisation dropdown exclusively from the saved form.
- * A bad/stale request deliberately returns no options: callers must never get
- * a broader organisation list because a conditional configuration could not be
- * loaded or interpreted.
+ * A bad/stale ordinary request deliberately returns no options: callers must
+ * never get a broader organisation list because a conditional configuration
+ * could not be loaded or interpreted. Opted-in repeatable availability probes
+ * return an explicit 503 on lookup failure so [] cannot be mistaken for an
+ * authoritative empty domain.
  */
 export async function loadConditionalOrganizationOptions({
-  db, tenantId, formId, formSlug, fieldId, containerFieldId, sourceAnswers,
+  db,
+  tenantId,
+  formId,
+  formSlug,
+  fieldId,
+  containerFieldId,
+  sourceAnswers,
+  availabilityProbe = false,
 }) {
   if (!db || !tenantId || !fieldId || !sourceAnswers
       || typeof sourceAnswers !== 'object' || Array.isArray(sourceAnswers)
-      || (!formId && !formSlug)) return [];
+      || (!formId && !formSlug)) {
+    if (availabilityProbe === true) {
+      throw organisationAvailabilityUnavailable();
+    }
+    return [];
+  }
+  let isAvailabilityProbe = availabilityProbe === true;
   try {
     let formQuery = db.from('form')
       .select('id, fields')
@@ -74,7 +158,10 @@ export async function loadConditionalOrganizationOptions({
       .eq('is_active', true);
     formQuery = formId ? formQuery.eq('id', formId) : formQuery.eq('slug', formSlug);
     const { data: form, error: formError } = await formQuery.maybeSingle();
-    if (formError || !form || !Array.isArray(form.fields)) return [];
+    if (formError || !form || !Array.isArray(form.fields)) {
+      if (isAvailabilityProbe) throw organisationAvailabilityUnavailable(formError);
+      return [];
+    }
     let fields = form.fields;
     let container = null;
     let containerIndex = -1;
@@ -88,11 +175,21 @@ export async function loadConditionalOrganizationOptions({
         (candidate) => String(candidate?.id) === String(containerFieldId),
       );
       container = form.fields[containerIndex];
-      if (!container || !isRepeatableRowField(container)) return [];
+      if (!container || !isRepeatableRowField(container)) {
+        if (isAvailabilityProbe) throw organisationAvailabilityUnavailable();
+        return [];
+      }
       fields = repeatableRowChildren(container);
       field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
     }
-    if (!field || field.type !== 'organisation_dropdown') return [];
+    if (!field || field.type !== 'organisation_dropdown') {
+      if (isAvailabilityProbe) throw organisationAvailabilityUnavailable();
+      return [];
+    }
+    const containerConfig = container && normalizeRepeatableRowField(container);
+    isAvailabilityProbe = isAvailabilityProbe
+      || (containerConfig?.hide_when_first_column_empty === true
+        && String(containerConfig.children?.[0]?.id) === String(field.id));
     const groupParentId = field.organisation_group_parent_field_id;
     let selectedGroupId = null;
     if (groupParentId) {
@@ -107,16 +204,25 @@ export async function loadConditionalOrganizationOptions({
         ? container && parentIndex >= 0 && parentIndex < containerIndex
         : parentIndex >= 0 && parentIndex < fieldIndex;
       if (!validScope || !precedesParent
-          || parent?.type !== 'organisation_group_dropdown') return [];
+          || parent?.type !== 'organisation_group_dropdown') {
+        if (isAvailabilityProbe) throw organisationAvailabilityUnavailable();
+        return [];
+      }
       const rawGroupId = sourceAnswers[groupParentId];
-      if (!rawGroupId || rawGroupId === '__form_not_listed__' || typeof rawGroupId !== 'string') return [];
+      if (!rawGroupId || rawGroupId === '__form_not_listed__' || typeof rawGroupId !== 'string') {
+        if (isAvailabilityProbe) throw organisationAvailabilityUnavailable();
+        return [];
+      }
       const { data: group, error: groupError } = await db
         .from('organization_group')
         .select('id')
         .eq('id', rawGroupId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
-      if (groupError || !group) return [];
+      if (groupError || !group) {
+        if (isAvailabilityProbe) throw organisationAvailabilityUnavailable(groupError);
+        return [];
+      }
       selectedGroupId = String(group.id);
     }
 
@@ -124,16 +230,21 @@ export async function loadConditionalOrganizationOptions({
     // Absent/empty rules retain the historical static-filter behavior. A
     // configured set with no matched rule (or invalid persisted shape) has an
     // empty allowed set and is therefore closed by the filter below.
-    if (resolution.configured && (!resolution.valid || !resolution.rule)) return [];
+    if (resolution.configured && (!resolution.valid || !resolution.rule)) {
+      // A valid conditional configuration with an answered source and no
+      // matching rule is a confirmed empty domain, not a failed lookup.
+      if (resolution.valid && conditionalSourcesAnswered(field, sourceAnswers, fields)) {
+        return [];
+      }
+      if (isAvailabilityProbe) throw organisationAvailabilityUnavailable();
+      return [];
+    }
 
-    let organizationsQuery = db
-      .from('organization')
-      .select('*')
-      .eq('tenant_id', tenantId)
-    if (selectedGroupId) organizationsQuery = organizationsQuery.eq('organization_group_id', selectedGroupId);
-    const { data: organizations, error: organizationsError } = await organizationsQuery
-      .order('name', { ascending: true });
-    if (organizationsError) return [];
+    const organizations = await loadTenantOrganizationOptions({
+      db,
+      tenantId,
+      groupId: selectedGroupId,
+    });
 
     const allowedIds = resolution.configured && Array.isArray(resolution.allowedValues)
       ? new Set(resolution.allowedValues.map((value) => String(value))) : null;
@@ -156,7 +267,15 @@ export async function loadConditionalOrganizationOptions({
       name: organization.name,
       logo_url: organization.logo_url,
     }));
-  } catch {
+  } catch (error) {
+    // A repeatable section that opted into availability hiding must never
+    // receive a successful empty response for a failed option lookup: the
+    // client would otherwise treat transport failure as an authoritative empty
+    // domain and hide retained answers. Ordinary option requests preserve
+    // their historical fail-closed [] behaviour.
+    if (isAvailabilityProbe) {
+      throw organisationAvailabilityUnavailable(error);
+    }
     return [];
   }
 }
@@ -258,6 +377,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         fieldId: dynamicFieldId,
         containerFieldId,
         sourceAnswers,
+        availabilityProbe: req.body?.availabilityProbe === true,
       });
       return res.json(data);
     }
@@ -337,6 +457,12 @@ export async function organizationsHandler(req, res, dependencies = {}) {
     return res.json(data || []);
   } catch (error) {
     console.error('Public organisations fetch error:', error);
+    if (error?.code === 'ORGANISATION_AVAILABILITY_UNAVAILABLE') {
+      return res.status(error.status || 503).json({
+        error: error.message,
+        code: error.code,
+      });
+    }
     return res.status(500).json({ error: 'Failed to fetch organisations' });
   }
 }

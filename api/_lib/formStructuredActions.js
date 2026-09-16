@@ -1,4 +1,7 @@
-import { computeHiddenFieldIds } from './formFieldVisibility.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  computeHiddenFieldIds,
+} from './formFieldVisibility.js';
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { createFormRelationshipService } from './formRelationshipOptions.js';
@@ -752,8 +755,17 @@ function visibilityForm(form) {
   };
 }
 
-function structuredHiddenFieldIds(form, submissionData, visibilityOptions = {}) {
-  return computeHiddenFieldIds(visibilityForm(form), submissionData || {}, visibilityOptions);
+function structuredHiddenFieldIds(
+  form,
+  submissionData,
+  visibilityOptions = {},
+  authoritativeHiddenFieldIds = null,
+) {
+  const hidden = computeHiddenFieldIds(visibilityForm(form), submissionData || {}, visibilityOptions);
+  if (authoritativeHiddenFieldIds instanceof Set) {
+    for (const id of authoritativeHiddenFieldIds) hidden.add(id);
+  }
+  return hidden;
 }
 
 function visibleValues(values, hidden) {
@@ -775,8 +787,8 @@ function visibleSubmissionValues(values, hidden) {
   return visible;
 }
 
-export function expandStructuredActionInvocations(contract, form, submissionData, visibilityOptions = {}) {
-  const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions);
+export function expandStructuredActionInvocations(contract, form, submissionData, visibilityOptions = {}, authoritativeHiddenFieldIds = null) {
+  const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions, authoritativeHiddenFieldIds);
   const rootValues = visibleSubmissionValues(submissionData, hidden);
   const fields = new Map((form?.fields || []).filter(f => f?.id).map(f => [String(f.id), f]));
   const invocations = [];
@@ -1213,7 +1225,13 @@ export async function processPrimaryPipelineRelatedRecords({
     visibilityOptions = rulesUseLmicOperators(form?.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(db, tenantId) }
       : {};
-    hidden = structuredHiddenFieldIds(form, answers, visibilityOptions);
+    hidden = await computeAuthoritativeHiddenFieldIds({
+      db,
+      tenantId,
+      form,
+      formValues: answers,
+      visibilityOptions,
+    });
   } catch (error) {
     return {
       success: false,
@@ -1493,8 +1511,23 @@ function validateRuntimeMappingCompatibility(contract, formFields, preferenceFie
   }
 }
 
-async function validateDirectSelectors(db, tenantId, form, submissionData, visibilityOptions = {}) {
-  const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions);
+async function validateDirectSelectors(
+  db,
+  tenantId,
+  form,
+  submissionData,
+  visibilityOptions = {},
+  authoritativeHiddenFieldIds = null,
+) {
+  const hidden = authoritativeHiddenFieldIds instanceof Set
+    ? authoritativeHiddenFieldIds
+    : await computeAuthoritativeHiddenFieldIds({
+      db,
+      tenantId,
+      form,
+      formValues: submissionData,
+      visibilityOptions,
+    });
   const relationshipService = createFormRelationshipService({ db, tenantId });
   // Structured actions are another submission side-effect path, so repeatable
   // answers must pass the same structural and dynamic validation as ordinary,
@@ -2234,11 +2267,19 @@ export async function preflightPersistedStructuredMemberOrganizationGroups({
   if (!contract || contract.actions.length === 0) return null;
   const fields = form?.fields || [];
   const preferences = preferenceFields || await loadPreferenceFields(db, tenantId);
+  const authoritativeHiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues: submission?.submission_data || {},
+    visibilityOptions,
+  });
   const invocations = expandStructuredActionInvocations(
     contract,
     form,
     submission?.submission_data || {},
     visibilityOptions,
+    authoritativeHiddenFieldIds,
   );
   for (const invocation of invocations) invocation.formFields = fields;
   await preflightMemberOrganizationGroupInvocations({
@@ -2904,7 +2945,21 @@ export async function processPersistedStructuredActions({
   const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
     ? { lmicCodes: await loadTenantLmicCodes(db, tenantId) }
     : {};
-  await validateDirectSelectors(db, tenantId, form, submission.submission_data || {}, visibilityOptions);
+  const authoritativeHiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues: submission.submission_data || {},
+    visibilityOptions,
+  });
+  await validateDirectSelectors(
+    db,
+    tenantId,
+    form,
+    submission.submission_data || {},
+    visibilityOptions,
+    authoritativeHiddenFieldIds,
+  );
   // Validate relationship picker definitions even for a Not-listed answer:
   // validateSubmission correctly skips option lookup for that sentinel, but a
   // resolver must never use it to bypass stale relationship metadata.
@@ -2928,6 +2983,7 @@ export async function processPersistedStructuredActions({
     form,
     submission.submission_data || {},
     visibilityOptions,
+    authoritativeHiddenFieldIds,
   );
   for (const invocation of invocations) invocation.formFields = form.fields || [];
   // Resolve every direct member-group assignment before any authorization

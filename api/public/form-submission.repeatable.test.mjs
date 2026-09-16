@@ -250,6 +250,7 @@ function makeResponseRecorder() {
 test('ordinary submissions load persisted visibility context for repeatable validation', async () => {
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
   assert.match(source, /\.select\('[^']*\bfields, pages, visibility_rules\b[^']*'\)/);
+  assert.match(source, /const hiddenRelationshipFieldIds = await computeAuthoritativeHiddenFieldIds\(/);
   assert.match(source, /validateRepeatableRowSubmission\(\{[\s\S]*?visibilityOptions: submissionVisibilityOptions,/);
 });
 

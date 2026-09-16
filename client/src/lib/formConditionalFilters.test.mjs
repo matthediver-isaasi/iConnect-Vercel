@@ -13,6 +13,7 @@ import {
   resolveConditionalFilters,
 } from './formConditionalFilters.js';
 import { initializeCommunicationPreferenceDefaults } from './formCommunicationPreferenceDefaults.js';
+import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
 
 const rule = (overrides = {}) => ({
   id: 'rule',
@@ -117,7 +118,15 @@ test('form view waits for member identity and prefill role before initializing c
   assert.match(source, /const communicationEligibilityReady = authResolved/);
   assert.match(source, /memberInfo\?\.id && memberRecordLoading/);
   assert.match(source, /prefillMemberId && form\?\.prefill_source === 'member' && prefillMemberLoading/);
-  assert.equal((source.match(/communicationEligibilityReady=\{communicationEligibilityReady\}/g) || []).length, 2);
+  const probeProps = source.match(
+    /<RepeatableAvailabilityProbe[\s\S]*?communicationEligibilityReady=\{communicationEligibilityReady\}/g,
+  ) || [];
+  const rendererProps = source.match(
+    /<FormRenderer[\s\S]*?communicationEligibilityReady=\{communicationEligibilityReady\}/g,
+  ) || [];
+  assert.equal(probeProps.length, 2, 'both card and paginated hidden probes receive auth readiness');
+  assert.equal(rendererProps.length, 2, 'both card and paginated visible renderers receive auth readiness');
+  assert.equal(probeProps.length + rendererProps.length, 4);
 });
 
 test('communication preference builder keeps inclusion and default selection distinct', () => {
@@ -280,6 +289,40 @@ test('an empty target exclusion adds no restriction', () => {
     values: { source: 'x' },
   });
   assert.deepEqual(intersectConditionalOptions(['new', 'existing'], resolution), ['new', 'existing']);
+});
+
+test('conditional option intersection keeps Not listed in parity for include and exclude targets', () => {
+  const options = [
+    { id: FORM_NOT_LISTED_VALUE },
+    { id: 'org-1' },
+  ];
+  const cases = [
+    { mode: 'include', allowed_values: ['org-1'], expected: ['org-1'] },
+    { mode: 'include', allowed_values: [FORM_NOT_LISTED_VALUE], expected: [FORM_NOT_LISTED_VALUE] },
+    { mode: 'exclude', allowed_values: [FORM_NOT_LISTED_VALUE], expected: ['org-1'] },
+    { mode: 'exclude', allowed_values: ['org-1'], expected: [FORM_NOT_LISTED_VALUE] },
+    { mode: 'include', allowed_values: [], expected: [FORM_NOT_LISTED_VALUE, 'org-1'] },
+    { mode: 'exclude', allowed_values: [], expected: [FORM_NOT_LISTED_VALUE, 'org-1'] },
+  ];
+  for (const current of cases) {
+    const resolution = resolveConditionalFilters({
+      field: {
+        conditional_filters: {
+          version: 1,
+          rules: [rule({
+            allowed_values: current.allowed_values,
+            allowed_values_mode: current.mode,
+          })],
+        },
+      },
+      values: { source: 'x' },
+    });
+    assert.deepEqual(
+      intersectConditionalOptions(options, resolution, option => option.id).map(option => option.id),
+      current.expected,
+      `${current.mode}:${current.allowed_values.join(',')}`,
+    );
+  }
 });
 
 test('a matched rule with no allowed values adds no choice restriction', () => {

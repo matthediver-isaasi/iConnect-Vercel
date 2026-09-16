@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
-import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
@@ -176,11 +176,13 @@ export default async function handler(req, res) {
     const visibilityOptions = rulesUseLmicOperators(contractForm.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantContext.tenantId) }
       : {};
-    const hiddenFieldIds = computeHiddenFieldIds(
-      contractForm,
-      fullSubmissionData,
+    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: tenantContext.tenantId,
+      form: contractForm,
+      formValues: fullSubmissionData,
       visibilityOptions,
-    );
+    });
     const futureDateErrors = validateFutureDateFields(
       contractForm.fields || [],
       fullSubmissionData,

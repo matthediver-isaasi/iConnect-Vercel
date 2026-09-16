@@ -92,7 +92,10 @@ import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
-import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  computeHiddenFieldIds,
+} from '../../_lib/formFieldVisibility.js';
 import {
   sameFormAnswerValues,
   validateFutureDateFields,
@@ -125,6 +128,29 @@ export function validateGenericFormSubmissionFutureDates({
 } = {}) {
   const values = submissionData || {};
   const hiddenFieldIds = computeHiddenFieldIds(form, values, visibilityOptions);
+  const errors = validateFutureDateFields(
+    form?.fields || [],
+    values,
+    { hiddenFieldIds },
+  );
+  return { hiddenFieldIds, errors };
+}
+
+export async function validateGenericFormSubmissionFutureDatesAuthoritatively({
+  db,
+  tenantId,
+  form,
+  submissionData,
+  visibilityOptions = {},
+} = {}) {
+  const values = submissionData || {};
+  const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues: values,
+    visibilityOptions,
+  });
   const errors = validateFutureDateFields(
     form?.fields || [],
     values,
@@ -2175,7 +2201,9 @@ export default async function handler(req, res) {
         }
         if (!existingIdempotentSubmission) {
           const { hiddenFieldIds, errors: futureDateErrors } =
-            validateGenericFormSubmissionFutureDates({
+            await validateGenericFormSubmissionFutureDatesAuthoritatively({
+              db: supabase,
+              tenantId: effectiveAccessForm.tenant_id,
               form: effectiveAccessForm,
               submissionData: sanitizedBody.submission_data || {},
               visibilityOptions,

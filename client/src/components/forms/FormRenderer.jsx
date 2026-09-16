@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,7 +72,10 @@ import {
   normalizeRelationshipSelection,
   toggleRelationshipSelection,
 } from "../../../../shared/formRelationshipSelection.js";
-import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipChoice.js";
+import {
+  FORM_NO_RELATIONSHIP_VALUE,
+  formNoRelationshipLabel,
+} from "../../../../shared/formNoRelationshipChoice.js";
 import {
   createRepeatableRowId,
   ensureRepeatableRowIds,
@@ -89,6 +92,11 @@ import {
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from "../../../../shared/formRepeatableRows.js";
+import * as repeatableRowSupport from "../../../../shared/formRepeatableRows.js";
+import {
+  repeatableAvailabilityState,
+  resolveRepeatableFirstColumnVisibility,
+} from "@/lib/repeatableRowsEmptyVisibility";
 import {
   ensureFutureDateRowIds,
   futureDateError,
@@ -116,6 +124,18 @@ function SpreadsheetCell({ headingId, contextId, testId, children }) {
   );
 }
 
+// Keep an empty repeatable container's option resolver mounted after the
+// navigable projection removes it. This is deliberately visually hidden, not
+// unmounted: dependency changes must be able to restore the container and its
+// retained answers.
+export function RepeatableAvailabilityProbe(props) {
+  return (
+    <div hidden aria-hidden="true" data-testid={`repeatable-empty-probe-${props.field?.id || 'field'}`}>
+      <FormRenderer {...props} availabilityProbe />
+    </div>
+  );
+}
+
 function RepeatableRowsField({
   field,
   value,
@@ -133,8 +153,20 @@ function RepeatableRowsField({
   notListedDisplayLabel,
   rootAllFields,
   rootAllFormValues,
+  onVisibilityChange,
+  availabilityProbe = false,
 }) {
   const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
+  const firstChild = config.children[0] || null;
+  const hideWhenFirstColumnEmpty = config.hide_when_first_column_empty === true;
+  const firstColumnSupport = useMemo(() => {
+    const resolver = repeatableRowSupport.repeatableEmptyAvailabilitySupport;
+    if (typeof resolver !== 'function' || !firstChild) {
+      return { supported: false, reason: 'unsupported' };
+    }
+    return resolver(field) || { supported: false, reason: 'unsupported' };
+  }, [field, firstChild]);
+  const [firstColumnAvailability, setFirstColumnAvailability] = useState({});
   const [childValidity, setChildValidity] = useState({});
   const lastReportedValidity = useRef();
   const initializedRows = useRef(false);
@@ -157,6 +189,23 @@ function RepeatableRowsField({
   const rows = reconciledRows.currentRows;
   latestRows.current = reconciledRows.currentRows;
   pendingRows.current = reconciledRows.pendingRows;
+  const activeFirstColumnAvailability = useMemo(() => {
+    const currentRowIds = new Set(rows.map(row => row?._row_id).filter(Boolean));
+    return Object.fromEntries(
+      Object.entries(firstColumnAvailability)
+        .filter(([rowId]) => currentRowIds.has(rowId)),
+    );
+  }, [firstColumnAvailability, rows]);
+  const firstColumnVisibility = useMemo(() => resolveRepeatableFirstColumnVisibility({
+    enabled: hideWhenFirstColumnEmpty,
+    support: firstColumnSupport,
+    states: Object.values(activeFirstColumnAvailability),
+  }), [
+    activeFirstColumnAvailability,
+    firstColumnSupport,
+    hideWhenFirstColumnEmpty,
+  ]);
+  const probeHasAuthoritativeState = useRef(false);
   const targetInitialRows = Math.max(config.min_rows, 1);
   const createRow = () => Object.fromEntries([
     ['_row_id', createRepeatableRowId()],
@@ -228,6 +277,49 @@ function RepeatableRowsField({
         : current
     )));
   };
+  const reportFirstColumnAvailability = useCallback((rowId, state) => {
+    setFirstColumnAvailability(current => {
+      const previous = current[rowId];
+      if (
+        previous?.status === state?.status
+        && previous?.reason === state?.reason
+        && previous?.optionCount === state?.optionCount
+      ) return current;
+      return { ...current, [rowId]: state };
+    });
+  }, []);
+  useEffect(() => {
+    if (
+      availabilityProbe
+      && firstColumnVisibility.status === 'pending'
+      && !probeHasAuthoritativeState.current
+    ) {
+      return;
+    }
+    if (firstColumnVisibility.status !== 'pending') {
+      probeHasAuthoritativeState.current = true;
+    }
+    onVisibilityChange?.(
+      firstColumnVisibility.hidden,
+      firstColumnVisibility.status,
+    );
+  }, [
+    field.id,
+    firstColumnVisibility.hidden,
+    firstColumnVisibility.status,
+    onVisibilityChange,
+    availabilityProbe,
+  ]);
+  useEffect(() => {
+    const currentRowIds = new Set(rows.map(row => row?._row_id).filter(Boolean));
+    setFirstColumnAvailability(previous => {
+      const next = Object.fromEntries(
+        Object.entries(previous).filter(([rowId]) => currentRowIds.has(rowId)),
+      );
+      if (Object.keys(next).length === Object.keys(previous).length) return previous;
+      return next;
+    });
+  }, [rows]);
   const addRow = () => {
     if (latestRows.current.length >= config.max_rows) return;
     commitRows(currentRows => [...currentRows, createRow()]);
@@ -236,6 +328,12 @@ function RepeatableRowsField({
     if (latestRows.current.length <= config.min_rows) return;
     commitRows(currentRows => currentRows.filter(row => row._row_id !== rowId));
     setChildValidity(current => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setFirstColumnAvailability(current => {
+      if (!(rowId in current)) return current;
       const next = { ...current };
       delete next[rowId];
       return next;
@@ -302,6 +400,19 @@ function RepeatableRowsField({
         notListedDisplayLabel={notListedDisplayLabel}
         repeatableSiblingUniqueValues={siblingUniqueValues}
         repeatableFormExcludedValues={formExcludedValues}
+         preserveValueWhenUnavailable={
+           hideWhenFirstColumnEmpty && child.id === firstChild?.id
+         }
+         onRepeatableAvailabilityChange={
+           hideWhenFirstColumnEmpty && child.id === firstChild?.id
+             ? state => reportFirstColumnAvailability(rowId, state)
+             : undefined
+         }
+         repeatableAvailabilitySupport={
+           hideWhenFirstColumnEmpty && child.id === firstChild?.id
+             ? firstColumnSupport
+             : null
+         }
       />
       {duplicateErrors.has(`${rowIndex}:${child.id}`) && (
         <p
@@ -771,7 +882,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [] }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], availabilityProbe = false }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -789,6 +900,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
+  const [repeatableContainerHidden, setRepeatableContainerHidden] = useState(false);
   const [futureDateNow, setFutureDateNow] = useState(() => new Date());
   const lastNotListedValidity = useRef();
   const lastFutureDateValidity = useRef();
@@ -1069,6 +1181,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       formId,
       field.id,
       field.repeatable_container_field_id,
+      Boolean(onRepeatableAvailabilityChange),
       organizationQueryInstance,
       organizationAnswersRevision.current,
     ],
@@ -1078,11 +1191,16 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       field.id,
       scopedOrganizationSourceAnswers,
       field.repeatable_container_field_id,
+      null,
+      {
+        availabilityProbe: Boolean(onRepeatableAvailabilityChange),
+      },
     ),
     enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000
   });
   useEffect(() => {
+    if (preserveValueWhenUnavailable) return;
     if (shouldClearFilteredOrganisationValue({
       field,
       value,
@@ -1099,6 +1217,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     orgsLoading,
     value,
     onChange,
+    preserveValueWhenUnavailable,
   ]);
 
   const { data: organisationGroups = [], isLoading: organisationGroupsLoading, isError: organisationGroupsError } = useQuery({
@@ -1226,6 +1345,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       options: relationshipOptions,
       optionsLoaded: relationshipOptionsLoaded,
     });
+    if (preserveValueWhenUnavailable) {
+      previousRelationshipParent.current = relationshipParentValue;
+      return;
+    }
     if (parentTransitionValue !== null) {
       onChange(parentTransitionValue);
     } else if (relationshipValues.needsCanonicalValue) {
@@ -1241,6 +1364,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     relationshipCurrentValue,
     relationshipValues.needsCanonicalValue,
     onChange,
+    preserveValueWhenUnavailable,
   ]);
 
   // Fetch resource categories for category_multiselect and category_dropdown field types (uses public endpoint)
@@ -1391,13 +1515,20 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     )
   );
   useEffect(() => {
+    if (preserveValueWhenUnavailable) return;
     const next = removeRepeatableExcludedSelection(
       value,
       repeatableComparisonField,
       formExcludedValues,
     );
     if (next !== value) onChange(next);
-  }, [value, repeatableComparisonField, formExcludedValues, onChange]);
+  }, [
+    value,
+    repeatableComparisonField,
+    formExcludedValues,
+    onChange,
+    preserveValueWhenUnavailable,
+  ]);
   const customCountryOptions = useMemo(() => {
     const restricted = customFieldDef?.all_countries !== false
       ? COUNTRIES
@@ -1405,7 +1536,167 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     return intersectConditionalOptions(restricted, conditionalResolution, country => [country.code, country.name]);
   }, [customFieldDef?.all_countries, customFieldDef?.selected_countries, conditionalResolution]);
 
+  const repeatableFirstColumnAvailability = useMemo(() => {
+    if (!onRepeatableAvailabilityChange) return null;
+    const resolver = repeatableRowSupport.repeatableEmptyAvailabilitySupport;
+    let support = repeatableAvailabilitySupport || { supported: false, reason: 'unsupported' };
+    if (!repeatableAvailabilitySupport && typeof resolver === 'function') {
+      support = resolver(field) || support;
+    }
+
+    let options = [];
+    let loading = false;
+    let error = false;
+    let loaded = true;
+    let prerequisiteMissing = false;
+    let optionCountOverride = null;
+
+    if (field.type === 'organisation_dropdown') {
+      // Count the resolver's organisation domain after the saved conditional
+      // filter has been applied, but before sibling uniqueness. This keeps the
+      // opt-in availability projection in parity with the client fallback
+      // rule (including an excluded Not Listed sentinel) while preserving the
+      // underlying domain when another row already selected an option.
+      const availableOrganisations = organisationOptions.filter(organisation => (
+        organisation.id !== FORM_NOT_LISTED_VALUE
+        && !repeatableSelectionContainsExcludedValue(
+          organisation.id,
+          field,
+          formExcludedValues,
+        )
+      ));
+      const notListedAvailable = hasEnabledFormNotListedChoice(field)
+        && organisationOptions.some(option => option.id === FORM_NOT_LISTED_VALUE)
+        && !repeatableSelectionContainsExcludedValue(
+          FORM_NOT_LISTED_VALUE,
+          field,
+          formExcludedValues,
+        );
+      options = availableOrganisations;
+      optionCountOverride = options.length + (notListedAvailable ? 1 : 0);
+      loading = orgsLoading;
+      error = orgsError;
+      loaded = !orgsLoading && !orgsError;
+      const parentId = field.organisation_group_parent_field_id;
+      if (parentId) {
+        const parentScope = field.organisation_group_parent_scope
+          ?? field.organisation_group_parent_field_scope
+          ?? 'row';
+        const parentFields = parentScope === 'form'
+          ? (rootAllFields || allFields)
+          : allFields;
+        const parent = resolveSavedFormField(parentFields, parentId);
+        const parentValues = parentScope === 'form'
+          ? (rootAllFormValues || allFormValues)
+          : allFormValues;
+        const parentValue = getSavedFormFieldValue(parentValues, parent);
+        prerequisiteMissing = !parent
+          || isRepeatableValueEmpty(parentValue)
+          || parentValue === FORM_NO_RELATIONSHIP_VALUE
+          || parentValue === FORM_NOT_LISTED_VALUE;
+      }
+      if (!formSlug && !formId) prerequisiteMissing = true;
+    } else if (field.type === 'organisation_group_dropdown') {
+      options = organisationGroupOptions;
+      loading = organisationGroupsLoading;
+      error = organisationGroupsError;
+      loaded = !organisationGroupsLoading && !organisationGroupsError;
+      if (!formSlug && !formId) prerequisiteMissing = true;
+    } else if (field.type === 'relationship_dropdown') {
+      options = relationshipOptions;
+      loading = relationshipOptionsLoading;
+      error = relationshipOptionsError;
+      loaded = relationshipOptionsLoaded;
+      if (usesRowOptionSource) {
+        prerequisiteMissing = !relationshipDependenciesReady
+          || (!isDistinctRowSource(field) && !relationshipParentValue);
+      } else {
+        prerequisiteMissing = !field.parent_field_id
+          || isRepeatableValueEmpty(relationshipParentValue)
+          || relationshipParentValue === FORM_NO_RELATIONSHIP_VALUE;
+      }
+      if (!formSlug) prerequisiteMissing = true;
+    } else if (field.type === 'category_dropdown') {
+      options = categoryDropdownOptions;
+      loading = categoriesLoading;
+    } else if (field.type === 'category_multiselect') {
+      options = categoryMultiselectAllowedValues;
+      loading = categoriesLoading;
+    } else if (
+      field.type === 'custom_field'
+      && ['checkbox', 'picklist', 'radio'].includes(customFieldDef?.field_type)
+    ) {
+      options = customFieldOptions;
+      loading = customFieldLoading;
+      prerequisiteMissing = !field.custom_field_id;
+    } else if (
+      field.type === 'custom_field'
+      && ['country', 'countries'].includes(customFieldDef?.field_type)
+    ) {
+      options = customCountryOptions;
+      loading = customFieldLoading;
+      prerequisiteMissing = !field.custom_field_id;
+    } else if (['dropdown', 'select', 'radio', 'checkbox'].includes(field.type)) {
+      options = staticOptions;
+    } else {
+      return repeatableAvailabilityState({ support });
+    }
+
+    return repeatableAvailabilityState({
+      support,
+      loading,
+      error,
+      prerequisiteMissing,
+      loaded,
+      optionCount: optionCountOverride ?? options.length,
+    });
+  }, [
+    allFields,
+    allFormValues,
+    categoriesLoading,
+    categoryDropdownOptions,
+    categoryMultiselectAllowedValues,
+    customFieldDef?.field_type,
+    customFieldLoading,
+    customFieldOptions,
+    customCountryOptions,
+    field,
+    formId,
+    formSlug,
+    getSavedFormFieldValue,
+    isDistinctRowSource,
+    onRepeatableAvailabilityChange,
+    repeatableAvailabilitySupport,
+    organisationGroupOptions,
+    organisationGroupsError,
+    organisationGroupsLoading,
+    organisationOptions,
+    organisations,
+    formExcludedValues,
+    orgsError,
+    orgsLoading,
+    relationshipDependenciesReady,
+    relationshipOptions,
+    relationshipOptionsError,
+    relationshipOptionsLoaded,
+    relationshipOptionsLoading,
+    relationshipParentValue,
+    rootAllFields,
+    rootAllFormValues,
+    staticOptions,
+    usesRowOptionSource,
+  ]);
+
   useEffect(() => {
+    if (!onRepeatableAvailabilityChange || !repeatableFirstColumnAvailability) return;
+    onRepeatableAvailabilityChange(repeatableFirstColumnAvailability);
+  }, [
+    onRepeatableAvailabilityChange,
+    repeatableFirstColumnAvailability,
+  ]);
+
+  useEffect(() => {
+    if (preserveValueWhenUnavailable) return;
     if (!conditionalResolution.configured) return;
     let options;
     let loading = false;
@@ -1458,6 +1749,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     relationshipParentValue, availableCountryOptions, availableCountryNotListedLabel, onChange,
     categoryDropdownOptions, categoryMultiselectAllowedValues, categoriesLoading,
     customFieldDef?.field_type, customFieldOptions, customCountryOptions, customFieldLoading,
+    preserveValueWhenUnavailable,
   ]);
 
   // Auto-populate user fields
@@ -1528,6 +1820,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       notListedDisplayLabel={notListedDisplayLabel}
       rootAllFields={allFields}
       rootAllFormValues={allFormValues}
+      availabilityProbe={availabilityProbe}
+      onVisibilityChange={(hidden, status) => {
+        setRepeatableContainerHidden(previous => previous === hidden ? previous : hidden);
+        onRepeatableVisibilityChange?.(field.id, hidden, status);
+      }}
     />
   );
 
@@ -3399,11 +3696,24 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   }
 
   if (hideLabel) {
-    return renderFieldWithNotListedText();
+    return repeatableContainerHidden ? (
+      <div
+        hidden
+        aria-hidden="true"
+        data-testid={`repeatable-empty-container-${field.id}`}
+      >
+        {renderFieldWithNotListedText()}
+      </div>
+    ) : renderFieldWithNotListedText();
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      className={repeatableContainerHidden ? 'hidden' : 'space-y-2'}
+      hidden={repeatableContainerHidden}
+      aria-hidden={repeatableContainerHidden ? 'true' : undefined}
+      data-testid={repeatableContainerHidden ? `repeatable-empty-container-${field.id}` : undefined}
+    >
       <div>
         <Label htmlFor={field.id}>
           {field.label}

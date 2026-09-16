@@ -156,3 +156,4 @@
 - [Due Diligence applicant identity](due-diligence-applicant-identity.md) — form application type selects the name; organisation applicants can also have contact members.
 - [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
+- [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.

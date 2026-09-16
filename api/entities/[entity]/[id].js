@@ -92,7 +92,7 @@ import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
-import { computeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
+import { computeAuthoritativeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
@@ -923,11 +923,13 @@ export default async function handler(req, res) {
                 );
               }
             }
-            const hiddenFieldIds = computeHiddenFieldIds(
-              subForm,
-              effectiveSubmissionData,
+            const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+              db: supabase,
+              tenantId: subForm.tenant_id,
+              form: subForm,
+              formValues: effectiveSubmissionData,
               visibilityOptions,
-            );
+            });
             const futureDateErrors = validateFutureDateFields(
               subForm.fields || [],
               effectiveSubmissionData,
