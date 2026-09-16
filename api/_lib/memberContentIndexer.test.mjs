@@ -11,11 +11,18 @@ import assert from 'node:assert/strict';
 import {
   sweepOrphanedMemberContentChunks,
   deleteMemberContentChunks,
+  reindexMemberContentItem,
+  reindexAllMemberContent,
+  MEMBER_CONTENT_SCHEMA_MISMATCH,
+  preflightMemberContentSchema,
 } from './memberContentIndexer.js';
 
 // Minimal thenable query-builder mock. `handler(state)` receives the accumulated
 // query state and returns { data, error, count }.
-function makeSupabaseMock(handler) {
+function makeSupabaseMock(
+  handler,
+  { schemaProbe = { code: '42703' }, rpc = null } = {}
+) {
   function builder(table) {
     const state = { table, op: 'select', filters: {}, range: null };
     const b = {
@@ -29,12 +36,22 @@ function makeSupabaseMock(handler) {
         state.deleteOpts = opts;
         return b;
       },
+      upsert(rows, opts) {
+        state.op = 'upsert';
+        state.rows = rows;
+        state.upsertOpts = opts;
+        return b;
+      },
       eq(col, val) {
         state.filters[col] = val;
         return b;
       },
       in(col, vals) {
         state.filters[`in:${col}`] = vals;
+        return b;
+      },
+      gte(col, val) {
+        state.filters[`gte:${col}`] = val;
         return b;
       },
       order() {
@@ -44,8 +61,20 @@ function makeSupabaseMock(handler) {
         state.range = [from, to];
         return b;
       },
+      limit(value) {
+        state.limit = value;
+        return b;
+      },
       then(resolve, reject) {
         try {
+          if (
+            state.table === 'member_content_chunk' &&
+            state.op === 'select' &&
+            state.cols === 'source_generation'
+          ) {
+            resolve({ data: null, error: schemaProbe });
+            return;
+          }
           resolve(handler(state));
         } catch (err) {
           reject(err);
@@ -54,7 +83,12 @@ function makeSupabaseMock(handler) {
     };
     return b;
   }
-  return { from: (t) => builder(t) };
+  return {
+    from: (t) => builder(t),
+    rpc: rpc || (async (name) => {
+      throw new Error(`unexpected RPC ${name}`);
+    }),
+  };
 }
 
 test('sweep purges chunks whose source row no longer exists', async () => {
@@ -184,4 +218,150 @@ test('deleteMemberContentChunks omits tenant filter when not given', async () =>
 
   assert.equal(captured.filters.tenant_id, undefined);
   assert.equal(captured.filters.source_id, 'e1');
+});
+
+test('generation schema routes direct deletion through the tombstone publisher', async () => {
+  const operations = [];
+  const supabase = makeSupabaseMock(
+    (state) => {
+      operations.push(state);
+      if (state.table === 'member_content_source' && state.op === 'select') {
+        return {
+          data: [{ tenant_id: 'tenant-1' }],
+          error: null,
+        };
+      }
+      if (state.table === 'event' && state.op === 'select') {
+        return { data: [], error: null };
+      }
+      if (
+        state.table === 'member_content_chunk' &&
+        state.op === 'select'
+      ) {
+        return { data: [], error: null };
+      }
+      if (
+        state.table === 'member_content_source' &&
+        state.op === 'update'
+      ) {
+        return { data: null, error: null };
+      }
+      throw new Error(`unexpected query: ${JSON.stringify(state)}`);
+    },
+    {
+      schemaProbe: null,
+      rpc: async (name, args) => {
+        if (name === 'publish_member_content_repair') {
+          if (args.p_tenant_id === null) return { data: false, error: null };
+          return { data: true, error: null };
+        }
+        if (name === 'claim_member_content_generation') {
+          return {
+            data: [{
+              generation: 1,
+              claim_token: 'claim-1',
+              already_active: false,
+            }],
+            error: null,
+          };
+        }
+        throw new Error(`unexpected RPC ${name}`);
+      },
+    }
+  );
+
+  const result = await deleteMemberContentChunks('event', 'e1', {
+    supabase,
+  });
+  assert.equal(result.tombstoned, true);
+  assert.equal(operations.some((state) => state.op === 'delete'), false);
+});
+
+test('schema probe errors fail before embedding or mutation', async () => {
+  let embeddingCalls = 0;
+  const operations = [];
+  const supabase = makeSupabaseMock(
+    (state) => {
+      operations.push(state);
+      throw new Error(`unexpected query: ${JSON.stringify(state)}`);
+    },
+    { schemaProbe: { code: '42501', message: 'permission denied' } }
+  );
+
+  await assert.rejects(
+    () =>
+      reindexMemberContentItem(
+        'blog_post',
+        { id: 'b1', title: 'Blog', content: 'Body', status: 'published' },
+        {
+          supabase,
+          openai: {
+            embeddings: {
+              create: async () => {
+                embeddingCalls++;
+                return { data: [{ embedding: [1] }] };
+              },
+            },
+          },
+        }
+      ),
+    (error) => {
+      assert.equal(error.code, '42501');
+      return true;
+    }
+  );
+  assert.equal(embeddingCalls, 0);
+  assert.equal(operations.some((state) => state.op === 'delete'), false);
+});
+
+test('legacy schema proceeds through embedding and upsert', async () => {
+  const operations = [];
+  let embeddingCalls = 0;
+  const supabase = makeSupabaseMock((state) => {
+    operations.push(state);
+    if (state.table !== 'member_content_chunk') {
+      throw new Error(`unexpected query: ${JSON.stringify(state)}`);
+    }
+    if (state.op === 'select') {
+      return { data: [], error: null };
+    }
+    return { data: null, error: null };
+  });
+
+  const summary = await reindexMemberContentItem(
+    'blog_post',
+    { id: 'b1', title: 'Blog', content: 'Body', status: 'published' },
+    {
+      supabase,
+      openai: {
+        embeddings: {
+          create: async () => {
+            embeddingCalls++;
+            return { data: [{ embedding: [1] }] };
+          },
+        },
+      },
+    }
+  );
+
+  assert.equal(embeddingCalls, 1);
+  assert.equal(summary.embedded, 1);
+  assert.equal(operations.some((state) => state.op === 'upsert'), true);
+});
+
+test('direct legacy preflight still rejects the generation schema', async () => {
+  const supabase = makeSupabaseMock(
+    (state) => {
+      throw new Error(`unexpected query: ${JSON.stringify(state)}`);
+    },
+    { schemaProbe: null }
+  );
+
+  await assert.rejects(
+    () => preflightMemberContentSchema(supabase),
+    (error) => {
+      assert.equal(error.code, MEMBER_CONTENT_SCHEMA_MISMATCH);
+      return true;
+    }
+  );
 });

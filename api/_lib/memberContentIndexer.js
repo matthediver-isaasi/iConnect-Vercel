@@ -18,8 +18,85 @@ import { getDefaultOpenAIClient, embedTexts, EMBEDDING_MODEL } from './helpArtic
 import { CONTENT_TYPES, PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
 import { collectCanvasSymbolIds } from '../../client/src/lib/canvasText.js';
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
+import {
+  writeMemberContentGeneration,
+  reindexAllMemberContentGeneration,
+} from './memberContentGenerationWriter.js';
+import {
+  deleteMemberContentGenerationTombstone,
+  sweepMemberContentGenerationTombstones,
+} from './memberContentGenerationTombstones.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
+
+// The deployed destination has a newer, generation-aware publication contract
+// which this legacy writer cannot satisfy. Probe the capability once per
+// indexing run, rather than allowing every item to embed and then fail at its
+// upsert. The context is deliberately caller-owned and short-lived: a module
+// cache could hide a schema change indefinitely.
+export const MEMBER_CONTENT_SCHEMA_MISMATCH = 'MEMBER_CONTENT_SCHEMA_MISMATCH';
+const LEGACY_MEMBER_CONTENT_SCHEMA = 'legacy';
+const GENERATION_MEMBER_CONTENT_SCHEMA = 'generation';
+
+export function createMemberContentSchemaContext() {
+  return { capability: null };
+}
+
+function schemaMismatchError() {
+  const error = new Error(
+    `${MEMBER_CONTENT_SCHEMA_MISMATCH}: member_content_chunk.source_generation exists; ` +
+      'the legacy member-content writer cannot safely mutate a generation-aware index'
+  );
+  error.code = MEMBER_CONTENT_SCHEMA_MISMATCH;
+  return error;
+}
+
+/**
+ * Confirm that this writer is only pointed at the legacy member-content
+ * schema. A missing source_generation column is the expected legacy signal
+ * (Postgres 42703). Any other probe error is real and must remain visible.
+ *
+ * @param {object} supabase
+ * @param {object} schemaContext run-scoped context from
+ *   createMemberContentSchemaContext()
+ */
+export async function preflightMemberContentSchema(
+  supabase,
+  schemaContext = createMemberContentSchemaContext()
+) {
+  await detectMemberContentSchema(supabase, schemaContext);
+  if (schemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    throw schemaMismatchError();
+  }
+  return schemaContext;
+}
+
+/**
+ * Detect the destination capability without applying the legacy-writer guard.
+ * Item/bulk dispatchers use this to select the generation-safe writer; direct
+ * delete and legacy sweep callers continue using preflightMemberContentSchema
+ * below and therefore still fail closed on the generation schema.
+ */
+export async function detectMemberContentSchema(
+  supabase,
+  schemaContext = createMemberContentSchemaContext()
+) {
+  if (schemaContext.capability) return schemaContext;
+  const { error } = await supabase
+    .from('member_content_chunk')
+    .select('source_generation')
+    .limit(0);
+
+  if (!error) {
+    schemaContext.capability = GENERATION_MEMBER_CONTENT_SCHEMA;
+    return schemaContext;
+  }
+  if (error.code === '42703') {
+    schemaContext.capability = LEGACY_MEMBER_CONTENT_SCHEMA;
+    return schemaContext;
+  }
+  throw error;
+}
 
 // Per-type config: the source table, its RBAC feature key, and the columns we
 // need to build text + visibility metadata.
@@ -137,6 +214,31 @@ export function isIndexable(contentType, item) {
   }
 }
 
+async function resolveGenerationTenantForDelete(supabase, contentType, sourceId) {
+  const { data, error } = await supabase
+    .from('member_content_source')
+    .select('tenant_id')
+    .eq('content_type', contentType)
+    .eq('source_id', sourceId)
+    .limit(2);
+  if (error) throw error;
+  const tenants = Array.from(
+    new Set(
+      (Array.isArray(data) ? data : data ? [data] : [])
+        .map((row) => row?.tenant_id)
+        .filter((value) => typeof value === 'string' && value.length > 0)
+    )
+  );
+  if (tenants.length !== 1) {
+    const errorWithCode = new Error(
+      'Generation-safe deletion requires exactly one tenant registry row'
+    );
+    errorWithCode.code = 'MEMBER_CONTENT_TOMBSTONE_TENANT_REQUIRED';
+    throw errorWithCode;
+  }
+  return tenants[0];
+}
+
 function buildMetadata(contentType, item) {
   const cfg = CONTENT_TYPE_CONFIG[contentType];
   return {
@@ -183,7 +285,30 @@ async function attachCanvasSymbols(item, supabase) {
   item.__symbols = map;
 }
 
-export async function deleteMemberContentChunks(contentType, sourceId, { supabase, tenantId = null } = {}) {
+export async function deleteMemberContentChunks(
+  contentType,
+  sourceId,
+  { supabase, tenantId = null, schemaContext = null } = {}
+) {
+  if (!supabase) throw new Error('deleteMemberContentChunks requires a supabase client');
+  const context = await detectMemberContentSchema(
+    supabase,
+    schemaContext || createMemberContentSchemaContext()
+  );
+  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    const resolvedTenant =
+      tenantId || (await resolveGenerationTenantForDelete(supabase, contentType, sourceId));
+    return deleteMemberContentGenerationTombstone({
+      contentType,
+      sourceId,
+      tenantId: resolvedTenant,
+      supabase,
+    });
+  }
+  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
+    throw schemaMismatchError();
+  }
+
   let query = supabase
     .from('member_content_chunk')
     .delete()
@@ -206,8 +331,38 @@ export async function deleteMemberContentChunks(contentType, sourceId, { supabas
  * @param {object} deps { supabase, tenantId?, contentType? }
  * @returns {Promise<object>} per-type orphan removal counts
  */
-export async function sweepOrphanedMemberContentChunks({ supabase, tenantId = null, contentType = null } = {}) {
+export async function sweepOrphanedMemberContentChunks({
+  supabase,
+  tenantId = null,
+  contentType = null,
+  schemaContext = null,
+  maxItems = 50,
+  deadlineMs = null,
+  cursor = null,
+} = {}) {
   if (!supabase) throw new Error('sweepOrphanedMemberContentChunks requires a supabase client');
+  const context = await detectMemberContentSchema(
+    supabase,
+    schemaContext || createMemberContentSchemaContext()
+  );
+  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    const swept = await sweepMemberContentGenerationTombstones({
+      supabase,
+      tenantId,
+      contentType,
+      maxItems,
+      deadlineMs,
+      cursor,
+    });
+    return {
+      ...swept,
+      removedChunks: 0,
+      removedSources: swept.tombstoned || 0,
+    };
+  }
+  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
+    throw schemaMismatchError();
+  }
 
   const types = contentType ? [contentType] : CONTENT_TYPES;
   const summary = { removedChunks: 0, removedSources: 0, byType: {} };
@@ -288,7 +443,18 @@ export async function sweepOrphanedMemberContentChunks({ supabase, tenantId = nu
  * @param {object} deps        { supabase, openai }
  * @returns {Promise<object>}  summary
  */
-export async function reindexMemberContentItem(contentType, item, { supabase, openai } = {}) {
+export async function reindexMemberContentItem(
+  contentType,
+  item,
+  {
+    supabase,
+    openai,
+    schemaContext = null,
+    embeddingBudget = null,
+    embedTexts: embedTextsFn = null,
+    capabilityProbe = null,
+  } = {}
+) {
   if (!supabase) throw new Error('reindexMemberContentItem requires a supabase client');
   if (!CONTENT_TYPE_CONFIG[contentType]) {
     throw new Error(`Unknown content type: ${contentType}`);
@@ -296,8 +462,23 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
   const sourceId = item?.id;
   if (!sourceId) throw new Error('reindexMemberContentItem requires item.id');
 
+  const runSchemaContext = schemaContext || createMemberContentSchemaContext();
+  await detectMemberContentSchema(supabase, runSchemaContext);
+  if (runSchemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    return writeMemberContentGeneration(contentType, item, {
+      supabase,
+      openai,
+      embeddingBudget,
+      capabilityProbe,
+      ...(embedTextsFn ? { embedTexts: embedTextsFn } : {}),
+    });
+  }
+
   if (!isIndexable(contentType, item)) {
-    await deleteMemberContentChunks(contentType, sourceId, { supabase });
+    await deleteMemberContentChunks(contentType, sourceId, {
+      supabase,
+      schemaContext: runSchemaContext,
+    });
     return { contentType, sourceId, chunks: 0, embedded: 0, reused: 0, removed: true };
   }
 
@@ -307,7 +488,10 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
 
   const built = chunkMemberContent(item, contentType);
   if (!built.length) {
-    await deleteMemberContentChunks(contentType, sourceId, { supabase });
+    await deleteMemberContentChunks(contentType, sourceId, {
+      supabase,
+      schemaContext: runSchemaContext,
+    });
     return { contentType, sourceId, chunks: 0, embedded: 0, reused: 0, removed: true };
   }
 
@@ -414,8 +598,34 @@ export async function reindexAllMemberContent({
   contentType = null,
   deadlineMs = null,
   cursor = null,
+  maxItems = 50,
+  embeddingBudget = null,
+  maxEmbeddingChunks = null,
+  embedTexts: embedTextsFn = null,
+  capabilityProbe = null,
 } = {}) {
   if (!supabase) throw new Error('reindexAllMemberContent requires a supabase client');
+
+  const schemaContext = createMemberContentSchemaContext();
+  // Detect once, before reading source rows. Generation-aware destinations are
+  // dispatched to the claim/re-read/CAS writer; legacy destinations retain the
+  // old guarded delete/upsert path below.
+  await detectMemberContentSchema(supabase, schemaContext);
+  if (schemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
+    return reindexAllMemberContentGeneration({
+      supabase,
+      openai,
+      tenantId,
+      contentType,
+      deadlineMs,
+      cursor,
+      maxItems,
+      embeddingBudget: embeddingBudget ?? {},
+      maxEmbeddingChunks,
+      capabilityProbe,
+      ...(embedTextsFn ? { embedTexts: embedTextsFn } : {}),
+    });
+  }
 
   const allTypes = contentType ? [contentType] : CONTENT_TYPES;
   const results = {
@@ -471,7 +681,11 @@ export async function reindexAllMemberContent({
 
         for (const item of rows) {
           try {
-            const summary = await reindexMemberContentItem(type, item, { supabase, openai });
+            const summary = await reindexMemberContentItem(type, item, {
+              supabase,
+              openai,
+              schemaContext,
+            });
             results.items++;
             results.chunks += summary.chunks;
             results.embedded += summary.embedded;
@@ -509,7 +723,12 @@ export async function reindexAllMemberContent({
   // Reconcile: purge chunks whose source row was hard-deleted outside the
   // on-save hooks (retrieval is the security boundary — stale chunks must go).
   try {
-    const swept = await sweepOrphanedMemberContentChunks({ supabase, tenantId, contentType });
+    const swept = await sweepOrphanedMemberContentChunks({
+      supabase,
+      tenantId,
+      contentType,
+      schemaContext,
+    });
     results.orphansRemoved = swept.removedSources;
     results.orphanChunksRemoved = swept.removedChunks;
     results.removed += swept.removedSources;

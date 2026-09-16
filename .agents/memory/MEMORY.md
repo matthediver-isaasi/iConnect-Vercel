@@ -4,7 +4,7 @@
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
 - [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
-- [List pages with preference values](list-pages-preference-values.md) — list pages showing/filtering custom field values must fetch+filter member_preference_value server-side per page; client-side hits PostgREST's 1000-row cap and filters only the current page.
+- [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [csv_import_job history](csv-import-job-history.md) — import history writes are swallowed by try/catch so column drift fails silently; recording must fire on BOTH the SQL fast path and JS path, and the list must be tenant-filtered.
 - [Member/org import pitfalls](member-import-pitfalls.md) — import SQL fast path silently drops non-core fields; preference_value column is `field_id`; emails must be stored lowercased or login shows "No Member Record".
 - [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
@@ -25,8 +25,6 @@
 - [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
 - [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
-- [PostgREST range pagination needs ORDER BY](postgrest-pagination-order.md) — .range() paging without .order(unique col) silently skips/repeats rows; totals vary run to run.
-- [Import idempotency & the 1000-row cap](import-idempotency-1000-cap.md) — resource import scripts match existing rows by target_url, but the existing-rows fetch is capped at 1000 by PostgREST; on tenants with >1000 rows you MUST paginate or re-runs duplicate.
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
 - [Member inbox unread count](member-inbox-unread-count.md) — inbox "messages" are campaign recipients + sparse state table (no row = unread); badge count is delivered−archived−readNonArchived arithmetic; opening auto-reads so invalidate with exact keys or the body query loops.
 - [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.
@@ -79,7 +77,6 @@
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
-- [Bounded list APIs and exports](bounded-list-api-exports.md) — when an interactive list API caps page size, existing exports must paginate to the exact total or they silently truncate.
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
@@ -120,9 +117,7 @@
 - [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
 - [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
 - [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
-- [PostgREST large IN filters](postgrest-large-in-filters.md) — hundreds of UUIDs in one `.in()` can fail at fetch/URL level; batch ID-filtered verification reads.
 - [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
-- [Paginated RPC exact totals](paginated-rpc-exact-totals.md) — window totals disappear on out-of-range pages; return the count independently of page rows.
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
@@ -157,3 +152,4 @@
 - [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
+- [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.

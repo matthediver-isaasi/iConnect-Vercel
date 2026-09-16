@@ -1,0 +1,11 @@
+{
+  "kind": "production-only-sql",
+  "productionOnly": true,
+  "ordered": true,
+  "description": "Ordered destination repair SQL; never included in the normal Supabase migration chain.",
+  "files": [
+    "001-publish.sql",
+    "002-canvas.sql",
+    "003-microsite-fence.sql"
+  ]
+}
