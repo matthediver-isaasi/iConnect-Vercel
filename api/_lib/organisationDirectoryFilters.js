@@ -768,8 +768,9 @@ async function visibleMemberCore(db, context, settingMap, organizationIds, { inc
 
 function matchesSavedEligibility(organization, ownId, exclusions, statusFieldIds, typeFieldIds,
   allowedStatuses, allowedTypes, values) {
-  if (String(organization.id) === String(ownId || '')) return true;
   if (exclusions.has(String(organization.id))) return false;
+  // Own-organisation visibility only bypasses status/type policy, not exclusions.
+  if (String(organization.id) === String(ownId || '')) return true;
   const matchesAny = (fieldIds, allowed) => fieldIds.some((fieldId) => (
     values.get(`${organization.id}:${fieldId}`) || []
   ).some((value) => scalarValues(value).some((item) => allowed.has(String(item)))));

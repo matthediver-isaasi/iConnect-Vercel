@@ -351,7 +351,7 @@ test('CSV service denies a disabled setting even when callers invoke it directly
   );
 });
 
-test('saved exclusions/status/type policies retain the requester own-organization exception', async () => {
+test('saved exclusions override own organization while status/type exceptions survive removal', async () => {
   const status = customField('status-field', 'application_status');
   const type = customField('type-field', 'org_type');
   const organizations = ['own', 'eligible', 'excluded', 'wrong-status', 'wrong-type'].map((id) => ({
@@ -368,7 +368,7 @@ test('saved exclusions/status/type policies retain the requester own-organizatio
     { organization_id, field_id: status.id, value: applicationStatus },
     { organization_id, field_id: type.id, value: orgType },
   ]);
-  const { service: directory } = service(baseSeed({
+  const { service: directory, db } = service(baseSeed({
     organization: organizations,
     preference_field: [status, type],
     organization_preference_value: values,
@@ -379,7 +379,48 @@ test('saved exclusions/status/type policies retain the requester own-organizatio
     ],
   }), { organizationId: 'own' });
   const result = await directory.search(request());
-  assert.deepEqual(result.organizations.map(({ id }) => id), ['eligible', 'own']);
+  assert.deepEqual(result.organizations.map(({ id }) => id), ['eligible']);
+  db.tables.system_settings[0].setting_value = '["excluded"]';
+  assert.deepEqual((await directory.search(request())).organizations.map(({ id }) => id), ['eligible', 'own']);
+});
+
+test('two saved exclusions apply to admin/member search, totals, options and CSV without changing another tenant', async () => {
+  for (const isAdmin of [false, true]) {
+    const sector = customField('sector', 'Sector');
+    const db = database(baseSeed({
+      organization: ['own', 'excluded', 'visible'].map(id => ({
+        id, tenant_id: tenantId, name: id,
+      })).concat([{ id: 'foreign', tenant_id: otherTenantId, name: 'foreign' }]),
+      preference_field: [sector],
+      organization_preference_value: ['own', 'excluded', 'visible'].map(id => ({
+        organization_id: id, field_id: sector.id, value: `${id} sector`,
+      })),
+      system_settings: csvEnabledSettings([{
+        tenant_id: tenantId, setting_key: 'org_directory_excluded_orgs',
+        setting_value: '["own","excluded"]',
+      }]),
+    }));
+    const directory = createOrganisationDirectoryFilters({
+      db, context: { tenantId, roleId, organizationId: 'own' }, isAdmin,
+    });
+    const results = await directory.search(request());
+    assert.equal(results.total, 1);
+    assert.deepEqual(results.organizations.map(row => row.id), ['visible']);
+    assert.equal((await directory.search(request({}, { search: 'excluded' }))).total, 0);
+    const options = await directory.options({
+      fieldKey: 'custom:sector', page: 1, pageSize: 50, search: '', selected: [],
+    });
+    assert.deepEqual(options.options, [{ value: 'visible sector', label: 'visible sector' }]);
+    const { csv } = await directory.csv();
+    assert.match(csv, /visible/);
+    assert.doesNotMatch(csv, /own|excluded/);
+    const other = createOrganisationDirectoryFilters({
+      db, context: { tenantId: otherTenantId, organizationId: null }, isAdmin,
+    });
+    assert.deepEqual((await other.search(request())).organizations.map(row => row.id), ['foreign']);
+    db.tables.system_settings.find(row => row.setting_key === 'org_directory_excluded_orgs').setting_value = '[]';
+    assert.equal((await directory.search(request())).total, 3);
+  }
 });
 
 test('Data Studio filtering reads over 500 active links/records and rejects stale, archived, foreign, and denied sources', async () => {
