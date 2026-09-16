@@ -36,6 +36,7 @@ import { resolveHideOnGroupPage } from "@/lib/memberGroupDirectory";
 import { buildAssignmentEditForm, buildAssignmentEditPayload, getAssignmentEditError } from "@/lib/memberGroupAssignmentEdit";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import AllMembersDialog from "@/components/member-groups/AllMembersDialog";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -1601,10 +1602,10 @@ export default function MemberGroupManagementPage() {
     });
   };
 
-  const renderAssignmentRow = (assignment) => (
+  const renderAssignmentRow = (assignment, { compact = false } = {}) => (
     <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded">
-      <div>
-        <div className="font-medium text-slate-900 flex items-center gap-1">
+      <div className={compact ? "min-w-0 max-w-full" : undefined}>
+        <div className={`font-medium text-slate-900 flex items-center gap-1${compact ? ' flex-wrap break-words [overflow-wrap:anywhere]' : ''}`}>
           {getAssigneeName(assignment)}
           {isAssignmentGuest(assignment) && (
             <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
@@ -1618,7 +1619,7 @@ export default function MemberGroupManagementPage() {
             </Badge>
           )}
         </div>
-        <div className="text-slate-500">{assignment.group_role}</div>
+        <div className={`text-slate-500${compact ? ' break-words [overflow-wrap:anywhere]' : ''}`}>{assignment.group_role}</div>
         {assignment.expires_at && (
           <div className="text-slate-400 flex items-center gap-1">
             <Calendar className="w-3 h-3" />
@@ -1640,6 +1641,7 @@ export default function MemberGroupManagementPage() {
         <div className="flex items-center gap-1" title="Group Admin">
           <span className="text-slate-500">Admin</span>
           <Switch
+            aria-label={compact ? `Group admin for ${getAssigneeName(assignment)} (${assignment.group_role || 'Member'})` : undefined}
             data-testid={`switch-group-admin-${assignment.id}`}
             checked={assignment.is_group_admin === true}
             disabled={updateAssignmentAdminMutation.isPending}
@@ -1652,6 +1654,7 @@ export default function MemberGroupManagementPage() {
           variant="ghost"
           size="sm"
           onClick={() => removeAssignmentMutation.mutate(assignment.id)}
+          aria-label={compact ? `Remove ${getAssigneeName(assignment)} (${assignment.group_role || 'Member'})` : undefined}
           className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
         >
           <X className="w-3 h-3" />
@@ -4535,36 +4538,16 @@ export default function MemberGroupManagementPage() {
         </Dialog>
 
         {/* All Members Dialog */}
-        <Dialog
-          open={!!membersModalGroupId}
-          onOpenChange={(open) => { if (!open) setMembersModalGroupId(null); }}
-        >
-          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
-            {(() => {
-              const modalGroup = groups.find(g => g.id === membersModalGroupId);
-              const modalAssignments = membersModalGroupId
-                ? getSortedGroupAssignments(membersModalGroupId)
-                : [];
-              const modalPeopleCount = uniqueGroupPersonCount(modalAssignments);
-              return (
-                <>
-                  <DialogHeader>
-                    <DialogTitle>
-                      Members{modalGroup ? ` — ${modalGroup.name}` : ''} ({modalPeopleCount})
-                    </DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-1 overflow-y-auto flex-1" data-testid="list-all-members">
-                    {modalAssignments.length > 0 ? (
-                      modalAssignments.map((assignment) => renderAssignmentRow(assignment))
-                    ) : (
-                      <p className="text-sm text-slate-500">No members in this group.</p>
-                    )}
-                  </div>
-                </>
-              );
-            })()}
-          </DialogContent>
-        </Dialog>
+        {membersModalGroupId && (
+          <AllMembersDialog
+            key={membersModalGroupId}
+            group={groups.find(g => g.id === membersModalGroupId) || { name: '' }}
+            assignments={getSortedGroupAssignments(membersModalGroupId)}
+            getAssigneeName={getAssigneeName}
+            renderAssignmentRow={renderAssignmentRow}
+            onClose={() => setMembersModalGroupId(null)}
+          />
+        )}
       </div>
     </div>
   );

@@ -6,6 +6,21 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+test('All Members uses sorted assignments, existing actions, and a group-keyed search session', () => {
+  const source = readFileSync(path.join(here, 'MemberGroupManagement.jsx'), 'utf8');
+  const modal = source.slice(source.indexOf('{/* All Members Dialog */}'));
+  assert.match(modal, /membersModalGroupId &&/);
+  assert.match(modal, /key=\{membersModalGroupId\}/);
+  assert.match(modal, /assignments=\{getSortedGroupAssignments\(membersModalGroupId\)\}/);
+  assert.match(modal, /getAssigneeName=\{getAssigneeName\}/);
+  assert.match(modal, /renderAssignmentRow=\{renderAssignmentRow\}/);
+  assert.match(modal, /onClose=\{\(\) => setMembersModalGroupId\(null\)\}/);
+  assert.match(source, /previewAssignments\.map\(\(assignment\) => renderAssignmentRow\(assignment\)\)/);
+  assert.match(source, /onClick=\{\(\) => openAssignmentEdit\(assignment\)\}/);
+  assert.match(source, /updateAssignmentAdminMutation\.mutate\(\{ id: assignment\.id, is_group_admin: checked \}\)/);
+  assert.match(source, /removeAssignmentMutation\.mutate\(assignment\.id\)/);
+});
+
 test('member group cards load every assignment through the paginated entity path', () => {
   const source = readFileSync(path.join(here, 'MemberGroupManagement.jsx'), 'utf8');
   const queryStart = source.indexOf("queryKey: ['member-group-assignments']");
