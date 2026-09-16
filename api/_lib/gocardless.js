@@ -203,8 +203,8 @@ export function createGocardlessClient(creds) {
       return json.billing_requests;
     },
 
-    async getBillingRequest(billingRequestId) {
-      const json = await request('GET', `/billing_requests/${billingRequestId}`);
+    async getBillingRequest(billingRequestId, { timeoutMs } = {}) {
+      const json = await request('GET', `/billing_requests/${billingRequestId}`, { timeoutMs });
       return json.billing_requests;
     },
 

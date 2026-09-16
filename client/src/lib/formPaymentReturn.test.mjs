@@ -428,7 +428,7 @@ test('confirm preserves verified captured-payment accounting stage as a no-repay
 });
 
 test('confirm preserves every server stage and never promotes setup_complete to paid', async () => {
-  for (const status of ['pending', 'finalizing', 'setup_complete', 'paid', 'blocked', 'accounting_pending']) {
+  for (const status of ['pending', 'finalizing', 'setup_complete', 'paid', 'blocked', 'accounting_pending', 'attention']) {
     const out = await confirmFormPayment({
       submissionId: 's',
       provider: 'stripe_monthly_card',

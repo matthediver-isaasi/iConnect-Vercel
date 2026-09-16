@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { membershipAllowsPaymentProvider, validatePaymentRelationships } from './form-payment.js';
+import {
+  membershipAllowsPaymentProvider,
+  validatePaymentRelationships,
+  oneOffStripePaymentLifecycle,
+  succeededStripeIntentMatchesSubmission,
+} from './form-payment.js';
 
 test('paid create, monthly-card, and quote paths validate repeatable rows before charge resolution', async () => {
   const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
@@ -66,6 +71,72 @@ test('payment idempotency race winners recheck answers before reusing the row', 
   );
   assert.match(monthlyRace, /samePaymentIdempotencyAnswers\(winner\.submission_data, values\)/);
   assert.match(ordinaryRace, /samePaymentIdempotencyAnswers\(winner\.submission_data, values\)/);
+});
+
+test('lost-confirmation create retry validates a discovered succeeded intent and returns its durable lifecycle', async () => {
+  const submission = {
+    id: 'submission-1',
+    payment_meta: { completion: { version: 1, status: 'queued' } },
+  };
+  const paymentIntent = {
+    id: 'pi_succeeded',
+    amount_received: 1250,
+    currency: 'gbp',
+    metadata: {
+      type: 'form_payment',
+      form_submission_id: submission.id,
+      form_id: 'form-1',
+      tenant_id: 'tenant-1',
+    },
+  };
+  assert.equal(succeededStripeIntentMatchesSubmission({
+    paymentIntent,
+    submission,
+    tenantId: 'tenant-1',
+    formId: 'form-1',
+    expectedMinor: 1250,
+    currency: 'GBP',
+  }), true);
+  assert.equal(succeededStripeIntentMatchesSubmission({
+    paymentIntent: { ...paymentIntent, metadata: { ...paymentIntent.metadata, tenant_id: 'other-tenant' } },
+    submission,
+    tenantId: 'tenant-1',
+    formId: 'form-1',
+    expectedMinor: 1250,
+    currency: 'GBP',
+  }), false);
+  const lifecycle = oneOffStripePaymentLifecycle(submission);
+  assert.equal(lifecycle.success, false);
+  assert.equal(lifecycle.status, 'finalizing');
+  assert.equal(lifecycle.alreadyPaid, undefined);
+});
+
+test('paid create retry returns terminal completion attention without provider recheck', async () => {
+  const lifecycle = oneOffStripePaymentLifecycle({
+    id: 'attention-submission',
+    payment_meta: { completion: { version: 1, status: 'attention' } },
+  });
+  assert.deepEqual(lifecycle, {
+    success: false,
+    paymentSucceeded: true,
+    submissionId: 'attention-submission',
+    provider: 'stripe',
+    status: 'attention',
+    pending: false,
+    retryable: false,
+    requiresAttention: true,
+    error: 'Your payment was recorded, but completion requires administrator review. Please do not pay again.',
+  });
+});
+
+test('one-off create discovered success queues before paid CAS and never uses alreadyPaid', async () => {
+  const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
+  const create = source.slice(source.indexOf('async function handleCreate('));
+  const discovered = create.slice(create.indexOf("if (prior.kind === 'succeeded')"), create.indexOf("if (prior.kind === 'reusable')"));
+  assert.ok(discovered.indexOf('succeededStripeIntentMatchesSubmission') >= 0);
+  assert.ok(discovered.indexOf('queueFormPaymentCompletion') < discovered.indexOf('markFormSubmissionPaid'));
+  assert.doesNotMatch(discovered, /alreadyPaid/);
+  assert.doesNotMatch(create, /alreadyPaid/);
 });
 
 test('paid validation rejects repeatable tampering before ordinary relationship database lookups', async () => {

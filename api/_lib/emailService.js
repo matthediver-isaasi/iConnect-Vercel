@@ -16,6 +16,10 @@ const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN
 // appear to come from a tenant domain like noreply@mail.graduatefutures.org.
 const PLATFORM_SYSTEM_FROM = `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
+// mailgun.js passes this to its Axios transport.  This is an actual socket /
+// response timeout, not a Promise.race that leaves a send running after the
+// completion worker has released its durable ownership.
+const MAILGUN_TIMEOUT_MS = Math.max(1_000, Number(process.env.MAILGUN_TIMEOUT_MS) || 15_000);
 
 let mailgunClient = null;
 const FOOTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -211,6 +215,7 @@ function getMailgunClient() {
     const config = {
       username: 'api',
       key: MAILGUN_API_KEY,
+      timeout: MAILGUN_TIMEOUT_MS,
     };
     
     if (MAILGUN_REGION === 'eu') {
@@ -229,7 +234,10 @@ function getMailgunClient() {
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null }) {
+  if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
+    return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
+  }
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {

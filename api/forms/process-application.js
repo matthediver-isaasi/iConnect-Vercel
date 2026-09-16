@@ -643,6 +643,7 @@ const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
 
 export default async function handler(req, res, { supabase = defaultSupabase } = {}) {
   let stripeProcessingLease = null;
+  let paidPipelineOperation = null;
   const releaseStripeProcessingLease = async () => {
     if (!stripeProcessingLease) return;
     const lease = stripeProcessingLease;
@@ -692,6 +693,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       defer_communication_subscriptions = false,
       verified_submitter_member_id,
       verified_admin_access = false,
+       completion_operation_id = null,
+        completion_operation_kind = 'primary',
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -940,6 +943,135 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })) {
       return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
     }
+    // Paid completion supplies a one-attempt operation UUID.  This durable
+    // reservation closes the otherwise unsafe gap between accepting the
+    // internal HTTP request and persisting entity/workflow checkpoints.  Do
+    // not lease-expire and replay it: a response lost after acceptance is
+    // explicitly attention-required unless this handler records `done`.
+    if (completion_operation_id) {
+      if (!trustedInternal || !persistedSubmission.payment_status) {
+        return res.status(403).json({ error: 'Paid pipeline operations require trusted internal processing', code: 'PIPELINE_OPERATION_FORBIDDEN' });
+      }
+      const { data: operation, error: operationError } = await supabase.rpc('begin_form_paid_pipeline_operation', {
+        p_tenant_id: effectiveEntityTenantId,
+        p_submission_id: submission_id,
+        p_operation_id: completion_operation_id,
+        p_operation_kind: completion_operation_kind,
+      });
+      if (operationError || operation?.status !== 'claimed') {
+        return res.status(409).json({
+          error: operationError?.message || operation?.reason || 'Paid pipeline operation is not available',
+          code: 'PIPELINE_OPERATION_UNAVAILABLE',
+        });
+      }
+      paidPipelineOperation = completion_operation_id;
+    }
+    // A trusted caller can receive several known-safe early outcomes (already
+    // applied mapping, known structured partial, or existing entity retry).
+    // Record one durable done checkpoint before every such response so the
+    // transport caller never mistakes a deliberate 200/409 response for an
+    // ambiguous lost side effect.
+    const finishKnownPaidPipelineOperation = async () => {
+      if (!paidPipelineOperation) return;
+      const operationId = paidPipelineOperation;
+      const { data: completed, error: completionError } = await supabase.rpc('finish_form_paid_pipeline_operation', {
+        p_tenant_id: effectiveEntityTenantId,
+        p_submission_id: submission_id,
+        p_operation_id: operationId,
+        p_status: 'done',
+        p_error: null,
+      });
+      if (completionError || completed !== true) {
+        throw completionError || new Error('Paid pipeline operation completion was not recorded');
+      }
+      paidPipelineOperation = null;
+    };
+    // Structured actions can establish a durable partial result before any
+    // legacy primary pipeline starts. That early exit has the same recovery
+    // contract as a late partial: persist the marker/result, finish the known
+    // paid-operation response, then return the retryable 409 which authorizes
+    // the narrowly scoped follow-up worker.
+    const respondWithIncompleteStructuredActions = async ({
+      result,
+      memberId = null,
+      organizationId = null,
+    }) => {
+      const incompleteUpdate = {};
+      if (memberId) incompleteUpdate.created_member_id = memberId;
+      if (organizationId) {
+        incompleteUpdate.created_organization_id = organizationId;
+        incompleteUpdate.organization_id = organizationId;
+      }
+      if (processingNotes.length > 0) {
+        incompleteUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
+      if (persistedSubmission.payment_status) {
+        incompleteUpdate.payment_meta = {
+          ...(persistedSubmission.payment_meta || {}),
+          structured_actions_pending: true,
+          structured_actions_result: result,
+        };
+      }
+      if (Object.keys(incompleteUpdate).length > 0) {
+        const { error: incompleteUpdateError } = await supabase
+          .from('form_submission')
+          .update(incompleteUpdate)
+          .eq('id', submission_id)
+          .eq('tenant_id', effectiveEntityTenantId);
+        if (incompleteUpdateError) throw incompleteUpdateError;
+      }
+      await releaseStripeProcessingLease();
+      await finishKnownPaidPipelineOperation();
+      return res.status(409).json({
+        success: false,
+        error: 'Structured actions did not complete',
+        code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+        retryable: true,
+        structured_actions: result,
+        created_member_id: memberId,
+        created_organization_id: organizationId,
+        organization_id: organizationId,
+      });
+    };
+    const respondWithIncompleteStripeAddressMappings = async ({
+      result,
+      memberId = null,
+      organizationId = null,
+    }) => {
+      const update = {
+        payment_meta: {
+          ...(persistedSubmission.payment_meta || {}),
+          stripe_address_mappings_pending: true,
+          stripe_address_mappings_result: result,
+        },
+      };
+      if (memberId) update.created_member_id = memberId;
+      if (organizationId) {
+        update.created_organization_id = organizationId;
+        update.organization_id = organizationId;
+      }
+      if (processingNotes.length > 0) {
+        update.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
+      const { error: updateError } = await supabase
+        .from('form_submission')
+        .update(update)
+        .eq('id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId);
+      if (updateError) throw updateError;
+      await releaseStripeProcessingLease();
+      await finishKnownPaidPipelineOperation();
+      return res.status(409).json({
+        success: false,
+        error: 'Stripe address mappings did not complete',
+        code: 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+        retryable: true,
+        stripe_address_mappings: result,
+        created_member_id: memberId,
+        created_organization_id: organizationId,
+        organization_id: organizationId,
+      });
+    };
     const authoritativeAnswers = persistedSubmission.submission_data || {};
     // Request copies are never authoritative, even for a signed request.
     // This prevents signature replay with altered legacy mappings/config.
@@ -1141,6 +1273,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       if (completedAddressError) throw completedAddressError;
       if (completedAddressMapping) {
         if (!persistedStructuredActionsIncomplete) {
+          await finishKnownPaidPipelineOperation();
           return res.json({
             success: true,
             already_processed: true,
@@ -1404,12 +1537,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             // member/organisation pipelines in that state: doing so would
             // create side effects that are not part of the failed structured
             // contract and make a retry non-deterministic.
-            await releaseStripeProcessingLease();
-            return res.status(409).json({
-              success: false,
-              error: 'Structured actions did not complete',
-              code: 'STRUCTURED_ACTIONS_INCOMPLETE',
-              structured_actions: structuredResult,
+            return respondWithIncompleteStructuredActions({
+              result: structuredResult,
+              memberId: structuredResult?.created_member_id || null,
+              organizationId: structuredResult?.created_organization_id || null,
             });
           }
         }
@@ -1512,15 +1643,39 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           organizationId: existingSubmission.created_organization_id,
           authorization: processingAuthorization,
         });
-        const stripeAddressMappings = await processPersistedStripeAddressMappings({
-          db: supabase,
-          submission: persistedSubmission,
-          tenantId: effectiveEntityTenantId,
-          memberId: existingSubmission.created_member_id,
-          organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
-          authorization: processingAuthorization,
-          currentForm: persistedForm,
-        });
+        let stripeAddressMappings;
+        try {
+          stripeAddressMappings = await processPersistedStripeAddressMappings({
+            db: supabase,
+            submission: persistedSubmission,
+            tenantId: effectiveEntityTenantId,
+            memberId: existingSubmission.created_member_id,
+            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+            authorization: processingAuthorization,
+            currentForm: persistedForm,
+          });
+        } catch (error) {
+          if (!(error instanceof StripeAddressMappingError) || error.status !== 409) throw error;
+          return respondWithIncompleteStripeAddressMappings({
+            result: {
+              configured: true,
+              applied: false,
+              pending: true,
+              reason: error.code || 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+            },
+            memberId: existingSubmission.created_member_id,
+            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+          });
+        }
+        if (stripeAddressMappings?.configured
+            && !stripeAddressMappings.applied
+            && !stripeAddressMappings.alreadyApplied) {
+          return respondWithIncompleteStripeAddressMappings({
+            result: { ...stripeAddressMappings, pending: true },
+            memberId: existingSubmission.created_member_id,
+            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+          });
+        }
         for (const outcome of relatedRecords?.outcomes || []) {
           addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
         }
@@ -1528,7 +1683,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (processingNotes.length > 0) {
           retryUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
         }
-        if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
+        if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult || stripeAddressMappings?.configured)) {
           retryUpdate.payment_meta = {
             ...(persistedSubmission.payment_meta || {}),
             ...(structuredActionResult ? {
@@ -1538,6 +1693,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             ...(relatedRecords ? {
             related_records_pending: relatedRecords.success === false,
             related_records_result: relatedRecords,
+            } : {}),
+            ...(stripeAddressMappings?.configured ? {
+              stripe_address_mappings_pending: false,
+              stripe_address_mappings_result: stripeAddressMappings,
             } : {}),
           };
         }
@@ -1571,6 +1730,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           );
         }
         await releaseStripeProcessingLease();
+        await finishKnownPaidPipelineOperation();
         return res.json({
           success: structuredActionResult ? structuredActionResult.success : true,
           already_processed: true,
@@ -4753,38 +4913,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // This keeps a paid retry resumable without allowing downstream
     // membership/DD readiness to observe an incomplete structured contract.
     if (structuredActionResult?.success === false) {
-      const incompleteUpdate = {};
-      if (resolvedMemberId) incompleteUpdate.created_member_id = resolvedMemberId;
-      if (resolvedOrganizationId) {
-        incompleteUpdate.created_organization_id = resolvedOrganizationId;
-        incompleteUpdate.organization_id = resolvedOrganizationId;
-      }
-      if (processingNotes.length > 0) {
-        incompleteUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
-      }
-      if (persistedSubmission.payment_status) {
-        incompleteUpdate.payment_meta = {
-          ...(persistedSubmission.payment_meta || {}),
-          structured_actions_pending: true,
-          structured_actions_result: structuredActionResult,
-        };
-      }
-      if (Object.keys(incompleteUpdate).length > 0) {
-        const { error: incompleteUpdateError } = await supabase
-          .from('form_submission')
-          .update(incompleteUpdate)
-          .eq('id', submission_id);
-        if (incompleteUpdateError) throw incompleteUpdateError;
-      }
-      await releaseStripeProcessingLease();
-      return res.status(409).json({
-        success: false,
-        error: 'Structured actions did not complete',
-        code: 'STRUCTURED_ACTIONS_INCOMPLETE',
-        structured_actions: structuredActionResult,
-        created_member_id: resolvedMemberId,
-        created_organization_id: resolvedOrganizationId,
-        organization_id: resolvedOrganizationId,
+      return respondWithIncompleteStructuredActions({
+        result: structuredActionResult,
+        memberId: resolvedMemberId,
+        organizationId: resolvedOrganizationId,
       });
     }
 
@@ -4849,7 +4981,32 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       authorization: processingAuthorization,
       currentRunCreated: currentRunEntityCreations,
       currentForm: persistedForm,
-    });
+    }).catch((error) => {
+        if (!(error instanceof StripeAddressMappingError) || error.status !== 409) throw error;
+        return { mappingError: error };
+      });
+    if (stripeAddressMappings?.mappingError) {
+      const error = stripeAddressMappings.mappingError;
+      return respondWithIncompleteStripeAddressMappings({
+        result: {
+          configured: true,
+          applied: false,
+          pending: true,
+          reason: error.code || 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+        },
+        memberId: resolvedMemberId,
+        organizationId: resolvedOrganizationId,
+      });
+    }
+    if (stripeAddressMappings?.configured
+        && !stripeAddressMappings.applied
+        && !stripeAddressMappings.alreadyApplied) {
+      return respondWithIncompleteStripeAddressMappings({
+        result: { ...stripeAddressMappings, pending: true },
+        memberId: resolvedMemberId,
+        organizationId: resolvedOrganizationId,
+      });
+    }
 
     // Persist processing notes (per-field outcomes from upsert/clear
     // helpers) to form_submission so silent failures become visible in
@@ -4874,7 +5031,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       if (processingNotes.length > 0) {
         updatePayload.processing_notes = [...persistedProcessingNotes, ...processingNotes];
       }
-      if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
+      if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult || stripeAddressMappings?.configured)) {
         updatePayload.payment_meta = {
           ...(persistedSubmission.payment_meta || {}),
           ...(structuredActionResult ? {
@@ -4884,6 +5041,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           ...(relatedRecords ? {
           related_records_pending: relatedRecords.success === false,
           related_records_result: relatedRecords,
+          } : {}),
+          ...(stripeAddressMappings?.configured ? {
+            stripe_address_mappings_pending: false,
+            stripe_address_mappings_result: stripeAddressMappings,
           } : {}),
         };
       }
@@ -4928,6 +5089,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     }
 
     // Return the resolved organization_id (whether created or existing)
+    await finishKnownPaidPipelineOperation();
     await releaseStripeProcessingLease();
     return res.json({
       success: structuredActionResult ? structuredActionResult.success : true,

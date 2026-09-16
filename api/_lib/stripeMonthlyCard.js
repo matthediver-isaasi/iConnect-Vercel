@@ -52,7 +52,10 @@ import {
   hasStripeBillingAddressSnapshot,
   stripeBillingAddressSnapshotFromMetadata,
 } from './stripeInvoiceAddress.js';
-import { patchFormSubmissionPaymentMeta } from './formStripeAddressMappingProcessing.js';
+import {
+  patchFormSubmissionPaymentMeta,
+  captureFormStripeBillingAddressOnce,
+} from './formStripeAddressMappingProcessing.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
@@ -1426,11 +1429,11 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     const formSubmissionId = agreement.metadata?.form_submission_id
       || object.metadata?.form_submission_id;
     if (formSubmissionId && billingAddress) {
-      await patchFormSubmissionPaymentMeta({
+      await captureFormStripeBillingAddressOnce({
         db,
         tenantId: agreement.tenant_id,
         submissionId: formSubmissionId,
-        patch: { stripe_billing_address: billingAddress },
+        address: billingAddress,
       });
     }
 

@@ -76,7 +76,8 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       || (decision.kind === 'confirm'
         && !returnedSubmissionId
         && decision.submissionId === stored.submissionId));
-  const terminalReceipt = receiptMatches && stored.terminalStatus === 'paid';
+  const terminalReceipt = receiptMatches
+    && (stored.terminalStatus === 'paid' || stored.terminalStatus === 'attention');
   const resumable = !isReturn && !!stored && !stored.legacy;
   const visibleStatus = receiptMatches
     && stored.status
@@ -88,7 +89,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
   if (terminalReceipt) {
     state = {
       active: true,
-      status: 'paid',
+       status: stored.terminalStatus,
       provider: stored.provider || null,
       directDebitCompleted: false,
       error: null,
@@ -223,7 +224,10 @@ export function useFormPaymentReturn() {
       const out = await confirmFormPayment(context);
       if (!isCurrent()) return;
       const provider = out.provider || null;
-      const terminal = out.status === 'paid';
+      // `attention` is terminal by design: a provider or processor may have
+      // accepted an effect before its durable outcome was lost, so polling or
+      // another browser confirmation must not replay it.
+      const terminal = out.status === 'paid' || out.status === 'attention';
       const directDebitCompleted = isCompletedDirectDebit(provider, out.status);
       try {
         savePaymentSubmissionContext({
@@ -234,7 +238,7 @@ export function useFormPaymentReturn() {
           returnPath: context.returnPath,
           continuePath: context.continuePath,
           status: out.status,
-          terminalStatus: terminal ? 'paid' : null,
+          terminalStatus: terminal ? out.status : null,
         });
       } catch { /* ignore */ }
       if (terminal) {
@@ -297,7 +301,7 @@ export function useFormPaymentReturn() {
       contextRef.current = null;
       updateState({
         active: true,
-        status: 'paid',
+        status: stored?.terminalStatus || 'paid',
         provider: stored?.provider || null,
         directDebitCompleted: false,
         error: null,
@@ -456,8 +460,8 @@ const SCREENS = {
     icon: Clock,
     iconClass: 'text-blue-600',
     bubbleClass: 'bg-blue-100',
-    title: 'Finishing your submission',
-    body: 'The payment provider step is complete. We are finishing the remaining submission updates automatically. Please do not pay again.',
+    title: 'Payment received — finishing submission',
+    body: 'Your payment was verified. We are finishing the remaining submission updates automatically. Please do not pay again.',
   },
   accounting_pending: {
     icon: Clock,
@@ -465,6 +469,13 @@ const SCREENS = {
     bubbleClass: 'bg-blue-100',
     title: 'Payment received — finishing submission',
     body: 'Your payment was verified. We are completing the remaining submission updates automatically. Please do not pay again.',
+  },
+  attention: {
+    icon: AlertCircle,
+    iconClass: 'text-amber-600',
+    bubbleClass: 'bg-amber-100',
+    title: 'Payment received — submission needs attention',
+    body: 'Your payment was verified, but we could not safely confirm a remaining submission update. Please do not pay again. Our team can review the submission.',
   },
   setup_complete: {
     icon: CheckCircle2,

@@ -96,10 +96,12 @@ test('sweep retries unresolved-entity submissions indefinitely, re-running the p
   // The sweep re-runs the form's entity pipelines (shared runner, same as
   // the payment finalizer) before each membership retry when the target
   // entity is missing.
-  assert.match(sweep, /runFormEntityPipelines\(\{ supabase, submission: row, form, baseUrl: rowBaseUrl \}\)/);
+  assert.match(sweep, /runFormEntityPipelines\(\{[\s\S]*?supabase,[\s\S]*?submission: row,[\s\S]*?form,[\s\S]*?baseUrl: rowBaseUrl,[\s\S]*?deadlineAt,[\s\S]*?completionOperationId: randomUUID\(\)/);
+  assert.match(sweep, /if \(pipelineOut\.ambiguous\)[\s\S]*?continue;/,
+    'an ambiguous processor operation must not advance membership finalization');
   assert.match(reconSrc, /import \{ runFormEntityPipelines \} from '\.\/formEntityPipelines\.js'/);
   const finPaySrc = fs.readFileSync(new URL('./formPaymentFinalize.js', import.meta.url), 'utf8');
-  assert.match(finPaySrc, /runFormEntityPipelines\(\{ supabase, submission, form, baseUrl \}\)/);
+  assert.match(finPaySrc, /runFormEntityPipelines\(\{[\s\S]*?supabase,[\s\S]*?submission,[\s\S]*?form,[\s\S]*?baseUrl,/);
   // Entity ids are re-read fresh from the submission row before concluding
   // the entity is missing (caller snapshots can be stale).
   assert.match(finalizeSrc, /select\('created_member_id, organization_id'\)/);
@@ -229,7 +231,7 @@ test('one-off Stripe create and confirm preserve the membership credential featu
   assert.match(paymentSrc, /getStripeCredentials\(tenantData\.id, stripeFeature\)/);
   assert.match(
     paymentSrc,
-    /row\.payment_meta\?\.stripe_feature[\s\S]*row\.payment_meta\?\.membership \? 'membership' : 'forms'[\s\S]*retrieveTenantPaymentIntent\(tenantData\.id, stripeFeature, piId\)/,
+    /row\.payment_meta\?\.stripe_feature[\s\S]*row\.payment_meta\?\.membership \? 'membership' : 'forms'[\s\S]*retrieveTenantPaymentIntent\(\s*tenantData\.id,\s*stripeFeature,\s*piId/,
   );
 });
 

@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { patchFormSubmissionPaymentMeta } from './formStripeAddressMappingProcessing.js';
+import {
+  captureFormStripeBillingAddressOnce,
+  patchFormSubmissionPaymentMeta,
+} from './formStripeAddressMappingProcessing.js';
 import { retryPersistedStripeAddressMappings } from './formStripeAddressMappingProcessing.js';
 import { capturePaymentIntentBillingAddress } from './stripeInvoiceAddress.js';
 import { submissionRequiresStripeBillingAddress } from '../public/form-payment.js';
@@ -36,7 +39,7 @@ test('reused checkout derives address requirement from its persisted snapshot', 
   }), true);
 });
 
-test('payment metadata patches delegate to the atomic merge RPC', async () => {
+test('Stripe billing-address capture delegates to the write-once RPC', async () => {
   const calls = [];
   const db = {
     async rpc(name, args) {
@@ -44,22 +47,22 @@ test('payment metadata patches delegate to the atomic merge RPC', async () => {
       return {
         data: {
           finalized: true,
-          stripe_billing_address: args.p_patch.stripe_billing_address,
+          stripe_billing_address: args.p_address,
         },
         error: null,
       };
     },
   };
   const address = { line1: '1 High Street', country: 'GB' };
-  const result = await patchFormSubmissionPaymentMeta({
+  const result = await captureFormStripeBillingAddressOnce({
     db,
     tenantId: '00000000-0000-0000-0000-000000000001',
     submissionId: '00000000-0000-0000-0000-000000000002',
-    patch: { stripe_billing_address: address },
+    address,
   });
-  assert.equal(calls[0].name, 'patch_form_submission_payment_meta');
-  assert.deepEqual(calls[0].args.p_patch, { stripe_billing_address: address });
-  assert.equal(result.finalized, true, 'a sibling finalization key is preserved by the merge');
+  assert.equal(calls[0].name, 'capture_form_stripe_billing_address_once');
+  assert.deepEqual(calls[0].args.p_address, address);
+  assert.equal(result.finalized, true, 'the write-once RPC preserves sibling metadata');
 });
 
 test('ordinary mapped customerless PaymentIntent persists its immutable snapshot and invokes mapping retry', async () => {
@@ -97,10 +100,9 @@ test('ordinary mapped customerless PaymentIntent persists its immutable snapshot
       },
     },
   };
-  let providerSnapshot = null;
   const snapshot = await capturePaymentIntentBillingAddress({
     stripe: {
-      paymentMethods: {
+      charges: {
         retrieve: async () => ({
           billing_details: {
             address: {
@@ -114,16 +116,11 @@ test('ordinary mapped customerless PaymentIntent persists its immutable snapshot
           },
         }),
       },
-      paymentIntents: {
-        update: async (_id, update) => {
-          providerSnapshot = update.metadata.invoice_address_snapshot;
-        },
-      },
       customers: {
         update: async () => { throw new Error('ordinary payment must not require a Customer'); },
       },
     },
-    paymentIntent: { id: 'pi_customerless', payment_method: 'pm_1', customer: null },
+    paymentIntent: { id: 'pi_customerless', latest_charge: 'ch_customerless', customer: null },
     requireCustomer: false,
   });
 
@@ -171,20 +168,26 @@ test('ordinary mapped customerless PaymentIntent persists its immutable snapshot
     submissionId,
     tenantId,
   });
-  assert.equal(JSON.parse(providerSnapshot).line1, '1 High Street');
   assert.equal(submission.payment_meta.stripe_billing_address.line1, '1 High Street');
   assert.equal(mappingResult.applied, true);
   assert.equal(mappingRpcCalls, 1);
 });
 
-test('successful charge is recorded before recoverable address capture', () => {
+test('successful charge queues completion before paid-marking and leaves address capture to recovery', () => {
   const source = readFileSync(new URL('../public/form-payment.js', import.meta.url), 'utf8');
-  const stripeConfirm = source.slice(source.indexOf("if (row.payment_provider === 'stripe')"));
-  assert.ok(
-    stripeConfirm.indexOf('markFormSubmissionPaid') < stripeConfirm.indexOf('capturePaymentIntentBillingAddress'),
-    'capture failure must occur only after the durable paid transition',
+  const handlerStart = source.indexOf('async function handleConfirm');
+  const stripeBranchStart = source.indexOf("if (row.payment_provider === 'stripe')", handlerStart);
+  const oneOffStripeStart = source.indexOf('const piId = payment_intent_id', stripeBranchStart);
+  const stripeConfirm = source.slice(
+    oneOffStripeStart,
+    source.indexOf('// GoCardless: verify the billing request server-side.', oneOffStripeStart),
   );
-  assert.match(stripeConfirm, /paymentSucceeded:\s*true[\s\S]*retryable:\s*true/);
+  assert.ok(
+    stripeConfirm.indexOf('queueFormPaymentCompletion') < stripeConfirm.indexOf('markFormSubmissionPaid'),
+    'the durable completion obligation must exist before the paid transition',
+  );
+  assert.doesNotMatch(stripeConfirm, /capturePaymentIntentBillingAddress|finalizeFormSubmission/);
+  assert.match(stripeConfirm, /paymentSucceeded:\s*true[\s\S]*status:\s*'finalizing'/);
 });
 
 test('reconciliation retries finalized and monthly snapshot repair independently', () => {

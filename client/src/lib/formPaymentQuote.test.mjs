@@ -354,10 +354,14 @@ test('membership Direct Debit is rejected after authoritative quote resolution a
   const create = src.slice(src.indexOf('async function handleCreate('), src.indexOf('async function handleConfirm'));
   const resolution = create.indexOf('resolvePayableCharge(');
   const rejection = create.indexOf('MEMBERSHIP_DIRECT_DEBIT_NOT_ALLOWED');
-  const pendingLookup = create.indexOf("from('form_submission')");
+  // An initial idempotency read is intentionally allowed before quote
+  // resolution so same-key answer mutations can be rejected safely.  The
+  // assertion is about reusing/creating a pending payment row, which begins
+  // at the post-resolution submission block.
+  const pendingReuse = create.indexOf('let submissionRow = null');
   const providerCall = create.indexOf('gocardlessForTenant(');
   assert.ok(resolution > -1 && rejection > resolution, 'the schedule must be re-resolved before enforcement');
-  assert.ok(pendingLookup > rejection, 'rejection must happen before a pending submission is read or written');
+  assert.ok(pendingReuse > rejection, 'rejection must happen before a pending submission is reused or written');
   assert.ok(providerCall > rejection, 'rejection must happen before GoCardless is contacted');
 });
 

@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
 
-function makeEmailStateDb(initialState = null, { verificationError = null } = {}) {
+function makeEmailStateDb(initialState = null, {
+  verificationError = null,
+  loseOutcomeClaim = false,
+} = {}) {
   const row = {
     id: 'submission-1',
     tenant_id: 'tenant-1',
@@ -61,6 +65,16 @@ function makeEmailStateDb(initialState = null, { verificationError = null } = {}
       if (this.table !== 'form_submission' || !this.updatePayload) {
         return Promise.resolve({ data: [], error: null }).then(resolve, reject);
       }
+      // Simulate a newer sender taking ownership between delivery and its
+      // outcome write.  The older worker must report a non-durable result.
+      if (loseOutcomeClaim && this.filters.some(
+        ([kind, column]) => kind === 'eq' && column === 'submission_email_state->>claim_id',
+      )) {
+        row.submission_email_state = {
+          status: 'processing',
+          claim_id: '00000000-0000-4000-8000-000000000099',
+        };
+      }
       const idMatches = this.filters.every(([kind, column, value]) => {
         if (kind === 'eq' && column === 'id') return row.id === value;
         if (kind === 'is' && column === 'submission_email_state') {
@@ -71,6 +85,9 @@ function makeEmailStateDb(initialState = null, { verificationError = null } = {}
         }
         if (kind === 'eq' && column === 'submission_email_state->>status') {
           return row.submission_email_state?.status === value;
+        }
+        if (kind === 'eq' && column === 'submission_email_state->>claim_id') {
+          return row.submission_email_state?.claim_id === value;
         }
         if (kind === 'or') {
           return row.submission_email_state === null
@@ -217,4 +234,74 @@ test('verification uses the production submission columns and persists the datab
   } finally {
     console.error = originalConsoleError;
   }
+});
+
+test('guarded email outcome is fenced to its processing claim and stale sends require attention', () => {
+  const source = readFileSync(new URL('./formSubmissionEmails.js', import.meta.url), 'utf8');
+  assert.match(source, /recordOutcome\(supabase, submissionId, state, claimId = state\?\.claim_id \|\| null\)/);
+  assert.match(source, /\.eq\('submission_email_state->>claim_id', claimId\)/);
+  assert.match(source, /mark_stale_submission_email_attention/);
+  assert.match(source, /requiresAttention: attentionRequired/);
+});
+
+test('a persisted email attention outcome is terminal, not a successful skipped send', async () => {
+  const db = makeEmailStateDb({
+    status: 'attention',
+    claim_id: '00000000-0000-4000-8000-000000000088',
+    reason: 'delivery outcome was ambiguous',
+  });
+  const result = await sendSubmissionEmailsGuarded({
+    supabase: db.client,
+    submissionId: db.row.id,
+    form: { id: db.row.form_id, tenant_id: db.row.tenant_id, submission_emails: [] },
+    formValues: db.row.submission_data,
+    fields: [],
+    allowUnguarded: false,
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.requiresAttention, true);
+  assert.equal(result.alreadyProcessed, false);
+  assert.equal(result.state.status, 'attention');
+});
+
+test('a transient stale-attention write failure stays non-successful and recovers terminally once attention persists', async () => {
+  const db = makeEmailStateDb({
+    status: 'processing',
+    claim_id: '00000000-0000-4000-8000-000000000089',
+    claimed_at: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+  });
+  const options = {
+    supabase: db.client,
+    submissionId: db.row.id,
+    form: { id: db.row.form_id, tenant_id: db.row.tenant_id, submission_emails: [] },
+    formValues: db.row.submission_data,
+    fields: [],
+    allowUnguarded: false,
+  };
+  const duringWriteFailure = await sendSubmissionEmailsGuarded(options);
+  assert.equal(duringWriteFailure.success, false);
+  assert.equal(duringWriteFailure.inProgress, true);
+
+  db.row.submission_email_state = {
+    status: 'attention',
+    claim_id: db.row.submission_email_state.claim_id,
+  };
+  const recovered = await sendSubmissionEmailsGuarded(options);
+  assert.equal(recovered.success, false);
+  assert.equal(recovered.requiresAttention, true);
+});
+
+test('a zero-row fenced outcome write is not reported as durable', async () => {
+  const db = makeEmailStateDb(null, { loseOutcomeClaim: true });
+  const result = await sendSubmissionEmailsGuarded({
+    supabase: db.client,
+    submissionId: db.row.id,
+    form: { id: db.row.form_id, tenant_id: db.row.tenant_id, submission_emails: [] },
+    formValues: db.row.submission_data,
+    fields: [],
+    allowUnguarded: false,
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.durable, false);
+  assert.equal(db.row.submission_email_state.claim_id, '00000000-0000-4000-8000-000000000099');
 });

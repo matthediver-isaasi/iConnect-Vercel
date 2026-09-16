@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { getXeroCredentials } from './xeroCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
 
 export function buildXeroMembershipReference(reference) {
   return resolveMembershipInvoiceReference(reference);
@@ -36,7 +37,7 @@ async function safeXeroJson(response, context) {
   return response.json();
 }
 
-export async function getValidXeroAccessToken(appTenantId) {
+export async function getValidXeroAccessToken(appTenantId, transportOptions = null) {
   if (!supabase) throw new Error('Supabase not configured');
   
   if (!appTenantId) {
@@ -80,7 +81,7 @@ export async function getValidXeroAccessToken(appTenantId) {
     throw new Error('Xero connection cannot be refreshed because its refresh token is missing. Please reconnect Xero.');
   }
 
-  const tokenResponse = await fetch('https://identity.xero.com/connect/token', {
+  const tokenRequest = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -90,7 +91,15 @@ export async function getValidXeroAccessToken(appTenantId) {
       grant_type: 'refresh_token',
       refresh_token: token.refresh_token,
     }).toString(),
-  });
+  };
+  const tokenResponse = transportOptions
+    ? await fetchFormAccountingTransport(
+      transportOptions.fetch || fetch,
+      'https://identity.xero.com/connect/token',
+      tokenRequest,
+      transportOptions,
+    )
+    : await fetch('https://identity.xero.com/connect/token', tokenRequest);
 
   const tokenData = await safeXeroJson(tokenResponse, 'token-refresh');
 
@@ -139,7 +148,7 @@ function parseAddressLines(addressText) {
   return address;
 }
 
-export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo) {
+export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo, transportOptions = null) {
   const info = typeof contactInfo === 'string'
     ? { name: contactInfo, email: null, isOrganization: true, address: null }
     : contactInfo;
@@ -149,7 +158,10 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   const parsedAddress = parseAddressLines(info.address);
 
   const escapedName = info.name.replace(/"/g, '\\"');
-  const contactSearchResponse = await fetch(
+  const transportFetch = (url, init = {}) => transportOptions
+    ? fetchFormAccountingTransport(transportOptions.fetch || fetch, url, init, transportOptions)
+    : fetch(url, init);
+  const contactSearchResponse = await transportFetch(
     `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedName}"`)}`,
     {
       headers: {
@@ -171,7 +183,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
         if (parsedAddress) updateContact.Addresses = [parsedAddress];
         if (info.email) updateContact.EmailAddress = info.email;
         const updatePayload = { Contacts: [updateContact] };
-        const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
+        const updateResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Contacts', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -196,7 +208,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   if (info.email) newContact.EmailAddress = info.email;
   if (parsedAddress) newContact.Addresses = [parsedAddress];
 
-  const createContactResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
+  const createContactResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Contacts', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -386,6 +398,7 @@ export async function createXeroMembershipInvoice({
   deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
   extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
+  transportTimeoutMs, deadlineAt, signal,
 }, dependencies = {}) {
   const database = dependencies.supabase || supabase;
   if (!database) throw new Error('Supabase not configured');
@@ -400,7 +413,15 @@ export async function createXeroMembershipInvoice({
 
   const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
   const contactResolver = dependencies.findOrCreateXeroContact || findOrCreateXeroContact;
-  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const transport = formAccountingTransport({
+    timeoutMs: transportTimeoutMs,
+    deadlineAt,
+    signal,
+    fetch: dependencies.fetch,
+  });
+  const transportFetch = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
   const expectedTenant = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
     : expectedProviderContext?.xero_tenant_id;
@@ -411,7 +432,7 @@ export async function createXeroMembershipInvoice({
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
-  });
+  }, transport);
 
   const { data: membershipLedgerSetting } = await database
     .from('system_settings')
@@ -520,7 +541,7 @@ export async function createXeroMembershipInvoice({
       ? accountingOperationIdentity(idempotencyKey, 'inv', 128)
       : String(idempotencyKey).slice(0, 128);
   }
-  const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+  const invoiceResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Invoices', {
     method: 'POST',
     headers: createHeaders,
     body: JSON.stringify(invoicePayload)
@@ -544,8 +565,7 @@ export async function createXeroMembershipInvoice({
     const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
     try {
       const historyUrl = `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoice.InvoiceID)}/History`;
-      const historyResponse = await fetch(historyUrl, {
-        signal: AbortSignal.timeout(20000),
+        const historyResponse = await transportFetch(historyUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'xero-tenant-id': xeroTenantId,
@@ -556,9 +576,8 @@ export async function createXeroMembershipInvoice({
       annotationRecorded = (historyData?.HistoryRecords || []).some((record) =>
         containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
       if (!annotationRecorded) {
-        const annotationResponse = await fetch(historyUrl, {
+        const annotationResponse = await transportFetch(historyUrl, {
           method: 'PUT',
-          signal: AbortSignal.timeout(20000),
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'xero-tenant-id': xeroTenantId,
@@ -609,7 +628,7 @@ export async function createXeroMembershipInvoice({
       }
 
       if (stripeBankAccountCode) {
-        const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+        const accountsResponse = await transportFetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -642,7 +661,7 @@ export async function createXeroMembershipInvoice({
             'Accept': 'application/json'
           };
           if (paymentIdempotencyKey) payHeaders['Idempotency-Key'] = String(paymentIdempotencyKey).slice(0, 128);
-          const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+          const paymentResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Payments', {
             method: 'POST',
             headers: payHeaders,
             body: JSON.stringify({ Payments: [paymentPayload] })
@@ -671,7 +690,7 @@ export async function createXeroMembershipInvoice({
   let onlineInvoiceUrl = null;
   if (invoice.InvoiceID && invoice.Status !== 'DRAFT') {
     try {
-      const onlineResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoice.InvoiceID}/OnlineInvoice`, {
+      const onlineResponse = await transportFetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoice.InvoiceID}/OnlineInvoice`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -1083,14 +1102,17 @@ export async function settleFormStripeXeroInvoice(args, dependencies = {}) {
   const annotationOperationId = accountingOperationIdentity(operationKey, 'note', 128);
   const payAmount = settlementMoney(amount, 'amount');
   const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
-  const rawFetch = dependencies.fetch || fetch;
-  const fetcher = (url, init = {}) => rawFetch(url, {
-    ...init,
-    signal: init.signal || AbortSignal.timeout(20000),
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
   });
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
   const database = dependencies.supabase || supabase;
   if (!database) throw new Error('Supabase not configured');
-  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
   const expectedProviderContext = args?.expectedProviderContext;
   const expectedXeroTenant = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
@@ -1286,11 +1308,15 @@ export async function findFormStripeXeroInvoice(args, dependencies = {}) {
   const after = new Date(createdAfter);
   if (!createdAfter || Number.isNaN(after.getTime())) throw new Error('createdAfter must be a valid date');
   const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
-  const rawFetch = dependencies.fetch || fetch;
-  const fetcher = (url, init = {}) => rawFetch(url, {
-    ...init, signal: init.signal || AbortSignal.timeout(20000),
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
   });
-  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId);
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
   const expectedTenant = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
     : expectedProviderContext?.xero_tenant_id;

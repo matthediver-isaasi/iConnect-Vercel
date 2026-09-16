@@ -3,6 +3,10 @@ import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 
 export const FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS = 15 * 60 * 1000;
 export const MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS = 12;
+// The Stripe SDK's supported transport timeout has a one-second floor. Do not
+// start its remote retrieval when less remains: allowing its floor to overrun
+// the completion deadline would leave too little time for durable recovery.
+const MIN_STRIPE_TRANSPORT_TIMEOUT_MS = 1_000;
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -106,6 +110,31 @@ function stableResult(providerResult, identity) {
   };
 }
 
+function remainingDeadlineMs(deadlineAt, stage) {
+  if (deadlineAt == null) return null;
+  const remaining = Math.floor(Number(deadlineAt) - Date.now());
+  if (!Number.isFinite(remaining) || remaining <= 0) {
+    const error = new Error(`Form Stripe invoice settlement deadline expired before ${stage}`);
+    error.code = 'FORM_ACCOUNTING_DEADLINE_EXPIRED';
+    throw error;
+  }
+  return remaining;
+}
+
+function stripeTransportOptions(deadlineAt) {
+  const remaining = remainingDeadlineMs(deadlineAt, 'Stripe PaymentIntent retrieval');
+  if (remaining == null) return {};
+  if (remaining < MIN_STRIPE_TRANSPORT_TIMEOUT_MS) {
+    const error = new Error('Form Stripe invoice settlement deadline has insufficient time for Stripe PaymentIntent retrieval');
+    error.code = 'FORM_ACCOUNTING_DEADLINE_EXPIRED';
+    throw error;
+  }
+  // `retrieveTenantPaymentIntent` maps timeoutMs to Stripe's real HTTP-client
+  // timeout. Keep deadlineAt too so injected/test implementations and future
+  // transport layers retain the same absolute budget.
+  return { timeoutMs: remaining, deadlineAt };
+}
+
 /**
  * Settle an already-linked Stripe form-membership invoice.
  *
@@ -121,6 +150,7 @@ export async function settleFormStripeInvoice({
   expectedAccount,
   expectedProviderContext,
   annotationOnly = false,
+  deadlineAt = null,
   retrievePaymentIntent = retrieveTenantPaymentIntent,
   getProvider = (_tenantId, pinnedProvider) => getAccountingProviderByName(pinnedProvider),
 }) {
@@ -209,7 +239,12 @@ export async function settleFormStripeInvoice({
   }
 
   const stripeFeature = meta.stripe_feature || 'membership';
-  const found = await retrievePaymentIntent(tenantId, stripeFeature, submission.payment_reference);
+  const found = await retrievePaymentIntent(
+    tenantId,
+    stripeFeature,
+    submission.payment_reference,
+    stripeTransportOptions(deadlineAt),
+  );
   const pi = found?.paymentIntent;
   if (!pi || pi.id !== submission.payment_reference || pi.status !== 'succeeded') {
     throw new Error('Stripe PaymentIntent is not verified as succeeded');
@@ -263,17 +298,22 @@ export async function settleFormStripeInvoice({
       }
       progress.invoice_claimed_at = nextClaimedAt;
     }
-    provider = await getProvider(tenantId, pinnedProvider);
-    if (typeof provider.findFormStripeInvoice !== 'function') {
-      throw new Error('Accounting provider does not support safe invoice discovery');
-    }
     let discovery;
     try {
+      // Provider discovery can page through remote invoices. Its adapter
+      // derives the remaining time before every HTTP request from this same
+      // absolute deadline; never reset a full timeout for each page.
+      remainingDeadlineMs(deadlineAt, 'accounting invoice discovery');
+      provider = await getProvider(tenantId, pinnedProvider);
+      if (typeof provider.findFormStripeInvoice !== 'function') {
+        throw new Error('Accounting provider does not support safe invoice discovery');
+      }
       discovery = await provider.findFormStripeInvoice({
         appTenantId: tenantId,
         stripePaymentIntentId: pi.id,
         createdAfter: progress.invoice_created_after || submission.payment_paid_at,
         expectedProviderContext: providerContext,
+        deadlineAt,
       });
     } catch (error) {
       if (!dryRun && discoveryAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS) {
@@ -431,6 +471,10 @@ export async function settleFormStripeInvoice({
   let providerResult;
   try {
     provider ||= await getProvider(tenantId, pinnedProvider);
+    // Keep the claim owned until this controlled transport attempt returns or
+    // aborts. The provider adapters apply deadlineAt to every settlement
+    // request and preserve their existing read-after-write reconciliation.
+    remainingDeadlineMs(deadlineAt, 'accounting invoice settlement');
     providerResult = await provider.settleFormStripeInvoice({
       appTenantId: tenantId,
       invoiceId,
@@ -443,6 +487,7 @@ export async function settleFormStripeInvoice({
       expectedProviderContext: providerContext,
       annotationOnly,
       operationKey,
+      deadlineAt,
     });
     if (!dryRun && !accountingProviderContextsEqual(providerResult?.provider_context, providerContext)) {
       throw new Error('Settlement response provider context did not match the pinned invoice context');

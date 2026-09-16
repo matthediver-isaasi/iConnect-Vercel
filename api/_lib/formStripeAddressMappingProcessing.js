@@ -8,7 +8,6 @@ import {
   validateStripeAddressTargetResolution,
 } from '../../shared/formStripeAddressMappings.js';
 import { getCountryByCode, resolveCountryToIso2 } from '../../shared/countries.js';
-import { runFormEntityPipelines } from './formEntityPipelines.js';
 
 export const STRIPE_ADDRESS_MAPPING_SOURCES = Object.freeze([
   'line1', 'line2', 'city', 'state', 'postal_code', 'country', 'formatted',
@@ -47,6 +46,28 @@ export async function patchFormSubmissionPaymentMeta({
   if (error) throw new StripeAddressMappingError(
     `Unable to save payment metadata: ${error.message}`,
     'PAYMENT_META_PATCH_FAILED',
+    503,
+  );
+  return data;
+}
+
+// Payment-time Stripe address evidence is immutable.  Never route this key
+// through the generic JSON merge helper: a late retry must observe the first
+// Charge-derived capture, not replace it with a newer mutable source.
+export async function captureFormStripeBillingAddressOnce({
+  db,
+  tenantId,
+  submissionId,
+  address,
+}) {
+  const { data, error } = await db.rpc('capture_form_stripe_billing_address_once', {
+    p_tenant_id: tenantId,
+    p_submission_id: submissionId,
+    p_address: address,
+  });
+  if (error || !data) throw new StripeAddressMappingError(
+    `Unable to save immutable Stripe billing address: ${error?.message || 'no submission was updated'}`,
+    'STRIPE_BILLING_ADDRESS_CAPTURE_FAILED',
     503,
   );
   return data;
@@ -346,39 +367,18 @@ export async function retryPersistedStripeAddressMappings({
     || null;
   const targetsMissing = (targetEntities.has('member') && !memberId)
     || (targetEntities.has('organization') && !organizationId);
-  let currentForm;
   if (targetsMissing) {
-    const { data: form, error: formError } = await db
-      .from('form')
-      .select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
-      .eq('id', submission.form_id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-    if (formError || !form) throw new StripeAddressMappingError(
-      formError?.message || 'The current form is unavailable',
-      'STRIPE_ADDRESS_CURRENT_FORM_UNAVAILABLE',
-      formError ? 503 : 409,
-    );
-    currentForm = form;
-    await runFormEntityPipelines({ supabase: db, submission, form });
-    const { data: reloaded, error: reloadError } = await db
-      .from('form_submission')
-      .select('id, form_id, tenant_id, submitted_by_email, payment_provider, payment_status, payment_meta, created_member_id, created_organization_id, organization_id')
-      .eq('id', submissionId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-    if (reloadError || !reloaded) throw new StripeAddressMappingError(
-      reloadError?.message || 'Persisted form submission was not found after recovery',
-      'SUBMISSION_NOT_FOUND',
-      reloadError ? 503 : 404,
-    );
-    submission = reloaded;
-    checkpoints = await loadCheckpoints();
-    memberId = submission.created_member_id || checkpoints.member || null;
-    organizationId = submission.created_organization_id
-      || submission.organization_id
-      || checkpoints.organization
-      || null;
+    // The address sweep owns neither a paid completion receipt nor a pipeline
+    // operation fence. It must never invoke process-application directly:
+    // doing so would replay target creation without a deadline or durable
+    // owner. Keep the address retry leased/backed off; the signed completion
+    // follow-up (authorized by its persisted pending marker) resolves targets.
+    return {
+      configured: true,
+      applied: false,
+      pending: true,
+      reason: 'stripe_address_mapping_target_unresolved',
+    };
   }
   const persistedMemberId = submission.payment_meta?.verified_submitter_member_id || null;
   let verifiedMember = null;
@@ -410,7 +410,6 @@ export async function retryPersistedStripeAddressMappings({
       verifiedMemberId: verifiedMember?.id || null,
       verifiedOrganizationId: verifiedMember?.organization_id || null,
     },
-    currentForm,
   });
 }
 

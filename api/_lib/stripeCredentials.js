@@ -142,7 +142,7 @@ export async function getStripeIntegrationCredentials(tenantId) {
  *          null when no Stripe credentials are configured at all.
  * @throws the original Stripe error when the PI is not found in either mode.
  */
-export async function retrieveTenantPaymentIntent(tenantId, feature, paymentIntentId) {
+export async function retrieveTenantPaymentIntent(tenantId, feature, paymentIntentId, { timeoutMs = null } = {}) {
   const Stripe = (await import('stripe')).default;
   const all = await getStripeIntegrationCredentials(tenantId);
   if (!all) return null;
@@ -158,8 +158,11 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
   // Confirmation is the one place where the opposite mode is allowed: an
   // intent may genuinely pre-date an admin mode switch. If the newly selected
   // mode has no readable key, try only the opposite account for that old ID.
+  const clientOptions = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+    ? { timeout: Math.max(1_000, Math.floor(Number(timeoutMs))) }
+    : undefined;
   if (!selectedKey && otherKey) {
-    const otherStripe = new Stripe(otherKey);
+    const otherStripe = new Stripe(otherKey, clientOptions || {});
     const paymentIntent = await otherStripe.paymentIntents.retrieve(paymentIntentId);
     return {
       paymentIntent,
@@ -171,7 +174,7 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
   }
   if (!selectedKey) return null;
 
-  const selectedStripe = new Stripe(selectedKey);
+  const selectedStripe = new Stripe(selectedKey, clientOptions || {});
   try {
     const paymentIntent = await selectedStripe.paymentIntents.retrieve(paymentIntentId);
     return {
@@ -185,7 +188,7 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
     const notFound = err?.code === 'resource_missing' || err?.statusCode === 404;
     if (!notFound || !otherKey || otherKey === selectedKey) throw err;
     console.warn(`[Stripe] PI ${paymentIntentId} not found with the ${mode} key for feature "${feature}" (tenant ${tenantId}); retrying with the other mode's key (possible mid-session test/live mode flip)`);
-    const otherStripe = new Stripe(otherKey);
+      const otherStripe = new Stripe(otherKey, clientOptions || {});
     const paymentIntent = await otherStripe.paymentIntents.retrieve(paymentIntentId);
     console.warn(`[Stripe] MODE MISMATCH: PI ${paymentIntentId} belongs to the ${mode === 'test' ? 'live' : 'test'} account while feature "${feature}" is set to ${mode} (tenant ${tenantId})`);
     return {

@@ -114,6 +114,7 @@ function makeOrderingDb({
   };
   const inserts = [];
   const updates = [];
+  const rpcCalls = [];
 
   class Query {
     constructor(table) {
@@ -232,10 +233,14 @@ function makeOrderingDb({
   return {
     inserts,
     updates,
+    rpcCalls,
     rows,
     client: {
       from(table) { return new Query(table); },
       async rpc(name, args) {
+        rpcCalls.push({ name, args });
+        if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
+        if (name === 'finish_form_paid_pipeline_operation') return { data: true, error: null };
         if (name === 'claim_form_stripe_address_mapping_processing') return { data: true, error: null };
         if (name === 'release_form_stripe_address_mapping_processing') return { data: null, error: null };
         if (name === 'claim_form_structured_action') {
@@ -278,6 +283,8 @@ async function invokeOrderingProcessor(payload, {
   roleRows = [],
   organizationGroups = [],
   resumeUpdateError = null,
+  completionOperationId = null,
+  completionOperationKind = 'primary',
   invokeHandler = true,
 } = {}) {
   const form = {
@@ -360,6 +367,10 @@ async function invokeOrderingProcessor(payload, {
       entity_pipelines: payload.entity_pipelines,
       verified_submitter_member_id: null,
       verified_admin_access: true,
+      ...(completionOperationId ? {
+        completion_operation_id: completionOperationId,
+        completion_operation_kind: completionOperationKind,
+      } : {}),
     },
   };
   const response = { statusCode: 200, body: null };
@@ -923,9 +934,20 @@ test('genuine structured failure still blocks the primary pipeline', async () =>
       ],
     },
   });
-  const result = await invokeOrderingProcessor(payload);
+  const result = await invokeOrderingProcessor(payload, {
+    completionOperationId: '00000000-0000-4000-8000-000000000091',
+  });
   assert.equal(result.response.statusCode, 409, JSON.stringify(result.response.body));
   assert.equal(result.response.body.code, 'STRUCTURED_ACTIONS_INCOMPLETE');
+  assert.equal(result.response.body.retryable, true);
+  assert.equal(result.rows.form_submission[0].payment_meta.structured_actions_pending, true);
+  assert.equal(result.rows.form_submission[0].payment_meta.structured_actions_result.success, false);
+  assert.deepEqual(
+    result.rpcCalls
+      .filter(call => call.name.endsWith('form_paid_pipeline_operation'))
+      .map(call => call.name),
+    ['begin_form_paid_pipeline_operation', 'finish_form_paid_pipeline_operation'],
+  );
   assert.equal(
     result.updates.some(entry => entry.table === 'member'),
     true,

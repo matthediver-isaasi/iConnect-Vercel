@@ -270,6 +270,46 @@ test('retry reloads targets instead of accepting caller-selected entity ids', as
   assert.deepEqual(tables, ['form_submission']);
 });
 
+test('address retry defers an unresolved target to the fenced completion follow-up', async () => {
+  const tables = [];
+  const submission = {
+    id: 'submission-unresolved-target',
+    form_id: 'form-1',
+    tenant_id: 'tenant-1',
+    payment_provider: 'stripe',
+    payment_status: 'paid',
+    payment_meta: {
+      stripe_address_mapping_config: config,
+      stripe_billing_address: address,
+    },
+    created_member_id: null,
+    created_organization_id: null,
+    organization_id: null,
+  };
+  const db = {
+    from(table) {
+      tables.push(table);
+      if (table === 'form_submission') return queryResult({ data: submission, error: null });
+      if (table === 'form_stripe_address_mapping_ledger') return queryResult({ data: null, error: null });
+      if (table === 'form_stripe_address_mapping_target') return queryResult({ data: [], error: null });
+      throw new Error(`address retry must not run an unfenced pipeline through ${table}`);
+    },
+    rpc: async name => { throw new Error(`address retry must not call ${name}`); },
+  };
+  const result = await retryPersistedStripeAddressMappings({
+    db,
+    submissionId: submission.id,
+    tenantId: submission.tenant_id,
+  });
+  assert.deepEqual(result, {
+    configured: true,
+    applied: false,
+    pending: true,
+    reason: 'stripe_address_mapping_target_unresolved',
+  });
+  assert.ok(!tables.includes('form'), 'the address worker must not load/run process-application');
+});
+
 test('retry completes from pre-RPC target checkpoint when submission linkage is null', async () => {
   const calls = [];
   const submission = {

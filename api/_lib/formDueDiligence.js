@@ -233,7 +233,14 @@ export async function initializePaidFormDueDiligence({ db, submissionId, tenantI
 
 // This intentionally scans only trigger-marked work.  It does not inspect
 // payment status, form settings, or any other financial state.
-export async function reconcilePaidFormDueDiligence({ db, limit = 20 }) {
+export async function reconcilePaidFormDueDiligence({
+  db,
+  limit = 20,
+  deadlineAt = null,
+  // Reconciliation callers that own a stricter paid-completion receipt may
+  // exclude it here. This keeps DD from bypassing an unfinished entity stage.
+  shouldSkipSubmission = null,
+}) {
   if (!db) return { ok: false, code: 'INVALID_ARGUMENT', processed: 0 };
   try {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
@@ -248,6 +255,14 @@ export async function reconcilePaidFormDueDiligence({ db, limit = 20 }) {
     });
     const outcomes = [];
     for (const row of rows || []) {
+      if (deadlineAt && Date.now() >= deadlineAt) {
+        outcomes.push({ ok: false, code: 'BUDGET_EXHAUSTED' });
+        break;
+      }
+      if (shouldSkipSubmission && await shouldSkipSubmission(row)) {
+        outcomes.push({ ok: true, skipped: true, code: 'MANAGED_BY_COMPLETION' });
+        continue;
+      }
       outcomes.push(await initializePaidFormDueDiligence({
         db,
         submissionId: row.form_submission_id,

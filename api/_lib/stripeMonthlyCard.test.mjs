@@ -1496,11 +1496,19 @@ function captureDb(reads = {}) {
     updates,
     inserts,
     async rpc(name, args) {
-      if (name !== 'patch_form_submission_payment_meta') {
+      if (name !== 'patch_form_submission_payment_meta'
+          && name !== 'capture_form_stripe_billing_address_once') {
         return { data: null, error: new Error(`unexpected RPC ${name}`) };
       }
       const current = reads.form_submission?.data?.payment_meta || {};
-      const merged = { ...current, ...(args.p_patch || {}) };
+      const merged = name === 'capture_form_stripe_billing_address_once'
+        ? {
+          ...current,
+          ...(current.stripe_billing_address
+            ? {}
+            : { stripe_billing_address: args.p_address }),
+        }
+        : { ...current, ...(args.p_patch || {}) };
       if (reads.form_submission?.data) reads.form_submission.data.payment_meta = merged;
       updates.push({
         table: 'form_submission',

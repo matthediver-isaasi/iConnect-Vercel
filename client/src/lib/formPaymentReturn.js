@@ -25,6 +25,7 @@ export const VERIFIED_PAYMENT_STATUSES = new Set([
   'paid',
   'blocked',
   'accounting_pending',
+  'attention',
 ]);
 
 export const PAYMENT_RETURN_PARAMS = [
@@ -193,8 +194,9 @@ export function savePaymentSubmissionContext({
     // A paid status is terminal even when callers only provide `status`.
     // Keeping the marker explicit makes a refresh safe without trusting the
     // status field alone.
-    ...(terminalStatus === 'paid' || normalizedStatus === 'paid'
-      ? { terminalStatus: 'paid' }
+    ...(terminalStatus === 'paid' || terminalStatus === 'attention'
+      || normalizedStatus === 'paid' || normalizedStatus === 'attention'
+      ? { terminalStatus: terminalStatus === 'attention' || normalizedStatus === 'attention' ? 'attention' : 'paid' }
       : {}),
   };
   storage.setItem(paymentContextKey(pathname, search), JSON.stringify(context));
@@ -227,7 +229,8 @@ export function loadPaymentSubmissionContext({
         : {}),
       ...(parsed.continuePath ? { continuePath: sanitizePaymentContinuePath(parsed.continuePath) } : {}),
       ...(VERIFIED_PAYMENT_STATUSES.has(parsed.status) ? { status: parsed.status } : {}),
-      ...(parsed.terminalStatus === 'paid' ? { terminalStatus: 'paid' } : {}),
+      ...(parsed.terminalStatus === 'paid' || parsed.terminalStatus === 'attention'
+        ? { terminalStatus: parsed.terminalStatus } : {}),
     };
   } catch {
     // A bare id is accepted only to finish an old redirect. It is deliberately

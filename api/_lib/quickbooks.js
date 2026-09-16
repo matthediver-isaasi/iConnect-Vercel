@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { getQuickBooksCredentials, getIntuitEndpoints } from './quickbooksCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
 
 export function buildQuickBooksMembershipCustomerMemo(reference) {
   return { value: resolveMembershipInvoiceReference(reference) };
@@ -97,20 +98,25 @@ function companyBase(apiBaseUrl, realmId) {
 
 const MINOR_VERSION = 70;
 
-async function qboFetch(ctx, accessToken, method, url, body) {
+async function qboFetch(ctx, accessToken, method, url, body, transportOptions = null) {
   const init = {
     method,
     headers: qboHeaders(accessToken, body ? { 'Content-Type': 'application/json' } : {}),
   };
   if (body) init.body = JSON.stringify(body);
-  const resp = await fetch(url, init);
+  const resp = transportOptions
+    ? await fetchFormAccountingTransport(transportOptions.fetch || fetch, url, init, transportOptions)
+    : await fetch(url, init);
   return safeJson(resp, ctx);
 }
 
-async function qboQuery(accessToken, realmId, environment, query) {
+async function qboQuery(accessToken, realmId, environment, query, transportOptions = null) {
   const { apiBaseUrl } = getIntuitEndpoints(environment);
   const url = `${companyBase(apiBaseUrl, realmId)}/query?minorversion=${MINOR_VERSION}&query=${encodeURIComponent(query)}`;
-  const resp = await fetch(url, { headers: qboHeaders(accessToken, { 'Content-Type': 'application/text' }) });
+  const init = { headers: qboHeaders(accessToken, { 'Content-Type': 'application/text' }) };
+  const resp = transportOptions
+    ? await fetchFormAccountingTransport(transportOptions.fetch || fetch, url, init, transportOptions)
+    : await fetch(url, init);
   return safeJson(resp, 'query');
 }
 
@@ -135,7 +141,7 @@ export async function getQuickBooksTokenRow(appTenantId) {
   return data || null;
 }
 
-export async function getValidQuickBooksAccessToken(appTenantId) {
+export async function getValidQuickBooksAccessToken(appTenantId, transportOptions = null) {
   if (!appTenantId) throw new Error('appTenantId is required for QuickBooks token lookup');
 
   const token = await getQuickBooksTokenRow(appTenantId);
@@ -165,7 +171,7 @@ export async function getValidQuickBooksAccessToken(appTenantId) {
 
   const { tokenUrl } = getIntuitEndpoints(token.environment || creds.environment);
 
-  const tokenResponse = await fetch(tokenUrl, {
+  const tokenRequest = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -178,7 +184,15 @@ export async function getValidQuickBooksAccessToken(appTenantId) {
       grant_type: 'refresh_token',
       refresh_token: token.refresh_token,
     }).toString(),
-  });
+  };
+  const tokenResponse = transportOptions
+    ? await fetchFormAccountingTransport(
+      transportOptions.fetch || fetch,
+      tokenUrl,
+      tokenRequest,
+      transportOptions,
+    )
+    : await fetch(tokenUrl, tokenRequest);
 
   const tokenData = await safeJson(tokenResponse, 'token-refresh');
 
@@ -358,13 +372,18 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
   }
   const { apiBaseUrl } = getIntuitEndpoints(environment);
   const base = companyBase(apiBaseUrl, realmId);
+  // Membership creation passes this scoped transport object. Other customer
+  // callers retain their pre-existing behaviour rather than inheriting a new
+  // timeout policy.
+  const transport = connection?.transport || null;
 
   const escapedName = info.name.replace(/'/g, "\\'");
   const queryResp = await qboQuery(
     accessToken,
     realmId,
     environment,
-    `SELECT * FROM Customer WHERE DisplayName = '${escapedName}'`
+    `SELECT * FROM Customer WHERE DisplayName = '${escapedName}'`,
+    transport,
   );
 
   const existing = queryResp?.QueryResponse?.Customer?.[0];
@@ -387,7 +406,7 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
           updatePayload.BillAddr = parsedAddress;
         }
         const url = `${base}/customer?minorversion=${MINOR_VERSION}`;
-        const updated = await qboFetch('customer-update', accessToken, 'POST', url, updatePayload);
+        const updated = await qboFetch('customer-update', accessToken, 'POST', url, updatePayload, transport);
         if (updated?.Customer?.Id) {
           console.log(`[QBO] Updated customer details for: ${info.name}`);
         }
@@ -405,7 +424,7 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
   if (parsedAddress) createPayload.BillAddr = parsedAddress;
 
   const createUrl = `${base}/customer?minorversion=${MINOR_VERSION}`;
-  const created = await qboFetch('customer-create', accessToken, 'POST', createUrl, createPayload);
+  const created = await qboFetch('customer-create', accessToken, 'POST', createUrl, createPayload, transport);
   if (!created?.Customer?.Id) {
     throw new Error(`Failed to create QuickBooks customer: ${JSON.stringify(created).substring(0, 500)}`);
   }
@@ -594,6 +613,9 @@ export async function createQuickBooksMembershipInvoice({
   idempotencyKey,
   paymentIdempotencyKey,
   expectedProviderContext = null,
+  transportTimeoutMs,
+  deadlineAt,
+  signal,
 }, dependencies = {}) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -606,7 +628,13 @@ export async function createQuickBooksMembershipInvoice({
 
   const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
   const customerResolver = dependencies.findOrCreateQuickBooksCustomer || findOrCreateQuickBooksCustomer;
-  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const transport = formAccountingTransport({
+    timeoutMs: transportTimeoutMs,
+    deadlineAt,
+    signal,
+    fetch: dependencies.fetch,
+  });
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId, transport);
   const expectedRealm = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
     : expectedProviderContext?.quickbooks_realm_id;
@@ -629,6 +657,7 @@ export async function createQuickBooksMembershipInvoice({
     realmId,
     environment,
     expectedProviderContext,
+    transport,
   });
 
   const itemId = await resolveMembershipItemId(appTenantId);
@@ -640,7 +669,9 @@ export async function createQuickBooksMembershipInvoice({
         'item-retrieve',
         accessToken,
         'GET',
-        `${base}/item/${encodeURIComponent(itemId)}?minorversion=${MINOR_VERSION}`
+        `${base}/item/${encodeURIComponent(itemId)}?minorversion=${MINOR_VERSION}`,
+        undefined,
+        transport,
       );
       taxCodeId = itemResp?.Item?.SalesTaxCodeRef?.value || null;
       if (taxCodeId) {
@@ -702,19 +733,22 @@ export async function createQuickBooksMembershipInvoice({
     try {
       const byName = await qboQuery(
         accessToken, realmId, environment,
-        `SELECT * FROM Item WHERE Name = '${escaped}' AND Active = true`
+        `SELECT * FROM Item WHERE Name = '${escaped}' AND Active = true`,
+        transport,
       );
       resolved = byName?.QueryResponse?.Item?.[0]?.Id || null;
       if (!resolved) {
         const acctResp = await qboQuery(
           accessToken, realmId, environment,
-          `SELECT * FROM Account WHERE AcctNum = '${escaped}' AND Active = true`
+          `SELECT * FROM Account WHERE AcctNum = '${escaped}' AND Active = true`,
+          transport,
         );
         const accountId = acctResp?.QueryResponse?.Account?.[0]?.Id || null;
         if (accountId) {
           const byAccount = await qboQuery(
             accessToken, realmId, environment,
-            `SELECT * FROM Item WHERE Active = true MAXRESULTS 1000`
+            `SELECT * FROM Item WHERE Active = true MAXRESULTS 1000`,
+            transport,
           );
           const items = byAccount?.QueryResponse?.Item || [];
           resolved = items.find((it) => it?.IncomeAccountRef?.value === accountId)?.Id || null;
@@ -800,7 +834,7 @@ export async function createQuickBooksMembershipInvoice({
     ? `&requestid=${encodeURIComponent(invoiceOperationId)}`
     : '';
   const url = `${base}/invoice?minorversion=${MINOR_VERSION}${requestIdParam}`;
-  const invoiceResp = await qboFetch('invoice-create', accessToken, 'POST', url, invoicePayload);
+  const invoiceResp = await qboFetch('invoice-create', accessToken, 'POST', url, invoicePayload, transport);
   const invoice = invoiceResp?.Invoice;
   if (!invoice?.Id) {
     throw new Error(`Failed to create QuickBooks invoice: ${JSON.stringify(invoiceResp).substring(0, 500)}`);
@@ -835,7 +869,7 @@ export async function createQuickBooksMembershipInvoice({
           ? `&requestid=${encodeURIComponent(paymentOperationId)}`
           : '';
         const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}${payRequestId}`;
-        const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload);
+        const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload, transport);
         if (payResp?.Payment?.Id) {
           paymentRecorded = true;
           paymentId = payResp.Payment.Id;
@@ -859,7 +893,7 @@ export async function createQuickBooksMembershipInvoice({
   let onlineInvoiceUrl = null;
   try {
     const linkUrl = `${base}/invoice/${encodeURIComponent(invoice.Id)}?include=invoiceLink&minorversion=${MINOR_VERSION}`;
-    const linkResp = await qboFetch('invoice-link', accessToken, 'GET', linkUrl);
+    const linkResp = await qboFetch('invoice-link', accessToken, 'GET', linkUrl, undefined, transport);
     onlineInvoiceUrl = linkResp?.Invoice?.InvoiceLink || null;
     if (onlineInvoiceUrl) {
       console.log(`[QBO] Online invoice link retrieved for ${invoice.DocNumber || invoice.Id}`);
@@ -1016,14 +1050,17 @@ export async function settleFormStripeQuickBooksInvoice(args, dependencies = {})
   const annotationRequestId = quickBooksSettlementRequestId(operationKey, 'note');
   const payAmount = qboSettlementMoney(amount, 'amount');
   const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
-  const rawFetch = dependencies.fetch || fetch;
-  const fetcher = (url, init = {}) => rawFetch(url, {
-    ...init,
-    signal: init.signal || AbortSignal.timeout(20000),
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
   });
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
   const database = dependencies.supabase || supabase;
   if (!database) throw new Error('Supabase not configured');
-  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId, transport);
   const expectedProviderContext = args?.expectedProviderContext;
   const expectedRealm = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
@@ -1250,11 +1287,15 @@ export async function findFormStripeQuickBooksInvoice(args, dependencies = {}) {
   const after = new Date(createdAfter);
   if (!createdAfter || Number.isNaN(after.getTime())) throw new Error('createdAfter must be a valid date');
   const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
-  const rawFetch = dependencies.fetch || fetch;
-  const fetcher = (url, init = {}) => rawFetch(url, {
-    ...init, signal: init.signal || AbortSignal.timeout(20000),
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
   });
-  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId, transport);
   const expectedRealm = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
     : expectedProviderContext?.quickbooks_realm_id;

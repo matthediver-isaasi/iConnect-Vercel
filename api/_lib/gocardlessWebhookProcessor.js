@@ -358,7 +358,9 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
   // form_submission (payment_reference = billing request id), not on a
   // billing agreement. Handle them first so the agreement lookup below
   // doesn't dismiss the event.
-  const formPaymentResult = await maybeProcessFormPaymentBillingRequest({ action, brId, db, gc });
+  const formPaymentResult = await maybeProcessFormPaymentBillingRequest({
+    action, brId, db, gc, deadlineAt: deps.deadlineAt || null,
+  });
   if (formPaymentResult) return formPaymentResult;
 
   let agreement = await findAgreementByBillingRequest(db, brId);
@@ -566,7 +568,7 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
 // Returns null when the billing request is not a form payment (fall through
 // to the agreement path). Marks the pending form_submission paid via the
 // shared CAS and runs finalisation exactly once.
-async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
+async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc, deadlineAt = null }) {
   let row = null;
   try {
     const { data, error } = await db
@@ -612,6 +614,7 @@ async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
           submission: paidRow || { ...row, payment_status: 'paid' },
           form,
           baseUrl,
+          deadlineAt,
         });
       }
       return { handled: true, detail: `form payment ${row.id} marked paid (billing request fulfilled)` };

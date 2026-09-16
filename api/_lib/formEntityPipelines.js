@@ -62,6 +62,15 @@ export async function runFormEntityPipelines({
   form,
   baseUrl: _legacyBaseUrl,
   completionDescription = 'Payment succeeded',
+  // A paid completion owner supplies this opaque UUID.  It is not a retry
+  // key: it identifies one attempt which may have reached the processor even
+  // if its HTTP response was lost.  A later owner must inspect its durable
+  // state rather than replaying that ambiguous attempt.
+  completionOperationId = null,
+  // Only a persisted structured/related-record pending marker may authorize a
+  // `followup`; ordinary completion retries always reuse their known result.
+  completionOperationKind = 'primary',
+  deadlineAt = null,
 }) {
   const result = {
     ran: false,
@@ -72,6 +81,7 @@ export async function runFormEntityPipelines({
     partial: false,
     structuredActions: null,
     relatedRecords: null,
+    stripeAddressMappings: null,
   };
   const hasEntityPipelines = hasPersistedFormEntityActions(form);
   if (!hasEntityPipelines) return result;
@@ -94,6 +104,90 @@ export async function runFormEntityPipelines({
     ? submission.payment_meta : {};
   const verifiedSubmitterMemberId = meta.verified_submitter_member_id || null;
   const verifiedAdminAccess = meta.verified_admin_access === true;
+  if (completionOperationId) {
+    try {
+      const { data: operation, error } = await supabase.rpc('begin_form_paid_pipeline_operation', {
+        p_tenant_id: submission.tenant_id,
+        p_submission_id: submission.id,
+        p_operation_id: completionOperationId,
+        p_operation_kind: completionOperationKind,
+      });
+      if (error) throw error;
+      if (operation?.status === 'done') {
+        // The processor stored entity linkage before it marked this operation
+        // done. Reload only these durable checkpoints; never replay it just to
+        // recover a response body.
+        const { data: current, error: currentError } = await supabase
+          .from('form_submission')
+          .select('created_member_id, created_organization_id, organization_id, payment_meta')
+          .eq('id', submission.id).eq('tenant_id', submission.tenant_id)
+          .maybeSingle();
+        if (currentError) throw currentError;
+        result.ran = true;
+        result.memberId = current?.created_member_id || null;
+        result.organizationId = current?.organization_id || current?.created_organization_id || null;
+        result.structuredActions = current?.payment_meta?.structured_actions_result || null;
+        result.relatedRecords = current?.payment_meta?.related_records_result || null;
+        result.stripeAddressMappings = current?.payment_meta?.stripe_address_mappings_result || null;
+        result.partial = current?.payment_meta?.structured_actions_pending === true
+          || current?.payment_meta?.related_records_pending === true
+          || current?.payment_meta?.stripe_address_mappings_pending === true;
+        if (result.partial) result.detail = 'application processing has pending or failed actions';
+        return result;
+      }
+      if (operation?.status !== 'claimed') {
+        result.failed = true;
+        // A different processor still owns this operation. Its external
+        // effects are unknown to this worker, so downstream membership,
+        // accounting, DD, and emails must be fenced behind attention rather
+        // than treated as an ordinary retryable pipeline failure.
+        result.ambiguous = true;
+        result.detail = operation?.reason || 'application processing is already owned by another worker';
+        return result;
+      }
+    } catch (err) {
+      result.failed = true;
+      result.detail = `application processing reservation failed${err?.message ? `: ${err.message}` : ''}`;
+      await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'could not reserve a durable operation'));
+      return result;
+    }
+  }
+
+  let abortTimer = null;
+  let signal;
+  const markAmbiguousOperation = async () => {
+    if (!completionOperationId) return;
+    result.ambiguous = true;
+    try {
+      await supabase.rpc('finish_form_paid_pipeline_operation', {
+        p_tenant_id: submission.tenant_id,
+        p_submission_id: submission.id,
+        p_operation_id: completionOperationId,
+        p_status: 'attention',
+        p_error: 'The processor response was unavailable; do not automatically replay this operation.',
+      });
+    } catch {
+      // The watchdog migration makes an abandoned reservation visible.
+    }
+  };
+  if (deadlineAt) {
+    // Abort the *transport*, rather than racing the Promise.  Fetch honours
+    // this signal and closes the internal HTTP request; the durable operation
+    // below is then deliberately left attention-required because the remote
+    // handler could have accepted it before the connection closed.
+    // Reserve a few seconds for the caller to persist an owner-fenced outcome
+    // after the transport closes.
+    const remaining = deadlineAt - Date.now() - 5_000;
+    if (remaining <= 0) {
+      result.failed = true;
+      result.detail = 'application processing was not started before its deadline';
+      await markAmbiguousOperation();
+      return result;
+    }
+    const controller = new AbortController();
+    abortTimer = setTimeout(() => controller.abort(new Error('application processing deadline exceeded')), remaining);
+    signal = controller.signal;
+  }
   try {
     const pipelineResponse = await fetch(`${processingBaseUrl}/api/forms/process-application`, {
       method: 'POST',
@@ -120,7 +214,10 @@ export async function runFormEntityPipelines({
         tenant_id: submission.tenant_id,
         verified_submitter_member_id: verifiedSubmitterMemberId,
         verified_admin_access: verifiedAdminAccess,
+        ...(completionOperationId ? { completion_operation_id: completionOperationId } : {}),
+        ...(completionOperationId ? { completion_operation_kind: completionOperationKind } : {}),
       }),
+      ...(signal ? { signal } : {}),
     });
     if (pipelineResponse.ok) {
       result.ran = true;
@@ -128,7 +225,10 @@ export async function runFormEntityPipelines({
         const body = await pipelineResponse.json();
         result.structuredActions = body.structured_actions || null;
         result.relatedRecords = body.related_records || null;
-        result.partial = body.structured_actions?.success === false || body.related_records?.success === false;
+        result.stripeAddressMappings = body.stripe_address_mappings || null;
+        result.partial = body.structured_actions?.success === false
+          || body.related_records?.success === false
+          || body.stripe_address_mappings?.pending === true;
         if (body.success === false && !result.partial) result.failed = true;
         if (result.partial) result.detail = 'application processing has pending or failed actions';
         else if (result.failed) result.detail = 'application processing reported failure';
@@ -157,21 +257,56 @@ export async function runFormEntityPipelines({
         }
       } catch (err) {
         result.failed = true;
+        await markAmbiguousOperation();
         result.detail = `application processing returned no valid JSON${err?.message ? `: ${err.message}` : ''}`;
         await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'returned no valid JSON'));
       }
     } else {
+      // A persisted structured-action partial is a known, durable processor
+      // outcome. It deliberately uses 409 to preserve the existing public
+      // contract, but is safe to retry through an explicitly authorized
+      // follow-up operation; it is not a lost-response ambiguity.
+      let knownPartial = null;
+      if (pipelineResponse.status === 409) {
+        try {
+          const body = await pipelineResponse.json();
+          if (body?.retryable === true
+              && (
+                (body?.code === 'STRUCTURED_ACTIONS_INCOMPLETE'
+                  && body?.structured_actions?.success === false)
+                || (body?.code === 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE'
+                  && body?.stripe_address_mappings?.pending === true)
+              )) {
+            knownPartial = body;
+          }
+        } catch { /* fall through to conservative ambiguous handling */ }
+      }
+      if (knownPartial) {
+        result.ran = true;
+        result.partial = true;
+        result.detail = 'application processing has durable incomplete structured actions';
+        result.structuredActions = knownPartial.structured_actions || null;
+        result.stripeAddressMappings = knownPartial.stripe_address_mappings || null;
+        result.memberId = knownPartial.created_member_id || null;
+        result.organizationId = knownPartial.organization_id
+          || knownPartial.created_organization_id || null;
+        return result;
+      }
       const errText = await pipelineResponse.text().catch(() => '');
       console.error('[formEntityPipelines] Pipeline processing failed for paid submission', submission.id, pipelineResponse.status, errText.slice(0, 500));
       result.failed = true;
+      await markAmbiguousOperation();
       result.detail = `application processing failed (HTTP ${pipelineResponse.status})`;
       await recordFailure(supabase, submission, processingFailureNote(completionDescription, `failed (HTTP ${pipelineResponse.status})`));
     }
   } catch (err) {
     console.error('[formEntityPipelines] Pipeline processing error for paid submission', submission.id, err);
     result.failed = true;
+    await markAmbiguousOperation();
     result.detail = `application processing errored${err?.message ? `: ${err.message}` : ''}`;
     await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'errored'));
+  } finally {
+    if (abortTimer) clearTimeout(abortTimer);
   }
   return result;
 }

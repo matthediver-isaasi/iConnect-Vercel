@@ -9,6 +9,15 @@ Treat a structured action batch as incomplete when any invocation failed or is s
 
 **How to apply:** Public duplicate responses must retain the incomplete result until a later processing run supersedes every failed/running invocation. Paid submissions must persist a pending marker and reconciliation must clear it only after the shared signed processor reports a fully terminal batch. Block collection consumers before their ledger claim unless every expected item has a canonical completed output. Require a matching configured primary pipeline for every primary-output endpoint; before those outputs exist, record retryable row outcomes without claiming or mutating. On retries, always enter the ledger claim path so the current fingerprint is checked.
 
+A lease/owner token prevents concurrent ownership but cannot establish the
+outcome of a lost response. For paid pipeline operations, treat an in-flight
+or transport-ambiguous owner as terminal `attention`, not as permission to
+replay. Conversely, a durable `done` operation must be reused by ordinary
+primary retries even when they have a new owner UUID. Permit a distinct
+follow-up owner only for a named class of work whose persisted pending marker
+proves that a known partial remains; do not generalize this exception to
+ordinary retries.
+
 Preflight validation must mirror which mappings execution actually applies: an existing selection in a record-reference resolver does not apply companion mappings; only its Not listed create/upsert branch does.
 
 **Why:** Validating ignored companion mappings can reject a valid existing-record selection for a relationship conflict even though no mutation would occur.

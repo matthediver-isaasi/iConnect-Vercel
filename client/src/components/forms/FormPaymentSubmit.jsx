@@ -214,6 +214,8 @@ export default function FormPaymentSubmit({
         setPaymentError(out.error || (
           out.status === 'setup_complete'
             ? 'Your recurring payment method is set up. Your first collection has not yet been confirmed and will be recorded separately.'
+            : out.paymentSucceeded
+              ? 'Payment received — we are finishing your submission automatically. Please do not pay again.'
             : 'Your payment is still being verified or finalized. You can safely close this page; do not pay again.'
         ));
         return false;

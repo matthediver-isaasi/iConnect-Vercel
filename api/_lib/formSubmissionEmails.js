@@ -168,16 +168,27 @@ export async function claimSubmissionEmailResend(supabase, submissionId, trigger
   return { claimed: true, history, claimId };
 }
 
-async function recordOutcome(supabase, submissionId, state) {
+async function recordOutcome(supabase, submissionId, state, claimId = state?.claim_id || null) {
   if (!supabase || !submissionId) return false;
-  const { error } = await supabase
+  let query = supabase
     .from('form_submission')
     .update({ submission_email_state: state })
     .eq('id', submissionId);
+  // A late worker must never overwrite a newer claim's send result.  Every
+  // guarded sender owns a UUID; without it we fail closed rather than
+  // pretending a generic outcome belongs to whichever worker is current.
+  if (claimId) {
+    query = query
+      .eq('submission_email_state->>status', 'processing')
+      .eq('submission_email_state->>claim_id', claimId);
+  }
+  const { data, error } = await query.select('id');
   if (error && !isMissingColumnError(error)) {
     console.error('[SubmissionEmails] Failed to record email outcome:', error);
   }
-  return !error;
+  // PostgREST treats a conditional update that matches no rows as a successful
+  // request.  That is not a durable email outcome: a newer claim owns the row.
+  return !error && Array.isArray(data) && data.length > 0;
 }
 
 /**
@@ -322,7 +333,7 @@ export async function recordSubmissionEmailInvocationFailure({
       .from('form_submission')
       .update({ submission_email_state: failedState })
       .eq('id', submissionId)
-      .in('submission_email_state->>status', ['processing', 'pending'])
+       .eq('submission_email_state->>status', 'pending')
       .eq('submission_email_state->>trigger', trigger)
       .select('id');
     if (processingError && !isMissingColumnError(processingError)) {
@@ -332,7 +343,10 @@ export async function recordSubmissionEmailInvocationFailure({
 
     const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics);
     if (!claim.claimed) return false;
-    await recordOutcome(supabase, submissionId, failedState);
+    await recordOutcome(supabase, submissionId, {
+      ...failedState,
+      claim_id: claim.claimId,
+    }, claim.claimId);
     return true;
   } catch (error) {
     console.error('[SubmissionEmails] Failed to persist invocation diagnostic:', error);
@@ -526,6 +540,7 @@ export async function sendSubmissionEmails({
   createdMemberId = null,
   createdOrganizationId = null,
   baseUrl = '',
+  deadlineAt = null,
 }) {
   let form_values = formValues || {};
   // The form is loaded server-side by every sender. Do not let the legacy
@@ -854,6 +869,13 @@ export async function sendSubmissionEmails({
   const results = [];
 
   for (const emailConfig of emailsToSend) {
+    if (deadlineAt && deadlineAt - Date.now() < 16_000) {
+      return {
+        success: false,
+        reason: 'Worker deadline exhausted before email delivery',
+        emails: results,
+      };
+    }
     console.log('[SubmissionEmails] Processing email:', emailConfig.id, 'template:', emailConfig.template_id);
 
     if (emailConfig.condition && !evaluateCondition(emailConfig.condition)) {
@@ -964,6 +986,7 @@ export async function sendSubmissionEmails({
       bcc: bccEmail || undefined,
       tenantId,
       attachments: emailAttachments,
+      deadlineAt,
     });
 
     results.push({
@@ -972,10 +995,15 @@ export async function sendSubmissionEmails({
       messageId: emailResult.messageId,
       to: toEmail,
       error: emailResult.error,
+      ambiguousEffect: emailResult.ambiguousEffect === true,
     });
   }
 
-  return { success: results.every((r) => r.success), emails: results };
+  return {
+    success: results.every((r) => r.success),
+    emails: results,
+    ambiguousEffect: results.some((result) => result.ambiguousEffect === true),
+  };
 }
 
 /**
@@ -1088,18 +1116,48 @@ export async function sendSubmissionEmailsGuarded(options) {
       const inProgress = claim.existingState?.status === 'processing'
         || claim.existingState?.status === 'pending'
         || claim.existingState?.status === 'ready';
+      // Persisted attention is terminal evidence of an ambiguous send, even
+      // when the watchdog's original write was observed by an earlier worker.
+      // Never report that state as a successful already-processed send.
+      let attentionRequired = claim.existingState?.status === 'attention';
+      let state = claim.existingState || null;
+      // A Mailgun response lost after its request was accepted cannot be
+      // safely stale-reclaimed: Mailgun's send endpoint provides neither an
+      // idempotency key nor a per-message status lookup usable here. Persist a
+      // visible terminal attention state rather than silently resending.
+      if (claim.existingState?.status === 'processing') {
+        const claimedAt = new Date(claim.existingState.claimed_at || 0).getTime();
+        if (Number.isFinite(claimedAt) && Date.now() - claimedAt > 10 * 60 * 1000) {
+          try {
+            const { data, error } = await supabase.rpc('mark_stale_submission_email_attention', {
+              p_submission_id: submissionId,
+              p_claim_id: claim.existingState.claim_id || null,
+            });
+            if (!error && data && typeof data === 'object') {
+              state = data;
+              attentionRequired = data.status === 'attention';
+            }
+          } catch {
+            // Keep the conservative in-progress response if the watchdog
+            // write is temporarily unavailable.  Never resend on this path.
+          }
+        }
+      }
       console.log('[SubmissionEmails] Submission', submissionId, 'already claimed — skipping (trigger:', trigger + ')');
       return {
-        success: !inProgress,
+        success: !inProgress && !attentionRequired,
         skipped: true,
-        alreadyProcessed: !inProgress,
-        inProgress,
-        durable: !inProgress,
-        reason: inProgress
+        alreadyProcessed: !inProgress && !attentionRequired,
+        inProgress: inProgress && !attentionRequired,
+        requiresAttention: attentionRequired,
+        durable: !inProgress || attentionRequired,
+        reason: attentionRequired
+          ? 'Submission email delivery outcome is ambiguous and requires administrator review'
+          : (inProgress
           ? 'Submission email processing is still in progress'
-          : 'Emails already processed for this submission',
-        state: claim.existingState || null,
-        emails: claim.existingState?.emails || [],
+          : 'Emails already processed for this submission'),
+        state,
+        emails: state?.emails || [],
       };
     }
   } else {
@@ -1136,7 +1194,9 @@ export async function sendSubmissionEmailsGuarded(options) {
     const state = {
       ...baseState,
       processed_at: finishedAt(),
-      status: result.skipped ? 'skipped' : (allOk ? (anySent ? 'sent' : 'skipped') : 'failed'),
+        status: result.ambiguousEffect
+          ? 'attention'
+          : (result.skipped ? 'skipped' : (allOk ? (anySent ? 'sent' : 'skipped') : 'failed')),
       reason: result.reason
         || result.error
         || (allOk && !anySent ? 'All emails skipped by conditions' : 'Submission email processing failed'),

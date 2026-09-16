@@ -87,7 +87,7 @@ export function isDefinitiveInvoiceCreateRejection(error) {
     && ![408, 409, 429].includes(statusCode);
 }
 
-export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null }, deps = {}) {
+export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null, deadlineAt = null }, deps = {}) {
   const meta = (submission?.payment_meta && typeof submission.payment_meta === 'object')
     ? submission.payment_meta : {};
   const membership = meta.membership;
@@ -329,6 +329,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           ...(isStripe ? { expectedProviderContext: pinnedProviderContext } : {}),
           ...(isStripe && paymentRef ? { stripePaymentIntentId: paymentRef } : {}),
           invoiceDescription: quote.invoice_description || null,
+          deadlineAt,
         });
         const resultProviderContext = invoiceResult?.providerContext
           || invoiceResult?.raw?.provider_context
@@ -421,6 +422,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           submissionId: submission.id,
           tenantId,
           dryRun: false,
+          deadlineAt,
         });
         if (settlementResult?.invoice_id) invoiceState = 'done';
         if (settlementResult?.settlement_state !== 'done') {
@@ -450,6 +452,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           submissionId: submission.id,
           tenantId,
           dryRun: false,
+          deadlineAt,
         });
         if (settlementResult?.settlement_state !== 'done') {
           throw new Error(settlementResult?.error

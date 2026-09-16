@@ -140,6 +140,27 @@ test('completed GoCardless setup is an application submission, not a paid outcom
   container.remove();
 });
 
+test('verified annual Stripe payment stays non-terminal while completion is queued', async () => {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(FormPaymentReturnScreen, {
+      status: 'finalizing',
+      provider: 'stripe',
+      continueHref: '/',
+    }));
+  });
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — finishing submission',
+  );
+  assert.match(container.textContent, /payment was verified/i);
+  assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
 test('inline completion can adopt the verified DD outcome into the page-level screen', async () => {
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/forms/inline-dd');
@@ -197,6 +218,38 @@ test('verified paid receipt survives refresh without confirming or reopening pay
   assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
   assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
 
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('terminal attention receipt survives refresh without polling or confirmation replay', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/example');
+  savePaymentSubmissionContext({
+    submissionId: 'submission-attention',
+    provider: 'stripe',
+    status: 'attention',
+    terminalStatus: 'attention',
+    pathname: '/forms/example',
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error('an attention receipt must not call confirm');
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls, 0);
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — submission needs attention',
+  );
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
   await act(async () => root.unmount());
   container.remove();
 });

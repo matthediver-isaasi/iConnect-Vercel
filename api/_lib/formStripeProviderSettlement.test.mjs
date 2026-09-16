@@ -18,6 +18,11 @@ import {
   settleFormStripeQuickBooksInvoice,
 } from './quickbooks.js';
 import { getAccountingProviderByName } from './accountingProvider.js';
+import {
+  FORM_ACCOUNTING_TRANSPORT_TIMEOUT_MS,
+  fetchFormAccountingTransport,
+  formAccountingTransport,
+} from './formAccountingTransport.js';
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -637,4 +642,121 @@ test('provider HTTP errors retain exact status for finalizer ambiguity classific
       fetch: async () => json({ Fault: { Error: [{ Message: 'ProviderError' }] } }, status),
     }), (error) => error.status === status && error.statusCode === status);
   }
+});
+
+function waitsForAbort(_url, init = {}) {
+  return new Promise((_resolve, reject) => {
+    const signal = init.signal;
+    assert.ok(signal instanceof AbortSignal, 'accounting transport must supply an AbortSignal');
+    // AbortSignal.timeout() intentionally uses an unref'ed timer. A real
+    // network transport owns a socket while pending; this guard gives the
+    // synthetic slow transport the same liveness without creating a race.
+    const guard = setTimeout(() => reject(new Error('slow transport was not aborted')), 1_000);
+    if (signal.aborted) {
+      clearTimeout(guard);
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener('abort', () => {
+      clearTimeout(guard);
+      reject(signal.reason);
+    }, { once: true });
+  });
+}
+
+test('paid form accounting transport is a real abortable 10-second-capped timeout, not a race', async () => {
+  const bounded = formAccountingTransport({ timeoutMs: 99_999 });
+  assert.equal(bounded.timeoutMs, FORM_ACCOUNTING_TRANSPORT_TIMEOUT_MS);
+  assert.equal(formAccountingTransport({ timeoutMs: 1 }).timeoutMs, 25);
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    fetchFormAccountingTransport(waitsForAbort, 'https://provider.invalid/slow', {}, { timeoutMs: 40 }),
+    (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT',
+  );
+  // The requested transport bound is 40ms. Leave scheduling headroom while
+  // proving the fake provider cannot keep this awaited call live indefinitely.
+  assert.ok(Date.now() - startedAt < 500, '40ms transport abort should settle well below 500ms');
+});
+
+test('Xero form invoice discovery aborts a slow provider transport and forwards the scoped token timeout', async () => {
+  let tokenTransport;
+  const startedAt = Date.now();
+  await assert.rejects(findFormStripeXeroInvoice({
+    appTenantId: baseArgs.appTenantId,
+    stripePaymentIntentId: baseArgs.stripePaymentIntentId,
+    createdAfter: '2026-01-01T00:00:00Z',
+    transportTimeoutMs: 40,
+  }, {
+    fetch: waitsForAbort,
+    getValidXeroAccessToken: async (_tenantId, transport) => {
+      tokenTransport = transport;
+      return { accessToken: 'token', tenantId: 'org' };
+    },
+  }), (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT');
+  assert.equal(tokenTransport.timeoutMs, 40);
+  assert.ok(Date.now() - startedAt < 500, 'Xero discovery transport should abort within the scoped bound');
+});
+
+test('Xero paid-form invoice creation bounds its provider write and forwards the same token/contact transport', async () => {
+  let tokenTransport;
+  let contactTransport;
+  const startedAt = Date.now();
+  await assert.rejects(createXeroMembershipInvoice({
+    appTenantId: baseArgs.appTenantId,
+    organizationName: 'Organisation',
+    membershipYear: '2026',
+    tierLabel: 'Standard',
+    finalCost: 61,
+    currency: 'GBP',
+    deferStripeSettlement: true,
+    stripePaymentIntentId: baseArgs.stripePaymentIntentId,
+    idempotencyKey: 'form-membership-invoice:tenant:submission:history',
+    transportTimeoutMs: 40,
+  }, {
+    supabase: settings({}),
+    fetch: waitsForAbort,
+    getValidXeroAccessToken: async (_tenantId, transport) => {
+      tokenTransport = transport;
+      return { accessToken: 'token', tenantId: 'org' };
+    },
+    findOrCreateXeroContact: async (_token, _tenant, _contact, transport) => {
+      contactTransport = transport;
+      return 'contact-1';
+    },
+  }), (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT');
+  assert.equal(tokenTransport.timeoutMs, 40);
+  assert.equal(contactTransport.timeoutMs, 40);
+  assert.ok(Date.now() - startedAt < 500, 'Xero invoice-create transport should abort within the scoped bound');
+});
+
+test('QuickBooks paid-form customer discovery uses the scoped transport timeout', async () => {
+  const startedAt = Date.now();
+  await assert.rejects(findOrCreateQuickBooksCustomer('tenant-1', {
+    name: 'Organisation',
+  }, {
+    accessToken: 'token',
+    realmId: 'realm',
+    environment: 'sandbox',
+    transport: formAccountingTransport({ timeoutMs: 40, fetch: waitsForAbort }),
+  }), (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT');
+  assert.ok(Date.now() - startedAt < 500, 'QuickBooks customer query should abort within the scoped bound');
+});
+
+test('QuickBooks form settlement aborts a slow provider transport and forwards the scoped token timeout', async () => {
+  let tokenTransport;
+  const startedAt = Date.now();
+  await assert.rejects(settleFormStripeQuickBooksInvoice({
+    ...baseArgs,
+    transportTimeoutMs: 40,
+  }, {
+    fetch: waitsForAbort,
+    supabase: settings({}),
+    getValidQuickBooksAccessToken: async (_tenantId, transport) => {
+      tokenTransport = transport;
+      return { accessToken: 'token', realmId: 'realm', environment: 'sandbox' };
+    },
+  }), (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT');
+  assert.equal(tokenTransport.timeoutMs, 40);
+  assert.ok(Date.now() - startedAt < 500, 'QuickBooks settlement transport should abort within the scoped bound');
 });

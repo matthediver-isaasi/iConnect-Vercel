@@ -1,6 +1,9 @@
 // Task #3483 — cron that reconciles form_submission rows stuck in
 // payment_status='pending' whose Stripe PaymentIntent / GoCardless billing
 // request actually succeeded, plus paid rows whose finalisation never ran.
+// New completion receipts are eligible on the next one-minute sweep; an
+// interrupted owner is eligible again after its two-minute lease expires.
+// These are scheduling targets, not a hard execution or delivery guarantee.
 //
 // Mirrors reconcile-job-posting-payments: bounded lookback, per-row
 // try/catch inside the shared helper, and the CAS in markFormSubmissionPaid
@@ -36,7 +39,13 @@ export default async function handler(req, res) {
 
   const startTime = Date.now();
   try {
-    const results = await reconcileFormPayments(supabase, { limit: 100 });
+    // One small slice per minute reduces contention with slow integrations.
+    // It is an advisory scheduling budget; interrupted leases become eligible
+    // again after two minutes.
+    const results = await reconcileFormPayments(supabase, {
+      limit: 20,
+      timeBudgetMs: 40 * 1000,
+    });
     await reportHeartbeat(isFormPaymentReconciliationHeartbeatHealthy(results));
     return res.status(200).json({ ok: true, durationMs: Date.now() - startTime, ...results });
   } catch (err) {

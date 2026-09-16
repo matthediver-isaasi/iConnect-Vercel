@@ -32,3 +32,11 @@ Do not impose membership's reusable-Customer requirement on ordinary form addres
 **Why:** Ordinary PaymentIntents can validly have no Customer. Reusing a strict membership capture helper without distinguishing the payment purpose leaves a successful ordinary charge permanently unprocessable.
 
 **How to apply:** Keep Customer requirements strict for membership accounting, but allow verified customerless address capture for ordinary form mappings. Test that branch through snapshot persistence and the record-mapping retry, not just mocked browser confirmation.
+
+For one-off PaymentIntents, the only acceptable late recovery source is
+`PaymentIntent.latest_charge` → `Charge.billing_details.address`. PaymentMethod
+billing details, Customer addresses, and PaymentIntent metadata can be edited
+after the charge and are not payment-time evidence. Persist the first normalized
+charge snapshot with a write-once database operation; if that evidence cannot
+be retrieved, leave the paid completion retryable/attention-required rather
+than silently substituting mutable data.

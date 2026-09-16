@@ -106,24 +106,17 @@ test('agreement metadata with no address snapshot fails closed', () => {
   );
 });
 
-test('PaymentIntent capture retrieves the payment method and updates Customer', async () => {
+test('PaymentIntent capture uses the immutable successful Charge and updates Customer', async () => {
   const updates = [];
-  const intentUpdates = [];
   const stripe = {
-    paymentMethods: { retrieve: async (id) => ({ id, billing_details: { address } }) },
-    paymentIntents: { update: async (...args) => intentUpdates.push(args) },
+    charges: { retrieve: async (id) => ({ id, billing_details: { address } }) },
     customers: { update: async (...args) => updates.push(args) },
   };
   const snapshot = await capturePaymentIntentBillingAddress({
     stripe,
-    paymentIntent: { id: 'pi_1', payment_method: 'pm_1', customer: 'cus_1' },
+    paymentIntent: { id: 'pi_1', latest_charge: 'ch_1', payment_method: 'pm_1', customer: 'cus_1' },
   });
   assert.equal(snapshot.postal_code, 'SW1A 1AA');
-  assert.equal(intentUpdates[0][0], 'pi_1');
-  assert.equal(
-    JSON.parse(intentUpdates[0][1].metadata.invoice_address_snapshot).line1,
-    '1 High Street',
-  );
   assert.equal(updates[0][0], 'cus_1');
   assert.deepEqual(updates[0][1].address, {
     line1: '1 High Street',
@@ -137,44 +130,34 @@ test('PaymentIntent capture retrieves the payment method and updates Customer', 
 
 test('PaymentIntent capture keeps membership Customer strict but permits ordinary customerless charges', async () => {
   const stripe = {
-    paymentMethods: { retrieve: async () => ({ billing_details: { address } }) },
-    paymentIntents: { update: async () => ({}) },
+    charges: { retrieve: async () => ({ billing_details: { address } }) },
     customers: { update: async () => { throw new Error('customer update must not run'); } },
   };
   await assert.rejects(
     capturePaymentIntentBillingAddress({
       stripe,
-      paymentIntent: { id: 'pi_membership', payment_method: 'pm_1', customer: null },
+      paymentIntent: { id: 'pi_membership', latest_charge: 'ch_membership', customer: null },
     }),
     /no reusable Customer/,
   );
   const snapshot = await capturePaymentIntentBillingAddress({
     stripe,
-    paymentIntent: { id: 'pi_form', payment_method: 'pm_1', customer: null },
+    paymentIntent: { id: 'pi_form', latest_charge: 'ch_form', customer: null },
     requireCustomer: false,
   });
   assert.equal(snapshot.postal_code, 'SW1A 1AA');
 });
 
-test('PaymentIntent retries use the immutable Stripe metadata snapshot', async () => {
-  let paymentMethodReads = 0;
+test('PaymentIntent capture refuses mutable metadata or PaymentMethod fallbacks', async () => {
   const stripe = {
-    paymentMethods: { retrieve: async () => { paymentMethodReads += 1; throw new Error('must not read mutable source'); } },
-    paymentIntents: { update: async () => { throw new Error('must not overwrite snapshot'); } },
+    charges: { retrieve: async () => { throw new Error('charge unavailable'); } },
+    paymentMethods: { retrieve: async () => { throw new Error('must not read mutable source'); } },
     customers: { update: async () => ({ id: 'cus_1' }) },
   };
-  const snapshot = normalizeStripeBillingAddress(address);
-  const recovered = await capturePaymentIntentBillingAddress({
+  await assert.rejects(() => capturePaymentIntentBillingAddress({
     stripe,
-    paymentIntent: {
-      id: 'pi_1',
-      payment_method: 'pm_changed',
-      customer: 'cus_1',
-      metadata: { invoice_address_snapshot: JSON.stringify(snapshot) },
-    },
-  });
-  assert.equal(recovered.formatted, snapshot.formatted);
-  assert.equal(paymentMethodReads, 0);
+    paymentIntent: { id: 'pi_1', latest_charge: 'ch_1', payment_method: 'pm_changed', customer: 'cus_1' },
+  }), /could not be retrieved/);
 });
 
 test('Checkout capture uses verified customer_details and updates Customer', async () => {

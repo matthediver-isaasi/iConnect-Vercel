@@ -82,7 +82,7 @@
     },
     {
       "path": "/api/cron/reconcile-form-payments",
-      "schedule": "40 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/run-form-submission-export-jobs",

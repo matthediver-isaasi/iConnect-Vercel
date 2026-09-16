@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { settleFormStripeInvoice } from './formStripeInvoiceSettlement.js';
+import { fetchFormAccountingTransport } from './formAccountingTransport.js';
 import fs from 'node:fs';
 
 const tenantId = '11111111-1111-1111-1111-111111111111';
@@ -502,4 +503,75 @@ test('dry-run discovery inspects the found invoice for real account evidence wit
   assert.equal(preview.account, 'Stripe Clearing');
   assert.equal(preview.balance, 12.34);
   assert.ok(!db.rpcCalls.some((call) => call.name === 'link_recovered_form_membership_invoice'));
+});
+
+test('one absolute deadline is consumed across Stripe verification, invoice discovery, and settlement transport', async () => {
+  const rows = fixture();
+  rows.history.accounting_invoice_id = null;
+  rows.history.accounting_invoice_number = null;
+  rows.submission.payment_meta.membership_result.invoice_state = 'processing';
+  rows.submission.payment_meta.membership_result.invoice_claimed_at = '2027-01-15T12:00:01.000Z';
+  const db = makeDb(rows);
+  // Stripe's supported SDK timeout floor is one second, so the aggregate
+  // exercise needs a deadline above that floor.
+  const deadlineAt = Date.now() + 1_200;
+  let stripeOptions;
+  let discoveryDeadline;
+  let settlementDeadline;
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const slowTransport = (_url, init = {}) => new Promise((_resolve, reject) => {
+    const guard = setTimeout(() => reject(new Error('deadline did not abort settlement transport')), 3_000);
+    init.signal.addEventListener('abort', () => {
+      clearTimeout(guard);
+      reject(init.signal.reason);
+    }, { once: true });
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(settleFormStripeInvoice({
+    supabase: db,
+    tenantId,
+    submissionId,
+    deadlineAt,
+    retrievePaymentIntent: async (_tenant, _feature, _intent, options) => {
+      stripeOptions = options;
+      await pause(25);
+      return succeededIntent();
+    },
+    getProvider: async () => ({
+      findFormStripeInvoice: async (args) => {
+        discoveryDeadline = args.deadlineAt;
+        await pause(25);
+        return {
+          found: true,
+          invoice_id: 'recovered-invoice',
+          invoice_number: 'INV-RECOVERED',
+          provider_context: { xero_tenant_id: 'xero-tenant-1' },
+          stripe_payment_intent_id: 'pi_form_1',
+          form_submission_id: submissionId,
+          member_id: 'member-1',
+          amount: 12.34,
+          currency: 'GBP',
+        };
+      },
+      settleFormStripeInvoice: async (args) => {
+        settlementDeadline = args.deadlineAt;
+        return fetchFormAccountingTransport(
+          slowTransport,
+          'https://provider.invalid/settlement',
+          {},
+          { timeoutMs: 10_000, deadlineAt: args.deadlineAt },
+        );
+      },
+    }),
+  }), (error) => error?.code === 'ACCOUNTING_TRANSPORT_TIMEOUT');
+
+  const elapsed = Date.now() - startedAt;
+  assert.equal(discoveryDeadline, deadlineAt);
+  assert.equal(settlementDeadline, deadlineAt);
+  assert.ok(stripeOptions.timeoutMs > 1_000 && stripeOptions.timeoutMs <= 1_200);
+  // The 10-second provider cap must not restart after the earlier stages.
+  // This is deliberately an aggregate elapsed-time assertion, not a source
+  // inspection: the slow settlement transport aborts at the shared deadline.
+  assert.ok(elapsed >= 1_100 && elapsed < 1_800, `expected aggregate deadline near 1200ms, got ${elapsed}ms`);
 });

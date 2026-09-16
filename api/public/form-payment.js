@@ -35,7 +35,12 @@ import {
   findPaymentField,
   derivePaymentAmount,
 } from '../_lib/formFieldVisibility.js';
-import { markFormSubmissionPaid, finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
+import {
+  markFormSubmissionPaid,
+  finalizeFormSubmission,
+  formPaymentCompletionStatus,
+  queueFormPaymentCompletion,
+} from '../_lib/formPaymentFinalize.js';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
   normalizeFormPrefillOrganizationId,
@@ -89,7 +94,6 @@ import {
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { getSessionMember } from '../_lib/session.js';
-import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
 import { validateFormStripeAddressMappingConfig } from '../_lib/formStripeAddressMappingConfig.js';
 import {
   sameFormAnswerValues,
@@ -155,6 +159,48 @@ export function submissionRequiresStripeBillingAddress(submission) {
   return !!meta.membership
     || (Array.isArray(meta.stripe_address_mapping_config?.mappings)
       && meta.stripe_address_mapping_config.mappings.length > 0);
+}
+
+// One-off Stripe completion is cron-owned. Every create/confirm retry reports
+// this persisted receipt rather than an optimistic paid shortcut:
+// paid is only true once all durable completion work is done.
+export function oneOffStripePaymentLifecycle(submission, extra = {}) {
+  const status = formPaymentCompletionStatus(submission);
+  const requiresAttention = status === 'attention';
+  return {
+    success: status === 'paid',
+    paymentSucceeded: true,
+    submissionId: submission.id,
+    provider: 'stripe',
+    status,
+    pending: status !== 'paid' && !requiresAttention,
+    retryable: status !== 'paid' && !requiresAttention,
+    ...(requiresAttention ? {
+      requiresAttention: true,
+      error: 'Your payment was recorded, but completion requires administrator review. Please do not pay again.',
+    } : {}),
+    ...extra,
+  };
+}
+
+export function succeededStripeIntentMatchesSubmission({
+  paymentIntent,
+  submission,
+  tenantId,
+  formId,
+  expectedMinor,
+  currency,
+}) {
+  const metadata = paymentIntent?.metadata || {};
+  const metadataMatches = metadata.type === 'form_payment'
+    && metadata.form_submission_id === String(submission.id)
+    && metadata.form_id === String(formId)
+    && metadata.tenant_id === String(tenantId);
+  const receivedMinor = paymentIntent?.amount_received ?? paymentIntent?.amount;
+  return metadataMatches
+    && Number.isFinite(Number(receivedMinor))
+    && Number(receivedMinor) >= Number(expectedMinor)
+    && String(paymentIntent?.currency || '').toUpperCase() === String(currency || '').toUpperCase();
 }
 
 function extractSubmitterEmail(form, data) {
@@ -1146,7 +1192,18 @@ async function handleCreate(req, res, supabase, tenantData) {
       .maybeSingle()).data;
     if (existing) {
       if (existing.payment_status === 'paid') {
-        return res.status(200).json({ alreadyPaid: true, submissionId: existing.id });
+        if (provider === 'stripe' && existing.payment_provider === 'stripe') {
+          // A paid retry deliberately does not re-read Stripe: its persisted
+          // completion receipt is authoritative, including terminal attention.
+          return res.status(200).json(oneOffStripePaymentLifecycle(existing));
+        }
+        return res.status(200).json({
+          success: true,
+          paymentSucceeded: true,
+          submissionId: existing.id,
+          provider: existing.payment_provider,
+          status: 'paid',
+        });
       }
       // Payment-integrity guard: once a provider payment reference exists,
       // the pending row is IMMUTABLE — refreshing the amount/answers/quote
@@ -1352,7 +1409,65 @@ async function handleCreate(req, res, supabase, tenantData) {
           requireCustomer: !!membershipMeta,
         });
         if (prior.kind === 'succeeded') {
-          return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
+          // A provider success discovered during create retry is equivalent to
+          // confirm: verify every immutable binding before recording it, queue
+          // the completion obligation before the paid CAS, then report the
+          // stored lifecycle (never an optimistic paid shortcut).
+          if (!succeededStripeIntentMatchesSubmission({
+            paymentIntent: prior.intent,
+            submission: submissionRow,
+            tenantId: tenantData.id,
+            formId: form.id,
+            expectedMinor: amountMinor,
+            currency,
+          })) {
+            return res.status(400).json({
+              error: 'Payment does not match this submission',
+              code: 'PAYMENT_MISMATCH',
+            });
+          }
+          let queuedMeta;
+          try {
+            queuedMeta = await queueFormPaymentCompletion(supabase, submissionRow);
+          } catch (queueErr) {
+            console.error('[form-payment] Could not queue discovered Stripe completion:', queueErr?.message);
+            return res.status(503).json({
+              error: 'Your payment was verified, but completion could not yet be queued. Please check this same submission again; do not pay again.',
+              paymentSucceeded: true,
+              retryable: true,
+              status: 'finalizing',
+            });
+          }
+          const { row: paidRow } = await markFormSubmissionPaid(supabase, submissionRow.id, {
+            amount: (prior.intent.amount_received ?? prior.intent.amount) / 100,
+            reference: prior.intent.id,
+          });
+          let authoritativeRow = paidRow || {
+            ...submissionRow,
+            payment_status: 'paid',
+            payment_reference: prior.intent.id,
+            payment_meta: queuedMeta,
+          };
+          if (!paidRow) {
+            const { data: reloaded, error: reloadError } = await supabase
+              .from('form_submission')
+              .select('*')
+              .eq('id', submissionRow.id)
+              .eq('tenant_id', tenantData.id)
+              .maybeSingle();
+            if (reloadError || !reloaded) {
+              return res.status(503).json({
+                error: 'Your payment was verified, but its current completion status could not be loaded. Please check this same submission again; do not pay again.',
+                paymentSucceeded: true,
+                retryable: true,
+                status: 'finalizing',
+              });
+            }
+            authoritativeRow = reloaded;
+          }
+          return res.status(200).json(oneOffStripePaymentLifecycle(authoritativeRow, {
+            reconciled: !paidRow,
+          }));
         }
         if (prior.kind === 'reusable') {
           return res.status(200).json({
@@ -1415,11 +1530,11 @@ async function handleCreate(req, res, supabase, tenantData) {
       // Return the winner's intent if it is compatible.
       const { data: winnerRow } = await supabase
         .from('form_submission')
-        .select('payment_reference, payment_status')
+        .select('*')
         .eq('id', submissionRow.id)
         .maybeSingle();
       if (winnerRow?.payment_status === 'paid') {
-        return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
+        return res.status(200).json(oneOffStripePaymentLifecycle(winnerRow));
       }
       if (winnerRow?.payment_reference) {
         try {
@@ -1782,6 +1897,7 @@ async function handleCreateMonthlyDirectDebit({
 }
 
 async function handleConfirm(req, res, supabase, tenantData) {
+  const confirmStartedAt = Date.now();
   const { submission_id, payment_intent_id } = req.body || {};
   if (!submission_id) return res.status(400).json({ error: 'submission_id is required' });
 
@@ -1837,63 +1953,16 @@ async function handleConfirm(req, res, supabase, tenantData) {
   }
 
   if (row.payment_status === 'paid') {
-    // Idempotent: ensure finalisation ran (e.g. earlier confirm crashed
-    // between CAS and side effects).
-    const needsStripeAddress = row.payment_provider === 'stripe' && (
-      !!row.payment_meta?.membership
-      || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
-    );
-    if (needsStripeAddress && !row.payment_meta?.stripe_billing_address) {
-      try {
-        const stripeFeature = row.payment_meta?.stripe_feature
-          || (row.payment_meta?.membership ? 'membership' : 'forms');
-        const found = await retrieveTenantPaymentIntent(
-          tenantData.id, stripeFeature, row.payment_reference,
-        );
-        const intent = found?.paymentIntent;
-        const metadataMatches = intent?.metadata?.type === 'form_payment'
-          && intent.metadata.form_submission_id === String(row.id)
-          && intent.metadata.tenant_id === String(tenantData.id);
-        if (!found || intent.status !== 'succeeded'
-            || (!metadataMatches && intent.id !== row.payment_reference)) {
-          throw new Error('The verified Stripe payment could not be reloaded');
-        }
-        const address = await capturePaymentIntentBillingAddress({
-          stripe: found.stripe,
-          paymentIntent: intent,
-          requireCustomer: !!row.payment_meta?.membership,
-        });
-        const savedMeta = await patchFormSubmissionPaymentMeta({
-          db: supabase,
-          tenantId: tenantData.id,
-          submissionId: row.id,
-          patch: { stripe_billing_address: address },
-        });
-        row = { ...row, payment_meta: savedMeta };
-      } catch (addressErr) {
-        return res.status(503).json({
-          error: 'Your payment succeeded, but Stripe billing address details are still being recovered. We will retry automatically; please do not pay again.',
-          paymentSucceeded: true,
-          retryable: true,
-          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
-        });
-      }
+    // Annual one-off Stripe completion is intentionally cron-owned. Payment
+    // confirmation must remain a short authoritative provider/database path;
+    // pipelines, accounting, and emails can exceed the public function
+    // budget and already have durable retry checkpoints.
+    if (row.payment_provider === 'stripe') {
+      return res.status(200).json(oneOffStripePaymentLifecycle(row));
     }
+    // Idempotent GoCardless finalisation (the Stripe branch above is
+    // intentionally cron-owned).
     if (form) await finalizeFormSubmission({ supabase, submission: row, form, baseUrl });
-    try {
-      await retryPersistedStripeAddressMappings({
-        db: supabase,
-        submissionId: row.id,
-        tenantId: tenantData.id,
-      });
-    } catch (addressErr) {
-      return res.status(503).json({
-        error: 'Your payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
-        paymentSucceeded: true,
-        retryable: true,
-        code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
-      });
-    }
     return res.status(200).json({ success: true, submissionId: row.id, status: 'paid' });
   }
   const resumableMonthlySetup = ['stripe_monthly_card', 'gocardless_monthly_dd'].includes(row.payment_provider)
@@ -2249,7 +2318,36 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (!piId) return res.status(400).json({ error: 'payment_intent_id is required' });
     const stripeFeature = row.payment_meta?.stripe_feature
       || (row.payment_meta?.membership ? 'membership' : 'forms');
-    const found = await retrieveTenantPaymentIntent(tenantData.id, stripeFeature, piId);
+    // Stripe SDK's supported transport timeout bounds the fast confirmation
+    // read.  Do not race it: a timeout is an unknown read, never permission to
+    // start a second payment or to run completion synchronously.
+    let found;
+    try {
+      found = await retrieveTenantPaymentIntent(
+        tenantData.id,
+        stripeFeature,
+        piId,
+        { timeoutMs: 12_000 },
+      );
+    } catch (error) {
+      console.warn('[form-payment] Stripe confirmation retrieval timed out or failed:', error?.message);
+      // Verification is unknown, not failed.  In particular, never send the
+      // browser back to a payment action after Stripe may have accepted it.
+      return res.status(503).json({
+        error: 'We could not verify the card payment yet. Please check this same submission again; do not pay again.',
+        code: 'PAYMENT_VERIFICATION_PENDING',
+        paymentSucceeded: row.payment_status === 'paid',
+        status: row.payment_status === 'paid' ? 'finalizing' : 'verification_pending',
+        retryable: true,
+      });
+    }
+    console.info('[form-payment] stripe_confirmation_timing', {
+      submissionId: row.id,
+      tenantId: tenantData.id,
+      stage: 'retrieve_payment_intent',
+      durationMs: Date.now() - confirmStartedAt,
+      outcome: found ? 'ok' : 'unavailable',
+    });
     if (!found) return res.status(400).json({ error: 'Card payment is not configured' });
     const pi = found.paymentIntent;
     const metadataMatches = pi.metadata?.type === 'form_payment'
@@ -2270,66 +2368,68 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (row.payment_currency && pi.currency && pi.currency.toUpperCase() !== row.payment_currency.toUpperCase()) {
       return res.status(400).json({ error: 'Payment currency does not match' });
     }
+    // Persist the outstanding completion obligation before paid-marking.
+    // This makes a process death between confirming the PaymentIntent and the
+    // response recoverable without relying on browser retries or unawaited
+    // serverless work. The immutable address snapshot is still captured by
+    // the owned completion worker before membership/accounting can run.
+    const queueStartedAt = Date.now();
+    try {
+      const queuedMeta = await queueFormPaymentCompletion(supabase, row);
+      row = { ...row, payment_meta: queuedMeta };
+    } catch (queueErr) {
+      console.error('[form-payment] Could not queue Stripe completion:', queueErr?.message);
+      return res.status(503).json({
+        error: 'Your payment was verified, but completion could not yet be queued. Please check this same submission again; do not pay again.',
+        paymentSucceeded: true,
+        retryable: true,
+        status: 'finalizing',
+      });
+    }
+    console.info('[form-payment] stripe_confirmation_timing', {
+      submissionId: row.id,
+      tenantId: tenantData.id,
+      stage: 'persist_completion_obligation',
+      durationMs: Date.now() - queueStartedAt,
+      outcome: 'ok',
+    });
+    const paidStartedAt = Date.now();
     const { updated, row: paidRow } = await markFormSubmissionPaid(supabase, row.id, {
       amount: receivedMinor != null ? receivedMinor / 100 : null,
       reference: pi.id,
+    });
+    console.info('[form-payment] stripe_confirmation_timing', {
+      submissionId: row.id,
+      tenantId: tenantData.id,
+      stage: 'record_paid',
+      durationMs: Date.now() - paidStartedAt,
+      outcome: updated ? 'updated' : 'already_paid',
     });
     // The charge is authoritative before any address retrieval/write. A
     // provider or database failure below must therefore remain recoverable
     // without ever asking the submitter to pay a second time.
     row = paidRow || { ...row, payment_status: 'paid', payment_reference: pi.id };
-    const needsStripeAddress = !!row.payment_meta?.membership
-      || (row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0);
-    if (needsStripeAddress && !row.payment_meta?.stripe_billing_address) {
-      let stripeBillingAddress;
-      try {
-        stripeBillingAddress = await capturePaymentIntentBillingAddress({
-          stripe: found.stripe,
-          paymentIntent: pi,
-          requireCustomer: !!row.payment_meta?.membership,
-        });
-      } catch (addressErr) {
-        return res.status(503).json({
-          error: 'Your payment succeeded, but Stripe billing address details could not be verified. We will retry automatically; please do not pay again.',
-          paymentSucceeded: true,
-          retryable: true,
-          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
-        });
-      }
-      let savedMeta;
-      try {
-        savedMeta = await patchFormSubmissionPaymentMeta({
-          db: supabase,
-          tenantId: tenantData.id,
-          submissionId: row.id,
-          patch: { stripe_billing_address: stripeBillingAddress },
-        });
-      } catch {
-        return res.status(503).json({
-          error: 'Your payment succeeded, but its billing address could not be saved. We will retry automatically; please do not pay again.',
-          paymentSucceeded: true,
-          retryable: true,
-        });
-      }
-      row = { ...row, payment_meta: savedMeta };
-    }
-    const finalRow = row;
-    if (form) await finalizeFormSubmission({ supabase, submission: finalRow, form, baseUrl });
-    try {
-      await retryPersistedStripeAddressMappings({
-        db: supabase,
-        submissionId: row.id,
-        tenantId: tenantData.id,
-      });
-    } catch (addressErr) {
-      return res.status(503).json({
-        error: 'Your payment succeeded, but its billing address updates are still being completed. We will retry automatically; please do not pay again.',
-        paymentSucceeded: true,
-        retryable: true,
-        code: addressErr.code || 'STRIPE_ADDRESS_MAPPING_RETRY',
-      });
-    }
-    return res.status(200).json({ success: true, submissionId: row.id, status: 'paid', reconciled: !updated });
+    // Immutable billing-address capture is deliberately owned by the bounded
+    // reconciliation worker after this durable paid transition. It remains
+    // mandatory before a Stripe membership invoice can be created.
+    console.info('[form-payment] stripe_confirmation_timing', {
+      submissionId: row.id,
+      tenantId: tenantData.id,
+      stage: 'verified_and_queued',
+      durationMs: Date.now() - confirmStartedAt,
+      // No form answers, customer, address, provider payload, or credentials.
+      reconciled: !updated,
+    });
+    return res.status(200).json({
+      success: false,
+      paymentSucceeded: true,
+      submissionId: row.id,
+      provider: 'stripe',
+      status: 'finalizing',
+      pending: true,
+      retryable: true,
+      reconciled: !updated,
+    });
   }
 
   // GoCardless: verify the billing request server-side.

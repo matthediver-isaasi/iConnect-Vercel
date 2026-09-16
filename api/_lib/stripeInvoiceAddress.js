@@ -101,30 +101,20 @@ export async function capturePaymentIntentBillingAddress({
   if (!stripe || !paymentIntent) {
     throw new StripeBillingAddressError('Stripe payment details are unavailable');
   }
-  let snapshot = null;
-  const saved = paymentIntent.metadata?.invoice_address_snapshot;
-  if (saved) {
-    try {
-      snapshot = normalizeStripeBillingAddress(JSON.parse(saved));
-    } catch {
-      throw new StripeBillingAddressError('Saved Stripe billing address snapshot is unreadable');
-    }
+  // A PaymentMethod and PaymentIntent metadata are mutable after collection.
+  // The charge's billing_details are the evidence captured at money movement;
+  // never invoice from a later customer/profile/PaymentMethod edit.
+  const chargeId = objectId(paymentIntent.latest_charge);
+  if (!chargeId) {
+    throw new StripeBillingAddressError('The successful Stripe charge is unavailable for address capture');
   }
-  if (!snapshot) {
-    let paymentMethod = paymentIntent.payment_method;
-    if (typeof paymentMethod === 'string') {
-      paymentMethod = await stripe.paymentMethods.retrieve(paymentMethod);
-    }
-    snapshot = normalizeStripeBillingAddress(paymentMethod?.billing_details?.address);
-    if (!paymentIntent.id) {
-      throw new StripeBillingAddressError('Stripe PaymentIntent identifier is missing');
-    }
-    await stripe.paymentIntents.update(paymentIntent.id, {
-      metadata: {
-        invoice_address_snapshot: JSON.stringify(snapshot),
-      },
-    });
+  let charge;
+  try {
+    charge = await stripe.charges.retrieve(chargeId);
+  } catch {
+    throw new StripeBillingAddressError('The successful Stripe charge could not be retrieved for address capture');
   }
+  const snapshot = normalizeStripeBillingAddress(charge?.billing_details?.address);
   const customerId = objectId(paymentIntent.customer);
   if (!customerId) {
     if (requireCustomer) {

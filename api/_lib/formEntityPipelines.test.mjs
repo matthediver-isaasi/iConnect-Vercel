@@ -231,6 +231,194 @@ test('HTTP and invalid-JSON responses have an explicit failed contract without e
   }
 });
 
+test('a paid completion pipeline attempt is durably reserved and an aborted transport becomes attention-required', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'form-pipeline-operation-test-secret';
+  const rpcCalls = [];
+  const supabase = {
+    rpc: async (name, args) => {
+      rpcCalls.push({ name, args });
+      if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
+      if (name === 'finish_form_paid_pipeline_operation') return { data: true, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    },
+    from() {
+      const query = {
+        update: () => query,
+        eq: () => query,
+        filter: () => query,
+        then: resolve => Promise.resolve({ data: [], error: null }).then(resolve),
+      };
+      return query;
+    },
+  };
+  globalThis.fetch = async (_url, options) => new Promise((_resolve, reject) => {
+    assert.ok(options.signal, 'deadline must be propagated to fetch');
+    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+  });
+  try {
+    const result = await runFormEntityPipelines({
+      supabase,
+      submission: { id: 'sub-op', tenant_id: 'tenant-1', submission_data: {}, payment_meta: {} },
+      form: FORM_WITH_PIPELINES,
+      completionOperationId: '00000000-0000-4000-8000-000000000001',
+      // The runner reserves five seconds for outcome persistence, so this
+      // reaches its transport deadline immediately without a slow test.
+      deadlineAt: Date.now() + 5_001,
+    });
+    assert.equal(result.failed, true);
+    assert.equal(result.ambiguous, true);
+    assert.deepEqual(rpcCalls.map(call => call.name), [
+      'begin_form_paid_pipeline_operation',
+      'finish_form_paid_pipeline_operation',
+    ]);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('a new completion owner reuses a durable done pipeline result without fetch', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches += 1; throw new Error('must not replay done pipeline'); };
+  const supabase = {
+    rpc: async (name) => {
+      assert.equal(name, 'begin_form_paid_pipeline_operation');
+      return { data: { status: 'done' }, error: null };
+    },
+    from() {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        maybeSingle: async () => ({
+          data: {
+            created_member_id: 'member-1',
+            organization_id: 'org-1',
+            payment_meta: {},
+          },
+          error: null,
+        }),
+      };
+      return query;
+    },
+  };
+  try {
+    const result = await runFormEntityPipelines({
+      supabase,
+      submission: { id: 'sub-done', tenant_id: 'tenant-1', submission_data: {}, payment_meta: {} },
+      form: FORM_WITH_PIPELINES,
+      completionOperationId: '00000000-0000-4000-8000-000000000098',
+    });
+    assert.equal(fetches, 0);
+    assert.equal(result.ran, true);
+    assert.equal(result.memberId, 'member-1');
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('durable structured-action 409 is partial, not an ambiguous pipeline outcome', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  const rpcCalls = [];
+  const supabase = {
+    rpc: async (name, args) => {
+      rpcCalls.push(name);
+      if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
+      if (name === 'finish_form_paid_pipeline_operation') return { data: true, error: null };
+      throw new Error(`unexpected RPC ${name} ${JSON.stringify(args)}`);
+    },
+    from() {
+      const query = { update: () => query, eq: () => query, filter: () => query, then: resolve => Promise.resolve({ data: [], error: null }).then(resolve) };
+      return query;
+    },
+  };
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 409,
+    json: async () => ({
+      code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+      retryable: true,
+      structured_actions: { success: false, outcomes: [{ status: 'skipped', retryable: true }] },
+      created_member_id: 'member-1',
+    }),
+  });
+  try {
+    const result = await runFormEntityPipelines({
+      supabase,
+      submission: { id: 'sub-partial', tenant_id: 'tenant-1', submission_data: {}, payment_meta: {} },
+      form: FORM_WITH_PIPELINES,
+      completionOperationId: '00000000-0000-4000-8000-000000000097',
+      completionOperationKind: 'followup',
+    });
+    assert.equal(result.partial, true);
+    assert.equal(result.ambiguous, undefined);
+    assert.deepEqual(rpcCalls, ['begin_form_paid_pipeline_operation']);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('durable address-mapping 409 remains a retryable partial, not attention', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  const supabase = {
+    rpc: async name => {
+      if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    },
+    from() {
+      const query = { update: () => query, eq: () => query, filter: () => query, then: resolve => Promise.resolve({ data: [], error: null }).then(resolve) };
+      return query;
+    },
+  };
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 409,
+    json: async () => ({
+      code: 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+      retryable: true,
+      stripe_address_mappings: {
+        configured: true,
+        applied: false,
+        pending: true,
+        reason: 'stripe_address_mapping_target_unresolved',
+      },
+    }),
+  });
+  try {
+    const result = await runFormEntityPipelines({
+      supabase,
+      submission: { id: 'sub-address-partial', tenant_id: 'tenant-1', submission_data: {}, payment_meta: {} },
+      form: FORM_WITH_PIPELINES,
+      completionOperationId: '00000000-0000-4000-8000-000000000096',
+      completionOperationKind: 'followup',
+    });
+    assert.equal(result.partial, true);
+    assert.equal(result.ambiguous, undefined);
+    assert.equal(result.stripeAddressMappings.pending, true);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('public and embedded submissions surface incomplete structured actions without deleting retry state', () => {
   const source = read('../public/form-submission.js');
   const incompleteStart = source.indexOf("if (result.structured_actions?.success === false)");
@@ -297,7 +485,7 @@ test('reconcile sweep resolves baseUrl per tenant so the cron path runs pipeline
   for (const call of finalizeCalls) {
     assert.match(call, /baseUrl: await resolveBaseUrl\(row\.tenant_id\)/, `finalize call missing resolved baseUrl: ${call.slice(0, 120)}`);
   }
-  assert.match(src, /finalizeFormMembership\(\{ supabase, submission: row, baseUrl: rowBaseUrl \}\)/, 'membership retry must use resolved baseUrl');
+  assert.match(src, /finalizeFormMembership\(\{[\s\S]*?supabase,\s*submission: row,\s*baseUrl: rowBaseUrl,\s*deadlineAt,/i, 'membership retry must use resolved baseUrl and deadline');
   assert.match(src, /entityMissing && rowBaseUrl/, 'pipeline re-run gate must use resolved baseUrl');
   assert.match(src, /payment_meta->related_records_pending/, 'failed paid Related Records links must have an independent retry sweep');
   assert.match(src, /payment_status\.eq\.paid,payment_status\.eq\.setup_complete/, 'the retry sweep must include one-off and monthly-card paid states');
@@ -400,6 +588,12 @@ test('reconciliation retries and clears pending Structured Actions and Related R
       if (name === 'claim_form_stripe_address_mapping_retries') {
         return { data: [], error: null };
       }
+      if (name === 'begin_form_paid_pipeline_operation') {
+        assert.equal(args.p_tenant_id, row.tenant_id);
+        assert.equal(args.p_submission_id, row.id);
+        assert.match(args.p_operation_id, /^[0-9a-f-]{36}$/i);
+        return { data: { status: 'claimed' }, error: null };
+      }
       assert.equal(name, 'patch_form_submission_payment_meta');
       assert.equal(args.p_tenant_id, row.tenant_id);
       assert.equal(args.p_submission_id, row.id);
@@ -440,6 +634,89 @@ test('reconciliation retries and clears pending Structured Actions and Related R
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSecret;
   }
+});
+
+test('receiptless paid GoCardless and historical Stripe crashes recover only when actually unfinalized', async () => {
+  const form = {
+    id: 'legacy-form',
+    tenant_id: 'tenant-legacy',
+    access_policy: null,
+    entity_pipelines: null,
+    fields: [],
+    submission_emails: [],
+  };
+  for (const paymentProvider of ['gocardless', 'stripe']) {
+    const row = {
+      id: `legacy-${paymentProvider}`,
+      form_id: form.id,
+      tenant_id: form.tenant_id,
+      payment_provider: paymentProvider,
+      payment_status: 'paid',
+      payment_meta: {},
+      submission_data: {},
+      created_date: '2020-01-01T00:00:00.000Z',
+    };
+    const updates = [];
+    class Query {
+      constructor(table) { this.table = table; this.equal = []; this.filters = []; this.ors = []; this.payload = null; }
+      select() { return this; }
+      eq(column, value) { this.equal.push([column, value]); return this; }
+      filter(...args) { this.filters.push(args); return this; }
+      or(value) { this.ors.push(value); return this; }
+      not() { return this; }
+      in() { return this; }
+      gte() { return this; }
+      lte() { return this; }
+      order() { return this; }
+      limit() { return this; }
+      update(payload) { this.payload = payload; return this; }
+      matchesLegacyFallback() {
+        return this.table === 'form_submission'
+          && this.equal.some(([column, value]) => column === 'payment_status' && value === 'paid')
+          && this.filters.some(([column, operator, value]) => column === 'payment_meta->finalized' && operator === 'is' && value === null)
+          && this.ors.includes('payment_provider.eq.stripe,payment_provider.eq.gocardless');
+      }
+      result() {
+        if (this.table === 'form') return { data: [form], error: null };
+        if (this.table !== 'form_submission') return { data: [], error: null };
+        if (this.payload) {
+          Object.assign(row, this.payload);
+          updates.push(this.payload);
+          return { data: [row], error: null };
+        }
+        return { data: this.matchesLegacyFallback() ? [row] : [], error: null };
+      }
+      async maybeSingle() {
+        const result = this.result();
+        return { data: result.data[0] || null, error: result.error };
+      }
+      then(resolve, reject) { return Promise.resolve(this.result()).then(resolve, reject); }
+    }
+    const db = {
+      from: table => new Query(table),
+      rpc: async () => ({ data: [], error: null }),
+    };
+    const outcome = await reconcileFormPayments(db, {
+      baseUrl: 'https://tenant.example.test',
+      timeBudgetMs: 60_000,
+    });
+    assert.equal(outcome.finalized, 1, `${paymentProvider} crash should reach legacy finalization`);
+    assert.equal(row.payment_meta.finalized, true);
+    assert.ok(updates.some(update => update.payment_meta?.finalized === true));
+  }
+});
+
+test('legacy compatibility sweep preserves paid rows with an actual finalized stamp', () => {
+  const source = read('./formPaymentReconciliation.js');
+  const start = source.indexOf('// Compatibility sweep:');
+  const end = source.indexOf('// Third sweep (Task #3489):', start);
+  const sweep = source.slice(start, end);
+  assert.match(sweep, /\.eq\('payment_status', 'paid'\)/);
+  assert.match(sweep, /\.filter\('payment_meta->finalized', 'is', null\)/);
+  assert.match(sweep, /payment_provider\.eq\.stripe,payment_provider\.eq\.gocardless/);
+  assert.match(sweep, /completion->>version\.is\.null/);
+  assert.ok(!sweep.includes('queueFormPaymentCompletion'),
+    'receiptless history must retain its legacy completion protocol');
 });
 
 test('only trusted internal processing accepts the terminal monthly-card payment state', () => {
