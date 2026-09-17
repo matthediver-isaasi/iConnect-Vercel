@@ -2113,6 +2113,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           onReturnToForm={paymentReturn.dismiss}
           onRecheck={paymentReturn.recheck}
           canRecheck={paymentReturn.canRecheck}
+          pollingPaused={paymentReturn.pollingPaused}
           continueHref={memberInfo ? '/Dashboard' : '/'}
           continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
         />

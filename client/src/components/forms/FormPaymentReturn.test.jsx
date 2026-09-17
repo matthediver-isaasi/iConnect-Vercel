@@ -30,10 +30,24 @@ const { createRoot } = await import('react-dom/client');
 const {
   FormPaymentReturnScreen,
   useFormPaymentReturn,
+  PAYMENT_RETURN_POLL_DELAYS_MS,
+  PAYMENT_RETURN_POLL_WINDOW_MS,
 } = await import('./FormPaymentReturn.jsx');
 const {
   savePaymentSubmissionContext,
 } = await import('../../lib/formPaymentReturn.js');
+
+test('extended Stripe polling is deterministic, bounded, and backs off to 15 seconds', () => {
+  assert.deepEqual(PAYMENT_RETURN_POLL_DELAYS_MS.slice(0, 3), [1500, 3000, 5000]);
+  assert.ok(PAYMENT_RETURN_POLL_DELAYS_MS.length > 3);
+  assert.ok(PAYMENT_RETURN_POLL_DELAYS_MS.some((delay, index) => (
+    PAYMENT_RETURN_POLL_DELAYS_MS.slice(0, index + 1).reduce((sum, value) => sum + value, 0) > 60_000
+  )));
+  assert.ok(PAYMENT_RETURN_POLL_DELAYS_MS.every(delay => delay <= 15_000));
+  const total = PAYMENT_RETURN_POLL_DELAYS_MS.reduce((sum, delay) => sum + delay, 0);
+  assert.ok(total <= PAYMENT_RETURN_POLL_WINDOW_MS);
+  assert.ok(total + 15_000 > PAYMENT_RETURN_POLL_WINDOW_MS);
+});
 
 function HookProbe() {
   const paymentReturn = useFormPaymentReturn();
@@ -434,7 +448,7 @@ test('accounting_pending polling keeps its authoritative title through each dela
     return new Promise((resolve) => deferredResolvers.push(resolve));
   };
   globalThis.setTimeout = (callback, delay, ...args) => {
-    if ([1500, 3000, 5000].includes(delay)) {
+    if (PAYMENT_RETURN_POLL_DELAYS_MS.includes(delay)) {
       const timer = { callback, delay, args };
       pollTimers.add(timer);
       return timer;
@@ -477,25 +491,33 @@ test('accounting_pending polling keeps its authoritative title through each dela
     // The delayed request is genuinely unresolved. Every render during it
     // must retain the server-authoritative accounting outcome, not flash the
     // generic "Confirming your payment…" state.
-    await triggerPoll();
-    assert.equal(calls.length, 2);
-    assert.equal(title(), 'Payment received — finishing submission');
-    await responseForPoll();
-    assert.equal(title(), 'Payment received — finishing submission');
+    for (let attempt = 0; attempt < PAYMENT_RETURN_POLL_DELAYS_MS.length; attempt += 1) {
+      await triggerPoll();
+      assert.equal(calls.length, attempt + 2);
+      assert.equal(title(), 'Payment received — finishing submission');
+      await responseForPoll();
+    }
 
-    await triggerPoll();
-    assert.equal(calls.length, 3);
-    assert.equal(title(), 'Payment received — finishing submission');
-    await responseForPoll();
-
-    await triggerPoll();
-    assert.equal(calls.length, 4);
-    assert.equal(title(), 'Payment received — finishing submission');
-    await responseForPoll();
-
-    assert.equal(calls.length, 4, 'polling must stop after the three configured retries');
-    assert.equal(pollTimers.size, 0, 'no fourth retry timer may be scheduled');
+    assert.equal(
+      calls.length,
+      PAYMENT_RETURN_POLL_DELAYS_MS.length + 1,
+      'polling must stop after the bounded extended retry window',
+    );
+    assert.equal(pollTimers.size, 0, 'no retry timer may survive the bounded window');
+    assert.match(container.textContent, /automatic status checks are paused/i);
     assert.ok(calls.every((body) => body.action === 'confirm'));
+
+    // Manual checking starts a fresh bounded window after automatic checks
+    // have paused; it must not open a payment control or silently remain done.
+    const manualCheck = container.querySelector('[data-testid="button-payment-return-recheck"]');
+    assert.ok(manualCheck);
+    await act(async () => {
+      manualCheck.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+    });
+    assert.equal(calls.length, PAYMENT_RETURN_POLL_DELAYS_MS.length + 2);
+    await responseForPoll();
+    assert.equal(pollTimers.size, 1, 'manual checking starts a new automatic window');
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = originalFetch;

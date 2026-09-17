@@ -17,7 +17,36 @@ import {
   clearPaymentSubmissionContext,
 } from '@/lib/formPaymentReturn';
 
-export const PAYMENT_RETURN_POLL_DELAYS_MS = [1500, 3000, 5000];
+export const PAYMENT_RETURN_STANDARD_POLL_DELAYS_MS = Object.freeze([1500, 3000, 5000]);
+export const PAYMENT_RETURN_POLL_WINDOW_MS = 5 * 60 * 1000;
+const EXTENDED_POLL_START_DELAYS_MS = [1500, 3000, 5000, 7500, 10000, 15000];
+
+// Stripe's one-off reconciliation worker runs once per minute. Keep checking
+// long enough to observe that worker, while still putting a hard upper bound
+// on browser work. The first checks are deliberately quick; after that the
+// browser backs off to a maximum of 15 seconds.
+function buildExtendedPollDelays() {
+  const delays = [];
+  let elapsed = 0;
+  while (elapsed < PAYMENT_RETURN_POLL_WINDOW_MS) {
+    const delay = delays.length < EXTENDED_POLL_START_DELAYS_MS.length
+      ? EXTENDED_POLL_START_DELAYS_MS[delays.length]
+      : 15000;
+    if (elapsed + delay > PAYMENT_RETURN_POLL_WINDOW_MS) break;
+    delays.push(delay);
+    elapsed += delay;
+  }
+  return delays;
+}
+
+export const PAYMENT_RETURN_POLL_DELAYS_MS = Object.freeze(buildExtendedPollDelays());
+const EXTENDED_POLL_STATUSES = new Set(['finalizing', 'accounting_pending']);
+
+function pollDelaysForStatus(status) {
+  return EXTENDED_POLL_STATUSES.has(status)
+    ? PAYMENT_RETURN_POLL_DELAYS_MS
+    : PAYMENT_RETURN_STANDARD_POLL_DELAYS_MS;
+}
 
 const DEFAULT_PAYMENT_RETURN_STATE = {
   active: false,
@@ -26,6 +55,7 @@ const DEFAULT_PAYMENT_RETURN_STATE = {
   directDebitCompleted: false,
   error: null,
   canRecheck: false,
+  pollingPaused: false,
   continuePath: null,
 };
 
@@ -201,6 +231,10 @@ export function useFormPaymentReturn() {
     if (inFlightRef.current) return inFlightRef.current.promise;
     const context = contextRef.current;
     if (!context) return;
+    // A user-requested check is an explicit new bounded window. This is
+    // intentionally reset before the request so a previously exhausted
+    // automatic window can schedule follow-up checks again.
+    if (manual) context.attempt = 0;
     const requestSequence = ++requestSequenceRef.current;
     const isCurrent = () => mountedRef.current
       && contextRef.current === context
@@ -219,6 +253,7 @@ export function useFormPaymentReturn() {
         status: retainVisibleStatus ? previousStatus : 'confirming',
         error: retainVisibleStatus ? previous.error : null,
         canRecheck: false,
+        pollingPaused: false,
       }));
 
       const out = await confirmFormPayment(context);
@@ -254,17 +289,27 @@ export function useFormPaymentReturn() {
         directDebitCompleted,
         error: out.error || null,
         canRecheck: !terminal && !directDebitCompleted,
+        pollingPaused: false,
         continuePath: context.continuePath || null,
       });
 
-      const shouldPoll = !manual && out.retryable
-        && ['pending', 'finalizing', 'accounting_pending', 'blocked'].includes(out.status);
-      if (shouldPoll && context.attempt < PAYMENT_RETURN_POLL_DELAYS_MS.length) {
-        const delay = PAYMENT_RETURN_POLL_DELAYS_MS[context.attempt];
+      const shouldPoll = out.retryable
+        && ['pending', 'finalizing', 'accounting_pending', 'blocked'].includes(out.status)
+        // Keep the established pending Direct Debit / blocked manual flow;
+        // only the Stripe finalization window needs to restart automatically.
+        && (!manual || EXTENDED_POLL_STATUSES.has(out.status));
+      const pollDelays = pollDelaysForStatus(out.status);
+      if (shouldPoll && context.attempt < pollDelays.length) {
+        const delay = pollDelays[context.attempt];
         context.attempt += 1;
         timerRef.current = setTimeout(() => {
           if (mountedRef.current && contextRef.current === context) runConfirm();
         }, delay);
+      } else if (shouldPoll && EXTENDED_POLL_STATUSES.has(out.status)) {
+        // The background worker may still finish this one-off payment, but
+        // this tab must not poll forever. Keep the safe no-repay affordance
+        // and tell the applicant why automatic checks have paused.
+        updateState((previous) => ({ ...previous, pollingPaused: true }));
       }
     })();
     inFlightRef.current = { promise: operation, sequence: requestSequence };
@@ -534,6 +579,7 @@ export function FormPaymentReturnScreen({
   onReturnToForm,
   onRecheck,
   canRecheck = false,
+  pollingPaused = false,
   embedded = false,
   continueHref = '/',
   continueLabel = 'Continue to site',
@@ -549,11 +595,16 @@ export function FormPaymentReturnScreen({
     : provider === 'stripe_monthly_card'
       ? 'Your monthly card set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
       : def.body;
+  const pausedBody = status === 'accounting_pending'
+    ? 'We are still waiting for the remaining submission updates. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.'
+    : 'We are still waiting for payment finalization. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.';
   const body = directDebitCompleted
     ? 'Your application has been submitted and your Direct Debit is set up.\nYour first payment will be collected separately.\nYou can now leave this page.'
     : status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
-    : error
+    : pollingPaused && EXTENDED_POLL_STATUSES.has(status)
+      ? pausedBody
+      : error
       ? error
       : status === 'pending' ? pendingBody : def.body;
   const title = directDebitCompleted ? 'Application submitted' : def.title;

@@ -219,6 +219,50 @@ test('same-origin embedded Direct Debit completion keeps onward navigation in th
   expect(state.escapedWrites).toEqual([]);
 });
 
+test('Stripe finalization crosses the one-minute worker interval, then stops after paid', async ({ page }) => {
+  const accounting = {
+    success: false,
+    provider: 'stripe',
+    status: 'accounting_pending',
+    paymentSucceeded: true,
+    retryable: true,
+  };
+  const state = await fixtures(page, [
+    accounting, accounting, accounting, accounting, accounting, accounting, accounting, accounting,
+    { success: true, provider: 'stripe', status: 'paid', paymentSucceeded: true },
+  ]);
+  // The browser clock keeps this intercepted test deterministic without
+  // waiting five minutes in real time. No provider or checkout request is
+  // made: fixtures only accept the shared confirm endpoint.
+  await page.clock.install();
+  await page.goto('/FormView?slug=return-fixture&form_payment_submission=return-fixture-submission&form_payment_provider=stripe&payment_intent_client_secret=must-be-removed');
+  const screen = page.getByTestId('payment-return-screen');
+  await expect(screen).toHaveAttribute('data-payment-status', 'accounting_pending');
+
+  // Advance one scheduled check at a time: fastForward fires each timer
+  // only once, and the next timer is created after its HTTP response.
+  for (const [index, delay] of [1500, 3000, 5000, 7500, 10000, 15000, 15000].entries()) {
+    await page.clock.fastForward(delay);
+    await expect.poll(() => state.calls.length).toBe(index + 2);
+    await expect(page.getByTestId('button-payment-return-recheck')).toBeEnabled();
+    await page.waitForTimeout(50);
+  }
+  await page.clock.fastForward(4_000);
+  await expect(screen).toHaveAttribute('data-payment-status', 'accounting_pending');
+  await page.clock.fastForward(11_000);
+  await expect(screen).toHaveAttribute('data-payment-status', 'paid');
+  const settledCalls = state.calls.length;
+  expect(settledCalls).toBeGreaterThan(8);
+  expect(state.escapedWrites).toEqual([]);
+  expect(state.calls.every(call => call.action === 'confirm')).toBe(true);
+
+  // A terminal paid receipt cancels the remaining timer and never starts a
+  // checkout or another confirm after the status has settled.
+  await page.clock.fastForward(300_000);
+  expect(state.calls).toHaveLength(settledCalls);
+  expect(state.escapedWrites).toEqual([]);
+});
+
 test('cross-origin embedded Direct Debit completion opens onward navigation separately without navigating the host', async ({ page }, testInfo) => {
   const state = await fixtures(page, [{
     success: true,

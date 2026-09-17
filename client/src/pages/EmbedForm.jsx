@@ -1282,6 +1282,7 @@ export default function EmbedFormPage() {
         onReturnToForm={paymentReturn.dismiss}
         onRecheck={paymentReturn.recheck}
         canRecheck={paymentReturn.canRecheck}
+        pollingPaused={paymentReturn.pollingPaused}
         // A same-origin Canvas parent is navigated only by this explicit user
         // click and only to its resolved tenant/microsite home. External
         // embeds open the tenant destination separately instead of replacing
