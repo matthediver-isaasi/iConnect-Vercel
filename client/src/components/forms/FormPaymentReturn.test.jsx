@@ -823,3 +823,115 @@ test('unmount clears a scheduled bounded poll', async () => {
     container.remove();
   }
 });
+
+test('verified monthly card setup uses dedicated copy, persists collection state, and does not poll', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/monthly-card?form_payment_submission=monthly-card-submission&form_payment_provider=stripe_monthly_card');
+  const calls = [];
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    return {
+      ok: true,
+      json: async () => ({
+        status: 'setup_complete',
+        provider: 'stripe',
+        paymentProvider: 'stripe_monthly_card',
+        setupVerified: true,
+        paymentSucceeded: false,
+        retryable: true,
+      }),
+    };
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].acknowledge_setup, true);
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Application submitted — monthly payments set up',
+  );
+  assert.match(container.textContent, /login instructions when your membership is ready/i);
+  assert.doesNotMatch(container.textContent, /payment has been received/i);
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+  assert.match(window.sessionStorage.getItem('form_payment_pending_submission') || '', /"paymentCollected":false/);
+
+  await act(async () => root.unmount());
+  const refreshedRoot = createRoot(container);
+  await act(async () => {
+    refreshedRoot.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls.length, 1, 'verified monthly setup receipt must not reconfirm on refresh');
+  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Application submitted — monthly payments set up');
+  await act(async () => refreshedRoot.unmount());
+  container.remove();
+});
+
+test('monthly setup proof rejects a mismatched payment type', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/monthly-mismatch?form_payment_submission=monthly-mismatch&form_payment_provider=stripe_monthly_card');
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: 'setup_complete',
+      provider: 'stripe',
+      paymentProvider: 'gocardless_monthly_dd',
+      setupVerified: true,
+      paymentSucceeded: false,
+      retryable: false,
+    }),
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.notEqual(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Application submitted — monthly payments set up');
+  assert.doesNotMatch(container.textContent, /monthly payments are set up/i);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test('monthly paymentProvider blocks one-off acceptance even without a matching URL hint', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/monthly-authority?form_payment_submission=monthly-authority');
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).acknowledge_setup, true);
+    return {
+      ok: true,
+      json: async () => ({
+        status: 'finalizing',
+        provider: 'stripe',
+        paymentProvider: 'stripe_monthly_card',
+        setupVerified: false,
+        paymentSucceeded: true,
+        retryable: true,
+      }),
+    };
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-screen"]').getAttribute('data-payment-status'),
+    'pending',
+  );
+  assert.notEqual(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — application submitted',
+  );
+  assert.doesNotMatch(container.textContent, /payment has been received and your application has been submitted/i);
+  await act(async () => root.unmount());
+  container.remove();
+});

@@ -2108,6 +2108,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         <FormPaymentReturnScreen
           status={paymentReturn.status}
           provider={paymentReturn.provider}
+           paymentProvider={paymentReturn.paymentProvider}
+           setupAccepted={paymentReturn.setupAccepted}
+           paymentCollected={paymentReturn.paymentCollected}
           presentationAccepted={paymentReturn.presentationAccepted}
           error={paymentReturn.error}
           successMessage={form ? surveySuccessMessage(form) : null}
@@ -2797,9 +2800,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                           submissionId, provider, status, paymentSucceeded,
                         });
                       }}
-                      onSetupComplete={(submissionId) => {
+                      onSetupComplete={(setup) => {
                         rotateIdempotencyKey();
-                        paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                        paymentReturn.adoptCompletion(
+                          typeof setup === 'string'
+                            ? { submissionId: setup, provider: 'gocardless' }
+                            : setup,
+                        );
                       }}
                       onNormalSubmit={handleSubmit}
                       submitLabel={form.submit_button_text}
@@ -3306,9 +3313,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                         submissionId, provider, status, paymentSucceeded,
                       });
                     }}
-                    onSetupComplete={(submissionId) => {
+                    onSetupComplete={(setup) => {
                       rotateIdempotencyKey();
-                      paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                      paymentReturn.adoptCompletion(
+                        typeof setup === 'string'
+                          ? { submissionId: setup, provider: 'gocardless' }
+                          : setup,
+                      );
                     }}
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text}

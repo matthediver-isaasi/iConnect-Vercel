@@ -1277,6 +1277,9 @@ export default function EmbedFormPage() {
         embedded
         status={paymentReturn.status}
         provider={paymentReturn.provider}
+         paymentProvider={paymentReturn.paymentProvider}
+         setupAccepted={paymentReturn.setupAccepted}
+         paymentCollected={paymentReturn.paymentCollected}
         presentationAccepted={paymentReturn.presentationAccepted}
         error={paymentReturn.error}
         successMessage={form ? surveySuccessMessage(form) : null}
@@ -1523,9 +1526,13 @@ export default function EmbedFormPage() {
                       });
                       notifyParentResize();
                     }}
-                    onSetupComplete={(submissionId) => {
+                    onSetupComplete={(setup) => {
                       rotateIdempotencyKey();
-                      paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                      paymentReturn.adoptCompletion(
+                        typeof setup === 'string'
+                          ? { submissionId: setup, provider: 'gocardless' }
+                          : setup,
+                      );
                       notifyParentResize();
                     }}
                     onNormalSubmit={handleSubmit}
@@ -1749,9 +1756,13 @@ export default function EmbedFormPage() {
                   });
                   notifyParentResize();
                 }}
-                onSetupComplete={(submissionId) => {
+                onSetupComplete={(setup) => {
                   rotateIdempotencyKey();
-                  paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
+                  paymentReturn.adoptCompletion(
+                    typeof setup === 'string'
+                      ? { submissionId: setup, provider: 'gocardless' }
+                      : setup,
+                  );
                   notifyParentResize();
                 }}
                 onNormalSubmit={handleSubmit}

@@ -465,6 +465,45 @@ test('client provider hints are neutral until echoed by the verified response', 
   assert.equal(verified.provider, 'stripe');
 });
 
+test('monthly setup confirmation opts in explicitly and keeps server setup proof', async () => {
+  let request;
+  const out = await confirmFormPayment({
+    submissionId: 'monthly-submission',
+    provider: 'stripe_monthly_card',
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'setup_complete',
+          provider: 'stripe',
+          paymentProvider: 'stripe_monthly_card',
+          setupVerified: true,
+          paymentSucceeded: false,
+        }),
+      };
+    },
+  });
+  assert.equal(request.acknowledge_setup, true);
+  assert.equal(out.provider, 'stripe');
+  assert.equal(out.paymentProvider, 'stripe_monthly_card');
+  assert.equal(out.setupVerified, true);
+  assert.equal(out.paymentCollected, false);
+});
+
+test('ordinary payment confirmation still sends the harmless setup opt-in flag', async () => {
+  let request;
+  await confirmFormPayment({
+    submissionId: 'ordinary-submission',
+    provider: 'stripe',
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ status: 'paid', provider: 'stripe', paymentSucceeded: true }) };
+    },
+  });
+  assert.equal(request.acknowledge_setup, true);
+});
+
 // --- wiring contracts ---------------------------------------------------------
 
 test('both form pages mount the page-level return handler before wizard state', () => {

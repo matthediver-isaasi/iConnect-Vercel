@@ -15,9 +15,15 @@ export const SS_KEY = 'form_payment_pending_submission';
 export const PAYMENT_CONTEXT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const VERIFIED_PAYMENT_PROVIDERS = new Set([
   'stripe_monthly_card',
+  'gocardless_monthly_dd',
   'gocardless',
   'stripe',
 ]);
+export const MONTHLY_PAYMENT_PROVIDERS = new Set([
+  'stripe_monthly_card',
+  'gocardless_monthly_dd',
+]);
+export const NORMAL_PAYMENT_PROVIDERS = new Set(['stripe', 'gocardless']);
 export const VERIFIED_PAYMENT_STATUSES = new Set([
   'pending',
   'finalizing',
@@ -166,6 +172,9 @@ export function paymentContextKey(pathname = '/', search = '') {
 export function savePaymentSubmissionContext({
   submissionId,
   provider = null,
+  paymentProvider = null,
+  setupVerified = false,
+  paymentCollected = null,
   returnPath = null,
   continuePath = null,
   status = null,
@@ -184,6 +193,7 @@ export function savePaymentSubmissionContext({
   const context = {
     submissionId,
     provider: VERIFIED_PAYMENT_PROVIDERS.has(provider) ? provider : null,
+    ...(MONTHLY_PAYMENT_PROVIDERS.has(paymentProvider) ? { paymentProvider } : {}),
     scope,
     createdAt: now,
     // This is a same-origin relative page path selected before leaving for a
@@ -197,6 +207,8 @@ export function savePaymentSubmissionContext({
     // work remains queued on the server. It is only a local presentation
     // receipt, never a claim that backend completion has finished.
     ...(presentationAccepted === true ? { presentationAccepted: true } : {}),
+    ...(setupVerified === true ? { setupVerified: true } : {}),
+    ...(typeof paymentCollected === 'boolean' ? { paymentCollected } : {}),
     // Preserve the established terminal status contract for non-acceptance
     // flows. presentationAccepted is the separate local acknowledgement
     // marker used by the one-off Stripe applicant copy.
@@ -234,6 +246,11 @@ export function loadPaymentSubmissionContext({
     return {
       submissionId: parsed.submissionId,
       provider: VERIFIED_PAYMENT_PROVIDERS.has(parsed.provider) ? parsed.provider : null,
+      ...(MONTHLY_PAYMENT_PROVIDERS.has(parsed.paymentProvider)
+        ? { paymentProvider: parsed.paymentProvider } : {}),
+      ...(parsed.setupVerified === true ? { setupVerified: true } : {}),
+      ...(typeof parsed.paymentCollected === 'boolean'
+        ? { paymentCollected: parsed.paymentCollected } : {}),
       ...(normalizeRelativePath(parsed.returnPath)
         ? { returnPath: normalizeRelativePath(parsed.returnPath) }
         : {}),
@@ -336,6 +353,10 @@ export async function confirmFormPayment({
       body: JSON.stringify({
         action: 'confirm',
         submission_id: submissionId,
+        // This is an opt-in request-body capability, not a client-side
+        // payment-type decision. The server ignores it for non-monthly rows
+        // and uses its persisted payment_provider as the authority.
+        acknowledge_setup: true,
         ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
       }),
     });
@@ -346,6 +367,14 @@ export async function confirmFormPayment({
     const verifiedProvider = VERIFIED_PAYMENT_PROVIDERS.has(json.provider)
       ? json.provider
       : null;
+    // `paymentProvider` is deliberately read only from the server response.
+    // The return URL/session hint identifies which submission to confirm, but
+    // cannot turn an ordinary payment into a recurring setup.
+    const paymentProvider = MONTHLY_PAYMENT_PROVIDERS.has(json.paymentProvider)
+      ? json.paymentProvider
+      : null;
+    const setupVerified = json.setupVerified === true
+      && paymentProvider !== null;
     let status = VERIFIED_PAYMENT_STATUSES.has(json.status) ? json.status : null;
 
     // Preserve the legacy lifecycle mapping for non-Stripe and inline paths.
@@ -361,10 +390,13 @@ export async function confirmFormPayment({
     const result = {
       status,
       provider: verifiedProvider,
+      ...(paymentProvider ? { paymentProvider } : {}),
+      ...(setupVerified ? { setupVerified: true } : {}),
       // Only the explicit server field is evidence that a one-off Stripe
       // payment was verified. In particular, status/success/provider URL
       // hints must not manufacture this boolean.
       paymentSucceeded: json.paymentSucceeded === true,
+      ...(paymentProvider ? { paymentCollected: json.paymentSucceeded === true } : {}),
       pending: json.pending === true || ['pending', 'finalizing', 'accounting_pending'].includes(status),
       retryable: typeof json.retryable === 'boolean'
         ? json.retryable

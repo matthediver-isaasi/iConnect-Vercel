@@ -15,6 +15,7 @@ import {
   loadPaymentSubmissionContext,
   savePaymentSubmissionContext,
   clearPaymentSubmissionContext,
+  MONTHLY_PAYMENT_PROVIDERS,
 } from '@/lib/formPaymentReturn';
 
 export const PAYMENT_RETURN_STANDARD_POLL_DELAYS_MS = Object.freeze([1500, 3000, 5000]);
@@ -52,6 +53,9 @@ const DEFAULT_PAYMENT_RETURN_STATE = {
   active: false,
   status: null,
   provider: null,
+  paymentProvider: null,
+  setupAccepted: false,
+  paymentCollected: false,
   presentationAccepted: false,
   directDebitCompleted: false,
   error: null,
@@ -112,8 +116,13 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       stored.presentationAccepted === true
       || stored.terminalStatus === 'paid'
       || stored.terminalStatus === 'attention'
+      || (stored.setupVerified === true
+        && MONTHLY_PAYMENT_PROVIDERS.has(stored.paymentProvider))
     );
   const presentationAccepted = receiptMatches && stored.presentationAccepted === true;
+  const setupAccepted = receiptMatches
+    && stored.setupVerified === true
+    && MONTHLY_PAYMENT_PROVIDERS.has(stored.paymentProvider);
   const resumable = !isReturn && !!stored && !stored.legacy;
   const visibleStatus = receiptMatches
     && stored.status
@@ -127,6 +136,10 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: stored.status || stored.terminalStatus || 'paid',
       provider: stored.provider || null,
+      paymentProvider: stored.paymentProvider
+        || (MONTHLY_PAYMENT_PROVIDERS.has(stored.provider) ? stored.provider : null),
+      setupAccepted,
+      paymentCollected: stored.paymentCollected === true,
       presentationAccepted,
       directDebitCompleted: false,
       error: null,
@@ -138,6 +151,10 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'cancelled',
       provider: stored?.provider || null,
+      paymentProvider: stored?.paymentProvider
+        || (MONTHLY_PAYMENT_PROVIDERS.has(stored?.provider) ? stored.provider : null),
+      setupAccepted: false,
+      paymentCollected: false,
       presentationAccepted: false,
       directDebitCompleted: false,
       error: null,
@@ -149,6 +166,10 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'failed',
       provider: stored?.provider || null,
+      paymentProvider: stored?.paymentProvider
+        || (MONTHLY_PAYMENT_PROVIDERS.has(stored?.provider) ? stored.provider : null),
+      setupAccepted: false,
+      paymentCollected: false,
       presentationAccepted: false,
       directDebitCompleted: false,
       error: 'Payment was not completed. Nothing has been confirmed as charged.',
@@ -160,6 +181,9 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'pending',
       provider: null,
+      paymentProvider: null,
+      setupAccepted: false,
+      paymentCollected: false,
       presentationAccepted: false,
       directDebitCompleted: false,
       error: null,
@@ -171,6 +195,10 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: visibleStatus || 'confirming',
       provider: stored?.provider || decision.provider || null,
+      paymentProvider: stored?.paymentProvider
+        || (MONTHLY_PAYMENT_PROVIDERS.has(stored?.provider) ? stored.provider : null),
+      setupAccepted: false,
+      paymentCollected: false,
       presentationAccepted: false,
       directDebitCompleted: isCompletedDirectDebit(
         stored?.provider || decision.provider || null,
@@ -208,6 +236,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
     isReturn,
     terminalReceipt,
     presentationAccepted,
+    setupAccepted,
     context,
   };
 }
@@ -271,6 +300,31 @@ export function useFormPaymentReturn() {
       const out = await confirmFormPayment(context);
       if (!isCurrent()) return;
       const provider = out.provider || null;
+      const paymentProvider = out.paymentProvider || null;
+      // The response's paymentProvider is the only monthly/one-off
+      // discriminator. URL/session hints select the row to confirm, but must
+      // not decide which success copy is safe.
+      const expectedMonthlyProvider = MONTHLY_PAYMENT_PROVIDERS.has(paymentProvider)
+        ? paymentProvider
+        : null;
+      const expectedBaseProvider = expectedMonthlyProvider === 'stripe_monthly_card'
+        ? 'stripe'
+        : expectedMonthlyProvider === 'gocardless_monthly_dd'
+          ? 'gocardless'
+          : null;
+      // Monthly setup acceptance is intentionally stricter than the one-off
+      // payment acknowledgement. Both identities and the explicit server
+      // verification bit must agree with the provider selected before leaving.
+      const setupAccepted = !!expectedMonthlyProvider
+        && provider === expectedBaseProvider
+        && paymentProvider === expectedMonthlyProvider
+        && out.setupVerified === true;
+      // A monthly row without explicit setup verification is ambiguous. Do
+      // not let a generic paid/finalizing/setup_complete status or a first
+      // collection boolean fall through to one-off payment copy.
+      const safeStatus = expectedMonthlyProvider && !setupAccepted
+        ? 'pending'
+        : out.status;
       // The only accepted one-off presentation is a response that carries
       // both trusted Stripe identity and the explicit verified-payment bit.
       // URL/session provider hints and generic success/status fields are not
@@ -280,26 +334,29 @@ export function useFormPaymentReturn() {
       // provider terminology.
       const presentationAccepted = provider === 'stripe'
         && out.paymentSucceeded === true
-        && context.provider !== 'stripe_monthly_card';
+        && !expectedMonthlyProvider;
       // `attention` is terminal by design: a provider or processor may have
       // accepted an effect before its durable outcome was lost, so polling or
       // another browser confirmation must not replay it.
-      const terminal = out.status === 'paid' || out.status === 'attention';
-      const directDebitCompleted = isCompletedDirectDebit(provider, out.status);
+      const terminal = safeStatus === 'paid' || safeStatus === 'attention';
+      const directDebitCompleted = isCompletedDirectDebit(provider, safeStatus);
       try {
         savePaymentSubmissionContext({
           submissionId: context.submissionId,
           // Only the server response is allowed to update the persisted
           // provider/status receipt.
           provider,
+           paymentProvider,
+           setupVerified: setupAccepted,
+           paymentCollected: setupAccepted ? out.paymentSucceeded === true : null,
           returnPath: context.returnPath,
           continuePath: context.continuePath,
-          status: out.status,
+           status: safeStatus,
           terminalStatus: terminal ? out.status : null,
           presentationAccepted,
         });
       } catch { /* ignore */ }
-      if (terminal || presentationAccepted) {
+      if (terminal || presentationAccepted || setupAccepted) {
         // Keep a short-lived, path-scoped receipt. Refreshing a verified
         // success must never reveal the payment form or issue another confirm;
         // this record contains only status/navigation metadata, never secrets.
@@ -307,23 +364,30 @@ export function useFormPaymentReturn() {
       }
       updateState({
         active: true,
-        status: out.status,
+        status: safeStatus,
         provider,
+        paymentProvider,
+        setupAccepted,
+        paymentCollected: setupAccepted ? out.paymentSucceeded === true : false,
         presentationAccepted,
         directDebitCompleted,
         error: out.error || null,
-        canRecheck: !terminal && !presentationAccepted && !directDebitCompleted,
+        canRecheck: !terminal && !presentationAccepted && !setupAccepted && !directDebitCompleted,
         pollingPaused: false,
         continuePath: context.continuePath || null,
       });
 
       const shouldPoll = !presentationAccepted
+        && !setupAccepted
+        // A monthly setup is an acknowledgement, not a charge-finalisation
+        // workflow. Never keep a browser polling after its setup response.
+        && !expectedMonthlyProvider
         && out.retryable
         && ['pending', 'finalizing', 'accounting_pending', 'blocked'].includes(out.status)
         // Keep the established pending Direct Debit / blocked manual flow;
         // only the Stripe finalization window needs to restart automatically.
         && (!manual || EXTENDED_POLL_STATUSES.has(out.status));
-      const pollDelays = pollDelaysForStatus(out.status);
+      const pollDelays = pollDelaysForStatus(safeStatus);
       if (shouldPoll && context.attempt < pollDelays.length) {
         const delay = pollDelays[context.attempt];
         context.attempt += 1;
@@ -358,6 +422,7 @@ export function useFormPaymentReturn() {
       isReturn,
       terminalReceipt,
       presentationAccepted,
+      setupAccepted,
     } = snapshot;
     const cleanReturnUrl = () => {
       if (!isReturn) return;
@@ -377,8 +442,12 @@ export function useFormPaymentReturn() {
       contextRef.current = null;
       updateState({
         active: true,
-        status: stored?.terminalStatus || 'paid',
+        status: stored?.status || stored?.terminalStatus || 'paid',
         provider: stored?.provider || null,
+        paymentProvider: stored?.paymentProvider
+          || (MONTHLY_PAYMENT_PROVIDERS.has(stored?.provider) ? stored.provider : null),
+        setupAccepted,
+        paymentCollected: stored?.paymentCollected === true,
         presentationAccepted,
         directDebitCompleted: false,
         error: null,
@@ -490,12 +559,45 @@ export function useFormPaymentReturn() {
   // helper before they reach this callback. Adopt that verified result into
   // the page-level screen so inline and hosted completions have identical
   // copy, continuation, scrolling, and iframe behaviour.
-  const adoptCompletion = useCallback(({ submissionId, provider = null } = {}) => {
-    if (!submissionId || !isCompletedDirectDebit(provider, 'setup_complete')) return;
+  const adoptCompletion = useCallback((completion = {}, legacyProvider = null) => {
+    const {
+      submissionId,
+      provider = legacyProvider,
+      paymentProvider = null,
+      setupVerified = false,
+      paymentCollected = false,
+    } = typeof completion === 'string'
+      ? { submissionId: completion }
+      : completion;
+    // Monthly setups are accepted only with the same strict server proof as
+    // hosted returns. Keep the legacy GoCardless setup_complete callback for
+    // non-monthly forms unchanged.
+    const monthlySetup = MONTHLY_PAYMENT_PROVIDERS.has(paymentProvider)
+      && ((paymentProvider === 'stripe_monthly_card' && provider === 'stripe')
+        || (paymentProvider === 'gocardless_monthly_dd' && provider === 'gocardless'))
+      && setupVerified === true;
+    const legacySetup = isCompletedDirectDebit(provider, 'setup_complete');
+    if (!submissionId || (!monthlySetup && !legacySetup)) return;
+    if (monthlySetup) {
+      let stored = null;
+      try { stored = loadPaymentSubmissionContext(); } catch { /* ignore */ }
+      try {
+        savePaymentSubmissionContext({
+          submissionId,
+          provider,
+          paymentProvider,
+          setupVerified: true,
+          paymentCollected: paymentCollected === true,
+          status: 'setup_complete',
+          returnPath: stored?.returnPath || null,
+          continuePath: stored?.continuePath || null,
+        });
+      } catch { /* ignore */ }
+    }
     contextRef.current = {
       submissionId,
       paymentIntentId: null,
-      provider,
+      provider: monthlySetup ? provider : provider,
       attempt: 0,
       returnPath: null,
       continuePath: null,
@@ -504,8 +606,11 @@ export function useFormPaymentReturn() {
       active: true,
       status: 'setup_complete',
       provider,
+      paymentProvider: monthlySetup ? paymentProvider : null,
+      setupAccepted: monthlySetup,
+      paymentCollected: monthlySetup ? paymentCollected === true : false,
       presentationAccepted: false,
-      directDebitCompleted: true,
+      directDebitCompleted: !monthlySetup,
       error: null,
       canRecheck: false,
       continuePath: null,
@@ -646,6 +751,9 @@ const SCREENS = {
 export function FormPaymentReturnScreen({
   status,
   provider,
+  paymentProvider = null,
+  setupAccepted = false,
+  paymentCollected = false,
   presentationAccepted = false,
   error,
   successMessage,
@@ -663,28 +771,50 @@ export function FormPaymentReturnScreen({
   const def = SCREENS[status] || SCREENS.confirming;
   const displayDef = presentationAccepted ? SCREENS.paid : def;
   const Icon = displayDef.icon;
-  const directDebitCompleted = provider === 'gocardless' && status === 'setup_complete';
-  const pendingBody = provider === 'gocardless'
+  const directDebitCompleted = !setupAccepted
+    && provider === 'gocardless'
+    && status === 'setup_complete';
+  const monthlyCardSetup = setupAccepted && paymentProvider === 'stripe_monthly_card';
+  const monthlyDebitSetup = setupAccepted && paymentProvider === 'gocardless_monthly_dd';
+  // Monthly copy requires the server's paymentProvider field; a URL/session
+  // provider hint is never enough to label the setup.
+  const pendingProvider = paymentProvider
+    || (provider === 'gocardless' ? provider : null);
+  const pendingBody = pendingProvider === 'gocardless'
     ? 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
-    : provider === 'stripe_monthly_card'
+    : pendingProvider === 'stripe_monthly_card'
       ? 'Your monthly card set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
+      : pendingProvider === 'gocardless_monthly_dd'
+        ? 'Your monthly Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
       : def.body;
   const pausedBody = status === 'accounting_pending'
     ? 'We are still waiting for the remaining submission updates. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.'
     : 'We are still waiting for payment finalization. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.';
   const body = presentationAccepted
     ? 'Thank you. Your payment has been received and your application has been submitted. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
+    : monthlyCardSetup
+      ? paymentCollected
+        ? 'Thank you. Your application has been submitted and monthly payments are set up.\nYour first payment has been received. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
+        : 'Thank you. Your application has been submitted and monthly payments are set up.\nWe’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
+      : monthlyDebitSetup
+        ? paymentCollected
+          ? 'Thank you. Your application has been submitted and monthly Direct Debit payments are set up.\nYour first payment has been collected. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
+          : 'Thank you. Your application has been submitted and monthly Direct Debit payments are set up.\nYour first payment will be collected separately. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
     : directDebitCompleted
     ? 'Your application has been submitted and your Direct Debit is set up.\nYour first payment will be collected separately.\nYou can now leave this page.'
     : status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
     : pollingPaused && EXTENDED_POLL_STATUSES.has(status)
       ? pausedBody
+      : pendingProvider && MONTHLY_PAYMENT_PROVIDERS.has(pendingProvider) && !setupAccepted
+        ? pendingBody
       : error
       ? error
       : status === 'pending' ? pendingBody : def.body;
   const title = presentationAccepted
     ? 'Payment received — application submitted'
+    : monthlyCardSetup || monthlyDebitSetup
+      ? 'Application submitted — monthly payments set up'
     : directDebitCompleted ? 'Application submitted' : def.title;
   const showReturn = ['cancelled', 'failed'].includes(status) && onReturnToForm;
   // Never offer a completed, pending, or ambiguous payment back to the form:
@@ -696,7 +826,7 @@ export function FormPaymentReturnScreen({
       className={embedded ? 'w-full' : 'max-w-md w-full'}
       data-testid="payment-return-screen"
       data-payment-status={status || 'confirming'}
-      data-payment-provider={provider || 'unknown'}
+      data-payment-provider={paymentProvider || provider || 'unknown'}
     >
       <CardContent className="p-10 text-center">
         <div className={`w-16 h-16 ${displayDef.bubbleClass} rounded-full flex items-center justify-center mx-auto mb-4`}>

@@ -41,6 +41,7 @@ async function fixtures(page, responses) {
 }
 
 test('/FormView: payment return scrolls a below-the-fold standalone status once', async ({ page }) => {
+  test.setTimeout(90_000); // The first visit may compile the large form bundle.
   // Install layout space before React mounts so the effect measures the actual
   // return target, rather than the click or the test harness moving the page.
   await page.addInitScript(() => {
@@ -164,6 +165,29 @@ for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixt
     expect(state.escapedWrites).toEqual([]);
   });
 }
+
+test('monthly setup uses the server paymentProvider when the return hint is absent or wrong', async ({ page }) => {
+  for (const hint of ['', '&form_payment_provider=gocardless']) {
+    const state = await fixtures(page, [{
+      success: true,
+      provider: 'stripe',
+      paymentProvider: 'stripe_monthly_card',
+      setupVerified: true,
+      status: 'finalizing',
+      paymentSucceeded: false,
+      retryable: true,
+    }]);
+    await page.goto(
+      `/FormView?slug=return-fixture&receipt_case=${hint ? 'wrong-hint' : 'no-hint'}&form_payment_submission=return-fixture-submission${hint}`,
+    );
+    await expect(page.getByTestId('payment-return-title')).toHaveText(
+      'Application submitted — monthly payments set up',
+    );
+    await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+    expect(state.calls).toHaveLength(1);
+    expect(state.calls[0].acknowledge_setup).toBe(true);
+  }
+});
 
 for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixture']) {
   test(`${surface}: completed Direct Debit shows application submission confirmation`, async ({ page }) => {
@@ -336,3 +360,48 @@ test('cross-origin embedded Direct Debit completion opens onward navigation sepa
   expect(state.calls).toHaveLength(1);
   expect(state.escapedWrites).toEqual([]);
 });
+
+for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixture']) {
+  test(`${surface}: verified monthly setup uses dedicated receipt copy without polling`, async ({ page }) => {
+    await page.clock.install();
+    for (const [paymentProvider, provider, paymentSucceeded, collectionCopy] of [
+      ['stripe_monthly_card', 'stripe', false, 'monthly payments are set up'],
+      ['stripe_monthly_card', 'stripe', true, 'first payment has been received'],
+      ['gocardless_monthly_dd', 'gocardless', false, 'first payment will be collected separately'],
+    ]) {
+      const state = await fixtures(page, [{
+        success: true,
+        provider,
+        paymentProvider,
+        setupVerified: true,
+        status: 'setup_complete',
+        paymentSucceeded,
+        retryable: true,
+      }]);
+      const join = surface.includes('?') ? '&' : '?';
+      await page.goto(
+        `${surface}${join}receipt_case=${paymentProvider}-${paymentSucceeded}&form_payment_submission=return-fixture-submission&form_payment_provider=${paymentProvider}`,
+      );
+      const screen = page.getByTestId('payment-return-screen');
+      await expect(screen).toHaveAttribute('data-payment-status', 'setup_complete');
+      await expect(page.getByTestId('payment-return-title')).toHaveText(
+        'Application submitted — monthly payments set up',
+      );
+      await expect(page.getByTestId('payment-return-body')).toContainText(collectionCopy);
+      await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+      await expect(page.getByTestId('button-payment-return-continue')).toBeVisible();
+      await page.clock.fastForward(300_000);
+      expect(state.calls).toHaveLength(1);
+      expect(state.calls[0].acknowledge_setup).toBe(true);
+      await page.reload();
+      await expect(page.getByTestId('payment-return-title')).toHaveText(
+        'Application submitted — monthly payments set up',
+      );
+      await expect(page.getByTestId('payment-return-body')).toContainText(collectionCopy);
+      expect(state.calls).toHaveLength(1);
+      if (surface.startsWith('/embed') && paymentProvider === 'gocardless_monthly_dd') {
+        await page.screenshot({ path: '/tmp/monthly-dd-acknowledgement.png' });
+      }
+    }
+  });
+}

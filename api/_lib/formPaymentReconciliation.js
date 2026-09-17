@@ -10,7 +10,11 @@
  * Idempotent and race-proof: the CAS in markFormSubmissionPaid means a
  * concurrent browser confirm and this sweep can never double-process.
  */
-import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
+import {
+  retrieveTenantPaymentIntent,
+  getStripeIntegrationCredentials,
+} from './stripeCredentials.js';
+import Stripe from 'stripe';
 import { randomUUID } from 'node:crypto';
 import { gocardlessForTenant } from './gocardless.js';
 import {
@@ -39,11 +43,13 @@ import {
   FINALIZE_CLAIM_TTL_MS as DD_FINALIZE_CLAIM_TTL_MS,
 } from './formMonthlyDirectDebitFinalize.js';
 import { processGocardlessEvent } from './gocardlessWebhookProcessor.js';
+import { processStripeCardPlanEvent, CARD_PLAN_KIND } from './stripeMonthlyCard.js';
 import {
   FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS,
   formMembershipQuoteAmountMinor,
 } from './formStripeInvoiceSettlement.js';
 import { reconcilePaidFormDueDiligence } from './formDueDiligence.js';
+import { verifiedStripeMonthlySetup } from './formMonthlyConfirmLifecycle.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, due_diligence_required, survey_settings';
 
@@ -51,6 +57,79 @@ const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibil
 // coming, and young enough to be worth polling.
 const MIN_AGE_MS = 10 * 60 * 1000;
 const MAX_AGE_DAYS = 14;
+
+// A browser acknowledgement deliberately skips the provider event processor.
+// The setup-complete sweep therefore owns a bounded replay as well as the
+// local finalizer. This closes the missed-webhook window without making the
+// public request wait on membership, invoice, or accounting work.
+export function canFinalizeStripeMonthlySetupReplay(outcome) {
+  return outcome?.handled === true && outcome?.blocked !== true && outcome?.conflict !== true;
+}
+
+export async function replayMissedStripeMonthlySetup({
+  db,
+  row,
+  agreement,
+  baseUrl,
+  deadlineAt,
+  getCredentials = getStripeIntegrationCredentials,
+  StripeClass = Stripe,
+  processEvent = processStripeCardPlanEvent,
+}) {
+  const sessionId = row.payment_meta?.monthly_card?.checkout_session_id
+    || agreement?.stripe_checkout_session_id
+    || null;
+  if (!sessionId) return { handled: false, detail: 'monthly Checkout session is unavailable' };
+  if (deadlineAt && deadlineAt - Date.now() < 5_000) {
+    return { handled: false, retryable: true, detail: 'worker budget exhausted before monthly Checkout replay' };
+  }
+  const credentials = await getCredentials(row.tenant_id);
+  const preferred = agreement?.environment === 'live'
+    ? [credentials?.secret_key, credentials?.test_secret_key]
+    : [credentials?.test_secret_key, credentials?.secret_key];
+  for (const key of [...new Set(preferred.filter(Boolean))]) {
+    const stripe = new StripeClass(key);
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['subscription.latest_invoice.payment_intent'],
+      });
+      if (session?.mode !== 'subscription'
+          || session?.metadata?.kind !== CARD_PLAN_KIND
+          || session?.metadata?.tenant_id !== String(row.tenant_id)
+          || session?.metadata?.agreement_id !== String(agreement.id)
+          || session?.metadata?.form_submission_id !== String(row.id)
+          || session?.status !== 'complete'
+          || !verifiedStripeMonthlySetup({
+            session,
+            tenantId: row.tenant_id,
+            agreementId: agreement.id,
+            submissionId: row.id,
+            environment: agreement?.environment,
+            agreementStatus: agreement?.status,
+          })) {
+        return { handled: false, pending: true, detail: 'monthly Checkout is not currently active' };
+      }
+      const outcome = await processEvent({
+        id: `form-reconcile-${session.id}`,
+        type: 'checkout.session.completed',
+        data: { object: session },
+      }, {
+        db,
+        getStripe: async () => stripe,
+        baseUrl,
+      });
+      return outcome;
+    } catch (error) {
+      const missing = error?.code === 'resource_missing' || error?.statusCode === 404;
+      if (!missing) break;
+    }
+  }
+  return {
+    handled: false,
+    retryable: true,
+    detail: 'monthly Checkout replay could not be verified',
+  };
+}
 
 /**
  * Keep monitoring-only partial failures off the public cron response while
@@ -797,6 +876,16 @@ export async function reconcileFormPayments(supabase, {
         if (agreementError) throw agreementError;
         if (!agreement) continue;
         const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
+        const providerReplay = await replayMissedStripeMonthlySetup({
+          db: supabase,
+          row,
+          agreement,
+          baseUrl: rowBaseUrl,
+          deadlineAt,
+        });
+        if (!canFinalizeStripeMonthlySetupReplay(providerReplay)) {
+          throw new Error(providerReplay.detail || 'monthly Stripe setup replay was blocked');
+        }
         await finalizeFormMonthlyCardCheckout({
           db: supabase,
           agreement,

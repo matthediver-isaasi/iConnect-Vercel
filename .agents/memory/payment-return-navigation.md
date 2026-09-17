@@ -32,3 +32,9 @@ For a server-verified one-off Stripe payment, applicant acknowledgement must not
 **Why:** The user explicitly wants applicants to receive confirmation and leave immediately after payment; member access comes later through emailed login instructions. Internal retry or review states should not make a successfully paid applicant wait or pay again.
 
 **How to apply:** Keep the applicant receipt distinct from backend completion and access. Acknowledge only verified payment, preserve safe return navigation and refresh behaviour, and leave setup/retry status authoritative on the server. Never claim immediate membership access.
+
+Apply the same separation to monthly setup, but do not equate setup with collection or bank activation.
+
+**Why:** GoCardless can confirm completed consent while the mandate is still pending submission or submitted; waiting for an active mandate would delay acknowledgement beyond the normal checkout experience. Stripe monthly can also complete setup without a first collection.
+
+**How to apply:** Verify provider-owned setup evidence and matching identities, preserve actual collection evidence separately, and keep login instructions deferred. If browser confirmation stops running internal finalizers, ensure the existing form recovery sweep discovers the acknowledged setup; slower agreement-level recovery alone is not sufficient.

@@ -10,6 +10,7 @@ import {
   navigateToPaymentProvider,
   savePaymentSubmissionContext,
   loadPaymentSubmissionContext,
+  MONTHLY_PAYMENT_PROVIDERS,
 } from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
@@ -99,6 +100,7 @@ export default function FormPaymentSubmit({
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const submissionIdRef = useRef(null);
+  const paymentProviderRef = useRef(null);
   const mountedRef = useRef(false);
   const confirmSequenceRef = useRef(0);
   const confirmInFlightRef = useRef(false);
@@ -185,7 +187,7 @@ export default function FormPaymentSubmit({
       const out = await confirmFormPayment({
         submissionId,
         paymentIntentId,
-        provider: selectedProvider,
+        provider: paymentProviderRef.current || selectedProvider,
       });
       if (!isCurrent()) return false;
       setPaymentStage(out.status);
@@ -193,16 +195,33 @@ export default function FormPaymentSubmit({
       // as hosted returns. Persist only the server-confirmed outcome.
       try {
         const stored = loadPaymentSubmissionContext(scope);
+        const setupAccepted = MONTHLY_PAYMENT_PROVIDERS.has(out.paymentProvider)
+          && out.setupVerified === true
+          && ((out.paymentProvider === 'stripe_monthly_card' && out.provider === 'stripe')
+            || (out.paymentProvider === 'gocardless_monthly_dd' && out.provider === 'gocardless'));
         savePaymentSubmissionContext({
           ...scope,
           submissionId,
           provider: out.provider,
+          paymentProvider: setupAccepted ? out.paymentProvider : null,
+          setupVerified: setupAccepted,
+          paymentCollected: setupAccepted ? out.paymentSucceeded === true : null,
           status: out.status,
           returnPath: stored?.submissionId === submissionId ? stored.returnPath : null,
           continuePath: continueHref,
         });
       } catch { /* Storage may be unavailable; keep the in-memory result. */ }
-      if (out.provider === 'stripe' && out.paymentSucceeded === true) {
+       if (setupAccepted) {
+         onSetupComplete?.({
+           submissionId,
+           provider: out.provider,
+           paymentProvider: out.paymentProvider,
+           setupVerified: true,
+           paymentCollected: out.paymentSucceeded === true,
+         });
+         return true;
+       }
+       if (out.provider === 'stripe' && out.paymentSucceeded === true) {
         onPaymentAccepted?.({
           submissionId,
           provider: out.provider,
@@ -303,10 +322,13 @@ export default function FormPaymentSubmit({
         return;
       }
       submissionIdRef.current = json.submissionId;
+      paymentProviderRef.current = providerId === 'gocardless' && directDebitOffer
+        ? 'gocardless_monthly_dd'
+        : providerId;
        try {
          savePaymentSubmissionContext({
            submissionId: json.submissionId,
-           provider: providerId,
+            provider: paymentProviderRef.current,
             returnPath: paymentNavigation.returnPath,
             continuePath: continueHref,
          });
@@ -384,6 +406,7 @@ export default function FormPaymentSubmit({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
       if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');
+       paymentProviderRef.current = 'stripe_monthly_card';
        try {
          savePaymentSubmissionContext({
            submissionId: json.submissionId,

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   monthlyConfirmLifecycle,
   verifiedStripeMonthlyCollection,
+  verifiedStripeMonthlySetup,
+  verifiedGocardlessMonthlySetup,
 } from './formMonthlyConfirmLifecycle.js';
 
 const paidSession = {
@@ -146,4 +148,96 @@ test('collection evidence fails closed on subscription identity or mode mismatch
     ...collectionArgs,
     session: { ...paidSession, livemode: true },
   }), false);
+});
+
+test('Stripe setup acknowledgement requires a complete, non-canceled subscription', () => {
+  const args = {
+    session: {
+      ...paidSession,
+      status: 'complete',
+      subscription: { id: 'sub-1', status: 'active' },
+    },
+    tenantId: 'tenant-1',
+    agreementId: 'agreement-1',
+    submissionId: 'submission-1',
+    environment: 'test',
+  };
+  assert.equal(verifiedStripeMonthlySetup(args), true);
+  assert.equal(verifiedStripeMonthlySetup({
+    ...args,
+    session: { ...args.session, status: 'open' },
+  }), false);
+  assert.equal(verifiedStripeMonthlySetup({
+    ...args,
+    session: { ...args.session, subscription: { id: 'sub-1', status: 'canceled' } },
+  }), false);
+  assert.equal(verifiedStripeMonthlySetup({
+    ...args,
+    session: { ...args.session, subscription: { id: 'sub-1', status: 'incomplete' } },
+  }), false);
+  assert.equal(verifiedStripeMonthlySetup({
+    ...args,
+    session: {
+      ...args.session,
+      subscription: {
+        id: 'sub-1',
+        status: 'active',
+        latest_invoice: { status: 'paid', refunded: true },
+      },
+    },
+  }), false);
+  assert.equal(verifiedStripeMonthlySetup({
+    ...args,
+    agreementStatus: 'expired',
+  }), false);
+});
+
+test('GoCardless setup acknowledgement requires fulfilled billing request and active mandate', () => {
+  const args = {
+    billingRequest: {
+      status: 'fulfilled',
+      metadata: {
+        type: 'form_monthly_direct_debit',
+        form_submission_id: 'submission-1',
+        agreement_id: 'agreement-1',
+      },
+      links: { mandate_request_mandate: 'MD-1' },
+    },
+    mandate: { id: 'MD-1', status: 'active' },
+    tenantId: 'tenant-1',
+    agreementId: 'agreement-1',
+    submissionId: 'submission-1',
+    environment: 'sandbox',
+  };
+  assert.equal(verifiedGocardlessMonthlySetup(args), true);
+  for (const status of ['pending_submission', 'submitted', 'active']) {
+    assert.equal(verifiedGocardlessMonthlySetup({
+      ...args,
+      mandate: { id: 'MD-1', status },
+    }), true);
+  }
+  assert.equal(verifiedGocardlessMonthlySetup({
+    ...args,
+    billingRequest: { ...args.billingRequest, status: 'pending' },
+  }), false);
+  assert.equal(verifiedGocardlessMonthlySetup({
+    ...args,
+    mandate: { status: 'cancelled' },
+  }), false);
+  assert.equal(verifiedGocardlessMonthlySetup({
+    ...args,
+    mandate: { id: 'MD-other', status: 'active' },
+  }), false);
+  assert.equal(verifiedGocardlessMonthlySetup({
+    ...args,
+    agreementStatus: 'payment_plan_cancelled',
+  }), false);
+  assert.equal(monthlyConfirmLifecycle({
+    provider: 'gocardless',
+    stage: 'finalizing',
+    submissionId: 'submission-1',
+    paymentProvider: 'gocardless_monthly_dd',
+    setupVerified: true,
+    paymentVerified: false,
+  }).paymentSucceeded, false);
 });

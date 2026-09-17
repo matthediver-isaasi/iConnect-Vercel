@@ -107,6 +107,8 @@ import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddre
 import {
   monthlyConfirmLifecycle,
   verifiedStripeMonthlyCollection,
+  verifiedStripeMonthlySetup,
+  verifiedGocardlessMonthlySetup,
 } from '../_lib/formMonthlyConfirmLifecycle.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
@@ -241,7 +243,7 @@ function extractMemberPipelineEmail(form, data) {
   return extractSubmitterEmail(form, data);
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -253,7 +255,7 @@ export default async function handler(req, res) {
   if (!supabaseUrl || !supabaseServiceKey) {
     return res.status(503).json({ error: 'Database not configured' });
   }
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     req.body = {
@@ -262,13 +264,13 @@ export default async function handler(req, res) {
         req.body?.prefill_organization_id,
       ),
     };
-    const tenantData = await resolveTenantFromRequest(req);
+    const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
 
     const { action } = req.body || {};
     if (action === 'create') return await handleCreate(req, res, supabase, tenantData);
     if (action === 'create_monthly_card') return await handleCreateMonthlyCard(req, res, supabase, tenantData);
-    if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData);
+    if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData, dependencies);
     if (action === 'quote') return await handleQuote(req, res, supabase, tenantData);
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
@@ -1896,9 +1898,37 @@ async function handleCreateMonthlyDirectDebit({
   });
 }
 
-async function handleConfirm(req, res, supabase, tenantData) {
+// The browser acknowledgement only records the provider setup checkpoint.
+// Membership/entity/invoice work remains owned by the webhook and bounded
+// reconciliation workers. The CAS makes a browser retry safe and leaves a
+// durable setup_complete row for those workers to discover.
+async function markMonthlySetupAcknowledged(db, submissionId) {
+  const { data, error } = await db
+    .from('form_submission')
+    .update({ payment_status: 'setup_complete' })
+    .eq('id', submissionId)
+    .eq('payment_status', 'pending')
+    .select('*')
+    .maybeSingle();
+  if (error) return { ok: false, error };
+  if (data) return { ok: true, row: data };
+
+  const reread = await db
+    .from('form_submission')
+    .select('*')
+    .eq('id', submissionId)
+    .maybeSingle();
+  if (reread.error) return { ok: false, error: reread.error };
+  if (['setup_complete', 'paid'].includes(reread.data?.payment_status)) {
+    return { ok: true, row: reread.data };
+  }
+  return { ok: false, row: reread.data || null, error: new Error('monthly setup acknowledgement CAS lost') };
+}
+
+export async function handleConfirm(req, res, supabase, tenantData, dependencies = {}) {
   const confirmStartedAt = Date.now();
-  const { submission_id, payment_intent_id } = req.body || {};
+  const { submission_id, payment_intent_id, acknowledge_setup } = req.body || {};
+  const acknowledgeSetup = acknowledge_setup === true;
   if (!submission_id) return res.status(400).json({ error: 'submission_id is required' });
 
   let { data: row, error: rowErr } = await supabase
@@ -1952,7 +1982,9 @@ async function handleConfirm(req, res, supabase, tenantData) {
     row = { ...row, payment_meta: authorizedMeta };
   }
 
-  if (row.payment_status === 'paid') {
+  const monthlySetupProvider = ['stripe_monthly_card', 'gocardless_monthly_dd']
+    .includes(row.payment_provider);
+  if (row.payment_status === 'paid' && !(acknowledgeSetup && monthlySetupProvider)) {
     // Annual one-off Stripe completion is intentionally cron-owned. Payment
     // confirmation must remain a short authoritative provider/database path;
     // pipelines, accounting, and emails can exceed the public function
@@ -1965,8 +1997,9 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (form) await finalizeFormSubmission({ supabase, submission: row, form, baseUrl });
     return res.status(200).json({ success: true, submissionId: row.id, status: 'paid' });
   }
-  const resumableMonthlySetup = ['stripe_monthly_card', 'gocardless_monthly_dd'].includes(row.payment_provider)
-    && row.payment_status === 'setup_complete';
+  const resumableMonthlySetup = monthlySetupProvider
+    && ['setup_complete', 'paid'].includes(row.payment_status)
+    && (row.payment_status === 'setup_complete' || acknowledgeSetup);
   if (row.payment_status !== 'pending' && !resumableMonthlySetup) {
     return res.status(400).json({ error: 'This payment is no longer pending' });
   }
@@ -1994,9 +2027,23 @@ async function handleConfirm(req, res, supabase, tenantData) {
         error: 'Direct Debit request does not match this submission',
       });
     }
-    const gc = await gocardlessForTenant(tenantData.id);
+    const gc = await (dependencies.gocardlessForTenant || gocardlessForTenant)(tenantData.id);
     if (!gc.isConfigured()) {
       return res.status(400).json({ error: 'Direct Debit is not configured' });
+    }
+    const gcEnvironment = gc.getGocardlessEnvironment
+      ? gc.getGocardlessEnvironment()
+      : null;
+    if (acknowledgeSetup && agreement.environment && gcEnvironment
+        && agreement.environment !== gcEnvironment) {
+      return res.status(409).json(monthlyConfirmLifecycle({
+        provider: 'gocardless',
+        stage: 'blocked',
+        submissionId: row.id,
+        paymentProvider: 'gocardless_monthly_dd',
+        setupVerified: false,
+        code: 'PROVIDER_ENVIRONMENT_MISMATCH',
+      }));
     }
     const billingRequest = await gc.getBillingRequest(billingRequestId);
     const billingRequestMeta = billingRequest?.metadata || {};
@@ -2007,8 +2054,64 @@ async function handleConfirm(req, res, supabase, tenantData) {
         error: 'Direct Debit request does not match this submission',
       });
     }
+    if (acknowledgeSetup && billingRequest.status === 'fulfilled') {
+      const mandateId = billingRequest.links?.mandate_request_mandate || null;
+      let mandate = null;
+      try {
+        mandate = mandateId ? await gc.getMandate(mandateId) : null;
+      } catch (error) {
+        return res.status(503).json(monthlyConfirmLifecycle({
+          provider: 'gocardless',
+          stage: 'finalizing',
+          submissionId: row.id,
+          paymentProvider: 'gocardless_monthly_dd',
+          setupVerified: false,
+          detail: error?.message || 'Direct Debit mandate verification is pending',
+        }));
+      }
+      const setupVerified = verifiedGocardlessMonthlySetup({
+        billingRequest,
+        mandate,
+        tenantId: tenantData.id,
+        agreementId: agreement.id,
+        submissionId: row.id,
+        environment: agreement.environment || gcEnvironment,
+        agreementStatus: agreement.status,
+      });
+      if (setupVerified) {
+        const acknowledged = await markMonthlySetupAcknowledged(supabase, row.id);
+        if (!acknowledged.ok) {
+          return res.status(503).json(monthlyConfirmLifecycle({
+            provider: 'gocardless',
+            stage: 'finalizing',
+            submissionId: row.id,
+            paymentProvider: 'gocardless_monthly_dd',
+            setupVerified: false,
+            detail: 'Direct Debit setup was verified but could not be recorded yet.',
+            code: 'SETUP_ACKNOWLEDGEMENT_RETRY',
+          }));
+        }
+        return res.status(200).json(monthlyConfirmLifecycle({
+          provider: 'gocardless',
+          stage: 'finalizing',
+          submissionId: row.id,
+          paymentProvider: 'gocardless_monthly_dd',
+          setupVerified: true,
+          // Mandate fulfilment is not evidence that an initial payment
+          // settled. GoCardless first-charge proof remains webhook-owned.
+          paymentVerified: false,
+        }));
+      }
+      return res.status(200).json(monthlyConfirmLifecycle({
+        provider: 'gocardless',
+        stage: 'pending',
+        submissionId: row.id,
+        paymentProvider: 'gocardless_monthly_dd',
+        setupVerified: false,
+      }));
+    }
     if (billingRequest.status === 'fulfilled') {
-      const outcome = await processGocardlessEvent({
+      const outcome = await (dependencies.processGocardlessEvent || processGocardlessEvent)({
         id: `form-confirm-${billingRequest.id}`,
         resource_type: 'billing_requests',
         action: 'fulfilled',
@@ -2078,6 +2181,8 @@ async function handleConfirm(req, res, supabase, tenantData) {
       provider: 'gocardless',
       stage: 'pending',
       submissionId: row.id,
+      paymentProvider: acknowledgeSetup ? 'gocardless_monthly_dd' : null,
+      setupVerified: acknowledgeSetup ? false : null,
     }));
   }
 
@@ -2123,7 +2228,8 @@ async function handleConfirm(req, res, supabase, tenantData) {
     }
     let allCreds;
     try {
-      allCreds = await getStripeIntegrationCredentials(tenantData.id);
+      allCreds = await (dependencies.getStripeIntegrationCredentials
+        || getStripeIntegrationCredentials)(tenantData.id);
     } catch {
       return res.status(503).json(monthlyConfirmLifecycle({
         provider: 'stripe',
@@ -2140,14 +2246,14 @@ async function handleConfirm(req, res, supabase, tenantData) {
         code: 'STRIPE_CONFIGURATION_ERROR',
       }));
     }
-    const Stripe = (await import('stripe')).default;
+    const Stripe = dependencies.Stripe || (await import('stripe')).default;
     let session = null;
     let stripeForSession = null;
     for (const key of keys) {
       const stripe = new Stripe(key);
       try {
         session = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
-          expand: ['subscription.latest_invoice'],
+          expand: ['subscription.latest_invoice.payment_intent'],
         });
         stripeForSession = stripe;
         break;
@@ -2195,6 +2301,7 @@ async function handleConfirm(req, res, supabase, tenantData) {
       agreementId: agreement.id,
       submissionId: row.id,
       environment: agreement.environment,
+      agreementStatus: agreement.status,
     });
 
     // Checkout completion initializes the finite monthly plan. Address
@@ -2205,6 +2312,8 @@ async function handleConfirm(req, res, supabase, tenantData) {
         provider: 'stripe',
         stage: 'blocked',
         submissionId: row.id,
+        paymentProvider: acknowledgeSetup ? 'stripe_monthly_card' : null,
+        setupVerified: acknowledgeSetup ? false : null,
         code: 'CHECKOUT_EXPIRED',
       }));
     }
@@ -2214,11 +2323,59 @@ async function handleConfirm(req, res, supabase, tenantData) {
         stage: 'pending',
         submissionId: row.id,
         paymentVerified,
+        paymentProvider: acknowledgeSetup ? 'stripe_monthly_card' : null,
+        setupVerified: acknowledgeSetup ? false : null,
+      }));
+    }
+    const setupVerified = verifiedStripeMonthlySetup({
+      session,
+      tenantId: tenantData.id,
+      agreementId: agreement.id,
+      submissionId: row.id,
+      environment: agreement.environment,
+    });
+    if (acknowledgeSetup && !setupVerified) {
+      // A completed Checkout whose subscription is incomplete, canceled, or
+      // otherwise not auditable is not provider setup proof. Keep it in the
+      // normal lifecycle so webhook/cron recovery can observe a later state.
+      const subscriptionStatus = session.subscription?.status;
+      const terminal = ['canceled', 'incomplete_expired'].includes(subscriptionStatus);
+      return res.status(terminal ? 409 : 200).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: terminal ? 'blocked' : 'pending',
+        submissionId: row.id,
+        paymentVerified,
+        paymentProvider: 'stripe_monthly_card',
+        setupVerified: false,
+        ...(terminal ? { code: 'SUBSCRIPTION_NOT_ACTIVE' } : {}),
+      }));
+    }
+    if (acknowledgeSetup) {
+      const acknowledged = await markMonthlySetupAcknowledged(supabase, row.id);
+      if (!acknowledged.ok) {
+        return res.status(503).json(monthlyConfirmLifecycle({
+          provider: 'stripe',
+          stage: 'finalizing',
+          submissionId: row.id,
+          paymentVerified,
+          paymentProvider: 'stripe_monthly_card',
+          setupVerified: false,
+          detail: 'Card setup was verified but could not be recorded yet.',
+          code: 'SETUP_ACKNOWLEDGEMENT_RETRY',
+        }));
+      }
+      return res.status(200).json(monthlyConfirmLifecycle({
+        provider: 'stripe',
+        stage: 'finalizing',
+        submissionId: row.id,
+        paymentVerified,
+        paymentProvider: 'stripe_monthly_card',
+        setupVerified: true,
       }));
     }
     let outcome;
     try {
-      outcome = await processStripeCardPlanEvent({
+      outcome = await (dependencies.processStripeCardPlanEvent || processStripeCardPlanEvent)({
         id: `form-confirm-${session.id}`,
         type: 'checkout.session.completed',
         data: { object: session },
