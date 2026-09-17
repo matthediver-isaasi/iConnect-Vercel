@@ -25,3 +25,9 @@ The downstream reserve must include its claim, form lookup and URL resolution ov
 **Why:** Payment address recovery succeeded, but later completion receipts still reached the processor with less than its minimum start budget. Multiple queue claims looked like progress even though member creation never started.
 
 **How to apply:** Judge progress by completed durable stages, not claim counts. A single-submission manual recovery can isolate an urgent receipt, but it does not prove that the global worker schedules later receipts fairly.
+
+Queue registration can defeat a later `SKIP LOCKED` claim if it first attempts `INSERT ... ON CONFLICT` against every existing queue entry.
+
+**Why:** A concurrent-worker regression blocked during registration on an entry locked by another transaction, before it reached the non-blocking claim query.
+
+**How to apply:** Exclude already-registered entries before insertion while retaining conflict handling for genuinely concurrent new entries. Exercise claims with two connections and a short statement timeout; a single-connection test will miss this failure.

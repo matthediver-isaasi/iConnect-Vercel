@@ -296,6 +296,9 @@ test('payment reconciliation looks up each Stripe intent using its originating f
       return query;
     },
   };
+  // This fixture exercises pending-provider discovery after the managed
+  // completion/address stream has no due work.
+  db.rpc = async () => ({ data: [], error: null });
   const lookups = [];
   const result = await reconcileFormPayments(db, {
     retrievePaymentIntent: async (tenantId, feature, intentId) => {

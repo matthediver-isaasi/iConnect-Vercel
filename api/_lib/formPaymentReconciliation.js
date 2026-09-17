@@ -284,6 +284,7 @@ export async function reconcileFormPayments(supabase, {
   baseUrl = null,
   limit = 50,
   retrievePaymentIntent = retrieveTenantPaymentIntent,
+  finalizeCompletion = finalizeFormSubmission,
   timeBudgetMs = FORM_PAYMENT_COMPLETION_BUDGET_MS,
 } = {}) {
   const results = {
@@ -301,6 +302,13 @@ export async function reconcileFormPayments(supabase, {
       waitingForAddress: 0,
       waitingForAccess: 0,
       failed: 0,
+    },
+    managed: {
+      leased: 0,
+      released: 0,
+      skippedBudget: 0,
+      limitReached: false,
+      missingRpc: false,
     },
   };
   const now = Date.now();
@@ -340,100 +348,12 @@ export async function reconcileFormPayments(supabase, {
     return formCache.get(key);
   };
 
-  // Address evidence is a prerequisite for Stripe completion, not best-effort
-  // tail work. Serve one bounded retry before the completion queue so a paid
-  // row missing its snapshot cannot be skipped forever behind slow provider
-  // polling or DD reconciliation.
-  await sweepStripeAddressPrerequisites();
-
-  // Completion receipts are the first service class in every bounded run.
-  // Pending-provider polling and DD recovery can make slow network calls; if
-  // either comes first it can consume the whole slice and starve already-paid
-  // submissions indefinitely. Claiming is fair and advances retry scheduling,
-  // so serve this queue before any unrelated sweep.
-  try {
-    const { data: unfinalized, error } = await supabase
-      .rpc('claim_form_payment_completion_retries', { p_limit: 20 });
-    if (error) throw error;
-    results.completion.claimed += (unfinalized || []).length;
-    for (const row of unfinalized || []) {
-      if (!hasBudget()) {
-        results.budgetExhausted = true;
-        break;
-      }
-      const addressRequired = row.payment_provider === 'stripe' && (
-        !!row.payment_meta?.membership
-        || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
-      );
-      if (addressRequired && !row.payment_meta?.stripe_billing_address) {
-        results.completion.waitingForAddress += 1;
-        recordMonitoringFailure(
-          results,
-          'completion-prerequisite',
-          null,
-          {
-            submissionId: row.id,
-            code: 'address-prerequisite-missing',
-          },
-        );
-        continue;
-      }
-      let form;
-      try {
-        form = await loadForm(row.form_id, row.tenant_id);
-      } catch (err) {
-        results.completion.failed += 1;
-        recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
-        continue;
-      }
-      if (!hasFormPaymentAccessProof(row, form)) {
-        results.completion.waitingForAccess += 1;
-        recordMonitoringFailure(
-          results,
-          'completion-prerequisite',
-          null,
-          {
-            submissionId: row.id,
-            code: 'payment-access-proof-missing',
-          },
-        );
-        continue;
-      }
-      results.completion.attempted += 1;
-      try {
-        const fin = await finalizeFormSubmission({
-          supabase,
-          submission: row,
-          form,
-          baseUrl: await resolveBaseUrl(row.tenant_id),
-          deadlineAt,
-        });
-        if (fin.finalized || fin.alreadyFinalized) {
-          results.completion.completed += 1;
-          if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
-        } else if (fin.budgetExhausted) {
-          results.budgetExhausted = true;
-          recordMonitoringFailure(results, 'completion-stage', null, {
-            submissionId: row.id, code: 'budget-exhausted',
-          });
-        } else if (fin.inProgress) {
-          // Another owner currently holds the durable completion claim. It is
-          // not a duplicate-effect failure, but this invocation remains
-          // partial because the receipt is unresolved.
-          results.partial = true;
-        } else {
-          results.completion.failed += 1;
-          recordMonitoringFailure(results, 'completion-stage', null, { submissionId: row.id });
-        }
-      } catch (err) {
-        results.completion.failed += 1;
-        recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
-      }
-    }
-  } catch (err) {
-    console.warn('[formPaymentReconciliation] Priority completion sweep failed:', err?.message);
-    recordMonitoringFailure(results, 'priority-unfinalized-sweep', err);
-  }
+  // Completion and address retries share one SQL-selected stream.  This is
+  // intentionally before every provider/legacy sweep: a slow provider call
+  // must not starve durable paid work, and a missing migration must never
+  // silently fall back to either of the old unfair queues.
+  const managed = await runManagedReconciliationWork();
+  if (managed.stop) return results;
 
   // Restore missing one-off readiness before DD's independent sweep; until
   // then the DD SQL gate intentionally cannot claim the paid submission.
@@ -1060,75 +980,161 @@ export async function reconcileFormPayments(supabase, {
   // retrieval, the snapshot write, or the atomic target-write RPC is
   // temporarily unavailable; keep replaying those obligations without age
   // bounds and without reopening the charge.
-  async function sweepStripeAddressPrerequisites() {
-    // Claim one row at a time. A batch claim is unsafe here: address
-    // retrieval can consume most of the slice, leaving later leases stranded
-    // until their TTL expires. The completion finalizer currently declines to
-    // start a network-backed stage inside its final 20 seconds, so retain
-    // that larger reserve (and the provider timeout) before each claim.
-    const MAX_ADDRESS_ATTEMPTS = 8;
-    const ADDRESS_ATTEMPT_BUDGET_MS = 14_000; // 12s provider + durable writes
-    const COMPLETION_RESERVE_MS = 20_000;
-    const canStartAddressAttempt = () => (
-      deadlineAt - Date.now() >= ADDRESS_ATTEMPT_BUDGET_MS + COMPLETION_RESERVE_MS
-    );
-    const seenSubmissionIds = new Set();
-    let attempts = 0;
+  async function runManagedReconciliationWork() {
+    const MAX_MANAGED_WORK = 20;
+    // The finalizer reserves its last 20 seconds for durable completion.  The
+    // extra five seconds covers the claim/release RPCs and keeps a claim from
+    // being stranded at the edge of a serverless invocation.
+    const MIN_START_REMAINING_MS = 25_000;
+    let claimed = 0;
+    const seenWork = new Set();
     try {
-      if (!canStartAddressAttempt()) {
-        results.budgetExhausted = true;
-        recordMonitoringFailure(results, 'stripe-address-mapping-retry', null, { code: 'budget-exhausted' });
-      }
-      while (attempts < MAX_ADDRESS_ATTEMPTS && canStartAddressAttempt()) {
-        const { data: claimedAddressRows, error } = await supabase.rpc(
-          'claim_form_stripe_address_mapping_retries',
-          { p_limit: 1 },
-        );
+      while (claimed < MAX_MANAGED_WORK) {
+        if (deadlineAt - Date.now() < MIN_START_REMAINING_MS) {
+          results.budgetExhausted = true;
+          results.partial = true;
+          results.managed.skippedBudget += 1;
+          recordMonitoringFailure(results, 'reconciliation-work', null, { code: 'budget-exhausted' });
+          return { stop: true };
+        }
+        const { data: work, error } = await supabase.rpc('claim_form_payment_reconciliation_work');
         if (error) throw error;
-        const claim = claimedAddressRows?.[0];
-        if (!claim) break;
-        attempts += 1;
-        let row = claim?.submission || claim;
-        const retryOwnerToken = claim?.lease_token || null;
-        // The SQL claim advances backoff before returning, but retain a local
-        // guard as well so a degraded/mock claim implementation cannot replay
-        // one submission repeatedly in this invocation.
-        if (row?.id && seenSubmissionIds.has(row.id)) {
-          try {
+        if (!Array.isArray(work)) {
+          throw new Error('claim_form_payment_reconciliation_work returned an invalid result');
+        }
+        const claim = work[0];
+        if (!claim) {
+          if (deadlineAt - Date.now() < MIN_START_REMAINING_MS) {
+            results.budgetExhausted = true;
+            results.partial = true;
+            results.managed.skippedBudget += 1;
+            recordMonitoringFailure(results, 'reconciliation-work', null, { code: 'budget-exhausted' });
+            return { stop: true };
+          }
+          return { stop: false };
+        }
+        claimed += 1;
+        results.managed.leased += 1;
+        const row = claim.submission || claim;
+        const workKey = `${claim.work_kind}:${row?.id || ''}`;
+        if (seenWork.has(workKey)) {
+          // SQL advances next_attempt_at before returning a row.  Keep this
+          // local guard for degraded RPC mocks/replicas, and release an
+          // address lease rather than running provider effects twice.
+          results.managed.skippedDuplicate = (results.managed.skippedDuplicate || 0) + 1;
+          if (claim.work_kind === 'address' && row?.id) {
             const { error: duplicateReleaseError } = await supabase.rpc(
               'finish_form_stripe_address_mapping_retry',
               {
                 p_tenant_id: row.tenant_id,
                 p_submission_id: row.id,
-                p_owner_token: retryOwnerToken,
+                p_owner_token: claim.lease_token || null,
                 p_succeeded: false,
                 p_error: 'duplicate address candidate in worker invocation',
               },
             );
-            if (duplicateReleaseError) {
-              recordMonitoringFailure(
-                results,
-                'stripe-address-mapping-retry-release',
-                duplicateReleaseError,
-                { submissionId: row.id },
-              );
-            }
-          } catch (duplicateReleaseError) {
-            recordMonitoringFailure(
-              results,
-              'stripe-address-mapping-retry-release',
-              duplicateReleaseError,
-              { submissionId: row.id },
-            );
+            if (!duplicateReleaseError) results.managed.released += 1;
           }
-          break;
+          continue;
         }
-        if (row?.id) seenSubmissionIds.add(row.id);
-        results.addressRecovery.attempted += 1;
-        let retrySucceeded = false;
-        let retryError = null;
-        let waitingForTarget = false;
-        try {
+        seenWork.add(workKey);
+        if (claim.work_kind === 'address') {
+          await sweepStripeAddressPrerequisites(claim);
+          continue;
+        }
+        if (claim.work_kind !== 'completion') {
+          throw new Error('reconciliation work claim returned an unsupported work kind');
+        }
+        results.completion.claimed += 1;
+        await processManagedCompletion(row);
+      }
+      results.managed.limitReached = true;
+      results.partial = true;
+      return { stop: false };
+    } catch (err) {
+      // A missing/new RPC is an operational failure.  Do not call either old
+      // queue as a compatibility fallback: that would reintroduce starvation
+      // and could double-claim a row already selected by this stream.
+      console.warn('[formPaymentReconciliation] Managed reconciliation work failed:', err?.message);
+      results.managed.missingRpc = /function|rpc|does not exist|undefined/i.test(err?.message || '');
+      results.partial = true;
+      recordMonitoringFailure(results, 'reconciliation-work-claim', err);
+      return { stop: true };
+    }
+  }
+
+  async function processManagedCompletion(row) {
+    const addressRequired = row.payment_provider === 'stripe' && (
+      !!row.payment_meta?.membership
+      || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
+    );
+    if (addressRequired && !row.payment_meta?.stripe_billing_address) {
+      // SQL should make this impossible, but retain the prerequisite gate as
+      // defence in depth for stale/mock RPC responses.
+      results.completion.waitingForAddress += 1;
+      results.partial = true;
+      recordMonitoringFailure(results, 'completion-prerequisite', null, {
+        submissionId: row.id,
+        code: 'address-prerequisite-missing',
+      });
+      return;
+    }
+    let form;
+    try {
+      form = await loadForm(row.form_id, row.tenant_id);
+    } catch (err) {
+      results.completion.failed += 1;
+      recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
+      return;
+    }
+    if (!hasFormPaymentAccessProof(row, form)) {
+      results.completion.waitingForAccess += 1;
+      results.partial = true;
+      recordMonitoringFailure(results, 'completion-prerequisite', null, {
+        submissionId: row.id,
+        code: 'payment-access-proof-missing',
+      });
+      return;
+    }
+    results.completion.attempted += 1;
+    try {
+      const fin = await finalizeCompletion({
+        supabase,
+        submission: row,
+        form,
+        baseUrl: await resolveBaseUrl(row.tenant_id),
+        deadlineAt,
+      });
+      if (fin.finalized || fin.alreadyFinalized) {
+        results.completion.completed += 1;
+        if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
+      } else if (fin.budgetExhausted) {
+        results.budgetExhausted = true;
+        results.partial = true;
+        recordMonitoringFailure(results, 'completion-stage', null, {
+          submissionId: row.id, code: 'budget-exhausted',
+        });
+      } else if (fin.inProgress) {
+        results.partial = true;
+      } else {
+        results.completion.failed += 1;
+        recordMonitoringFailure(results, 'completion-stage', null, { submissionId: row.id });
+      }
+    } catch (err) {
+      results.completion.failed += 1;
+      recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
+    }
+  }
+
+  async function sweepStripeAddressPrerequisites(claim) {
+    let row = claim?.submission || claim;
+    const retryOwnerToken = claim?.lease_token || null;
+    if (!row?.id) throw new Error('address reconciliation claim did not include a submission');
+    results.addressRecovery.attempted += 1;
+    let retrySucceeded = false;
+    let retryError = null;
+    let waitingForTarget = false;
+    try {
         if (row.payment_provider === 'stripe_monthly_card'
             && !row.payment_meta?.stripe_billing_address) {
           const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;
@@ -1191,7 +1197,19 @@ export async function reconcileFormPayments(supabase, {
           });
         }
         const mappingsConfigured = row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0;
-        if (mappingsConfigured) {
+        const completionOwnsMapping = Number(row.payment_meta?.completion?.version) === 1
+          && row.payment_meta?.stripe_billing_address
+          && row.payment_meta?.completion?.status !== 'done';
+        if (completionOwnsMapping) {
+          // A v1 completion receipt with a snapshot owns target creation and
+          // its mapping checkpoint.  The unified SQL claim excludes this row
+          // from address work; this guard keeps a stale/mock claim from
+          // turning an unresolved target into an address retry loop.
+          retryError = 'address mapping deferred to payment completion';
+          results.partial = true;
+          results.addressRecovery.deferredToCompletion =
+            (results.addressRecovery.deferredToCompletion || 0) + 1;
+        } else if (mappingsConfigured) {
           const mappingResult = await retryPersistedStripeAddressMappings({
             db: supabase,
             submissionId: row.id,
@@ -1247,7 +1265,7 @@ export async function reconcileFormPayments(supabase, {
             if (finishError) {
               console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError.message);
               recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
-            }
+            } else results.managed.released += 1;
           } catch (finishError) {
             console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError?.message);
             recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
@@ -1256,14 +1274,6 @@ export async function reconcileFormPayments(supabase, {
         if (retrySucceeded) results.addressRecovery.succeeded += 1;
         else if (waitingForTarget) results.addressRecovery.waitingForTarget += 1;
         else results.addressRecovery.failed += 1;
-      }
-      if (attempts >= MAX_ADDRESS_ATTEMPTS && canStartAddressAttempt()) {
-        results.partial = true;
-      }
-    } catch (err) {
-      console.warn('[formPaymentReconciliation] Stripe address mapping sweep failed:', err?.message);
-      recordMonitoringFailure(results, 'stripe-address-mapping-retry-sweep', err);
-    }
   }
 
   return results;

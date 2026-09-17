@@ -585,7 +585,7 @@ test('reconciliation retries and clears pending Structured Actions and Related R
   const supabase = {
     from: table => new Query(table),
     rpc: async (name, args) => {
-      if (name === 'claim_form_stripe_address_mapping_retries') {
+      if (name === 'claim_form_payment_reconciliation_work') {
         return { data: [], error: null };
       }
       if (name === 'begin_form_paid_pipeline_operation') {

@@ -374,7 +374,7 @@ test('readiness recovery finish-RPC error is surfaced to reconciliation monitori
   };
   const db = {
     async rpc(name) {
-      if (name === 'claim_form_payment_completion_retries') return { data: [], error: null };
+      if (name === 'claim_form_payment_reconciliation_work') return { data: [], error: null };
       if (name === 'mark_expired_missing_one_off_form_due_diligence_ready_attention') return { data: [], error: null };
       if (name === 'claim_missing_one_off_form_due_diligence_ready') {
         return { data: [{ form_submission_id: submission.id, tenant_id: submission.tenant_id, lease_token: 'lease' }], error: null };
@@ -420,11 +420,31 @@ test('a slow pending-provider row cannot starve Stripe address capture or its pa
     payment_meta: {}, created_date: new Date(0).toISOString(),
   };
   const form = { id: 'form-1', tenant_id: 'tenant-1', fields: [], entity_pipelines: {}, submission_emails: [] };
+  let managedAddressClaimed = false;
+  let managedCompletionClaimed = false;
   const db = {
     async rpc(name, args) {
-      if (name === 'claim_form_stripe_address_mapping_retries') {
+      if (name === 'claim_form_payment_reconciliation_work') {
+        if (managedAddressClaimed) {
+          if (managedCompletionClaimed) return { data: [], error: null };
+          managedCompletionClaimed = true;
+          events.push('claim-completion');
+          assert.ok(completionRow.payment_meta.stripe_billing_address, 'completion must receive captured address');
+          return {
+            data: [{ work_kind: 'completion', submission: completionRow, lease_token: null }],
+            error: null,
+          };
+        }
+        managedAddressClaimed = true;
         events.push('claim-address');
-        return { data: [{ submission: completionRow, lease_token: '22222222-2222-4222-8222-222222222222' }], error: null };
+        return {
+          data: [{
+            work_kind: 'address',
+            submission: completionRow,
+            lease_token: '22222222-2222-4222-8222-222222222222',
+          }],
+          error: null,
+        };
       }
       if (name === 'capture_form_stripe_billing_address_once') {
         events.push('capture-address');
@@ -437,11 +457,6 @@ test('a slow pending-provider row cannot starve Stripe address capture or its pa
       if (name === 'finish_form_stripe_address_mapping_retry') {
         events.push('finish-address');
         return { data: null, error: null };
-      }
-      if (name === 'claim_form_payment_completion_retries') {
-        events.push('claim-completion');
-        assert.ok(completionRow.payment_meta.stripe_billing_address, 'completion must receive captured address');
-        return { data: [completionRow], error: null };
       }
       if (name === 'finish_form_payment_completion') {
         events.push('finish-completion');
@@ -614,8 +629,7 @@ test('full reconciliation keeps v1 partial and other-owner membership rows insid
       return new Query(table);
     },
     async rpc(name) {
-      if (name === 'claim_form_stripe_address_mapping_retries'
-          || name === 'claim_form_payment_completion_retries'
+      if (name === 'claim_form_payment_reconciliation_work'
           || name === 'mark_expired_missing_one_off_form_due_diligence_ready_attention'
           || name === 'claim_missing_one_off_form_due_diligence_ready'
           || name === 'mark_expired_paid_form_due_diligence_attention') {
@@ -757,7 +771,7 @@ test('completion attention is terminal and every paid retry surface excludes it'
   const payment = source('../public/form-payment.js');
   const migration = source('../../supabase/migrations/20261028_form_payment_completion_retry_and_pipeline_operation.sql');
   assert.match(payment, /status !== 'paid' && !requiresAttention/);
-  assert.match(reconciliation, /claim_form_payment_completion_retries/);
+  assert.match(reconciliation, /claim_form_payment_reconciliation_work/);
   assert.match(reconciliation, /payment_meta->completion->>status\.neq\.attention/);
   assert.match(migration, /COALESCE\(s\.payment_meta->'completion'->>'status', ''\) <> 'attention'/);
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.claim_form_payment_completion_retries\(INTEGER\) FROM PUBLIC, anon, authenticated/);

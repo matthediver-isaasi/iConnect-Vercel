@@ -193,7 +193,7 @@ test('successful charge queues completion before paid-marking and leaves address
 test('reconciliation retries finalized and monthly snapshot repair independently', () => {
   const source = readFileSync(new URL('./formPaymentReconciliation.js', import.meta.url), 'utf8');
   const sweep = source.slice(source.indexOf('Address fulfilment is deliberately independent'));
-  assert.match(sweep, /claim_form_stripe_address_mapping_retries/);
+  assert.match(sweep, /claim_form_payment_reconciliation_work/);
   assert.doesNotMatch(sweep, /payment_meta->finalized/);
   assert.match(sweep, /agreement\?\.metadata\?\.stripe_billing_address/);
   assert.match(sweep, /retryPersistedStripeAddressMappings/);
