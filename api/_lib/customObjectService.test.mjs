@@ -580,6 +580,62 @@ function field(overrides = {}) {
   };
 }
 
+const chainEndpoint = (kind, customObjectId = null) => ({
+  kind,
+  custom_object_id: customObjectId,
+});
+
+const chainDefinition = (id, source, target, overrides = {}) => ({
+  id,
+  tenant_id: tenantId,
+  status: 'active',
+  source_kind: source.kind,
+  source_custom_object_id: source.custom_object_id,
+  target_kind: target.kind,
+  target_custom_object_id: target.custom_object_id,
+  source_label: 'Related',
+  target_label: 'Related',
+  show_on_source: true,
+  show_on_target: true,
+  ...overrides,
+});
+
+function chainedSeed({
+  definitions,
+  objects = [],
+  fields = [],
+  records = [],
+  edges = [],
+  permissions = [],
+  fieldPermissions = [],
+  extraTables = {},
+} = {}) {
+  return mockDb({
+    custom_object_definition: [object(), ...objects],
+    preference_field: fields,
+    custom_object_relationship_definition: definitions,
+    custom_object_record: records,
+    custom_object_relationship: edges,
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_export_records: true },
+      ...permissions,
+    ],
+    custom_object_field_role_permission: fieldPermissions,
+    ...extraTables,
+  });
+}
+
+const chainColumns = (result) => result.metadata?.chained_columns || [];
+const pathHas = (column, ids) =>
+  JSON.stringify(column.path.map((hop) => hop.relationship_definition_id)) === JSON.stringify(ids);
+const terminalColumn = (result, endpointId, terminalKind, fieldId = null, path = null) =>
+  chainColumns(result).find((column) =>
+    column.endpoint?.kind === 'custom_object'
+    && String(column.endpoint.custom_object_id) === String(endpointId)
+    && column.terminal?.kind === terminalKind
+    && (fieldId == null || String(column.terminal.field_id) === String(fieldId))
+    && (!path || pathHas(column, path)));
+
 test('field ACLs prune active and archived definitions while retaining only unknown legacy keys', async () => {
   const archived = field({ id: 'field-archived', name: 'retired_secret', is_active: false });
   const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
@@ -678,6 +734,678 @@ test('export transport returns a real one-thousand-record page without interacti
   const rangeCall = db.calls.find((call) =>
     call.table === 'custom_object_record' && call.type === 'range');
   assert.deepEqual([rangeCall.from, rangeCall.to], [0, 999]);
+});
+
+test('chained list columns expose authorized one-hop labels and fields and export the same values', async () => {
+  const organisationId = 'chain-organisation';
+  const orgName = field({
+    id: 'org-name', custom_object_id: organisationId, name: 'name', label: 'Organisation',
+    field_type: 'text', is_required: false,
+  });
+  const orgEmail = field({
+    id: 'org-email', custom_object_id: organisationId, name: 'email', label: 'Email',
+    field_type: 'email', is_required: false, display_order: 2,
+  });
+  const definition = chainDefinition(
+    'department-organisation',
+    chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+    { source_label: 'Organisation', target_label: 'Department' },
+  );
+  const db = chainedSeed({
+    objects: [object({
+      id: organisationId, object_key: 'organisations', singular_label: 'Organisation',
+      plural_label: 'Organisations', primary_display_field_id: orgName.id,
+    })],
+    fields: [field({
+      id: 'department-name', name: 'name', label: 'Department', field_type: 'text',
+      is_required: false, display_order: 1,
+    }), orgName, orgEmail],
+    definitions: [definition],
+    records: [
+      {
+        id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+        data: { name: 'Finance' },
+      },
+      {
+        id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+        data: { name: 'Sales' },
+      },
+      {
+        id: 'org-1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+        data: { name: 'Acme', email: 'acme@example.test' },
+      },
+      {
+        id: 'org-2', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+        data: { name: 'Beta', email: 'beta@example.test' },
+      },
+    ],
+    edges: [
+      {
+        id: 'edge-1', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'department-1', target_record_id: 'org-1', archived_at: null,
+      },
+      {
+        id: 'edge-2', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'department-2', target_record_id: 'org-2', archived_at: null,
+      },
+    ],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId,
+      can_view_records: true, can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  const email = terminalColumn(discovered, organisationId, 'field', orgEmail.id);
+  assert.ok(label, 'the reachable primary label is advertised');
+  assert.ok(email, 'the reachable readable field is advertised');
+  assert.match(label.id, /^chained:v1:/);
+  assert.deepEqual(label.path.map((hop) => hop.relationship_definition_id), [definition.id]);
+  const selected = JSON.stringify([label.id, email.id]);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: selected, sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(result.data.map((record) => record.chained_values[label.id]), [
+    { records: [{ label: 'Acme' }], count: 1 },
+    { records: [{ label: 'Beta' }], count: 1 },
+  ]);
+  assert.deepEqual(result.data.map((record) => record.chained_values[email.id]), [
+    { records: [{ label: 'acme@example.test' }], count: 1 },
+    { records: [{ label: 'beta@example.test' }], count: 1 },
+  ]);
+  const exported = await service.exportRecords(objectId, {
+    chainedColumns: selected, page: '1', pageSize: '500',
+    sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(
+    exported.data.map((record) => record.chained_values),
+    result.data.map((record) => record.chained_values),
+  );
+  assert.deepEqual(exported.metadata.chained_columns, discovered.metadata.chained_columns);
+});
+
+test('chained two-hop values preserve occurrence alignment and exact counts without mixing sibling paths', async () => {
+  const projectId = 'chain-project';
+  const organisationId = 'chain-two-hop-organisation';
+  const projectName = field({
+    id: 'project-name', custom_object_id: projectId, name: 'name', label: 'Project',
+    field_type: 'text', is_required: false,
+  });
+  const orgName = field({
+    id: 'two-hop-org-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const orgEmail = field({
+    id: 'two-hop-org-email', custom_object_id: organisationId, name: 'email',
+    label: 'Email', field_type: 'email', is_required: false, display_order: 2,
+  });
+  const first = chainDefinition(
+    'department-project', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', projectId), { source_label: 'Projects' },
+  );
+  const second = chainDefinition(
+    'project-organisation', chainEndpoint('custom_object', projectId),
+    chainEndpoint('custom_object', organisationId), { source_label: 'Organisations' },
+  );
+  const db = chainedSeed({
+    objects: [
+      object({
+        id: projectId, object_key: 'projects', primary_display_field_id: projectName.id,
+      }),
+      object({
+        id: organisationId, object_key: 'two_hop_organisations',
+        primary_display_field_id: orgName.id,
+      }),
+    ],
+    fields: [
+      field({ id: 'two-hop-department-name', name: 'name', label: 'Department', field_type: 'text', is_required: false }),
+      projectName, orgName, orgEmail,
+    ],
+    definitions: [first, second],
+    records: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'A' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'B' } },
+      { id: 'project-a1', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'A1' } },
+      { id: 'project-a2', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'A2' } },
+      { id: 'project-b1', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'B1' } },
+      { id: 'org-a1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org A1', email: 'a1@example.test' } },
+      { id: 'org-a2', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org A2', email: 'a2@example.test' } },
+      { id: 'org-b1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org B1', email: 'b1@example.test' } },
+    ],
+    edges: [
+      { id: 'first-a1', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-a', target_record_id: 'project-a1', archived_at: null },
+      { id: 'first-a2', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-a', target_record_id: 'project-a2', archived_at: null },
+      { id: 'first-b1', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-b', target_record_id: 'project-b1', archived_at: null },
+      { id: 'second-a1', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-a1', target_record_id: 'org-a1', archived_at: null },
+      { id: 'second-a2', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-a2', target_record_id: 'org-a2', archived_at: null },
+      { id: 'second-b1', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-b1', target_record_id: 'org-b1', archived_at: null },
+    ],
+    permissions: [
+      { tenant_id: tenantId, custom_object_id: projectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label', null, [first.id, second.id]);
+  const email = terminalColumn(discovered, organisationId, 'field', orgEmail.id, [first.id, second.id]);
+  assert.ok(label);
+  assert.ok(email);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id, email.id]), sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(result.data.map((record) => record.chained_values[label.id]), [
+    {
+      records: [{ label: 'Org A1' }, { label: 'Org A2' }],
+      count: 2,
+    },
+    { records: [{ label: 'Org B1' }], count: 1 },
+  ]);
+  assert.deepEqual(result.data.map((record) => record.chained_values[email.id]), [
+    {
+      records: [{ label: 'a1@example.test' }, { label: 'a2@example.test' }],
+      count: 2,
+    },
+    { records: [{ label: 'b1@example.test' }], count: 1 },
+  ]);
+  assert.equal(result.data[0].chained_values[label.id].records.length, 2);
+  assert.equal(result.data[1].chained_values[label.id].records.length, 1);
+});
+
+test('chained columns exclude archived edges and endpoints and cap returned labels at three', async () => {
+  const organisationId = 'chain-archived-organisation';
+  const orgName = field({
+    id: 'archived-org-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'archived-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const records = [
+    { id: 'archived-dept', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `archived-org-${index}`, tenant_id: tenantId, custom_object_id: organisationId,
+      archived_at: index === 4 ? '2026-01-01T00:00:00Z' : null,
+      data: { name: `Org ${index}` },
+    })),
+  ];
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records,
+    edges: [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        id: `archived-edge-${index}`, tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'archived-dept', target_record_id: `archived-org-${index}`,
+        archived_at: index === 3 ? '2026-01-01T00:00:00Z' : null,
+      })),
+    ],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  const result = await service.listRecords(objectId, { chainedColumns: JSON.stringify([label.id]) });
+  assert.deepEqual(result.data[0].chained_values[label.id], {
+    records: [{ label: 'Org 0' }, { label: 'Org 1' }, { label: 'Org 2' }],
+    count: 3,
+  });
+});
+
+test('chained metadata never exposes denied terminal fields or core endpoints', async () => {
+  const organisationId = 'chain-acl-organisation';
+  const secret = field({
+    id: 'org-secret', custom_object_id: organisationId, name: 'secret',
+    label: 'Secret', field_type: 'text', is_required: false,
+  });
+  const name = field({
+    id: 'org-safe-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const customDefinition = chainDefinition(
+    'acl-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const coreDefinition = chainDefinition(
+    'acl-department-member', chainEndpoint('custom_object', objectId),
+    chainEndpoint('member'),
+  );
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: name.id })],
+    fields: [name, secret],
+    definitions: [customDefinition, coreDefinition],
+    records: [
+      { id: 'acl-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'acl-org', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Safe', secret: 'Do not expose' } },
+    ],
+    edges: [{
+      id: 'acl-edge', tenant_id: tenantId, relationship_definition_id: customDefinition.id,
+      source_record_id: 'acl-department', target_record_id: 'acl-org', archived_at: null,
+    }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+    fieldPermissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId,
+      field_id: secret.id, access_level: 'none',
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  assert.ok(terminalColumn(result, organisationId, 'label'));
+  assert.equal(
+    chainColumns(result).some((column) => String(column.terminal?.field_id) === String(secret.id)),
+    false,
+  );
+  assert.equal(
+    chainColumns(result).some((column) => column.endpoint?.kind === 'member'),
+    false,
+  );
+});
+
+test('chained IDs remain stable across display-label renames but change when terminal identity changes', async () => {
+  const organisationId = 'chain-stable-organisation';
+  const firstName = field({
+    id: 'stable-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const renamedObject = object({
+    id: organisationId, object_key: 'stable_organisations',
+    primary_display_field_id: firstName.id, singular_label: 'Organisation', plural_label: 'Organisations',
+  });
+  const definition = chainDefinition(
+    'stable-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId), { source_label: 'Organisation' },
+  );
+  const seed = {
+    objects: [renamedObject],
+    fields: [firstName],
+    definitions: [definition],
+    records: [{ id: 'stable-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  };
+  const first = await createCustomObjectService({
+    db: chainedSeed(seed), context: context(),
+  }).listRecords(objectId, {});
+  const firstLabel = terminalColumn(first, organisationId, 'label');
+  assert.ok(firstLabel);
+
+  const renamedDefinition = {
+    ...definition, source_label: 'Renamed organisation', target_label: 'Renamed department',
+  };
+  const renamed = await createCustomObjectService({
+    db: chainedSeed({
+      ...seed, objects: [{ ...renamedObject, singular_label: 'Renamed organisation' }],
+      definitions: [renamedDefinition],
+    }), context: context(),
+  }).listRecords(objectId, {});
+  const renamedLabel = terminalColumn(renamed, organisationId, 'label');
+  assert.equal(renamedLabel.id, firstLabel.id);
+
+  const replacement = field({
+    id: 'stable-replacement', custom_object_id: organisationId, name: 'title',
+    label: 'Title', field_type: 'text', is_required: false,
+  });
+  const retargeted = await createCustomObjectService({
+    db: chainedSeed({
+      ...seed,
+      objects: [{ ...renamedObject, primary_display_field_id: replacement.id }],
+      fields: [firstName, replacement],
+    }), context: context(),
+  }).listRecords(objectId, {});
+  const retargetedLabel = terminalColumn(retargeted, organisationId, 'label');
+  assert.ok(retargetedLabel);
+  assert.notEqual(retargetedLabel.id, firstLabel.id);
+});
+
+test('chained selections reject malformed, disconnected, and forged IDs without defaulting to all columns', async () => {
+  const organisationId = 'chain-validation-organisation';
+  const name = field({
+    id: 'validation-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'validation-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: name.id })],
+    fields: [name],
+    definitions: [definition],
+    records: [{ id: 'validation-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: '{bad json' }), /valid JSON|array/);
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: JSON.stringify('not an array') }), /array/);
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: JSON.stringify(['chained:v1:forged']) }), /Unknown|unavailable|stale/);
+  await assert.rejects(() => service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([{
+      id: 'forged-object', path: [{ relationship_definition_id: 'missing', from_side: 'source' }],
+    }]),
+  }), /array|Unknown|unavailable|stale/);
+});
+
+test('chained traversal batches relationship lookups rather than querying once per root row', async () => {
+  const organisationId = 'chain-batch-organisation';
+  const orgName = field({
+    id: 'batch-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'batch-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const rootRecords = Array.from({ length: 25 }, (_, index) => ({
+    id: `batch-department-${index}`, tenant_id: tenantId, custom_object_id: objectId,
+    archived_at: null, data: {},
+  }));
+  const relatedRecords = rootRecords.map((record, index) => ({
+    id: `batch-org-${index}`, tenant_id: tenantId, custom_object_id: organisationId,
+    archived_at: null, data: { name: `Organisation ${index}` },
+  }));
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records: [...rootRecords, ...relatedRecords],
+    edges: rootRecords.map((record, index) => ({
+      id: `batch-edge-${index}`, tenant_id: tenantId, relationship_definition_id: definition.id,
+      source_record_id: record.id, target_record_id: `batch-org-${index}`, archived_at: null,
+    })),
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id]), pageSize: '100',
+  });
+  const edgeReads = db.calls.filter((call) =>
+    call.table === 'custom_object_relationship' && call.type === 'in');
+  assert.ok(edgeReads.length <= 2, `expected batched edge reads, got ${edgeReads.length}`);
+  assert.ok(edgeReads.some((call) => call.values.length > 1));
+});
+
+test('chained discovery caps paths at six hops and never advertises endpoint cycles', async () => {
+  const nodes = Array.from({ length: 7 }, (_, index) => `depth-node-${index + 1}`);
+  const nodeObjects = nodes.map((id, index) => object({
+    id, object_key: id, primary_display_field_id: `depth-field-${index + 1}`,
+  }));
+  const nodeFields = nodes.map((id, index) => field({
+    id: `depth-field-${index + 1}`, custom_object_id: id, name: 'name',
+    label: `Node ${index + 1}`, field_type: 'text', is_required: false,
+  }));
+  const endpoints = [objectId, ...nodes];
+  const definitions = nodes.map((id, index) => chainDefinition(
+    `depth-edge-${index + 1}`,
+    chainEndpoint('custom_object', endpoints[index]),
+    chainEndpoint('custom_object', id),
+  ));
+  // This eighth edge would return to the root if the traversal used
+  // definition count alone. It must be ignored as an endpoint cycle.
+  definitions.push(chainDefinition(
+    'depth-cycle-to-root',
+    chainEndpoint('custom_object', nodes.at(-1)),
+    chainEndpoint('custom_object', objectId),
+  ));
+  const db = chainedSeed({
+    objects: nodeObjects,
+    fields: [
+      field({ id: 'depth-root-field', name: 'name', label: 'Root', field_type: 'text', is_required: false }),
+      ...nodeFields,
+    ],
+    definitions,
+    permissions: endpoints.slice(1).map((id) => ({
+      tenant_id: tenantId, custom_object_id: id, role_id: roleId, can_view_records: true,
+    })),
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  const columns = chainColumns(result);
+  assert.ok(columns.length > 0);
+  assert.ok(Math.max(...columns.map((column) => column.path.length)) <= 6);
+  assert.equal(columns.some((column) =>
+    String(column.endpoint?.custom_object_id) === String(objectId)), false);
+  assert.equal(columns.some((column) => column.path.length === 7), false);
+});
+
+test('denied intermediate custom-object view removes every downstream chained path', async () => {
+  const middleId = 'denied-chain-middle';
+  const terminalId = 'denied-chain-terminal';
+  const middleField = field({
+    id: 'denied-middle-name', custom_object_id: middleId, name: 'name',
+    label: 'Middle', field_type: 'text', is_required: false,
+  });
+  const terminalField = field({
+    id: 'denied-terminal-name', custom_object_id: terminalId, name: 'name',
+    label: 'Terminal', field_type: 'text', is_required: false,
+  });
+  const first = chainDefinition(
+    'denied-root-middle', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', middleId),
+  );
+  const second = chainDefinition(
+    'denied-middle-terminal', chainEndpoint('custom_object', middleId),
+    chainEndpoint('custom_object', terminalId),
+  );
+  const db = chainedSeed({
+    objects: [
+      object({ id: middleId, primary_display_field_id: middleField.id }),
+      object({ id: terminalId, primary_display_field_id: terminalField.id }),
+    ],
+    fields: [middleField, terminalField],
+    definitions: [first, second],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: terminalId, role_id: roleId, can_view_records: true,
+    }],
+    // Deliberately no view grant for the intermediate endpoint.
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  assert.equal(chainColumns(result).length, 0);
+  assert.equal(chainColumns(result).some((column) =>
+    column.endpoint?.custom_object_id === terminalId), false);
+  assert.ok(Array.isArray(result.data));
+});
+
+test('chained fanout paginates over 500 active edges, counts every occurrence, and sorts bounded labels', async () => {
+  const organisationId = 'fanout-organisation';
+  const orgName = field({
+    id: 'fanout-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'fanout-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const related = Array.from({ length: 501 }, (_, index) => ({
+    id: `fanout-org-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+    data: { name: `Organisation ${500 - index}` },
+  }));
+  const edges = related.map((record, index) => ({
+    id: `fanout-edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId, relationship_definition_id: definition.id,
+    source_record_id: 'fanout-department', target_record_id: record.id, archived_at: null,
+  }));
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records: [
+      { id: 'fanout-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      ...related,
+    ],
+    edges,
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id]),
+  });
+  const summary = result.data[0].chained_values[label.id];
+  assert.equal(summary.count, 501);
+  const expected = related.map((record) => record.data.name).sort((a, b) => a.localeCompare(b)).slice(0, 3);
+  assert.deepEqual(summary.records.map((record) => record.label), expected);
+  const edgeRanges = db.calls.filter((call) =>
+    call.table === 'custom_object_relationship' && call.type === 'range');
+  assert.ok(edgeRanges.length >= 2);
+  assert.ok(edgeRanges.every((call) => call.to - call.from + 1 <= 500));
+});
+
+test('too many candidate paths preserve legacy records and expose a chained discovery warning', async () => {
+  const count = 251;
+  const relatedIds = Array.from({ length: count }, (_, index) => `wide-chain-${index}`);
+  const relatedObjects = relatedIds.map((id, index) => object({
+    id, object_key: id, primary_display_field_id: `wide-field-${index}`,
+  }));
+  const relatedFields = relatedIds.map((id, index) => field({
+    id: `wide-field-${index}`, custom_object_id: id, name: 'name',
+    label: `Wide ${index}`, field_type: 'text', is_required: false,
+  }));
+  const definitions = relatedIds.map((id, index) => chainDefinition(
+    `wide-edge-${index}`, chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', id),
+  ));
+  const db = chainedSeed({
+    objects: relatedObjects,
+    fields: [
+      field({ id: 'wide-root-field', name: 'name', label: 'Root', field_type: 'text', is_required: false }),
+      ...relatedFields,
+    ],
+    definitions,
+    records: [{
+      id: 'wide-root', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { name: 'Still available' },
+    }],
+    permissions: relatedIds.map((id) => ({
+      tenant_id: tenantId, custom_object_id: id, role_id: roleId, can_view_records: true,
+    })),
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {
+    relationshipColumns: '[]',
+  });
+  assert.deepEqual(result.metadata.chained_columns, []);
+  assert.match(result.metadata.chained_columns_error, /paths|supported|limit/i);
+  assert.equal(result.data[0].data.name, 'Still available');
+  assert.equal(result.total, 1);
+});
+
+test('changing an intermediate relationship definition invalidates the saved opaque column ID', async () => {
+  const middleId = 'saved-column-middle';
+  const terminalId = 'saved-column-terminal';
+  const middleField = field({
+    id: 'saved-middle-name', custom_object_id: middleId, name: 'name',
+    label: 'Middle', field_type: 'text', is_required: false,
+  });
+  const terminalField = field({
+    id: 'saved-terminal-name', custom_object_id: terminalId, name: 'name',
+    label: 'Terminal', field_type: 'text', is_required: false,
+  });
+  const first = chainDefinition(
+    'saved-first-v1', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', middleId),
+  );
+  const second = chainDefinition(
+    'saved-second', chainEndpoint('custom_object', middleId),
+    chainEndpoint('custom_object', terminalId),
+  );
+  const base = {
+    objects: [
+      object({ id: middleId, primary_display_field_id: middleField.id }),
+      object({ id: terminalId, primary_display_field_id: terminalField.id }),
+    ],
+    fields: [middleField, terminalField],
+    definitions: [first, second],
+    permissions: [
+      { tenant_id: tenantId, custom_object_id: middleId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: terminalId, role_id: roleId, can_view_records: true },
+    ],
+  };
+  const initial = await createCustomObjectService({
+    db: chainedSeed(base), context: context(),
+  }).listRecords(objectId, {});
+  const initialColumn = terminalColumn(initial, terminalId, 'label', null, [first.id, second.id]);
+  assert.ok(initialColumn);
+
+  const replacement = { ...first, id: 'saved-first-v2' };
+  const current = await createCustomObjectService({
+    db: chainedSeed({ ...base, definitions: [replacement, second] }), context: context(),
+  });
+  await assert.rejects(() => current.listRecords(objectId, {
+    chainedColumns: JSON.stringify([initialColumn.id]),
+  }), (error) => error.status === 409 && /stale|unavailable/i.test(error.message));
+});
+
+test('chained file fields project filenames without exposing storage URLs', async () => {
+  const documentObjectId = 'chain-file-document';
+  const attachment = field({
+    id: 'chain-attachment', custom_object_id: documentObjectId, name: 'attachment',
+    label: 'Attachment', field_type: 'file', is_required: false,
+    allowed_file_types: ['pdf'],
+  });
+  const definition = chainDefinition(
+    'chain-file-definition', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', documentObjectId),
+  );
+  const db = chainedSeed({
+    objects: [object({
+      id: documentObjectId, object_key: 'documents',
+      primary_display_field_id: attachment.id,
+    })],
+    fields: [attachment],
+    definitions: [definition],
+    records: [
+      { id: 'file-root', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      {
+        id: 'file-single', tenant_id: tenantId, custom_object_id: documentObjectId,
+        archived_at: null,
+        data: { attachment: { file_name: 'brief.pdf', file_url: 'https://private.test/brief.pdf' } },
+      },
+      {
+        id: 'file-multi', tenant_id: tenantId, custom_object_id: documentObjectId,
+        archived_at: null,
+        data: {
+          attachment: [
+            { file_name: 'agenda.pdf', file_url: 'https://private.test/agenda.pdf' },
+            { file_name: 'notes.pdf', file_url: 'https://private.test/notes.pdf' },
+          ],
+        },
+      },
+    ],
+    edges: [
+      {
+        id: 'file-edge-single', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'file-root', target_record_id: 'file-single', archived_at: null,
+      },
+      {
+        id: 'file-edge-multi', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'file-root', target_record_id: 'file-multi', archived_at: null,
+      },
+    ],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: documentObjectId, role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const fileColumn = terminalColumn(discovered, documentObjectId, 'field', attachment.id);
+  assert.ok(fileColumn);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([fileColumn.id]),
+  });
+  const values = result.data[0].chained_values[fileColumn.id];
+  assert.equal(values.count, 2);
+  assert.deepEqual(values.records.map((record) => record.label), ['agenda.pdf; notes.pdf', 'brief.pdf']);
+  assert.equal(values.records.some((record) => record.label.includes('https://')), false);
 });
 
 test('reports preserve to-many Department membership occurrences and align branch and edge values', async () => {

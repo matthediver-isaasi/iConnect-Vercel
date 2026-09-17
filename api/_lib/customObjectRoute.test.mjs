@@ -161,6 +161,60 @@ test('relationship filter option route stays on the record-grant authorization p
   });
 });
 
+test('list and export preserve opaque chained selections on the record authorization path', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      listRecords: async (objectId, query) => {
+        calls.push({ objectId, query });
+        return { data: [] };
+      },
+      exportRecords: async (objectId, query) => {
+        calls.push({ objectId, query });
+        return { data: [] };
+      },
+    }),
+  });
+  for (const resource of ['records', 'export']) {
+    const query = {
+      objectId: 'object-1', resource,
+      chainedColumns: JSON.stringify(['chained:v1:stable-path-identity']),
+      relationshipColumns: JSON.stringify(['relationship:definition-1:source']),
+      filters: JSON.stringify({}),
+      page: '2',
+    };
+    const res = response();
+    await handler({ method: 'GET', query }, res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(calls.at(-1), { objectId: 'object-1', query });
+  }
+});
+
+test('unavailable chained paths fail explicitly on both list and export routes', async () => {
+  const reject = async () => {
+    throw new CustomObjectHttpError(409, 'Chained column is unavailable');
+  };
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => true,
+    createCustomObjectService: () => ({ listRecords: reject, exportRecords: reject }),
+  });
+  for (const resource of ['records', 'export']) {
+    const res = response();
+    await handler({
+      method: 'GET',
+      query: { objectId: 'object-1', resource, chainedColumns: '["stale"]' },
+    }, res);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.payload.error, 'Chained column is unavailable');
+  }
+});
+
 test('export is a record-data route and field permission resources remain schema-managed', async () => {
   const calls = [];
   const dependencies = {

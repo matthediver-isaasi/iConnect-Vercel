@@ -4,6 +4,7 @@ import {
   activeRecordFilters,
   boundedLabels,
   buildRecordQueryString,
+  chainedValuesFor,
   initialRecordListState,
   normalizeListMetadata,
   reconcileFilters,
@@ -38,6 +39,47 @@ test('column reconciliation preserves explicit visibility and adds metadata colu
       { id: 'name', visible: true },
       { id: 'new-field', visible: true },
     ],
+  );
+});
+
+test('saved chained column selection and ordering persist by server-issued ID', () => {
+  const chainedId = 'chain:department-members:projects:name';
+  const columns = reconcileColumns([
+    { id: 'updated_at', visible: false },
+    { id: chainedId, visible: true },
+    { id: 'chain:removed', visible: true },
+  ], [
+    { id: 'name', locked: true },
+    { id: chainedId, kind: 'chained', sortable: false, filterable: false },
+    { id: 'updated_at' },
+  ], ['name']);
+  assert.deepEqual(columns.map(({ id, visible }) => ({ id, visible })), [
+    { id: 'updated_at', visible: false },
+    { id: chainedId, visible: true },
+    { id: 'name', visible: true },
+  ]);
+});
+
+test('incomplete chained metadata retains saved chained choices until discovery recovers', () => {
+  const chained = {
+    id: 'chain:department-members:projects:name',
+    kind: 'chained',
+    label: 'Members → Projects',
+    visible: true,
+  };
+  const columns = reconcileColumns([chained], [
+    { id: 'name', locked: true },
+    { id: 'updated_at' },
+  ], ['name'], { preserveUnavailableChained: true });
+  assert.deepEqual(columns.map(({ id, kind, visible }) => ({ id, kind, visible })), [
+    { id: chained.id, kind: 'chained', visible: true },
+    { id: 'name', kind: undefined, visible: true },
+    { id: 'updated_at', kind: undefined, visible: false },
+  ]);
+  assert.equal(
+    reconcileColumns([chained], [{ id: 'name', locked: true }], ['name']).some((column) =>
+      column.id === chained.id),
+    false,
   );
 });
 
@@ -78,6 +120,53 @@ test('relationship metadata and values support map and array response shapes', (
     }, metadata.relationships[0])),
     'One, Two',
   );
+});
+
+test('server-authorized chained columns retain stable IDs and summarize exact counts', () => {
+  const metadata = normalizeListMetadata({
+    list_metadata: {
+      chained_columns: [{
+        id: 'chain:department-members:projects:name',
+        version: 1,
+        label: 'Members → Projects',
+        path: [{ relationship_definition_id: 'department-members', from_side: 'source' }],
+        endpoint: { kind: 'custom_object', custom_object_id: 'project' },
+        terminal: { kind: 'field', field_id: 'project-name' },
+        sortable: true,
+        filterable: true,
+      }],
+    },
+  });
+  assert.deepEqual(metadata.chainedColumns.map(({ id, kind, sortable, filterable }) => ({
+    id, kind, sortable, filterable,
+  })), [{
+    id: 'chain:department-members:projects:name',
+    kind: 'chained',
+    sortable: false,
+    filterable: false,
+  }]);
+  assert.equal(metadata.chainedColumnsError, null);
+  assert.equal(
+    boundedLabels(chainedValuesFor({
+      chained_values: {
+        'chain:department-members:projects:name': {
+          count: 5,
+          records: [{ label: 'Apollo' }, { label: 'Borealis' }, { label: 'Cygnus' }],
+        },
+      },
+    }, metadata.chainedColumns[0]), 3),
+    'Apollo, Borealis, Cygnus +2 more',
+  );
+});
+
+test('chained discovery errors are surfaced without manufacturing selectable columns', () => {
+  const metadata = normalizeListMetadata({
+    metadata: {
+      chained_columns_error: 'Traversal limit exceeded',
+    },
+  });
+  assert.equal(metadata.chainedColumnsError, 'Traversal limit exceeded');
+  assert.deepEqual(metadata.chainedColumns, []);
 });
 
 test('multi relationship labels are bounded and communicate cardinality', () => {
@@ -139,11 +228,14 @@ test('query serialization and export can share exact active criteria', () => {
   };
   assert.deepEqual(Object.keys(activeRecordFilters(state.filters)), ['related', 'absent']);
   const relationshipColumns = ['relationship:rel-1:source'];
-  const list = new URLSearchParams(buildRecordQueryString(state, { relationshipColumns }));
-  const exported = new URLSearchParams(buildRecordQueryString(state, {
-    page: 1, pageSize: 1000, relationshipColumns,
+  const chainedColumns = ['chain:department-members:projects:name'];
+  const list = new URLSearchParams(buildRecordQueryString(state, {
+    relationshipColumns, chainedColumns,
   }));
-  for (const key of ['search', 'sortField', 'sortDir', 'includeArchived', 'filters', 'relationshipColumns'])
+  const exported = new URLSearchParams(buildRecordQueryString(state, {
+    page: 1, pageSize: 1000, relationshipColumns, chainedColumns,
+  }));
+  for (const key of ['search', 'sortField', 'sortDir', 'includeArchived', 'filters', 'relationshipColumns', 'chainedColumns'])
     assert.equal(exported.get(key), list.get(key));
   assert.equal(exported.get('page'), '1');
   assert.equal(exported.get('pageSize'), '1000');

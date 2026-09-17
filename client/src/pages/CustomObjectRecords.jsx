@@ -82,6 +82,7 @@ import {
   activeRecordFilters,
   boundedLabels,
   buildRecordQueryString,
+  chainedValuesFor,
   initialRecordListState,
   normalizeListMetadata,
   reconcileColumns,
@@ -370,9 +371,18 @@ function CustomObjectRecordListWorkspace({ objectId }) {
       .map((column) => String(column.id)),
     [columns],
   );
+  const requestedChainedColumns = useMemo(
+    () => columns
+      .filter((column) => column.kind === "chained" && column.visible)
+      .map((column) => String(column.id)),
+    [columns],
+  );
   const queryString = useMemo(
-    () => buildRecordQueryString(state, { relationshipColumns: requestedRelationshipColumns }),
-    [state, requestedRelationshipColumns],
+    () => buildRecordQueryString(state, {
+      relationshipColumns: requestedRelationshipColumns,
+      chainedColumns: requestedChainedColumns,
+    }),
+    [state, requestedRelationshipColumns, requestedChainedColumns],
   );
   const recordsQuery = useQuery({
     queryKey: ["custom-object-records", objectId, queryString],
@@ -400,6 +410,11 @@ function CustomObjectRecordListWorkspace({ objectId }) {
     () => listMetadata.relationships,
     [listMetadata.relationships],
   );
+  const chainedColumnDefinitions = useMemo(
+    () => listMetadata.chainedColumns,
+    [listMetadata.chainedColumns],
+  );
+  const chainedColumnsError = listMetadata.chainedColumnsError;
   const filterDefinitions = useMemo(
     () => [
       ...listFields.filter((field) => field.field_type !== "file"),
@@ -416,9 +431,12 @@ function CustomObjectRecordListWorkspace({ objectId }) {
       ...relationshipDefinitions.map((relationship) => ({
         ...relationship, kind: "relationship",
       })),
+      ...chainedColumnDefinitions.map((column) => ({
+        ...column, kind: "chained", sortable: false, filterable: false,
+      })),
       { id: "updated_at", label: "Updated", kind: "core", locked: false, sortable: true },
     ],
-    [listFields, relationshipDefinitions, object?.singular_label],
+    [listFields, relationshipDefinitions, chainedColumnDefinitions, object?.singular_label],
   );
   const defaultVisible = useMemo(
     () => [
@@ -445,21 +463,33 @@ function CustomObjectRecordListWorkspace({ objectId }) {
       saved = JSON.parse(localStorage.getItem(storageKey));
     } catch {}
     setColumns((current) =>
-      reconcileColumns(current.length ? current : saved?.columns, availableColumns, defaultVisible));
+      reconcileColumns(
+        current.length ? current : saved?.columns,
+        availableColumns,
+        defaultVisible,
+        { preserveUnavailableChained: Boolean(chainedColumnsError) },
+      ));
     setFilterOrder((current) =>
       reconcileOrder(current.length ? current : saved?.filterOrder, filterIds));
     setHiddenFilterIds((current) => {
       const source = current.length ? current : saved?.hiddenFilterIds;
       return Array.isArray(source) ? source.filter((id) => filterIds.includes(id)) : [];
     });
-  }, [storageKey, availableColumns, defaultVisible, filterIds, listMetadataResolved]);
+  }, [
+    storageKey,
+    availableColumns,
+    defaultVisible,
+    filterIds,
+    listMetadataResolved,
+    chainedColumnsError,
+  ]);
 
   useEffect(() => {
-    if (!listMetadataResolved || !columns.length || !filterIds.length) return;
+    if (!listMetadataResolved || !columns.length) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify({ columns, filterOrder, hiddenFilterIds }));
     } catch {}
-  }, [storageKey, columns, filterOrder, hiddenFilterIds, filterIds.length, listMetadataResolved]);
+  }, [storageKey, columns, filterOrder, hiddenFilterIds, listMetadataResolved]);
 
   const {
     views: savedViews,
@@ -505,7 +535,9 @@ function CustomObjectRecordListWorkspace({ objectId }) {
       },
     });
     if (Array.isArray(view?.columns))
-      setColumns(reconcileColumns(view.columns, availableColumns, defaultVisible));
+      setColumns(reconcileColumns(view.columns, availableColumns, defaultVisible, {
+        preserveUnavailableChained: Boolean(chainedColumnsError),
+      }));
     setFilterOrder(reconcileOrder(saved.filterOrder, filterIds));
     setHiddenFilterIds(
       Array.isArray(saved.hiddenFilterIds)
@@ -513,7 +545,15 @@ function CustomObjectRecordListWorkspace({ objectId }) {
         : [],
     );
     setActiveViewId(view?.id || null);
-  }, [availableColumns, defaultVisible, filterDefinitions, filterIds, listMetadataResolved, setActiveViewId]);
+  }, [
+    availableColumns,
+    defaultVisible,
+    filterDefinitions,
+    filterIds,
+    listMetadataResolved,
+    setActiveViewId,
+    chainedColumnsError,
+  ]);
 
   useEffect(() => {
     if (!listMetadataResolved || !pendingViewRef.current) return;
@@ -583,6 +623,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
         page: 1,
         pageSize: 1000,
         relationshipColumns: requestedRelationshipColumns,
+        chainedColumns: requestedChainedColumns,
       }));
       const rows = [];
       let exportPage = 1;
@@ -606,6 +647,8 @@ function CustomObjectRecordListWorkspace({ objectId }) {
           return record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "";
         if (column.kind === "relationship")
           return boundedLabels(relationshipValuesFor(record, column), 3);
+        if (column.kind === "chained")
+          return boundedLabels(chainedValuesFor(record, column), 3);
         return formatRecordValue(column, record.data?.[column.name], countriesByCode);
       });
       const csv = [
@@ -626,7 +669,8 @@ function CustomObjectRecordListWorkspace({ objectId }) {
   if (objectQuery.isLoading || fieldsQuery.isLoading)
     return <Workspace object={{ id: objectId }}><Loader2 className="mx-auto mt-24 h-8 w-8 animate-spin" /></Workspace>;
   const schemaError = objectQuery.error || fieldsQuery.error;
-  if (schemaError?.status === 403 || recordsQuery.error?.status === 403)
+  if (schemaError?.status === 403
+    || (recordsQuery.error?.status === 403 && !requestedChainedColumns.length))
     return <Workspace object={{ id: objectId }}><PageState title="Permission denied" message="You do not have permission to view these records." /></Workspace>;
   if (schemaError)
     return <Workspace object={{ id: objectId }}><PageState title="Records could not be loaded" message={schemaError.message} retry={() => { objectQuery.refetch(); fieldsQuery.refetch(); }} /></Workspace>;
@@ -756,6 +800,16 @@ function CustomObjectRecordListWorkspace({ objectId }) {
               <DialogTrigger asChild><Button variant="outline"><Columns3 className="mr-2 h-4 w-4" />Columns</Button></DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Configure columns</DialogTitle></DialogHeader>
+                {chainedColumnsError && (
+                  <div
+                    data-testid="chained-columns-warning"
+                    className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                  >
+                    Chained relationship columns could not be refreshed. Your saved choices are retained;
+                    hide unavailable chained columns to recover the list.
+                    {typeof chainedColumnsError === "string" && ` ${chainedColumnsError}`}
+                  </div>
+                )}
                 <ScrollArea className="max-h-80">
                   <div className="space-y-1 pr-3">
                     {columns.map((column) => (
@@ -767,6 +821,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
                           onCheckedChange={(visible) => setColumns((items) => items.map((item) => item.id === column.id ? { ...item, visible: visible === true } : item))} />
                         <span className="flex-1">{column.label}</span>
                         {column.kind === "relationship" && <Badge variant="outline">Relationship</Badge>}
+                        {column.kind === "chained" && <Badge variant="outline">Chained relationship</Badge>}
                       </div>
                     ))}
                   </div>
@@ -785,6 +840,11 @@ function CustomObjectRecordListWorkspace({ objectId }) {
             <div className="py-16 text-center">
               <p className="font-medium text-rose-700">Records could not be loaded</p>
               <p className="mt-1 text-sm text-slate-600">{recordsQuery.error.message}</p>
+              {requestedChainedColumns.length > 0 && (
+                <p className="mt-2 text-sm text-slate-600">
+                  A selected chained relationship column may no longer be available. Open Columns and hide it, then retry.
+                </p>
+              )}
               <Button variant="outline" className="mt-4" onClick={reset}>Clear search and filters</Button>
             </div>
           ) : records.length === 0 ? (
@@ -811,6 +871,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
                       if (column.id === "name") value = <><Link className="font-medium text-blue-700 hover:underline" to={`${recordsPath(objectId)}/${record.id}`}>{record.display_value}</Link>{record.archived_at && <Badge variant="outline" className="ml-2">Archived</Badge>}</>;
                       else if (column.id === "updated_at") value = record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "—";
                       else if (column.kind === "relationship") value = boundedLabels(relationshipValuesFor(record, column), 3);
+                       else if (column.kind === "chained") value = boundedLabels(chainedValuesFor(record, column), 3);
                       else if (column.field_type === "file") value = <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[column.name])} fieldId={`object-list-${record.id}-${column.id}`} compact />;
                       else value = formatRecordValue(column, record.data?.[column.name], countriesByCode);
                       return <td key={column.id} className="max-w-[280px] px-4 py-3 text-slate-600">

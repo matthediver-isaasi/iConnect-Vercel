@@ -154,3 +154,4 @@
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Positioned table overflow](positioned-table-overflow.md) — a bounded table scroller can still expand the document root unless positioned descendants are contained.
+- [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.

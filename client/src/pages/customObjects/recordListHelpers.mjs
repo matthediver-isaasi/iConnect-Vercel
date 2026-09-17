@@ -8,21 +8,35 @@ export const reconcileOrder = (saved, available) => {
   return [...kept, ...available.filter((id) => !seen.has(id))];
 };
 
-export const reconcileColumns = (saved, available, defaultVisible = []) => {
+export const reconcileColumns = (
+  saved,
+  available,
+  defaultVisible = [],
+  { preserveUnavailableChained = false } = {},
+) => {
   const availableById = new Map(available.map((column) => [column.id, column]));
   const savedRows = Array.isArray(saved) ? saved : [];
   const savedById = new Map(savedRows.map((column) => [
     typeof column === 'string' ? column : column?.id,
     column,
   ]));
+  const preserved = preserveUnavailableChained
+    ? savedRows.filter((column) => column && typeof column === 'object'
+      && column.kind === 'chained' && !availableById.has(column.id))
+    : [];
+  const definitions = [
+    ...available,
+    ...preserved,
+  ];
+  const definitionsById = new Map(definitions.map((column) => [column.id, column]));
   const order = reconcileOrder(
     savedRows.map((column) => typeof column === 'string' ? column : column?.id),
-    available.map((column) => column.id),
+    definitions.map((column) => column.id),
   );
   const defaults = new Set(defaultVisible);
   return order.map((id) => {
     const source = savedById.get(id);
-    const definition = availableById.get(id);
+    const definition = definitionsById.get(id);
     return {
       ...definition,
       visible: definition.locked === true
@@ -60,6 +74,27 @@ const normalizeRelationship = (item) => {
   };
 };
 
+const normalizeChainedColumn = (item) => {
+  const id = String(item?.id ?? '').trim();
+  if (!id) return null;
+  return {
+    ...item,
+    id,
+    kind: 'chained',
+    version: item.version ?? 1,
+    path: Array.isArray(item.path) ? item.path : [],
+    endpoint: item.endpoint && typeof item.endpoint === 'object' && !Array.isArray(item.endpoint)
+      ? item.endpoint
+      : null,
+    terminal: item.terminal && typeof item.terminal === 'object' && !Array.isArray(item.terminal)
+      ? item.terminal
+      : { kind: 'label' },
+    label: item.label || 'Related records',
+    sortable: false,
+    filterable: false,
+  };
+};
+
 export const normalizeListMetadata = (payload, fields = []) => {
   const metadata = payload?.list_metadata || payload?.listMetadata || payload?.metadata || {};
   const fieldById = new Map(fields.map((field) => [String(field.id), field]));
@@ -85,7 +120,22 @@ export const normalizeListMetadata = (payload, fields = []) => {
       relationships.push(normalized);
     }
   });
-  return { fields: listFields, relationships };
+  const chainedSources = metadata.chained_columns || metadata.chainedColumns || [];
+  const chainedColumns = [];
+  const chainedIds = new Set();
+  for (const source of Array.isArray(chainedSources) ? chainedSources : []) {
+    const normalized = normalizeChainedColumn(source);
+    if (normalized && !chainedIds.has(normalized.id)) {
+      chainedIds.add(normalized.id);
+      chainedColumns.push(normalized);
+    }
+  }
+  return {
+    fields: listFields,
+    relationships,
+    chainedColumns,
+    chainedColumnsError: metadata.chained_columns_error || metadata.chainedColumnsError || null,
+  };
 };
 
 const labelOf = (value) => {
@@ -132,6 +182,19 @@ export const relationshipValuesFor = (record, column) => {
     ?? source[column.relationshipId]
     ?? source[String(column.relationshipId)]
     ?? [];
+  const values = result && !Array.isArray(result) && Array.isArray(result.records)
+    ? result.records
+    : Array.isArray(result) ? result : [result];
+  const declared = Number(!Array.isArray(result) && result?.count);
+  return {
+    values,
+    count: Number.isFinite(declared) ? declared : values.length,
+  };
+};
+
+export const chainedValuesFor = (record, column) => {
+  const source = record?.chained_values || record?.chainedValues || {};
+  const result = source?.[column.id] ?? [];
   const values = result && !Array.isArray(result) && Array.isArray(result.records)
     ? result.records
     : Array.isArray(result) ? result : [result];
@@ -208,7 +271,12 @@ export const recordListReducer = (state, action) => {
 
 export const buildRecordQueryString = (
   state,
-  { page = state.page, pageSize = state.pageSize, relationshipColumns = [] } = {},
+  {
+    page = state.page,
+    pageSize = state.pageSize,
+    relationshipColumns = [],
+    chainedColumns = [],
+  } = {},
 ) =>
   new URLSearchParams({
     page: String(page),
@@ -219,4 +287,5 @@ export const buildRecordQueryString = (
     includeArchived: String(state.includeArchived),
     filters: JSON.stringify(activeRecordFilters(state.filters)),
     relationshipColumns: JSON.stringify(relationshipColumns),
+    chainedColumns: JSON.stringify(chainedColumns),
   }).toString();

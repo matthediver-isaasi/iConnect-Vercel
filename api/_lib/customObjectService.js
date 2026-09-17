@@ -20,6 +20,7 @@ import {
 } from './customObjectDomain.js';
 import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
 import { randomUUID } from 'node:crypto';
+import { createChainedListService } from './customObjectChainedList.js';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -531,6 +532,10 @@ export function createCustomObjectService({
   if (!db) throw new CustomObjectHttpError(503, 'Database unavailable');
 
   const tenantId = context.tenantId;
+  const chainedLists = createChainedListService({
+    db, tenantId, isAdmin, activeObject, hasCapability, fieldAccess,
+    getFieldMetadata: getCustomObjectFieldMetadata, ErrorClass: CustomObjectHttpError,
+  });
   const currentActor = actor(context);
   const currentActorReference = currentActor.id
     ? `${currentActor.type}:${currentActor.id}`
@@ -759,10 +764,13 @@ export function createCustomObjectService({
         });
       }
     }
+    const chained = await chainedLists.discover(objectId);
     return {
       fields: scalarFields,
       relationships: candidates,
       columns: [...scalarFields, ...candidates],
+      chained_columns: chained.columns,
+      ...(chained.error ? { chained_columns_error: chained.error } : {}),
     };
   }
 
@@ -818,6 +826,160 @@ export function createCustomObjectService({
       if (!item) queryError(`Unknown or inaccessible relationship list field: ${id}`);
       return item;
     });
+  }
+
+  function chainedProjectionItems(query, metadata) {
+    const parsed = parseJsonArray(
+      query?.chainedColumns ?? query?.chained_columns,
+      'chainedColumns',
+    );
+    if (parsed === null) return [];
+    if (parsed.length > CHAINED_LIST_PROJECTION_LIMIT) {
+      queryError(`chainedColumns supports at most ${CHAINED_LIST_PROJECTION_LIMIT} items`);
+    }
+    if (parsed.some((id) => typeof id !== 'string')) {
+      queryError('chainedColumns must contain column IDs only');
+    }
+    const available = new Map((metadata.chained_columns || []).map((item) => [item.id, item]));
+    return [...new Set(parsed)].map((id) => {
+      const item = available.get(id);
+      if (!item) queryError(`Unknown or unavailable chained list column: ${id}`);
+      return item;
+    });
+  }
+
+  async function chainedEndpointRows(endpoint_, ids) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (endpoint_.kind !== 'custom_object' && !isAdmin) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
+    const table = {
+      custom_object: 'custom_object_record',
+      member: 'member',
+      organization: 'organization',
+      organization_group: 'organization_group',
+    }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    let definition = null;
+    let endpointFields = [];
+    let access = null;
+    if (endpoint_.kind === 'custom_object') {
+      definition = await activeObject(endpoint_.custom_object_id);
+      await requireCapability(endpoint_.custom_object_id, 'view_records');
+      endpointFields = await fields(endpoint_.custom_object_id, true);
+      access = await fieldAccess(endpoint_.custom_object_id, endpointFields);
+    }
+    if (uniqueIds.length === 0) return {
+      rows: new Map(), definition, fields: endpointFields, access,
+    };
+    const rows = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+      let request = db.from(table).select('*').eq('tenant_id', tenantId)
+        .in('id', uniqueIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE));
+      if (endpoint_.kind === 'custom_object') {
+        request = request.eq('custom_object_id', endpoint_.custom_object_id).is('archived_at', null);
+      }
+      const { data, error } = await request;
+      throwDb(error);
+      rows.push(...(data || []));
+    }
+    return {
+      rows: new Map(rows.map((row) => [String(row.id), row])),
+      definition, fields: endpointFields, access,
+    };
+  }
+
+  async function chainedEdges(definitionId, fromSide, recordIds) {
+    const ids = [...new Set(recordIds.filter(Boolean))];
+    const rows = [];
+    for (let offset = 0; offset < ids.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+      const { data, error } = await db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', definitionId)
+        .is('archived_at', null)
+        .in(`${fromSide}_record_id`, ids.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE));
+      throwDb(error);
+      rows.push(...(data || []));
+    }
+    return rows;
+  }
+
+  function chainedTerminalLabel(item, row, endpointInfo) {
+    if (item.terminal.kind === 'label' && item.endpoint.kind !== 'custom_object') {
+      return String(endpointLabel(item.endpoint.kind, row).primary_label || '');
+    }
+    const field = endpointInfo.fields.find((candidate) =>
+      String(candidate.id) === String(item.terminal.field_id));
+    if (!field || endpointInfo.access.get(String(field.id)) === 'none') {
+      throw new CustomObjectHttpError(400, 'Chained list column terminal is unavailable');
+    }
+    const value = row.data?.[getCustomObjectFieldMetadata(field).key];
+    if (value == null) return '';
+    if (Array.isArray(value)) return value.map(String).join(', ');
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+
+  async function projectChainedListValues(records, items) {
+    if (records.length === 0 || items.length === 0) return records;
+    const valuesByRecord = new Map(records.map((record) => [String(record.id), {}]));
+    for (const item of items) {
+      let states = records.map((record) => ({
+        rootId: String(record.id), recordId: String(record.id),
+      }));
+      let terminalInfo = null;
+      for (const hop of item.path) {
+        const edges = await chainedEdges(
+          hop.relationship_definition_id,
+          hop.from_side,
+          states.map((state) => state.recordId),
+        );
+        const oppositeSide = hop.from_side === 'source' ? 'target' : 'source';
+        const endpointInfo = await chainedEndpointRows(
+          hop.to_endpoint,
+          edges.map((edge) => edge[`${oppositeSide}_record_id`]),
+        );
+        const edgesByRecord = new Map();
+        for (const edge of edges) {
+          const sourceId = String(edge[`${hop.from_side}_record_id`]);
+          const targetId = String(edge[`${oppositeSide}_record_id`]);
+          if (!endpointInfo.rows.has(targetId)) continue;
+          const targets = edgesByRecord.get(sourceId) || [];
+          targets.push(targetId);
+          edgesByRecord.set(sourceId, targets);
+        }
+        const next = new Map();
+        for (const state of states) {
+          for (const targetId of edgesByRecord.get(state.recordId) || []) {
+            next.set(`${state.rootId}\u0000${targetId}`, {
+              rootId: state.rootId, recordId: targetId,
+            });
+          }
+        }
+        states = [...next.values()];
+        terminalInfo = endpointInfo;
+        if (states.length === 0) break;
+      }
+      const labelsByRoot = new Map(records.map((record) => [String(record.id), new Map()]));
+      for (const state of states) {
+        const row = terminalInfo?.rows.get(state.recordId);
+        if (row) labelsByRoot.get(state.rootId).set(
+          state.recordId,
+          chainedTerminalLabel(item, row, terminalInfo),
+        );
+      }
+      for (const record of records) {
+        const labels = [...labelsByRoot.get(String(record.id)).entries()]
+          .sort(([leftId, left], [rightId, right]) =>
+            left.localeCompare(right) || leftId.localeCompare(rightId));
+        valuesByRecord.get(String(record.id))[item.id] = {
+          records: labels.slice(0, 3).map(([, label]) => ({ label })),
+          count: labels.length,
+        };
+      }
+    }
+    return records.map((record) => ({
+      ...record,
+      chained_values: valuesByRecord.get(String(record.id)),
+    }));
   }
 
   async function projectListRelationships(records, relationshipItems) {
@@ -1245,6 +1407,7 @@ export function createCustomObjectService({
     const metadata = await recordListMetadata(objectId, readableDefinitions);
     const relationshipQuery = relationshipQuerySpecification(query, metadata);
     const projectionItems = relationshipProjectionItems(query, metadata);
+    const chainedColumns = chainedLists.select(query?.chainedColumns ?? query?.chained_columns, metadata);
     const p = pagination(query, query?._exportPage === true ? 1000 : 100);
     const rawFilters = parseRecordFilters(query?.filters);
     const scalarFilters = Object.fromEntries(Object.entries(rawFilters)
@@ -1307,7 +1470,7 @@ export function createCustomObjectService({
       const pageRows = ids.map((id) => pageById.get(String(id))).filter(Boolean)
         .map((record) => projectRecord(definition, record, definitions, access));
       return {
-        data: await projectListRelationships(pageRows, projectionItems),
+        data: await chainedLists.project(await projectListRelationships(pageRows, projectionItems), chainedColumns),
         total: Number(selected[0]?.total_count) || 0,
         page: p.page,
         pageSize: p.pageSize,
@@ -1319,7 +1482,7 @@ export function createCustomObjectService({
     const projected = (data || []).map((record) =>
       projectRecord(definition, record, definitions, access));
     return {
-      data: await projectListRelationships(projected, projectionItems),
+      data: await chainedLists.project(await projectListRelationships(projected, projectionItems), chainedColumns),
       total: count || 0, page: p.page, pageSize: p.pageSize,
       metadata,
     };
@@ -1345,6 +1508,7 @@ export function createCustomObjectService({
         return { field_id: field.id, key: metadata.key, label: metadata.label, field_type: metadata.type };
       }),
       relationship_columns: listed.metadata.relationships,
+      chained_columns: listed.metadata.chained_columns,
       metadata: listed.metadata,
       data: listed.data.map((projected) => ({
           id: projected.id,
@@ -1353,6 +1517,7 @@ export function createCustomObjectService({
           updated_at: projected.updated_at,
           data: projected.data,
           relationships: projected.relationships,
+          chained_values: projected.chained_values,
         })),
       total: listed.total,
       page,
