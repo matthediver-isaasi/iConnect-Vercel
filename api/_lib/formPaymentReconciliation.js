@@ -132,12 +132,45 @@ export async function replayMissedStripeMonthlySetup({
 }
 
 /**
- * Keep monitoring-only partial failures off the public cron response while
- * still letting the cron handler report them to Better Stack. The reconciler
- * intentionally returns its normal summary after a recoverable sweep error,
- * so making this enumerable would needlessly change that response contract.
+ * Keep monitoring-only failures out of the legacy `errors` row counter while
+ * still returning safe, actionable summaries for the cron response and
+ * heartbeat. The heartbeat property remains non-enumerable for compatibility.
  */
-function recordMonitoringFailure(results, scope, error) {
+const SAFE_MONITORING_CODES = new Set([
+  'stage-failed',
+  'address-prerequisite-missing',
+  'payment-access-proof-missing',
+  'target-resolution-changed',
+  'budget-exhausted',
+]);
+
+const SAFE_MONITORING_MESSAGES = {
+  'stage-failed': 'Reconciliation stage failed.',
+  'address-prerequisite-missing': 'Stripe billing address prerequisite is not available.',
+  'payment-access-proof-missing': 'Durable payment access proof is not available.',
+  'target-resolution-changed': 'Persisted Stripe address target resolution changed; mapping was not applied.',
+  'budget-exhausted': 'Worker budget was exhausted before this stage could run.',
+};
+
+/**
+ * Add a heartbeat-visible but provider-safe diagnostic.  In particular, do
+ * not copy Error.message here: Stripe/GoCardless and database errors can
+ * contain request payloads, credentials, addresses, or other personal data.
+ */
+function recordMonitoringFailure(results, scope, error, {
+  submissionId = null,
+  code = 'stage-failed',
+  message = null,
+} = {}) {
+  const safeCode = SAFE_MONITORING_CODES.has(code) ? code : 'stage-failed';
+  const safeMessage = message || SAFE_MONITORING_MESSAGES[safeCode];
+  if (!Array.isArray(results.issues)) results.issues = [];
+  results.issues.push({
+    scope,
+    ...(submissionId ? { submissionId } : {}),
+    code: safeCode,
+    message: safeMessage,
+  });
   if (!Object.prototype.hasOwnProperty.call(results, '__heartbeatFailures')) {
     Object.defineProperty(results, '__heartbeatFailures', {
       value: [],
@@ -147,8 +180,13 @@ function recordMonitoringFailure(results, scope, error) {
   }
   results.__heartbeatFailures.push({
     scope,
-    error: error?.message || String(error),
+    ...(submissionId ? { submissionId } : {}),
+    code: safeCode,
+    // Keep the old heartbeat field for consumers which display it, but only
+    // ever expose the constant safe summary.
+    error: safeMessage,
   });
+  results.partial = true;
 }
 
 // A paid one-off may have crashed after its financial finalized stamp but
@@ -246,7 +284,23 @@ export async function reconcileFormPayments(supabase, {
   retrievePaymentIntent = retrieveTenantPaymentIntent,
   timeBudgetMs = FORM_PAYMENT_COMPLETION_BUDGET_MS,
 } = {}) {
-  const results = { checked: 0, paid: 0, failed: 0, finalized: 0, errors: [] };
+  const results = {
+    checked: 0,
+    paid: 0,
+    failed: 0,
+    finalized: 0,
+    errors: [],
+    issues: [],
+    addressRecovery: { attempted: 0, succeeded: 0, failed: 0 },
+    completion: {
+      claimed: 0,
+      attempted: 0,
+      completed: 0,
+      waitingForAddress: 0,
+      waitingForAccess: 0,
+      failed: 0,
+    },
+  };
   const now = Date.now();
   // This is deliberately a wall-clock budget, not a Promise.race around
   // side-effects. Racing a provider call would leave it running after the
@@ -299,6 +353,7 @@ export async function reconcileFormPayments(supabase, {
     const { data: unfinalized, error } = await supabase
       .rpc('claim_form_payment_completion_retries', { p_limit: 20 });
     if (error) throw error;
+    results.completion.claimed += (unfinalized || []).length;
     for (const row of unfinalized || []) {
       if (!hasBudget()) {
         results.budgetExhausted = true;
@@ -308,17 +363,65 @@ export async function reconcileFormPayments(supabase, {
         !!row.payment_meta?.membership
         || row.payment_meta?.stripe_address_mapping_config?.mappings?.length > 0
       );
-      if (addressRequired && !row.payment_meta?.stripe_billing_address) continue;
-      const form = await loadForm(row.form_id, row.tenant_id);
-      if (!hasFormPaymentAccessProof(row, form)) continue;
-      const fin = await finalizeFormSubmission({
-        supabase,
-        submission: row,
-        form,
-        baseUrl: await resolveBaseUrl(row.tenant_id),
-        deadlineAt,
-      });
-      if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
+      if (addressRequired && !row.payment_meta?.stripe_billing_address) {
+        results.completion.waitingForAddress += 1;
+        recordMonitoringFailure(
+          results,
+          'completion-prerequisite',
+          null,
+          {
+            submissionId: row.id,
+            code: 'address-prerequisite-missing',
+          },
+        );
+        continue;
+      }
+      let form;
+      try {
+        form = await loadForm(row.form_id, row.tenant_id);
+      } catch (err) {
+        results.completion.failed += 1;
+        recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
+        continue;
+      }
+      if (!hasFormPaymentAccessProof(row, form)) {
+        results.completion.waitingForAccess += 1;
+        recordMonitoringFailure(
+          results,
+          'completion-prerequisite',
+          null,
+          {
+            submissionId: row.id,
+            code: 'payment-access-proof-missing',
+          },
+        );
+        continue;
+      }
+      results.completion.attempted += 1;
+      try {
+        const fin = await finalizeFormSubmission({
+          supabase,
+          submission: row,
+          form,
+          baseUrl: await resolveBaseUrl(row.tenant_id),
+          deadlineAt,
+        });
+        if (fin.finalized || fin.alreadyFinalized) {
+          results.completion.completed += 1;
+          if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
+        } else if (fin.inProgress) {
+          // Another owner currently holds the durable completion claim. It is
+          // not a duplicate-effect failure, but this invocation remains
+          // partial because the receipt is unresolved.
+          results.partial = true;
+        } else {
+          results.completion.failed += 1;
+          recordMonitoringFailure(results, 'completion-stage', null, { submissionId: row.id });
+        }
+      } catch (err) {
+        results.completion.failed += 1;
+        recordMonitoringFailure(results, 'completion-stage', err, { submissionId: row.id });
+      }
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Priority completion sweep failed:', err?.message);
@@ -613,7 +716,12 @@ export async function reconcileFormPayments(supabase, {
       }
     } catch (err) {
       console.error(`[formPaymentReconciliation] Row ${row.id} failed:`, err?.message);
-      results.errors.push({ id: row.id, error: err?.message });
+      results.errors.push({
+        id: row.id,
+        code: 'stage-failed',
+        error: SAFE_MONITORING_MESSAGES['stage-failed'],
+      });
+      recordMonitoringFailure(results, 'pending-payment-row', err, { submissionId: row.id });
     }
   }
 
@@ -946,44 +1054,73 @@ export async function reconcileFormPayments(supabase, {
   // temporarily unavailable; keep replaying those obligations without age
   // bounds and without reopening the charge.
   async function sweepStripeAddressPrerequisites() {
-    // Do not lease work which cannot safely start. Address retrieval can use
-    // its complete provider timeout, then still needs durable snapshot/finish
-    // writes before this bounded invocation ends.
-    const canStartAddressAttempt = () => deadlineAt - Date.now() >= 15_000;
-    if (!canStartAddressAttempt()) {
-      results.budgetExhausted = true;
-      return;
-    }
-    try {
-    const { data: claimedAddressRows, error } = await supabase.rpc(
-      'claim_form_stripe_address_mapping_retries',
-      { p_limit: 1 },
+    // Claim one row at a time. A batch claim is unsafe here: address
+    // retrieval can consume most of the slice, leaving later leases stranded
+    // until their TTL expires. The completion finalizer currently declines to
+    // start a network-backed stage inside its final 20 seconds, so retain
+    // that larger reserve (and the provider timeout) before each claim.
+    const MAX_ADDRESS_ATTEMPTS = 8;
+    const ADDRESS_ATTEMPT_BUDGET_MS = 14_000; // 12s provider + durable writes
+    const COMPLETION_RESERVE_MS = 20_000;
+    const canStartAddressAttempt = () => (
+      deadlineAt - Date.now() >= ADDRESS_ATTEMPT_BUDGET_MS + COMPLETION_RESERVE_MS
     );
-    if (error) throw error;
-    for (const claim of claimedAddressRows || []) {
+    const seenSubmissionIds = new Set();
+    let attempts = 0;
+    try {
       if (!canStartAddressAttempt()) {
         results.budgetExhausted = true;
-        // The RPC lease is owner-fenced. Explicitly release a claim that
-        // never began rather than leaving it unavailable for five minutes.
-        const row = claim?.submission || claim;
-        const { error: releaseError } = await supabase.rpc(
-          'finish_form_stripe_address_mapping_retry',
-          {
-            p_tenant_id: row.tenant_id,
-            p_submission_id: row.id,
-            p_owner_token: claim?.lease_token || null,
-            p_succeeded: false,
-            p_error: 'worker budget exhausted before address retry started',
-          },
-        );
-        if (releaseError) recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', releaseError);
-        break;
+        recordMonitoringFailure(results, 'stripe-address-mapping-retry', null, { code: 'budget-exhausted' });
       }
-      let row = claim?.submission || claim;
-      const retryOwnerToken = claim?.lease_token || null;
-      let retrySucceeded = false;
-      let retryError = null;
-      try {
+      while (attempts < MAX_ADDRESS_ATTEMPTS && canStartAddressAttempt()) {
+        const { data: claimedAddressRows, error } = await supabase.rpc(
+          'claim_form_stripe_address_mapping_retries',
+          { p_limit: 1 },
+        );
+        if (error) throw error;
+        const claim = claimedAddressRows?.[0];
+        if (!claim) break;
+        attempts += 1;
+        let row = claim?.submission || claim;
+        const retryOwnerToken = claim?.lease_token || null;
+        // The SQL claim advances backoff before returning, but retain a local
+        // guard as well so a degraded/mock claim implementation cannot replay
+        // one submission repeatedly in this invocation.
+        if (row?.id && seenSubmissionIds.has(row.id)) {
+          try {
+            const { error: duplicateReleaseError } = await supabase.rpc(
+              'finish_form_stripe_address_mapping_retry',
+              {
+                p_tenant_id: row.tenant_id,
+                p_submission_id: row.id,
+                p_owner_token: retryOwnerToken,
+                p_succeeded: false,
+                p_error: 'duplicate address candidate in worker invocation',
+              },
+            );
+            if (duplicateReleaseError) {
+              recordMonitoringFailure(
+                results,
+                'stripe-address-mapping-retry-release',
+                duplicateReleaseError,
+                { submissionId: row.id },
+              );
+            }
+          } catch (duplicateReleaseError) {
+            recordMonitoringFailure(
+              results,
+              'stripe-address-mapping-retry-release',
+              duplicateReleaseError,
+              { submissionId: row.id },
+            );
+          }
+          break;
+        }
+        if (row?.id) seenSubmissionIds.add(row.id);
+        results.addressRecovery.attempted += 1;
+        let retrySucceeded = false;
+        let retryError = null;
+        try {
         if (row.payment_provider === 'stripe_monthly_card'
             && !row.payment_meta?.stripe_billing_address) {
           const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;
@@ -1053,7 +1190,20 @@ export async function reconcileFormPayments(supabase, {
             tenantId: row.tenant_id,
           });
           retrySucceeded = mappingResult?.applied === true || mappingResult?.alreadyApplied === true;
-          if (!retrySucceeded) retryError = mappingResult?.reason || 'Stripe address mapping is still pending';
+          if (!retrySucceeded) {
+            retryError = mappingResult?.reason || 'Stripe address mapping is still pending';
+            if (mappingResult?.reason === 'stripe_address_mapping_target_unresolved') {
+              recordMonitoringFailure(
+                results,
+                'stripe-address-mapping-retry',
+                null,
+                {
+                  submissionId: row.id,
+                  code: 'target-resolution-changed',
+                },
+              );
+            }
+          }
         } else {
           // Membership completion needs only the immutable snapshot; no target
           // mapping ledger is expected for forms without configured mappings.
@@ -1062,31 +1212,51 @@ export async function reconcileFormPayments(supabase, {
         // The RPC ledger makes every replay safe; no public cron-summary
         // counter is needed (and retaining the established response shape
         // keeps monitoring consumers backwards compatible).
-      } catch (err) {
-        retryError = err?.message;
-        console.warn('[formPaymentReconciliation] Stripe address mapping retry failed for', row.id, err?.message);
-        recordMonitoringFailure(results, 'stripe-address-mapping-retry', err);
-      } finally {
-        const { error: finishError } = await supabase.rpc(
-          'finish_form_stripe_address_mapping_retry',
-          {
-            p_tenant_id: row.tenant_id,
-            p_submission_id: row.id,
-            p_owner_token: retryOwnerToken,
-            p_succeeded: retrySucceeded,
-            p_error: retryError,
-          },
-        );
-        if (finishError) {
-          console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError.message);
-          recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError);
+        } catch (err) {
+          retryError = err?.message;
+          console.warn('[formPaymentReconciliation] Stripe address mapping retry failed for', row.id, err?.message);
+          recordMonitoringFailure(
+            results,
+            'stripe-address-mapping-retry',
+            err,
+            {
+              submissionId: row.id,
+              ...(err?.code === 'STRIPE_ADDRESS_TARGET_RESOLUTION_CHANGED'
+                ? { code: 'target-resolution-changed' }
+                : {}),
+            },
+          );
+        } finally {
+          try {
+            const { error: finishError } = await supabase.rpc(
+              'finish_form_stripe_address_mapping_retry',
+              {
+                p_tenant_id: row.tenant_id,
+                p_submission_id: row.id,
+                p_owner_token: retryOwnerToken,
+                p_succeeded: retrySucceeded,
+                p_error: retryError,
+              },
+            );
+            if (finishError) {
+              console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError.message);
+              recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
+            }
+          } catch (finishError) {
+            console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError?.message);
+            recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
+          }
         }
+        if (retrySucceeded) results.addressRecovery.succeeded += 1;
+        else results.addressRecovery.failed += 1;
       }
+      if (attempts >= MAX_ADDRESS_ATTEMPTS && canStartAddressAttempt()) {
+        results.partial = true;
+      }
+    } catch (err) {
+      console.warn('[formPaymentReconciliation] Stripe address mapping sweep failed:', err?.message);
+      recordMonitoringFailure(results, 'stripe-address-mapping-retry-sweep', err);
     }
-  } catch (err) {
-    console.warn('[formPaymentReconciliation] Stripe address mapping sweep failed:', err?.message);
-    recordMonitoringFailure(results, 'stripe-address-mapping-retry-sweep', err);
-  }
   }
 
   return results;

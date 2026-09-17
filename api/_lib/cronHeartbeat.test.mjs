@@ -105,9 +105,16 @@ test('form-payment reconciliation heartbeat uses its existing row error summary'
   assert.equal(isFormPaymentReconciliationHeartbeatHealthy(partialSweep), false);
 });
 
-test('form-payment reconciliation treats returned Supabase errors as heartbeat failures without changing its summary fields', async () => {
+test('form-payment reconciliation exposes safe diagnostics alongside its legacy counters', async () => {
   const results = await runFormPaymentReconciliation(rejectedSupabaseResult('database temporarily unavailable'));
-  assert.deepEqual(results, { checked: 0, paid: 0, failed: 0, finalized: 0, errors: [] });
+  const { checked, paid, failed, finalized, errors } = results;
+  assert.deepEqual({ checked, paid, failed, finalized, errors },
+    { checked: 0, paid: 0, failed: 0, finalized: 0, errors: [] });
+  assert.equal(results.partial, true);
+  assert.ok(results.issues.length > 0);
+  assert.ok(results.issues.every(issue => issue.code === 'stage-failed'
+    && issue.message === 'Reconciliation stage failed.'));
+  assert.ok(!JSON.stringify(results).includes('database temporarily unavailable'));
   assert.equal(Object.keys(results).includes('__heartbeatFailures'), false);
   assert.equal(isFormPaymentReconciliationHeartbeatHealthy(results), false);
 });

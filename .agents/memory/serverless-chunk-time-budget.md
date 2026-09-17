@@ -13,3 +13,9 @@ description: Why browser-driven chunked backfills must bound each invocation by 
 - Client loop: a fixed max-chunk count is wrong once chunks are time-budgeted (a chunk may process very few records) — cap the loop by total wall-clock + a stalled-progress guard (nextOffset not advancing with 0 evaluated) instead.
 - Client should retry a chunk on 502/503/504/network with backoff; on final failure tell the admin re-running is safe (executed records are logged; once-per-record workflows skip them).
 - Verified pattern: monkey-patch the shared `supabase` object from `database.js` in an ad-hoc harness to unit-test `runScheduledWorkflow` offset arithmetic without a real DB (Node 20 has no `mock.module`).
+
+**Rule:** Budget prerequisite retries and downstream completion separately, and expose partial progress instead of equating a returned invocation with successful work.
+
+**Why:** Repeated manual payment sweeps spent their single prerequisite slot on old failed address mappings while newer paid submissions were skipped. Heartbeat-only failures were omitted from the JSON response, so callers saw successful invocations with no explanation for zero finalizations.
+
+**How to apply:** Claim prerequisites sequentially within a bounded allowance, reserve enough time to start the downstream finalizer, and finish each owned lease. Return safe stage-level failure and waiting counts; never weaken immutable payment evidence or mapping checks just to clear a queue.

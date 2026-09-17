@@ -397,7 +397,9 @@ test('readiness recovery finish-RPC error is surfaced to reconciliation monitori
   };
   const result = await reconcileFormPayments(db, { limit: 1 });
   assert.ok(result.__heartbeatFailures.some(entry =>
-    entry.scope === 'due-diligence-readiness-recovery' && entry.error.includes('finish write failed')));
+    entry.scope === 'due-diligence-readiness-recovery'
+      && entry.code === 'stage-failed'
+      && entry.error === 'Reconciliation stage failed.'));
 });
 
 test('a slow pending-provider row cannot starve Stripe address capture or its paid completion', async () => {
