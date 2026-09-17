@@ -415,7 +415,11 @@ test('future-only amendment validation skips hidden dates and uses authoritative
   );
 });
 
-test('amendment validation applies month/year restrictions while preserving unchanged historical answers', async () => {
+test('amendment validation applies month/year restrictions at a frozen UTC boundary while preserving unchanged historical answers', async (t) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2024-02-29T23:59:59.999Z'),
+  });
   const amendForm = {
     fields: [{
       id: 'rows',
@@ -455,6 +459,20 @@ test('amendment validation applies month/year restrictions while preserving unch
     value: 'edited',
   });
 
+  await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: amendForm,
+    submissionData: oldAnswers,
+    originalFormValues: oldAnswers,
+    hasDueDiligenceRecord: false,
+    fieldId: 'rows',
+    value: [{
+      _row_id: 'row-1',
+      historical_month: '2020-01',
+      historical_year: '2024',
+    }],
+  });
+
   await assert.rejects(
     () => validateSubmissionFieldEditCandidates({
       relationshipService,
@@ -466,7 +484,7 @@ test('amendment validation applies month/year restrictions while preserving unch
       value: [{
         _row_id: 'row-1',
         historical_month: '2020-01',
-        historical_year: '2026',
+        historical_year: '2025',
       }],
     }),
     (error) => error.code === 'FUTURE_DATE_INVALID'

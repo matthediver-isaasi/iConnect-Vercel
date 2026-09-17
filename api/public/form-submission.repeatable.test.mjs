@@ -403,6 +403,63 @@ test('public submission accepts each repeatable date precision and unrestricted/
   }
 });
 
+test('public submission accepts current UTC past-only periods and rejects later periods for canonical and legacy settings', async (t) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2024-02-29T23:59:59.999Z'),
+  });
+  const cases = [
+    {
+      precision: 'day',
+      current: '2024-02-29',
+      later: '2024-03-01',
+      message: 'Date must be today or earlier (UTC).',
+    },
+    {
+      precision: 'month',
+      current: '2024-02',
+      later: '2024-03',
+      message: 'Month must be the current month or earlier (UTC).',
+    },
+    {
+      precision: 'year',
+      current: '2024',
+      later: '2025',
+      message: 'Year must be the current year or earlier (UTC).',
+    },
+  ];
+
+  for (const legacy of [false, true]) {
+    for (const { precision, current, later, message } of cases) {
+      const field = {
+        id: 'answer',
+        type: 'date',
+        date_precision: precision,
+        ...(legacy ? { past_only: true } : { date_restriction: 'past' }),
+      };
+      const form = repeatableDateForm([field]);
+      const accepted = await postRepeatableDate(form, {
+        dates: [{ _row_id: 'row-current', answer: current }],
+      });
+      assert.equal(accepted.response.statusCode, 201, `${legacy ? 'legacy/' : ''}${precision} current`);
+      assert.equal(accepted.db.insertedSubmissions.length, 1, `${legacy ? 'legacy/' : ''}${precision} current`);
+
+      const rejected = await postRepeatableDate(form, {
+        dates: [{ _row_id: 'row-later', answer: later }],
+      });
+      assert.equal(rejected.response.statusCode, 400, `${legacy ? 'legacy/' : ''}${precision} later`);
+      assert.equal(rejected.response.body.code, 'FUTURE_DATE_INVALID');
+      assert.deepEqual(rejected.response.body.details[0], {
+        field_id: 'dates',
+        child_id: 'answer',
+        row: 0,
+        message,
+      });
+      assert.equal(rejected.db.insertedSubmissions.length, 0, `${legacy ? 'legacy/' : ''}${precision} later`);
+    }
+  }
+});
+
 test('public submission rejects malformed repeatable partial dates before persistence', async () => {
   const cases = [
     [{ id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'any' }, '2024-02'],

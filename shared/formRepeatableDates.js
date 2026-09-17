@@ -19,9 +19,9 @@ const RESTRICTION_HELP = {
     year: 'Choose a year in the future.',
   },
   past: {
-    day: 'Choose a date in the past.',
-    month: 'Choose a month in the past.',
-    year: 'Choose a year in the past.',
+    day: 'Choose today or an earlier date.',
+    month: 'Choose the current month or an earlier month.',
+    year: 'Choose the current year or an earlier year.',
   },
 };
 
@@ -183,7 +183,7 @@ function comparisonValue(parts, precision) {
 
 /**
  * Return native date-input limits for a repeatable date child. Null means
- * there is no bound. Bounds are strict at the configured precision.
+ * there is no bound. Past includes the current UTC period; future excludes it.
  */
 export function repeatableDateLimits(field, { now = new Date() } = {}) {
   const settings = repeatableDateSettings(field);
@@ -195,14 +195,7 @@ export function repeatableDateLimits(field, { now = new Date() } = {}) {
       max: null,
     };
   }
-  const previous = periodParts(now, settings.precision, -1);
-  if (settings.precision === 'month') {
-    previous.day = daysInMonth(previous.year, previous.month);
-  } else if (settings.precision === 'year') {
-    previous.month = 12;
-    previous.day = 31;
-  }
-  return { min: null, max: formatParts(previous, settings.precision) };
+  return { min: null, max: formatParts(utcDateParts(now), settings.precision) };
 }
 
 export function repeatableDateError(field, value, { now = new Date() } = {}) {
@@ -221,8 +214,12 @@ export function repeatableDateError(field, value, { now = new Date() } = {}) {
   if (settings.restriction === 'future' && valueComparison <= currentComparison) {
     return 'Date must be in the future.';
   }
-  if (settings.restriction === 'past' && valueComparison >= currentComparison) {
-    return 'Date must be in the past.';
+  if (settings.restriction === 'past' && valueComparison > currentComparison) {
+    return {
+      day: 'Date must be today or earlier (UTC).',
+      month: 'Month must be the current month or earlier (UTC).',
+      year: 'Year must be the current year or earlier (UTC).',
+    }[settings.precision];
   }
   return null;
 }
@@ -233,5 +230,5 @@ export function repeatableDateHelp(field) {
   const help = RESTRICTION_HELP[settings.restriction][settings.precision];
   if (settings.restriction === 'any') return help;
   const period = { day: 'Today', month: 'The current month', year: 'The current year' }[settings.precision];
-  return `${help} ${period} is excluded. Dates are compared in UTC.`;
+  return `${help} ${period} is ${settings.restriction === 'past' ? 'included' : 'excluded'}. Dates are compared in UTC.`;
 }

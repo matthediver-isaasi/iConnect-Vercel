@@ -39,6 +39,48 @@ const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query
 const { default: FormRenderer } = await import('./FormRenderer.jsx');
 const { tomorrowUtcDate } = await import('../../../../shared/formFutureDates.js');
 
+const RealDate = globalThis.Date;
+
+function freezeClock(isoDate) {
+  const frozenTime = RealDate.parse(isoDate);
+  class FrozenDate extends RealDate {
+    constructor(...args) {
+      super(...(args.length === 0 ? [frozenTime] : args));
+    }
+
+    static now() {
+      return frozenTime;
+    }
+  }
+  globalThis.Date = FrozenDate;
+  window.Date = FrozenDate;
+  return () => {
+    globalThis.Date = RealDate;
+    window.Date = RealDate;
+  };
+}
+
+function setInputValue(input, value) {
+  const prototype = input instanceof window.HTMLSelectElement
+    ? window.HTMLSelectElement.prototype
+    : window.HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
+  input.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
+function ControlledRepeatableRenderer({ field, initialValue, onChange }) {
+  const [value, setValue] = React.useState(initialValue);
+  return React.createElement(FormRenderer, {
+    field,
+    value,
+    onChange: nextValue => {
+      setValue(nextValue);
+      onChange?.(nextValue);
+    },
+  });
+}
+
+
 test('future-only native dates render the UTC min and accessible invalid state', async () => {
   const today = new Date();
   const value = [
@@ -478,3 +520,119 @@ test('repeatable future month choices disable months outside the selected year b
     container.remove();
   }
 });
+
+for (const layout of ['cards', 'spreadsheet']) {
+  test(`repeatable ${layout} dates use inclusive UTC limits for day, month, and year`, async () => {
+    const restoreClock = freezeClock('2025-06-15T23:45:00.000Z');
+    const changes = [];
+    const queryClient = new QueryClient();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const field = {
+      id: `periods-${layout}`,
+      type: 'repeatable_rows',
+      label: 'Periods',
+      layout,
+      children: [
+        {
+          id: 'day',
+          type: 'date',
+          label: 'Day',
+          date_precision: 'day',
+          date_restriction: 'past',
+        },
+        {
+          id: 'month',
+          type: 'date',
+          label: 'Month',
+          date_precision: 'month',
+          date_restriction: 'past',
+        },
+        {
+          id: 'year',
+          type: 'date',
+          label: 'Year',
+          date_precision: 'year',
+          date_restriction: 'past',
+        },
+      ],
+    };
+    const initialValue = [{ _row_id: `row-${layout}`, day: '', month: '', year: '' }];
+    const currentDay = '2025-06-15';
+    const laterDay = '2025-06-16';
+    const currentMonth = '06';
+    const laterMonth = '07';
+    const currentYear = '2025';
+    const laterYear = '2026';
+
+    try {
+      await act(async () => {
+        root.render(
+          React.createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            React.createElement(ControlledRepeatableRenderer, {
+              field,
+              initialValue,
+              onChange: nextValue => changes.push(nextValue),
+            }),
+          ),
+        );
+      });
+
+      assert.ok(container.querySelector(`[data-testid="repeatable-${layout === 'cards' ? 'rows' : 'spreadsheet'}-${field.id}"]`));
+
+      const day = container.querySelector('[aria-label="Day"]');
+      assert.ok(day);
+      assert.equal(day.max, currentDay);
+      await act(async () => setInputValue(day, currentDay));
+      assert.equal(changes.at(-1)?.[0]?.day, currentDay);
+      assert.equal(day.getAttribute('aria-invalid'), null);
+      assert.equal(container.querySelector('[data-testid^="error-date-day-"]'), null);
+
+      await act(async () => setInputValue(day, laterDay));
+      assert.equal(changes.at(-1)?.[0]?.day, laterDay);
+      assert.equal(day.getAttribute('aria-invalid'), 'true');
+      assert.match(container.textContent, /Date must be today or earlier \(UTC\)/);
+
+      const month = container.querySelector('[aria-label="Month Month"]');
+      const monthYear = container.querySelector('[aria-label="Month Year"]');
+      assert.ok(month);
+      assert.ok(monthYear);
+      assert.equal(monthYear.max, currentYear);
+      await act(async () => setInputValue(monthYear, currentYear));
+      assert.equal(month.querySelector(`option[value="${currentMonth}"]`).disabled, false);
+      assert.equal(month.querySelector(`option[value="${laterMonth}"]`).disabled, true);
+
+      await act(async () => setInputValue(month, currentMonth));
+      assert.equal(changes.at(-1)?.[0]?.month, `${currentYear}-${currentMonth}`);
+      assert.equal(month.getAttribute('aria-invalid'), null);
+      assert.equal(monthYear.getAttribute('aria-invalid'), null);
+      assert.equal(container.querySelector('[data-testid^="error-date-month-"]'), null);
+
+      await act(async () => setInputValue(month, laterMonth));
+      assert.equal(changes.at(-1)?.[0]?.month, `${currentYear}-${laterMonth}`);
+      assert.equal(month.getAttribute('aria-invalid'), 'true');
+      assert.match(container.textContent, /Month must be the current month or earlier \(UTC\)/);
+
+      const year = container.querySelector('[aria-label="Year Year"]');
+      assert.ok(year);
+      assert.equal(year.max, currentYear);
+      await act(async () => setInputValue(year, currentYear));
+      assert.equal(changes.at(-1)?.[0]?.year, currentYear);
+      assert.equal(year.getAttribute('aria-invalid'), null);
+      assert.equal(container.querySelector('[data-testid^="error-date-year-"]'), null);
+
+      await act(async () => setInputValue(year, laterYear));
+      assert.equal(changes.at(-1)?.[0]?.year, laterYear);
+      assert.equal(year.getAttribute('aria-invalid'), 'true');
+      assert.match(container.textContent, /Year must be the current year or earlier \(UTC\)/);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+      restoreClock();
+    }
+  });
+}

@@ -362,6 +362,82 @@ test('payment submission validation accepts every repeatable date precision and 
   }
 });
 
+test('payment validation accepts current UTC past-only periods and rejects later periods for canonical and legacy settings', async (t) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2024-02-29T23:59:59.999Z'),
+  });
+  const cases = [
+    {
+      precision: 'day',
+      current: '2024-02-29',
+      later: '2024-03-01',
+      message: 'Date must be today or earlier (UTC).',
+    },
+    {
+      precision: 'month',
+      current: '2024-02',
+      later: '2024-03',
+      message: 'Month must be the current month or earlier (UTC).',
+    },
+    {
+      precision: 'year',
+      current: '2024',
+      later: '2025',
+      message: 'Year must be the current year or earlier (UTC).',
+    },
+  ];
+
+  for (const legacy of [false, true]) {
+    for (const { precision, current, later, message } of cases) {
+      const responseFor = () => ({
+        statusCode: null,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; return this; },
+      });
+      const field = {
+        id: 'answer',
+        type: 'date',
+        ...(legacy ? { past_only: true } : { date_restriction: 'past' }),
+        date_precision: precision,
+      };
+      const form = {
+        id: 'paid-form',
+        fields: [{
+          id: 'dates',
+          type: 'repeatable_rows',
+          children: [field],
+        }],
+      };
+      const acceptedResponse = responseFor();
+      assert.equal(await validatePaymentRelationships(
+        acceptedResponse,
+        selectionDb({}),
+        { id: 'tenant-1' },
+        form,
+        { dates: [{ _row_id: 'row-current', answer: current }] },
+      ), true, `${legacy ? 'legacy/' : ''}${precision} current`);
+      assert.equal(acceptedResponse.statusCode, null);
+
+      const rejectedResponse = responseFor();
+      assert.equal(await validatePaymentRelationships(
+        rejectedResponse,
+        selectionDb({}),
+        { id: 'tenant-1' },
+        form,
+        { dates: [{ _row_id: 'row-later', answer: later }] },
+      ), false, `${legacy ? 'legacy/' : ''}${precision} later`);
+      assert.equal(rejectedResponse.statusCode, 400);
+      assert.deepEqual(rejectedResponse.payload.details[0], {
+        field_id: 'dates',
+        child_id: 'answer',
+        row: 0,
+        message,
+      });
+    }
+  }
+});
+
 test('payment validation rejects malformed repeatable partial dates before provider work', async () => {
   for (const [settings, answer] of [
     [{ date_precision: 'day', date_restriction: 'any' }, '2024-02'],

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { validateGenericFormSubmissionFutureDates } from './[entity]/index.js';
+import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 test('generic FormSubmission POST validation reports active top-level and repeatable date errors', () => {
   const form = {
@@ -72,9 +73,104 @@ test('generic FormSubmission validation preserves repeatable date precision and 
     message: error.message,
   })), [
     { child_id: 'month_future', message: 'Date must be in the future.' },
-    { child_id: 'year_past', message: 'Date must be in the past.' },
+    { child_id: 'year_past', message: 'Year must be the current year or earlier (UTC).' },
     { child_id: 'month_any', message: 'Enter a valid month in YYYY-MM format.' },
   ]);
+});
+
+test('generic FormSubmission validation accepts current UTC past-only periods and rejects later periods for canonical and legacy settings', (t) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2024-02-29T23:59:59.999Z'),
+  });
+  const cases = [
+    {
+      precision: 'day',
+      current: '2024-02-29',
+      later: '2024-03-01',
+      message: 'Date must be today or earlier (UTC).',
+    },
+    {
+      precision: 'month',
+      current: '2024-02',
+      later: '2024-03',
+      message: 'Month must be the current month or earlier (UTC).',
+    },
+    {
+      precision: 'year',
+      current: '2024',
+      later: '2025',
+      message: 'Year must be the current year or earlier (UTC).',
+    },
+  ];
+
+  for (const legacy of [false, true]) {
+    for (const { precision, current, later, message } of cases) {
+      const child = {
+        id: 'answer',
+        type: 'date',
+        date_precision: precision,
+        ...(legacy ? { past_only: true } : { date_restriction: 'past' }),
+      };
+      const form = {
+        fields: [{
+          id: 'rows',
+          type: 'repeatable_rows',
+          children: [child],
+        }],
+      };
+      const accepted = validateGenericFormSubmissionFutureDates({
+        form,
+        submissionData: { rows: [{ _row_id: 'row-current', answer: current }] },
+      });
+      assert.deepEqual(accepted.errors, [], `${legacy ? 'legacy/' : ''}${precision} current`);
+
+      const rejected = validateGenericFormSubmissionFutureDates({
+        form,
+        submissionData: { rows: [{ _row_id: 'row-later', answer: later }] },
+      });
+      assert.deepEqual(rejected.errors, [{
+        field_id: 'rows',
+        child_id: 'answer',
+        row: 0,
+        message,
+      }], `${legacy ? 'legacy/' : ''}${precision} later`);
+    }
+  }
+});
+
+test('historical repeatable past-only answers stay exempt while an amended row is checked at the frozen clock', (t) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2024-02-29T23:59:59.999Z'),
+  });
+  const fields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'answer',
+      type: 'date',
+      date_precision: 'day',
+      date_restriction: 'past',
+    }],
+  }];
+  const previousValues = {
+    rows: [{ answer: '2025-01-01' }],
+  };
+  const unchanged = validateFutureDateFields(fields, {
+    rows: [{ _row_id: 'legacy-row', answer: '2025-01-01' }],
+  }, { previousValues });
+  assert.deepEqual(unchanged, []);
+
+  const amended = validateFutureDateFields(fields, {
+    rows: [{ _row_id: 'legacy-row', answer: '2024-03-01' }],
+  }, { previousValues });
+  assert.deepEqual(amended, [{
+    field_id: 'rows',
+    child_id: 'answer',
+    row: 0,
+    message: 'Date must be today or earlier (UTC).',
+  }]);
 });
 
 test('generic FormSubmission validation receives the published snapshot rather than mutable live fields', () => {

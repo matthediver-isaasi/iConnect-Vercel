@@ -482,7 +482,7 @@ const REPEATABLE_DATE_PRECISION_OPTIONS = [
 const REPEATABLE_DATE_RESTRICTION_OPTIONS = [
   { value: 'any', label: 'Any date' },
   { value: 'future', label: 'Future dates only' },
-  { value: 'past', label: 'Past dates only' },
+  { value: 'past', label: 'Past dates only (including current period)' },
 ];
 const ADDRESS_LOOKUP_COMPONENTS = [
   { value: 'line_1', label: 'Address line 1' },
