@@ -71,7 +71,7 @@ import {
   isCustomObjectFieldWrite,
   isCustomObjectStorageEntity,
 } from '../../_lib/customObjectApiBoundary.js';
-import { authorizeGenericCommunicationPreferenceAccess } from '../../_lib/communicationPreferenceGenericAccess.js';
+import { authorizeGenericCommunicationPreferenceAccess, validateGenericCommunicationPreferenceFilter } from '../../_lib/communicationPreferenceGenericAccess.js';
 import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
@@ -755,6 +755,12 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       // List entities
       const { filter, sort, limit, offset, expand } = req.query;
+      const preferenceFilterError = validateGenericCommunicationPreferenceFilter(
+        entity, tenantCtx.parsedFilter || filter,
+      );
+      if (preferenceFilterError) {
+        return res.status(preferenceFilterError.status).json({ error: preferenceFilterError.error });
+      }
       // Opt-in exact total count (gated by ?count=exact). When requested, the
       // response shape becomes { data, count } instead of a bare array so
       // paginated callers can compute the total number of pages. Existing

@@ -3,7 +3,56 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { authorizeGenericCommunicationPreferenceAccess } from './communicationPreferenceGenericAccess.js';
+import { authorizeGenericCommunicationPreferenceAccess, validateGenericCommunicationPreferenceFilter } from './communicationPreferenceGenericAccess.js';
+
+const memberId = '613c7958-d70a-430f-abfd-c3d3a4e143ad';
+
+test('generic preference filter rejects slugs in all supported UUID filter shapes', () => {
+  for (const member_id of [
+    'committee', '', 'undefined', null, 123,
+    [memberId, 'committee'], { eq: 'committee' }, { neq: 'committee' },
+    { in: [memberId, 'committee'] }, { in: 'committee' },
+    { eq: memberId, gt: 'committee' }, { like: '%committee%' },
+    { is: 'committee' }, {},
+  ]) {
+    for (const filter of [{ member_id }, JSON.stringify({ member_id })]) {
+      assert.equal(validateGenericCommunicationPreferenceFilter('MemberCommunicationPreference', filter)?.status, 400);
+    }
+  }
+});
+
+test('valid member preference filters are preserved, including lists and null checks', () => {
+  for (const member_id of [
+    memberId, memberId.toUpperCase(), [memberId], [],
+    { eq: memberId }, { neq: memberId }, { in: [memberId] },
+    { is: null }, { gte: memberId, lte: memberId },
+  ]) {
+    const filter = { member_id };
+    const before = JSON.stringify(filter);
+    assert.equal(validateGenericCommunicationPreferenceFilter('member-communication-preference', filter), null);
+    assert.equal(JSON.stringify(filter), before);
+  }
+  for (const filter of [undefined, null, {}, '{}']) {
+    assert.equal(validateGenericCommunicationPreferenceFilter('MemberCommunicationPreference', filter), null);
+  }
+});
+
+test('malformed preference filter JSON is rejected, not broadened into an unfiltered read', () => {
+  for (const filter of ['{', 'null', '[]', '"committee"']) {
+    assert.equal(validateGenericCommunicationPreferenceFilter('MemberCommunicationPreference', filter)?.status, 400);
+  }
+  assert.equal(validateGenericCommunicationPreferenceFilter('OtherEntity', { member_id: 'committee' }), null);
+});
+
+test('collection validates preference filters before constructing the list query', async () => {
+  const source = await readFile(new URL('../entities/[entity]/index.js', import.meta.url), 'utf8');
+  const getBlock = source.slice(source.indexOf("if (req.method === 'GET')"));
+  const validationAt = getBlock.indexOf('const preferenceFilterError = validateGenericCommunicationPreferenceFilter(');
+  const rejectAt = getBlock.indexOf('return res.status(preferenceFilterError.status)');
+  const queryAt = getBlock.indexOf('let query = supabase');
+  assert.ok(validationAt >= 0 && rejectAt > validationAt && queryAt > rejectAt);
+  assert.match(getBlock, /entity, tenantCtx\.parsedFilter \|\| filter/);
+});
 
 test('generic communication preference access rejects unauthenticated callers', async () => {
   const result = await authorizeGenericCommunicationPreferenceAccess(
