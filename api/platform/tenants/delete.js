@@ -1,6 +1,10 @@
 import { supabase } from '../../_lib/database.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { cleanupEmailDomain } from '../../_lib/emailDomainService.js';
+import {
+  PROTECTED_DEPARTMENT_TENANT_ID,
+  PROTECTED_FORM_HELPER_MESSAGE,
+} from '../../_lib/protectedDepartmentForm.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -21,6 +25,12 @@ export default async function handler(req, res) {
     
     if (!tenantId) {
       return res.status(400).json({ error: 'tenantId is required' });
+    }
+    if (String(tenantId).toLowerCase() === PROTECTED_DEPARTMENT_TENANT_ID) {
+      return res.status(403).json({
+        error: PROTECTED_FORM_HELPER_MESSAGE,
+        code: 'PROTECTED_FORM_TENANT_DELETE_FORBIDDEN',
+      });
     }
 
     if (!confirmSlug) {

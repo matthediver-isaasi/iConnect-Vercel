@@ -4,6 +4,10 @@ import { remapStageFieldMappingAction } from '../_lib/fieldMappingRemap.js';
 import {
   normalizeTargetEntity,
 } from '../../shared/stageMemberMappingContract.js';
+import {
+  authorizeProtectedFormMutation,
+  getRequestHeader,
+} from '../_lib/protectedDepartmentForm.js';
 
 const supabaseUrl =
   process.env.DEST_SUPABASE_URL ||
@@ -108,6 +112,26 @@ export default async function handler(req, res) {
   const tenantCtx = await getTenantContext(req);
   if (!tenantCtx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (tenantCtx.tenantMismatch
+    || (tenantCtx.effectiveTenantId && tenantCtx.effectiveTenantId !== tenantCtx.tenantId)) {
+    return res.status(409).json({
+      error: 'Your browser session has switched tenant.',
+      code: 'TENANT_CONTEXT_CHANGED',
+    });
+  }
+  const protectedFormDecision = authorizeProtectedFormMutation({
+    formId: req.body?.targetFormId,
+    tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+    method: 'PATCH',
+    body: { due_diligence_required: true },
+    password: getRequestHeader(req, 'x-form-protection-password'),
+  });
+  if (!protectedFormDecision.ok) {
+    return res.status(protectedFormDecision.status).json({
+      error: protectedFormDecision.error,
+      code: protectedFormDecision.code,
+    });
   }
   const canConfigure = await hasAdminAccess(tenantCtx)
     || (tenantCtx.roleId

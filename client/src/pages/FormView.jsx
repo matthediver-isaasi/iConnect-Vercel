@@ -45,6 +45,7 @@ import {
 } from "@/lib/formValueConvergence";
 import { validateFutureDateFields } from "../../../shared/formFutureDates.js";
 import { getFormMaxWidth } from "../../../shared/formWidth.js";
+import { isProtectedDepartmentForm } from "../../../shared/protectedDepartmentForm.js";
 import { schedulePaymentReturnScroll } from "@/lib/formPaymentReturnScroll";
 import {
   activeDisplayNameCopyIssues,
@@ -1140,7 +1141,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       let createdOrganizationId = submissionResult?.created_organization_id || null;
       
       if (memberInfo) {
-        if (form) {
+        if (form && !isProtectedDepartmentForm(form)) {
           try {
             await base44.entities.Form.update(form.id, {
               submission_count: (form.submission_count || 0) + 1

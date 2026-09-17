@@ -10,6 +10,10 @@ import {
 } from '../../../demo-seeds/engine.mjs';
 import { provisionTenant } from '../../_lib/provisionTenantService.js';
 import { acquirePlatformOpLock } from '../../_lib/platformOpLock.js';
+import {
+  PROTECTED_DEPARTMENT_TENANT_ID,
+  PROTECTED_FORM_HELPER_MESSAGE,
+} from '../../_lib/protectedDepartmentForm.js';
 
 /**
  * POST /api/platform/demo-tenants/operate
@@ -52,6 +56,13 @@ export default async function handler(req, res) {
   }
   if (!['seed', 'reset', 'delete', 'set-password'].includes(action)) {
     return res.status(400).json({ error: `Unknown action '${action}'` });
+  }
+  if ((action === 'reset' || action === 'delete')
+    && String(definition.tenant?.id || '').toLowerCase() === PROTECTED_DEPARTMENT_TENANT_ID) {
+    return res.status(403).json({
+      error: PROTECTED_FORM_HELPER_MESSAGE,
+      code: 'PROTECTED_FORM_TENANT_DELETE_FORBIDDEN',
+    });
   }
   if (action === 'set-password' && password != null && String(password).trim().length > 0 && String(password).trim().length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters (leave blank to generate one)' });

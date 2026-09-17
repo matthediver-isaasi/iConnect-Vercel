@@ -50,3 +50,9 @@ Submission acceptance and Department-save confirmation are distinct outcomes, in
 **Why:** Generic success responses once dropped an already-verified reconciliation result. Records were committed, but the browser correctly refused to infer that from submission success alone. Browser fixtures with assumed success payloads did not expose the endpoint mismatch.
 
 **How to apply:** Carry only the authenticated processor's verified commit status and version through fresh, duplicate, and concurrent-winner responses. Test the actual endpoint response contract as well as the browser; submission presence and processing notes are not substitutes for commit verification.
+
+Protection is per configuration-save attempt, not a reusable editor unlock, and the protected form must survive normal administrative deletion operations.
+
+**Why:** The user explicitly requires a fresh protection-password check for configuration saves and a separate final confirmation after password validation for deactivation. The bespoke Department integration makes accidental configuration loss unsafe; deactivation must preserve the form and associated data.
+
+**How to apply:** Do not replace the per-attempt check with a session-wide unlock, gate respondent submissions with this password, or introduce an admin deletion override. Keep protection independent of editable form settings and consider parent deletion cascades and specialized configuration writers.

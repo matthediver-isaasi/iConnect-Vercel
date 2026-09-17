@@ -1,6 +1,15 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { validateSurveyForPublish } from '../_lib/surveyScoring.js';
+import {
+  authorizeProtectedFormMutation,
+  clearProtectedFormPasswordFailures,
+  getRequestHeader,
+  isProtectedDepartmentForm,
+  isProtectedFormRateLimited,
+  protectedFormAttemptKey,
+  recordProtectedFormPasswordFailure,
+} from '../_lib/protectedDepartmentForm.js';
 
 /**
  * Task #3330: server-authoritative survey publishing.
@@ -12,22 +21,30 @@ import { validateSurveyForPublish } from '../_lib/surveyScoring.js';
  *
  * POST { form_id }
  */
-export default async function handler(req, res) {
+export async function handlePublishSurvey(req, res, dependencies = {}) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) {
+  const db = dependencies.supabase || supabase;
+  if (!db) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
   try {
-    const tenantCtx = await getTenantContext(req);
+    const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
     if (!tenantCtx.isAuthenticated || !tenantCtx.tenantId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
+    if (tenantCtx.tenantMismatch
+      || (tenantCtx.effectiveTenantId && tenantCtx.effectiveTenantId !== tenantCtx.tenantId)) {
+      return res.status(409).json({
+        error: 'Your browser session has switched tenant.',
+        code: 'TENANT_CONTEXT_CHANGED',
+      });
+    }
     // Admin-only: getTenantIdFromSession-style membership checks are not
     // enough for publish (see tenant-session-admin-gate).
-    const isAdmin = await hasAdminAccess(tenantCtx);
+    const isAdmin = await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
@@ -36,8 +53,30 @@ export default async function handler(req, res) {
     if (!form_id) {
       return res.status(400).json({ error: 'form_id is required' });
     }
+    const protectionAttemptKey = protectedFormAttemptKey(req);
+    if (isProtectedDepartmentForm(form_id) && isProtectedFormRateLimited(protectionAttemptKey)) {
+      return res.status(429).json({
+        error: 'Too many password attempts. Please try again later.',
+        code: 'PROTECTED_FORM_RATE_LIMITED',
+      });
+    }
+    const protection = authorizeProtectedFormMutation({
+      formId: form_id,
+      tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+      method: 'PATCH',
+      body: { survey_settings: { status: 'published' } },
+      password: getRequestHeader(req, 'x-form-protection-password'),
+      env: dependencies.env || process.env,
+    });
+    if (!protection.ok) {
+      if (protection.code === 'PROTECTED_FORM_PASSWORD_INCORRECT') {
+        recordProtectedFormPasswordFailure(protectionAttemptKey);
+      }
+      return res.status(protection.status).json({ error: protection.error, code: protection.code });
+    }
+    if (protection.protected) clearProtectedFormPasswordFailures(protectionAttemptKey);
 
-    const { data: form, error: formError } = await supabase
+    const { data: form, error: formError } = await db
       .from('form')
       .select('id, tenant_id, form_type, fields, pages, visibility_rules, survey_settings, survey_audit_log')
       .eq('id', form_id)
@@ -63,10 +102,10 @@ export default async function handler(req, res) {
     let actor = null;
     try {
       if (tenantCtx.memberId) {
-        const { data: m } = await supabase.from('member').select('email').eq('id', tenantCtx.memberId).maybeSingle();
+        const { data: m } = await db.from('member').select('email').eq('id', tenantCtx.memberId).maybeSingle();
         actor = m?.email || null;
       } else if (tenantCtx.tenantUserId) {
-        const { data: tu } = await supabase.from('tenant_user').select('email').eq('id', tenantCtx.tenantUserId).maybeSingle();
+        const { data: tu } = await db.from('tenant_user').select('email').eq('id', tenantCtx.tenantUserId).maybeSingle();
         actor = tu?.email || null;
       }
     } catch { /* actor is best-effort */ }
@@ -76,7 +115,7 @@ export default async function handler(req, res) {
     // status/current_version/audit update all commit in one transaction —
     // concurrent publishes can never leave the pointer inconsistent or
     // drop audit entries.
-    const { data: result, error: publishError } = await supabase
+    const { data: result, error: publishError } = await db
       .rpc('publish_survey', {
         p_tenant_id: tenantCtx.tenantId,
         p_form_id: form.id,
@@ -103,4 +142,8 @@ export default async function handler(req, res) {
     console.error('[Publish Survey] Error:', err);
     return res.status(500).json({ error: 'Failed to publish survey' });
   }
+}
+
+export default function handler(req, res) {
+  return handlePublishSurvey(req, res);
 }

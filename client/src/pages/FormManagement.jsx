@@ -12,6 +12,7 @@ import {
   LayoutGrid, List, ArrowUpDown, Pin, PinOff,
 } from "lucide-react";
 import ManualSubmissionDialog from "@/components/ManualSubmissionDialog";
+import ProtectedFormActionDialog from "@/components/forms/ProtectedFormActionDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,11 @@ import {
   isSurveyForm,
   matchesFormClassification,
 } from '@/lib/formManagementClassification';
+import {
+  isProtectedDepartmentForm,
+  PROTECTED_FORM_HELPER_MESSAGE,
+} from '@shared/protectedDepartmentForm.js';
+import { protectedFormUpdateHeaders } from '@/lib/protectedFormActions';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 const DEFAULT_PAGE_SIZE = 12;
@@ -245,6 +251,7 @@ export default function FormManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingForm, setDeletingForm] = useState(null);
+  const [deactivatingProtectedForm, setDeactivatingProtectedForm] = useState(null);
   const [manualSubmissionOpen, setManualSubmissionOpen] = useState(false);
   const [manualSubmissionForm, setManualSubmissionForm] = useState(null);
 
@@ -381,6 +388,20 @@ export default function FormManagementPage() {
     }
   });
 
+  const deactivateProtectedFormMutation = useMutation({
+    mutationFn: async ({ form, password }) => (
+      base44.entities.Form.update(form.id, { is_active: false }, {
+        headers: protectedFormUpdateHeaders(password, { deactivation: true }),
+      })
+    ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['forms'] });
+      toast.success('Form deactivated successfully');
+      setDeactivatingProtectedForm(null);
+      setDeletingForm(null);
+    },
+  });
+
   const duplicateFormMutation = useMutation({
     mutationFn: async (form) => {
       const { id, created_date, updated_date, created_by, submission_count, ...formData } = form;
@@ -405,6 +426,13 @@ export default function FormManagementPage() {
 
   const handleDelete = () => {
     if (!deletingForm) return;
+    if (isProtectedDepartmentForm(deletingForm)) {
+      setDeleteDialogOpen(false);
+      if (deletingForm.is_active !== false) {
+        setDeactivatingProtectedForm(deletingForm);
+      }
+      return;
+    }
     deleteFormMutation.mutate(deletingForm.id);
   };
 
@@ -969,22 +997,47 @@ export default function FormManagementPage() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isProtectedDepartmentForm(deletingForm) ? 'Protected form' : 'Are you sure?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the form "{deletingForm?.name}" and all its submissions. This action cannot be undone.
+              {isProtectedDepartmentForm(deletingForm)
+                ? PROTECTED_FORM_HELPER_MESSAGE
+                : `This will permanently delete the form "${deletingForm?.name}" and all its submissions. This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Delete
-            </AlertDialogAction>
+            <AlertDialogCancel>
+              {isProtectedDepartmentForm(deletingForm) && deletingForm?.is_active === false ? 'Close' : 'Cancel'}
+            </AlertDialogCancel>
+            {(!isProtectedDepartmentForm(deletingForm) || deletingForm?.is_active !== false) && (
+              <AlertDialogAction
+                onClick={handleDelete}
+                className={isProtectedDepartmentForm(deletingForm) ? '' : 'bg-red-600 hover:bg-red-700'}
+                data-testid={isProtectedDepartmentForm(deletingForm) ? 'button-offer-deactivate-protected-form' : undefined}
+              >
+                {isProtectedDepartmentForm(deletingForm) ? 'Deactivate Form' : 'Delete'}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ProtectedFormActionDialog
+        open={Boolean(deactivatingProtectedForm)}
+        onOpenChange={(open) => {
+          if (!open) setDeactivatingProtectedForm(null);
+        }}
+        formId={deactivatingProtectedForm?.id}
+        action="deactivate"
+        onAuthorized={async (password) => {
+          if (!deactivatingProtectedForm) return;
+          await deactivateProtectedFormMutation.mutateAsync({
+            form: deactivatingProtectedForm,
+            password,
+          });
+        }}
+      />
 
       <ManualSubmissionDialog
         open={manualSubmissionOpen}

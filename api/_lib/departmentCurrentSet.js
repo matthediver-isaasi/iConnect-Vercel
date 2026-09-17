@@ -15,10 +15,14 @@ import {
   assertDepartmentCurrentSetCompatibility,
   assertDepartmentCurrentSetLoadedBounds,
 } from './departmentCurrentSetCompatibility.js';
+import {
+  PROTECTED_DEPARTMENT_FORM_ID,
+  PROTECTED_DEPARTMENT_TENANT_ID,
+} from '../../shared/protectedDepartmentForm.js';
 
 export const DEPARTMENT_CURRENT_SET_METADATA_KEY = '__department_current_set';
-export const DEPARTMENT_CURRENT_SET_FORM_ID = '8b6f44d3-83f8-449e-9496-b10b1dc28e5f';
-export const DEPARTMENT_CURRENT_SET_TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
+export const DEPARTMENT_CURRENT_SET_FORM_ID = PROTECTED_DEPARTMENT_FORM_ID;
+export const DEPARTMENT_CURRENT_SET_TENANT_ID = PROTECTED_DEPARTMENT_TENANT_ID;
 
 export class DepartmentCurrentSetError extends Error {
   constructor(status, code, message) {

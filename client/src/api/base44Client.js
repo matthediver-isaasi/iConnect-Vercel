@@ -112,11 +112,16 @@ class EntityProxy {
     return response;
   }
 
-  async update(id, data) {
+  async update(id, data, options = {}) {
+    const { headers = {}, ...requestOptions } = options;
     const response = await this.apiRequest(`/api/entities/${this.entityName}/${id}`, {
+      ...requestOptions,
       method: 'PATCH',
       body: JSON.stringify(data),
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      }
     });
     return response;
   }

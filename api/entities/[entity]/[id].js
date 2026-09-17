@@ -43,6 +43,17 @@ import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToViewer, filterCategorySubcategoriesForViewer, getSubcategoryExclusionMap } from '../../_lib/resourceCategoryAccess.js';
+import {
+  PROTECTED_DEPARTMENT_TENANT_ID,
+  PROTECTED_FORM_HELPER_MESSAGE,
+  authorizeProtectedFormMutation,
+  clearProtectedFormPasswordFailures,
+  getRequestHeader,
+  isProtectedDepartmentForm,
+  isProtectedFormRateLimited,
+  protectedFormAttemptKey,
+  recordProtectedFormPasswordFailure,
+} from '../../_lib/protectedDepartmentForm.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
@@ -253,7 +264,7 @@ const entityTableByNormalizedName = new Map(
 );
 const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
   const { entity, id } = req.query;
   console.log(`[Entity ${req.method}] Incoming request: entity="${entity}", id="${id}"`);
   if (typeof entity !== 'string' || typeof id !== 'string') {
@@ -261,12 +272,22 @@ export default async function handler(req, res) {
   }
   if (rejectGenericCpdPointsEntity(entity, res)) return;
   if (rejectGenericServerOwnedEntity(entity, res)) return;
+
+  const entityNorm = normalizeEntityName(entity);
+  // Enforce the immutable form-ID boundary before database availability,
+  // tenant/platform bypasses, and all generic mutation side effects.
+  if (entityNorm === 'form' && isProtectedDepartmentForm(id) && req.method === 'DELETE') {
+    return res.status(403).json({
+      error: PROTECTED_FORM_HELPER_MESSAGE,
+      code: 'PROTECTED_FORM_DELETE_FORBIDDEN',
+    });
+  }
   
-  if (!supabase) {
+  const requestDatabase = dependencies.supabase || supabase;
+  if (!requestDatabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const entityNorm = normalizeEntityName(entity);
   if (!isCustomObjectStorageEntity(entityNorm) && !entityTableByNormalizedName.has(entityNorm)) {
     return res.status(404).json({ error: 'Unsupported entity' });
   }
@@ -274,7 +295,7 @@ export default async function handler(req, res) {
   const tableName = getTableName(entity);
 
   // Get tenant context from session
-  const tenantCtx = await getTenantContext(req);
+  const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
 
   const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(
     entity,
@@ -294,6 +315,42 @@ export default async function handler(req, res) {
       error: 'Your browser session has switched to a different organisation. Reload this tab to continue.',
       code: 'TENANT_CONTEXT_CHANGED',
     });
+  }
+
+  // Authentication and tenant mismatch are intentionally resolved before
+  // checking the password, so this endpoint cannot serve as an anonymous
+  // password-verification oracle. The pinned ID remains protected regardless
+  // of which tenant/platform context the caller presents.
+  if (entityNorm === 'form' && isProtectedDepartmentForm(id)
+    && ['PATCH', 'PUT'].includes(req.method)) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    if (!(await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx))) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const attemptKey = protectedFormAttemptKey(req);
+    if (isProtectedFormRateLimited(attemptKey)) {
+      return res.status(429).json({
+        error: 'Too many password attempts. Please try again later.',
+        code: 'PROTECTED_FORM_RATE_LIMITED',
+      });
+    }
+    const decision = authorizeProtectedFormMutation({
+      formId: id,
+      tenantId: PROTECTED_DEPARTMENT_TENANT_ID,
+      method: req.method,
+      body: req.body,
+      password: getRequestHeader(req, 'x-form-protection-password'),
+      deactivationConfirmed: getRequestHeader(req, 'x-form-deactivation-confirmed'),
+    });
+    if (!decision.ok) {
+      if (decision.code === 'PROTECTED_FORM_PASSWORD_INCORRECT') {
+        recordProtectedFormPasswordFailure(attemptKey);
+      }
+      return res.status(decision.status).json({ error: decision.error, code: decision.code });
+    }
+    clearProtectedFormPasswordFailures(attemptKey);
   }
 
   const tenantScope = getEntityTenantScope(entity);
@@ -555,6 +612,15 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Invalid member context' });
     }
+  }
+
+  // A platform/admin tenant deletion must not cascade around the form guard.
+  if (entityNorm === 'tenant' && req.method === 'DELETE'
+    && String(id).toLowerCase() === PROTECTED_DEPARTMENT_TENANT_ID) {
+    return res.status(403).json({
+      error: PROTECTED_FORM_HELPER_MESSAGE,
+      code: 'PROTECTED_FORM_TENANT_DELETE_FORBIDDEN',
+    });
   }
 
   try {

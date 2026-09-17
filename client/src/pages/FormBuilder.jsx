@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import RepeatableRowOptionsEditor from "@/components/forms/RepeatableRowOptionsEditor";
 import RepeatableRowVisibilityEditor from "@/components/forms/RepeatableRowVisibilityEditor";
+import ProtectedFormActionDialog from "@/components/forms/ProtectedFormActionDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -39,6 +40,8 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { isProtectedDepartmentForm } from "@shared/protectedDepartmentForm.js";
+import { protectedFormUpdateHeaders } from "@/lib/protectedFormActions";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
@@ -10737,6 +10740,7 @@ export default function FormBuilderPage() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const formId = urlParams.get('formId');
+  const [protectedAction, setProtectedAction] = useState(null);
   const [activeTenantId, setActiveTenantIdState] = useState(() => (
     (isTenantUuid(getActiveTenantId()) && getActiveTenantId().trim())
     || (isTenantUuid(memberInfo?.tenant_id) && memberInfo.tenant_id.trim())
@@ -11396,9 +11400,9 @@ export default function FormBuilderPage() {
   });
 
   const updateFormMutation = useMutation({
-    mutationFn: async ({ id, data }) => {
+    mutationFn: async ({ id, data, headers }) => {
       console.log('[FormBuilder] Updating form', id, 'with data:', JSON.stringify(data, null, 2));
-      return await base44.entities.Form.update(id, data);
+      return await base44.entities.Form.update(id, data, { headers });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forms'] });
@@ -11686,7 +11690,10 @@ export default function FormBuilderPage() {
   }, [formData.form_type, formData.fields, formData.survey_settings]);
 
   const publishSurveyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ protectionPassword } = {}) => {
+      const protectionHeaders = protectionPassword
+        ? protectedFormUpdateHeaders(protectionPassword)
+        : {};
       // Save the current builder state first so the server snapshots exactly
       // what the admin sees, then publish server-side (the publish endpoint
       // is the only writer of survey_version snapshots).
@@ -11695,10 +11702,10 @@ export default function FormBuilderPage() {
         pages: formData.pages || [],
         visibility_rules: formData.visibility_rules || [],
         survey_settings: formData.survey_settings || {}
-      });
+      }, { headers: protectionHeaders });
       const response = await fetch('/api/forms/publish-survey', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...protectionHeaders },
         credentials: 'include',
         body: JSON.stringify({ form_id: formId })
       });
@@ -11737,7 +11744,16 @@ export default function FormBuilderPage() {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
       return;
     }
-    publishSurveyMutation.mutate();
+    if (isProtectedDepartmentForm(formId)) {
+      setProtectedAction({
+        action: 'save',
+        execute: async (password) => {
+          await publishSurveyMutation.mutateAsync({ protectionPassword: password });
+        },
+      });
+      return;
+    }
+    publishSurveyMutation.mutate({});
   };
 
   const duplicateSurveyMutation = useMutation({
@@ -12400,7 +12416,20 @@ export default function FormBuilderPage() {
     
     if (formId) {
       console.log('[FormBuilder] Updating form:', formId);
-      updateFormMutation.mutate({ id: formId, data: dataToSave });
+      if (isProtectedDepartmentForm(formId)) {
+        const deactivating = dataToSave.is_active === false;
+        setProtectedAction({
+          action: deactivating ? 'deactivate' : 'save',
+          execute: async (password) => {
+            const headers = protectedFormUpdateHeaders(password, {
+              deactivation: deactivating,
+            });
+            await updateFormMutation.mutateAsync({ id: formId, data: dataToSave, headers });
+          },
+        });
+      } else {
+        updateFormMutation.mutate({ id: formId, data: dataToSave });
+      }
     } else {
       console.log('[FormBuilder] Creating new form');
       createFormMutation.mutate(dataToSave);
@@ -12417,6 +12446,17 @@ export default function FormBuilderPage() {
 
   return (
     <div className="min-h-screen p-4 md:p-8">
+      <ProtectedFormActionDialog
+        open={Boolean(protectedAction)}
+        onOpenChange={(open) => {
+          if (!open) setProtectedAction(null);
+        }}
+        formId={formId}
+        action={protectedAction?.action}
+        onAuthorized={async (password) => {
+          await protectedAction?.execute(password);
+        }}
+      />
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
