@@ -453,3 +453,17 @@ mtime_ms = 1789644218917
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3a2fafe0-25b9-4367-bd2c-36d1c372089e/fb3ce490-971a-4dad-93c5-eb8a3369e66a"
 storage_version_token = "1789644288890214"
 content_type = "text/html"
+
+[[outputs]]
+id = "tjUA528Xp2Fcq9QgrCsx4"
+uri = "file://reports/bnms-workforce-direct-import-preparation-v3/report.html"
+type = "text"
+title = "Updated workforce import review"
+description = "Direct department mappings for 1,242 workforce rows, with Reporting Year omitted. Includes totals, preservation checks, and import execution requirements."
+logical_id = "e406159e-d8eb-4061-8863-564d3a1c87fb"
+content_hash = "sha256:7baf173d2b5903d5aeb0252db93046e627685f723758534a2c96b6492db5c24a"
+size = 15634
+mtime_ms = 1789662290985
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e406159e-d8eb-4061-8863-564d3a1c87fb/c81ce763-f5e7-47d0-987e-6590faedd656"
+storage_version_token = "1789662335938878"
+content_type = "text/html"

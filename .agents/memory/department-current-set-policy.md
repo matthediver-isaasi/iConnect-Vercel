@@ -7,7 +7,13 @@ Department workforce and equipment maintain current sets, not annual returns. Wo
 
 **Why:** The user explicitly replaced the annual-return design with current-data maintenance, then requested removing the now-unnecessary survey parent. The prepared import has independent review and approval requirements.
 
-**How to apply:** Preserve existing workforce row identity and provenance; require one Department per row. The prepared form rollout and import still assume survey parents and must be adapted and re-audited before any separately approved execution. Never restore the parent model merely to make their old preflight pass.
+**How to apply:** Preserve existing workforce row identity and provenance; require one Department per row. Historical form/import packages that assume survey parents are not execution authority. Use a separately reviewed direct-parent import package, and never restore the parent model merely to make an old preflight pass.
+
+Reporting Year has no meaning in the current workforce model. Ignore it when mapping imported records and retire its field without deleting historical row values.
+
+**Why:** The user explicitly removed the year requirement along with the redundant survey parent. Keeping a year as a required row name would silently reintroduce annual-return semantics.
+
+**How to apply:** Keep the original CSV bytes for provenance, but omit year from new record payloads and semantic matching. Staff group remains the record display field; exact source-occurrence identity still preserves intentional repeated rows.
 
 Existing equipment may retain previously missing serial numbers and installation years; new equipment must supply both.
 
