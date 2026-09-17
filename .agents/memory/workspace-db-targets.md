@@ -11,6 +11,12 @@ MCP callback availability and project discovery are not reliable measures of des
 
 **How to apply:** Discover the current MCP callback names in the main agent and test a bounded read against the destination documented in `replit.md` before requesting reconnection. Do not infer revoked access from a callback ReferenceError or incomplete project listing.
 
+The Supabase MCP SQL callback can enforce read-only transactions even when its migration callback permits schema changes.
+
+**Why:** An explicitly approved cleanup failed with SQLSTATE `25006` at `SELECT FOR UPDATE`; the existing pinned destination connection supported the authorized transaction.
+
+**How to apply:** Use MCP SQL for reads. For explicitly authorized data changes, use the documented destination-only connection with target validation, verified TLS, and transactional scope checks; do not route data cleanup through the migration callback.
+
 In this Replit workspace the runtime `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`
 (read by `api/_lib/database.js` → `export const supabase`) point at the **legacy
 SOURCE** project (`zkvgzcruhn…`, == `SOURCE_SUPABASE_URL`), NOT the multi-tenant
