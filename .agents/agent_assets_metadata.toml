@@ -383,3 +383,59 @@ mtime_ms = 1789490827702
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5f19d42f-f211-469a-b58e-3f44f592b706/8fe02422-1a83-496b-beb3-3cd97c57d5bc"
 storage_version_token = "1789491076924002"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "k3pEzBHbunkpcn2ZqOv_4"
+uri = "file://reports/bnms-workforce-validation/report.html"
+type = "text"
+title = "BNMS workforce validation report"
+description = "Verified mappings, live destination reconciliation, duplicate totals, and the remaining approval blockers. Read-only: zero database writes."
+logical_id = "22106f7e-c9ed-49c5-880f-bc8e69db82a0"
+content_hash = "sha256:1d191272cab0579f4ca1c0296df15d3acdf2a1aac5b339817737ddfe47a86548"
+size = 48266
+mtime_ms = 1789642936559
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/22106f7e-c9ed-49c5-880f-bc8e69db82a0/47b8eca5-f99a-4846-9d5b-0f6ec59a25ca"
+storage_version_token = "1789643007611233"
+content_type = "text/html"
+
+[[outputs]]
+id = "D0jgmLsRJfDSXvkmYFH8a"
+uri = "file://reports/bnms-workforce-validation/departments.csv"
+type = "table"
+title = "Per-Department dry-run counts"
+description = "All 136 Departments with source totals and prospective survey, row, and relationship actions."
+logical_id = "ffb1bf13-1f34-4227-b09f-682b71956418"
+content_hash = "sha256:21f10194c68019f47c64cc001c2bab6469ef05472c6a37ac1ec70cea67b61874"
+size = 24248
+mtime_ms = 1789642936539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ffb1bf13-1f34-4227-b09f-682b71956418/7657edf0-631c-4614-bcda-0e9e83806b48"
+storage_version_token = "1789643008368784"
+content_type = "text/csv"
+
+[[outputs]]
+id = "dbu3YPxkU_IBiFy4MPKcB"
+uri = "file://reports/bnms-workforce-validation/occurrences.csv"
+type = "table"
+title = "All 1,242 proposed row occurrences"
+description = "Source-line provenance, canonical values, blank-to-No conversion, mapping blockers, and proposed rerun identities. Not an import file approval."
+logical_id = "1b1dd244-926c-441b-9c88-9b9d33168a41"
+content_hash = "sha256:45a238c82b17d3dd352705afc3d22f769b4048a59a68035152203a07d3781ac0"
+size = 321208
+mtime_ms = 1789642936539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1b1dd244-926c-441b-9c88-9b9d33168a41/55d88176-90ba-4378-b853-5bdd8fc2fb40"
+storage_version_token = "1789643009157505"
+content_type = "text/csv"
+
+[[outputs]]
+id = "Km-OmWSmiGLrPDsZh-t-f"
+uri = "file://reports/bnms-workforce-validation/duplicates.csv"
+type = "table"
+title = "Original and normalized duplicate groups"
+description = "Every duplicate group with source lines and WTE totals; no occurrences have been removed."
+logical_id = "457f723c-3fbc-41e4-a17a-9db19cb6ad6d"
+content_hash = "sha256:3f9ce882cfba974e80699f84789142c0ae252ad2fb41ab176077f744f70c7347"
+size = 40672
+mtime_ms = 1789642936543
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/457f723c-3fbc-41e4-a17a-9db19cb6ad6d/0e74747b-c805-4699-9a50-cc6939dc8a7b"
+storage_version_token = "1789643009795978"
+content_type = "text/csv"
