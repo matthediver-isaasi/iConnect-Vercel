@@ -790,3 +790,135 @@ test("schema-author member creates, saves, updates record pickers, and reopens d
   });
   expect(seed.custom_object_role_permission).toHaveLength(0);
 });
+
+test("repeatable static options preserve drafts, normalize choices, and reopen after editing", async ({ page }) => {
+  const discoveryFixtureForm = schemaAuthorForm();
+  const { state } = await installSchemaAuthorHarness(page, discoveryFixtureForm);
+  const form = await createFormBeforeDiscovery(page, state);
+  const containerId = form.fields[0].id;
+  const children = form.fields[0].children
+    || form.fields[0].child_fields
+    || form.fields[0].fields;
+  const [selectChild, radioChild, checkboxChild] = children;
+
+  // Reopen one persisted legacy row using the historical `dropdown` alias;
+  // it must still expose the same static editor before the modern `select`
+  // type is selected below.
+  const persistedChildren = state.forms[0].fields[0].children
+    || state.forms[0].fields[0].child_fields
+    || state.forms[0].fields[0].fields;
+  persistedChildren[0].type = "dropdown";
+  await page.goto(`/FormBuilder?tenant=${tenant.slug}&formId=${form.id}`);
+  await expect(page.getByRole("heading", { name: form.name })).toBeVisible();
+  await page.getByTestId(`button-configure-field-${containerId}`).click();
+  await expect(page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${selectChild.id}`,
+  )).toBeVisible();
+
+  for (const [child, typeLabel] of [
+    [selectChild, "Dropdown"],
+    [radioChild, "Radio Buttons"],
+    [checkboxChild, "Checkboxes"],
+  ]) {
+    await page.getByTestId(`select-repeatable-child-type-${containerId}-${child.id}`).click();
+    await page.getByRole("option", { name: typeLabel, exact: true }).click();
+  }
+
+  const selectOptions = page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${selectChild.id}`,
+  );
+  const radioOptions = page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${radioChild.id}`,
+  );
+  const checkboxOptions = page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${checkboxChild.id}`,
+  );
+  await expect(selectOptions).toHaveAccessibleName("Options (one per line)");
+  await expect(radioOptions).toBeVisible();
+  await expect(checkboxOptions).toBeVisible();
+
+  // fill exercises pasted multiline input, including blank and whitespace-only
+  // lines; the parent receives normalized values while the local draft keeps
+  // exactly what the user typed until blur.
+  await selectOptions.fill("  Sedan  \n\n  Hatchback\n   \n Coupe  ");
+  await expect(selectOptions).toHaveValue("  Sedan  \n\n  Hatchback\n   \n Coupe  ");
+
+  // Use real key events for an incomplete line and verify blur resets the
+  // local draft to the normalized parent options.
+  await radioOptions.click();
+  await radioOptions.pressSequentially("First  ");
+  await radioOptions.press("Enter");
+  await expect(radioOptions).toHaveValue("First  \n");
+  await radioOptions.pressSequentially("Second   ");
+  await expect(radioOptions).toHaveValue("First  \nSecond   ");
+  await radioOptions.press("Tab");
+  await expect(radioOptions).toHaveValue("First\nSecond");
+
+  // Removing an option and entering another blank line must not persist an
+  // empty choice.
+  await checkboxOptions.fill("Keep\nRemove\n\n   ");
+  await checkboxOptions.fill("Keep\n\n  ");
+  await checkboxOptions.press("Tab");
+  await expect(checkboxOptions).toHaveValue("Keep");
+
+  // The user-defined list type is deliberately not a static-options editor.
+  await page.getByTestId(`select-repeatable-child-type-${containerId}-${checkboxChild.id}`).click();
+  await page.getByRole("option", { name: "List (User-Defined Values)", exact: true }).click();
+  await expect(checkboxOptions).toBeHidden();
+  await page.getByTestId(`select-repeatable-child-type-${containerId}-${checkboxChild.id}`).click();
+  await page.getByRole("option", { name: "Checkboxes", exact: true }).click();
+  await expect(checkboxOptions).toBeVisible();
+
+  // Reordering the row children must move their settings with the child.
+  await page.getByTestId(`repeatable-child-${containerId}-0`)
+    .getByRole("button", { name: "Move row field right" }).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Save Form" }).click();
+  await expect.poll(() => state.saves.length).toBeGreaterThan(0);
+
+  const savedRow = state.saves.at(-1).fields[0];
+  const savedChildren = savedRow.children || savedRow.child_fields || savedRow.fields;
+  expect(savedChildren.map(child => child.id)).toEqual([
+    radioChild.id,
+    selectChild.id,
+    checkboxChild.id,
+  ]);
+  expect(savedChildren.find(child => child.id === selectChild.id).options)
+    .toEqual(["Sedan", "Hatchback", "Coupe"]);
+  expect(savedChildren.find(child => child.id === radioChild.id).options)
+    .toEqual(["First", "Second"]);
+  expect(savedChildren.find(child => child.id === checkboxChild.id).options)
+    .toEqual(["Keep"]);
+
+  await page.reload();
+  await page.getByTestId(`button-configure-field-${containerId}`).click();
+  await expect(page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${selectChild.id}`,
+  )).toHaveValue("Sedan\nHatchback\nCoupe");
+  await expect(page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${radioChild.id}`,
+  )).toHaveValue("First\nSecond");
+  await expect(page.getByTestId(
+    `textarea-repeatable-child-options-${containerId}-${checkboxChild.id}`,
+  )).toHaveValue("Keep");
+
+  // Continue editing after a real reload; closing the dialog while a draft is
+  // focused must not discard the final input or save its empty trailing line.
+  await checkboxOptions.fill("");
+  await expect(checkboxOptions).toHaveValue("");
+  await radioOptions.click();
+  await radioOptions.press("End");
+  await radioOptions.press("Enter");
+  await expect(radioOptions).toHaveValue("First\nSecond\n");
+  await radioOptions.pressSequentially("Third");
+  await radioOptions.press("Enter");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Save Form" }).click();
+  await expect.poll(() => state.saves.length).toBe(2);
+  const updatedRow = state.saves.at(-1).fields[0];
+  const updatedChildren = updatedRow.children || updatedRow.child_fields || updatedRow.fields;
+  expect(updatedChildren.find(child => child.id === radioChild.id).options)
+    .toEqual(["First", "Second", "Third"]);
+  expect(updatedChildren.find(child => child.id === checkboxChild.id).options).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
+});

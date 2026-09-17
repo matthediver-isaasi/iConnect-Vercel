@@ -54,6 +54,14 @@ export function isRepeatableRowField(field) {
   return REPEATABLE_ROW_FIELD_TYPES.includes(field?.type);
 }
 
+export function supportsRepeatableRowStaticOptions(child) {
+  return ['select', 'dropdown', 'radio', 'checkbox'].includes(child?.type);
+}
+
+export function parseRepeatableRowOptionsText(text) {
+  return text.split(/\r\n?|\n/).map(option => option.trim()).filter(Boolean);
+}
+
 export function repeatableRowChildren(field) {
   const config = field?.repeatable_row && typeof field.repeatable_row === 'object'
     ? field.repeatable_row : field;

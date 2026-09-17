@@ -9,6 +9,8 @@ import {
   normalizeRepeatableRowField,
   repeatableEmptyAvailabilitySupport,
   repeatableRowAddLabelEditorValue,
+  supportsRepeatableRowStaticOptions,
+  parseRepeatableRowOptionsText,
   repeatableRowFieldConfigUpdate,
   repeatableSiblingUniqueValueKeys,
   repeatableSiblingUniqueValues,
@@ -132,6 +134,27 @@ test('add label preserves spaces while editing and normalizes for rendering', ()
   assert.equal(repeatableRowAddLabelEditorValue(blank), '   ');
   assert.equal(normalizeRepeatableRowField(blank).add_row_label, 'Add another');
   assert.equal(repeatableRowAddLabelEditorValue({ type: 'repeatable_rows' }), 'Add another');
+});
+
+test('static option editing covers renderer choice types without including dynamic or free-entry columns', () => {
+  for (const type of ['select', 'dropdown', 'radio', 'checkbox']) {
+    assert.equal(supportsRepeatableRowStaticOptions({ type }), true, type);
+  }
+  for (const type of ['text', 'list', 'boolean', 'date', 'country', 'countries',
+    'category_dropdown', 'category_multiselect', 'custom_field',
+    'organisation_dropdown', 'relationship_dropdown']) {
+    assert.equal(supportsRepeatableRowStaticOptions({ type }), false, type);
+  }
+});
+
+test('option text commits trimmed non-empty choices for typed, pasted, and cleared input', () => {
+  assert.deepEqual(parseRepeatableRowOptionsText(' First choice \n\n Second choice \n  \n'), [
+    'First choice', 'Second choice',
+  ]);
+  assert.deepEqual(parseRepeatableRowOptionsText('One\r\n Two \rThree\n'), ['One', 'Two', 'Three']);
+  assert.deepEqual(parseRepeatableRowOptionsText(' \n\t\n'), []);
+  assert.deepEqual(parseRepeatableRowOptionsText(''), []);
+  assert.deepEqual(parseRepeatableRowOptionsText('0\nTwo words\nA & B'), ['0', 'Two words', 'A & B']);
 });
 
 test('repeatable child uniqueness is opt-in and normalized strictly', () => {

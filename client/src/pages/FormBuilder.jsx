@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import RepeatableRowOptionsEditor from "@/components/forms/RepeatableRowOptionsEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -136,6 +137,7 @@ import {
   normalizeRepeatableRowField,
   repeatableRowChildren,
   repeatableRowAddLabelEditorValue,
+  supportsRepeatableRowStaticOptions,
   REPEATABLE_ROW_CHILD_TYPES,
   REPEATABLE_ROW_DEPENDENCY_TYPES,
   REPEATABLE_ROW_EXCLUSION_TYPES,
@@ -6627,7 +6629,7 @@ function RepeatableRowsSettings({
         const dependencyNotListedLabel = dependencySource
           ? formNotListedChoiceLabel(dependencySource)
           : '';
-        const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
+        const optionsType = supportsRepeatableRowStaticOptions(child);
         const exclusionSources = repeatableExclusionSourceFields(allFields, field, child);
         const exclusionSourceId = child.exclude_values_from?.source_field_id || '__none__';
         const relationshipDependents = getRelationshipDependentFields(allFields, child.id, {
@@ -6763,14 +6765,11 @@ function RepeatableRowsSettings({
               </div>
             )}
             {optionsType && (
-              <div className="space-y-1">
-                <Label className="text-xs">Options (one per line)</Label>
-                <Textarea
-                  rows={3}
-                  value={(child.options || []).join('\n')}
-                  onChange={event => updateChild(childIndex, { options: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) })}
-                />
-              </div>
+              <RepeatableRowOptionsEditor
+                id={`textarea-repeatable-child-options-${field.id}-${child.id}`}
+                options={child.options}
+                onChange={options => updateChild(childIndex, { options })}
+              />
             )}
             {REPEATABLE_ROW_EXCLUSION_TYPES.includes(child.type) && (
               <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
