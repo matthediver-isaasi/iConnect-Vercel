@@ -148,8 +148,10 @@ export async function loadDepartmentCurrentSet({
  * more than one assignment must not be forced to guess or hand-edit a UUID.
  *
  * This is intentionally a read-only graph projection.  It does not expose
- * current-set rows and it applies tenant, respondent-edge, active-record and
- * organisation checks before returning an option.
+ * current-set rows and it applies tenant, respondent-edge and active-record
+ * checks before returning an option.  A signed-in respondent's explicit
+ * assignment is sufficient even when the Department belongs to another
+ * organisation in the same tenant.
  */
 export async function listDepartmentCurrentSetOptions({
   db, req, tenantId, formId, getMember, getActiveSession = getSession,
@@ -218,53 +220,19 @@ export async function listDepartmentCurrentSetOptions({
     .map(edge => edge.source_record_id)
     .filter(uuid))];
   if (!assignedIds.length) return [];
-  if (!uuid(member.organization_id)) return [];
-
-  // Departments are organisation-scoped.  A stale edge from another
-  // organisation must never become a selectable cross-tenant/cross-org link.
-  const { data: parentDefinitions, error: parentDefinitionError } = await db
-    .from('custom_object_relationship_definition')
-    .select('id, cardinality, target_custom_object_id')
-    .eq('tenant_id', tenantId).eq('relationship_key', 'organisation').eq('status', 'active')
-    .eq('source_kind', 'custom_object').eq('source_custom_object_id', departmentObjectId)
-    .eq('target_kind', 'organization').eq('is_required', true);
-  if (parentDefinitionError || (parentDefinitions || []).length !== 1
-      || parentDefinitions[0].cardinality !== 'many_to_one'
-      || parentDefinitions[0].target_custom_object_id !== null) {
-    throw new DepartmentCurrentSetError(503, 'CURRENT_SET_CONFIGURATION_INVALID',
-      'Current Department organisation configuration is unavailable');
-  }
-  const parentDefinitionId = parentDefinitions[0].id;
-  const [
-    { data: parentEdges, error: parentError },
-    { data: records, error: recordError },
-    { data: organisation, error: organisationError },
-  ] = await Promise.all([
-    db.from('custom_object_relationship').select('source_record_id, target_record_id')
-      .eq('tenant_id', tenantId).eq('relationship_definition_id', parentDefinitionId)
-      .is('archived_at', null).in('source_record_id', assignedIds),
-    db.from('custom_object_record').select('id, data')
-      .eq('tenant_id', tenantId).eq('custom_object_id', departmentObjectId)
-      .is('archived_at', null).in('id', assignedIds),
-    db.from('organization').select('id, tenant_id').eq('tenant_id', tenantId)
-      .eq('id', member.organization_id).maybeSingle(),
-  ]);
-  if (parentError || recordError || organisationError || !organisation) {
+  const { data: records, error: recordError } = await db
+    .from('custom_object_record').select('id, data')
+    .eq('tenant_id', tenantId).eq('custom_object_id', departmentObjectId)
+    .is('archived_at', null).in('id', assignedIds);
+  if (recordError) {
     throw new DepartmentCurrentSetError(503, 'CURRENT_SET_UNAVAILABLE', 'Assigned Departments could not be loaded');
-  }
-  const parentsByDepartment = new Map();
-  for (const edge of parentEdges || []) {
-    const parents = parentsByDepartment.get(edge.source_record_id) || [];
-    parents.push(edge.target_record_id);
-    parentsByDepartment.set(edge.source_record_id, parents);
   }
   const fieldName = departmentDefinition.primary_display_field_id
     ? (await db.from('preference_field').select('name').eq('tenant_id', tenantId)
       .eq('id', departmentDefinition.primary_display_field_id).maybeSingle()).data?.name
     : null;
   const recordsById = new Map((records || []).map(record => [record.id, record]));
-  return assignedIds.filter(id => parentsByDepartment.get(id)?.length === 1
-    && parentsByDepartment.get(id)[0] === organisation.id && recordsById.has(id)).map(id => {
+  return assignedIds.filter(id => recordsById.has(id)).map(id => {
     const data = recordsById.get(id)?.data || {};
     return {
       id,

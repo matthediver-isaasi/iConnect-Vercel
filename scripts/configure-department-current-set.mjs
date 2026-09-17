@@ -252,7 +252,7 @@ function departmentOrganisationSuitability({
     departmentsWithoutExactlyOneValidOrganisationParent: activeDepartmentIds.size - exactlyOneValidParent,
     departmentsWithExactlyOneRespondentInSameOrganisation: exactlyOneRespondentSameOrganisation,
     departmentsWithOneRespondentUnavailableOrOtherOrganisation: respondentUnavailableOrOtherOrganisation,
-    handling: 'Reported only: rollout does not create, remove, or alter Department organisation or respondent assignments.',
+    handling: 'Informational only, not an access restriction: explicit Department respondent assignment permits cross-organisation access. Rollout does not alter organisation or respondent assignments.',
   };
 }
 

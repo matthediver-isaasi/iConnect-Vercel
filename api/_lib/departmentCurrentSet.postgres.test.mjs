@@ -29,6 +29,10 @@ const departmentOrganisationAuthMigration = fileURLToPath(new URL(
   '../../supabase/migrations/20261104_department_current_set_department_organisation_auth.sql',
   import.meta.url,
 ));
+const departmentAssignmentAuthMigration = fileURLToPath(new URL(
+  '../../supabase/migrations/20261105_department_current_set_assignment_auth.sql',
+  import.meta.url,
+));
 
 const executable = name => spawnSync('sh', ['-c', `command -v ${name}`], {
   encoding: 'utf8',
@@ -307,6 +311,7 @@ function fixtureSql() {
     \\i ${migration}
     \\i ${directWorkforceMigration}
     \\i ${departmentOrganisationAuthMigration}
+    \\i ${departmentAssignmentAuthMigration}
     INSERT INTO department_current_set_config (tenant_id,form_id,config) VALUES (${q(ID.tenant)},${q(ID.form)}, $cfg$
       {"version":2,"department_object_id":"${ID.departmentObject}","workforce_row_object_id":"${ID.rowObject}","equipment_object_id":"${ID.equipmentObject}",
        "equipment_type_object_id":"${ID.typeObject}","equipment_model_object_id":"${ID.modelObject}",
@@ -375,30 +380,36 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.equal(loaded.form_values.eq[0].serial, null);
     assert.equal(loaded.form_values.eq[0].installed, null);
 
-    // A URL contains only an untrusted Department UUID. A respondent edge is
-    // insufficient when that Department belongs to another organisation, or
-    // when its ownership is ambiguous.
-    run(psql, args, `UPDATE custom_object_relationship SET target_record_id=${q(ID.otherOrganization)}::uuid
-      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
-        AND source_record_id=${q(ID.department)}::uuid AND archived_at IS NULL;`);
-    assert.match(fails(psql, args, `SELECT department_current_set_load_authenticated(
-      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
-      ${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
-    run(psql, args, `UPDATE custom_object_relationship SET target_record_id=${q(ID.organization)}::uuid
-      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
-        AND source_record_id=${q(ID.department)}::uuid AND archived_at IS NULL;
-      INSERT INTO custom_object_relationship (tenant_id,relationship_definition_id,source_record_id,target_record_id)
-        VALUES (${q(ID.tenant)},${q(ID.departmentOrganization)},${q(ID.department)},${q(ID.otherOrganization)});`);
-    assert.match(fails(psql, args, `SELECT department_current_set_load_authenticated(
-      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
-      ${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
-    run(psql, args, `UPDATE custom_object_relationship SET archived_at=now(),archived_by='test'
-      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
-        AND source_record_id=${q(ID.department)}::uuid
-        AND target_record_id=${q(ID.otherOrganization)}::uuid AND archived_at IS NULL;`);
+    // A signed-in member from another organisation is allowed when the
+    // Department explicitly assigns that member as a respondent.
+    run(psql, args, `UPDATE member SET organization_id=${q(ID.otherOrganization)}::uuid
+      WHERE id=${q(ID.otherMember)}::uuid;`);
     assert.equal(JSON.parse(scalar(`SELECT department_current_set_load_authenticated(
       ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
-      ${q(ID.member)}::uuid,${q(ID.session)})::text;`)).department.id, ID.department);
+      ${q(ID.otherMember)}::uuid,${q(ID.otherSession)})::text;`)).department.id, ID.department);
+
+    // The respondent assignment, rather than organisation membership, is the
+    // Department authority. Removing it denies both read and reconcile.
+    run(psql, args, `UPDATE form_submission SET submission_data=${completePayload()}
+      ,created_member_id=${q(ID.otherMember)}::uuid
+      WHERE id=${q(ID.subBad)}::uuid;`);
+    run(psql, args, `DELETE FROM custom_object_relationship
+      WHERE relationship_definition_id=${q(ID.respondent)}::uuid
+        AND source_record_id=${q(ID.department)}::uuid
+        AND target_record_id=${q(ID.otherMember)}::uuid;`);
+    assert.match(fails(psql, args, `SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.otherMember)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(fails(psql, args, `SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.otherMember)}::uuid,${q(ID.subBad)}::uuid,'stale',${q(ID.otherSession)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
+    run(psql, args, `INSERT INTO custom_object_relationship
+      (tenant_id,relationship_definition_id,source_record_id,target_record_id,field_values)
+      VALUES (${q(ID.tenant)},${q(ID.respondent)},${q(ID.department)},${q(ID.otherMember)},
+        '{"survey_respondent":true}');
+      UPDATE form_submission SET created_member_id=${q(ID.member)}::uuid
+        WHERE id=${q(ID.subBad)}::uuid;`);
 
     // The public functions are wrapper-only: an otherwise valid signed member
     // cannot load or mutate with an absent/expired/wrong session or revoked
@@ -408,8 +419,14 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,'missing-session');`), /CURRENT_SET_AUTHORIZATION/);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
     assert.match(failSql(`UPDATE custom_object_relationship SET field_values='{"survey_respondent":"true"}' WHERE relationship_definition_id=${q(ID.respondent)}::uuid;`), /must be a boolean/);
+    run(psql, args, `UPDATE form_submission SET submission_data=${completePayload()}
+      WHERE id=${q(ID.subBad)}::uuid;`);
     run(psql, args, `UPDATE custom_object_relationship SET field_values='{"survey_respondent":false}' WHERE relationship_definition_id=${q(ID.respondent)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(failSql(`SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.subBad)}::uuid,'stale',${q(ID.session)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
     run(psql, args, `UPDATE custom_object_relationship SET field_values='{"survey_respondent":true}' WHERE relationship_definition_id=${q(ID.respondent)}::uuid;`);
     run(psql, args, `UPDATE form SET access_policy=jsonb_build_object('version','1','operator','or','rbac_role_ids',jsonb_build_array('10000000-0000-4000-8000-000000000099'),'group_rules','[]'::jsonb) WHERE id=${q(ID.form)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
@@ -434,10 +451,24 @@ test('Department current-set migration executes its reconciliation behavior only
     run(psql, args, `UPDATE member_group SET is_active=false WHERE id=${q(ID.group)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
     run(psql, args, `UPDATE form SET access_policy=NULL WHERE id=${q(ID.form)}::uuid;`);
+    // A direct tenant member without an organisation is still eligible when
+    // the explicit respondent assignment is live.
     run(psql, args, `UPDATE member SET organization_id=NULL WHERE id=${q(ID.otherMember)}::uuid;`);
-    assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.equal(JSON.parse(scalar(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)})::text;`)).department.id, ID.department);
     run(psql, args, `UPDATE member SET tenant_id=NULL WHERE id=${q(ID.otherMember)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(failSql(`SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.otherMember)}::uuid,${q(ID.subBad)}::uuid,'stale',${q(ID.otherSession)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(failSql(`SELECT department_current_set_load_authenticated(
+      '20000000-0000-4000-8000-000000000001'::uuid,${q(ID.form)}::uuid,
+      ${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION|CURRENT_SET_INVALID/);
+    assert.match(failSql(`SELECT department_current_set_reconcile_authenticated(
+      '20000000-0000-4000-8000-000000000001'::uuid,${q(ID.form)}::uuid,
+      ${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.subBad)}::uuid,
+      'stale',${q(ID.session)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
     // Revoking then restoring login state cannot revive a session with the old
     // durable generation. A freshly generated session is accepted.
     run(psql, args, `INSERT INTO member_login_session_revocation (member_id,tenant_id,generation)
@@ -608,6 +639,27 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.match(failSql(`UPDATE custom_object_relationship SET field_values='{"survey_respondent":null}' WHERE relationship_definition_id=${q(ID.respondent)}::uuid;`), /must be a boolean/);
     run(psql, args, `UPDATE custom_object_relationship SET field_values='{"survey_respondent":true}', archived_at=now(), archived_by='test' WHERE relationship_definition_id=${q(ID.respondent)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(failSql(`SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.subBad)}::uuid,'stale',${q(ID.session)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
+
+    // Archiving the requested Department revokes both operations even if a
+    // respondent edge is otherwise present.
+    run(psql, args, `UPDATE custom_object_relationship
+      SET archived_at=NULL, archived_by=NULL
+      WHERE relationship_definition_id=${q(ID.respondent)}::uuid
+        AND source_record_id=${q(ID.department)}::uuid
+        AND target_record_id=${q(ID.member)}::uuid;
+      UPDATE custom_object_record SET archived_at=now(), archived_by='test'
+        WHERE id=${q(ID.department)}::uuid;`);
+    assert.match(failSql(`SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
+    assert.match(failSql(`SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.subBad)}::uuid,'stale',${q(ID.session)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subBad)}::uuid));`), /CURRENT_SET_AUTHORIZATION/);
   } finally {
     spawnSync(pgCtl, ['-D', data, '-m', 'immediate', 'stop']);
     await rm(root, { recursive: true, force: true });

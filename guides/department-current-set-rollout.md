@@ -51,16 +51,20 @@ node scripts/apply-department-current-set-migration.mjs \
 
 The migration installer includes the two historical migrations, the
 direct-workforce config-v2 migration
-`20261103_department_current_set_direct_workforce.sql`, and the required
+`20261103_department_current_set_direct_workforce.sql`, the historical
 Department→Organisation authorization migration
-`20261104_department_current_set_department_organisation_auth.sql`. Only
+`20261104_department_current_set_department_organisation_auth.sql`, and
+`20261105_department_current_set_assignment_auth.sql`, which supersedes its
+organisation restriction. The approved rule requires a signed-in member in
+the same tenant with an explicit active `survey_respondent: true` Department
+assignment; the member and Department may belong to different organisations. Only
 after the reviewed schema-only bundle has created
 `department_current_set_config`, its relationship-pin assertion, tenant lock,
-both authenticated load/reconciliation wrappers, and the Department Organisation
-authorization fence, a newly generated and reviewed post-publish preflight
+both authenticated load/reconciliation wrappers, and the explicit-assignment
+authorization check, a newly generated and reviewed post-publish preflight
 report is required for the guarded configuration transaction. The
 configuration transaction independently verifies those exact RPC signatures
-and the Department→Organisation authorization function before it can require
+and the common authorization function before it can require
 authentication or insert config:
 
 ```sh
@@ -94,14 +98,11 @@ uses the configured-tenant current-set lock (not a fragile Department-only
 lock), while versions remain Department-specific. It preserves the saved draft
 and publication state and never automatically publishes the form.
 
-The preflight reports, but does not repair, the live respondent assignment
-shortfall (currently 142 Departments with no assigned respondent and 7 with
-multiple respondent assignments). It also reports the new SQL-aligned
-Organisation fence: exactly one active required `organisation` parent
-definition, exactly one real tenant-local Organisation parent per Department,
-and exactly one respondent in that same Organisation. These counts are review
-evidence only; respondent and Department→Organisation assignments remain
-untouched.
+The preflight reports, but does not repair, missing or multiple respondent
+assignments. Multiple respondents may each access a Department when explicitly
+assigned. Organisation parent and same-organisation counts are informational
+data-quality evidence only, not access restrictions. Respondent and
+Department→Organisation assignments remain untouched.
 
 The configuration does not change the prepared BNMS workforce CSV import, its
 source, provenance ledgers, approval commitment, or files. Since this rollout

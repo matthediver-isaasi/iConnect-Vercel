@@ -12,6 +12,10 @@ const departmentOrganisationAuthSql = await readFile(
   new URL('./20261104_department_current_set_department_organisation_auth.sql', import.meta.url),
   'utf8',
 );
+const departmentAssignmentAuthSql = await readFile(
+  new URL('./20261105_department_current_set_assignment_auth.sql', import.meta.url),
+  'utf8',
+);
 
 test('current-set migration is service-only, scoped, and fail-closed', () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.department_current_set_config/i);
@@ -49,4 +53,18 @@ test('direct Department URLs require the same strict organisation parent as the 
   assert.match(departmentOrganisationAuthSql, /v_parent_definition_count <> 1/i);
   assert.match(departmentOrganisationAuthSql, /v_parent_edge_count <> 1 OR v_matching_parent_count <> 1/i);
   assert.match(departmentOrganisationAuthSql, /member\.organization_id/i);
+});
+
+test('assignment authorization allows cross-organisation respondents without weakening graph pins', () => {
+  assert.match(departmentAssignmentAuthSql, /CREATE OR REPLACE FUNCTION public\.department_current_set_assert_authorized/i);
+  assert.match(departmentAssignmentAuthSql, /member\.tenant_id = p_tenant_id/i);
+  assert.match(departmentAssignmentAuthSql, /department\.tenant_id = p_tenant_id/i);
+  assert.match(departmentAssignmentAuthSql, /department\.archived_at IS NULL/i);
+  assert.match(departmentAssignmentAuthSql, /definition\.status = 'active'/i);
+  assert.match(departmentAssignmentAuthSql, /definition\.source_custom_object_id = \(p_config->>'department_object_id'\)::uuid/i);
+  assert.match(departmentAssignmentAuthSql, /definition\.target_kind = 'member'/i);
+  assert.match(departmentAssignmentAuthSql, /definition\.target_custom_object_id IS NULL/i);
+  assert.match(departmentAssignmentAuthSql, /edge\.field_values->\(p_config->>'respondent_field_key'\) = 'true'::jsonb/i);
+  assert.doesNotMatch(departmentAssignmentAuthSql, /organization_id|parent_definition|parent_edge|matching_parent/i);
+  assert.match(departmentAssignmentAuthSql, /department_current_set_assert_respondent/i);
 });

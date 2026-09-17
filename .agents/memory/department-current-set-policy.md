@@ -17,9 +17,15 @@ Reporting Year has no meaning in the current workforce model. Ignore it when map
 
 Department current-data forms require sign-in and an assigned Department respondent, not anonymous access or invitation-token access.
 
-**Why:** The user explicitly confirmed this access choice when revisiting Workforce and Equipment prefill. Department IDs in URLs must never be treated as authorization.
+**Why:** The user explicitly confirmed this access choice when revisiting Workforce and Equipment prefill, then confirmed that an assigned respondent may belong to a different organisation. Department IDs in URLs must never be treated as authorization.
 
-**How to apply:** Keep the department picker and explicit-link load/save paths consistent about respondent and organisation ownership. Publish the matching client/API before activating a prepared form configuration; schema installation alone is not activation.
+**How to apply:** Keep the department picker and explicit-link load/save paths consistent: require sign-in, the same tenant, and an active explicit survey-respondent assignment, but never require matching organisations. Do not change organisation membership to make an assigned respondent pass. Publish the matching client/API before activating a prepared form configuration; schema installation alone is not activation.
+
+Persisted compatibility contracts must compare semantic values, not JSON object key order or mapping-derived child order.
+
+**Why:** JSONB reorders mapping keys, and historical contracts derived their child arrays from mapping insertion order rather than display order. A valid first activation can otherwise fail its own postcheck and block prefill.
+
+**How to apply:** Canonicalize object keys and match compatibility children by their stable field IDs while retaining exact membership and property checks. Preserve ordering for arrays where order actually defines behavior, and test a real JSONB-style roundtrip.
 
 Existing equipment may retain previously missing serial numbers and installation years; new equipment must supply both.
 

@@ -16,6 +16,7 @@ const FILES = [
   '20261102_department_current_set_auth.sql',
   '20261103_department_current_set_direct_workforce.sql',
   '20261104_department_current_set_department_organisation_auth.sql',
+  '20261105_department_current_set_assignment_auth.sql',
 ];
 const DESTINATION_CA_URL =
   'https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt';
@@ -39,6 +40,8 @@ const directWorkforceMigration = migrations.find(({ file }) =>
   file === '20261103_department_current_set_direct_workforce.sql');
 const departmentOrganisationAuthMigration = migrations.find(({ file }) =>
   file === '20261104_department_current_set_department_organisation_auth.sql');
+const assignmentAuthMigration = migrations.find(({ file }) =>
+  file === '20261105_department_current_set_assignment_auth.sql');
 const sha256 = createHash('sha256').update(migrations.map(item => `${item.file}\n${item.sql}`).join('\n-- next migration --\n')).digest('hex');
 
 if (!apply) {
@@ -49,9 +52,11 @@ if (!apply) {
       ? `supabase/migrations/${directWorkforceMigration.file}` : null,
     departmentOrganisationAuthMigration: departmentOrganisationAuthMigration
       ? `supabase/migrations/${departmentOrganisationAuthMigration.file}` : null,
-    rolloutReadiness: directWorkforceMigration && departmentOrganisationAuthMigration
+    assignmentAuthMigration: assignmentAuthMigration
+      ? `supabase/migrations/${assignmentAuthMigration.file}` : null,
+    rolloutReadiness: directWorkforceMigration && departmentOrganisationAuthMigration && assignmentAuthMigration
       ? 'ready-for-reviewed-apply'
-      : 'blocked: direct-workforce config-v2 or Department-organisation authorization migration is not present',
+      : 'blocked: direct-workforce config-v2 or required authorization migration is not present',
     sha256,
     writesPerformed: false,
     nextStep: 'Review this exact SHA-256, then run with --apply --review-sha256=<sha256>.',
@@ -65,6 +70,9 @@ if (!apply) {
   }
   if (!departmentOrganisationAuthMigration) {
     throw new Error('Department-organisation authorization migration is not present; no database was changed.');
+  }
+  if (!assignmentAuthMigration) {
+    throw new Error('Explicit-assignment authorization migration is not present; no database was changed.');
   }
   const connectionString = process.env.DEST_DATABASE_URL;
   const restUrl = process.env.DEST_SUPABASE_URL;

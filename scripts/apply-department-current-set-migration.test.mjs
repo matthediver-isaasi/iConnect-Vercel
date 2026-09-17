@@ -24,17 +24,19 @@ test('migration runner is pinned, SHA-reviewed, and uses verified TLS', () => {
   assert.match(script, /20261102_department_current_set_auth\.sql/);
   assert.match(script, /20261103_department_current_set_direct_workforce\.sql/);
   assert.match(script, /20261104_department_current_set_department_organisation_auth\.sql/);
+  assert.match(script, /20261105_department_current_set_assignment_auth\.sql/);
   assert.match(script, /direct-workforce config-v2/);
   assert.match(script, /Department-organisation authorization migration/);
   assert.match(script, /for \(const migration of migrations\) await client\.query\(migration\.sql\)/);
 });
 
-test('installer dry run loads the actual backend v3/v4 files and reports a ready reviewed bundle', async () => {
+test('installer dry run loads all backend files including assignment-only authorization and reports a ready reviewed bundle', async () => {
   const files = [
     '20261101_department_current_set.sql',
     '20261102_department_current_set_auth.sql',
     '20261103_department_current_set_direct_workforce.sql',
     '20261104_department_current_set_department_organisation_auth.sql',
+    '20261105_department_current_set_assignment_auth.sql',
   ];
   const sql = await Promise.all(files.map(file =>
     readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')));
@@ -50,6 +52,8 @@ test('installer dry run loads the actual backend v3/v4 files and reports a ready
     'supabase/migrations/20261103_department_current_set_direct_workforce.sql');
   assert.equal(report.departmentOrganisationAuthMigration,
     'supabase/migrations/20261104_department_current_set_department_organisation_auth.sql');
+  assert.equal(report.assignmentAuthMigration,
+    'supabase/migrations/20261105_department_current_set_assignment_auth.sql');
   assert.equal(report.rolloutReadiness, 'ready-for-reviewed-apply');
   assert.equal(report.sha256, expectedSha);
   assert.equal(report.writesPerformed, false);

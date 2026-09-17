@@ -18,6 +18,47 @@ const normalizedBound = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+// JSONB does not preserve object insertion order.  Compatibility contracts are
+// semantic JSON values, so compare a deterministic projection rather than
+// JSON.stringify's source-order representation.  Arrays intentionally retain
+// their order because row/field ordering is part of the reviewed contract.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, canonicalJson(child)]));
+  }
+  return value;
+}
+
+function semanticallyEqual(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function canonicalCompatibility(value) {
+  const canonical = canonicalJson(value);
+  if (!canonical || typeof canonical !== 'object' || Array.isArray(canonical)
+      || !canonical.containers || typeof canonical.containers !== 'object'
+      || Array.isArray(canonical.containers)) {
+    return canonical;
+  }
+  return {
+    ...canonical,
+    containers: Object.fromEntries(Object.entries(canonical.containers).map(([key, container]) => [
+      key,
+      container && typeof container === 'object' && Array.isArray(container.children)
+        ? {
+          ...container,
+          // Mapped-field membership and properties are protected; the
+          // original contract did not make mapping-object insertion order
+          // meaningful, so compare children by their stable field IDs.
+          children: [...container.children].sort((left, right) => String(left?.id).localeCompare(String(right?.id))),
+        }
+        : container,
+    ])),
+  };
+}
+
 function configurationError(message) {
   const error = new Error(message);
   error.code = 'CURRENT_SET_CONFIGURATION_INVALID';
@@ -103,7 +144,7 @@ function projectedChild(child, targets, hiddenPreserve) {
     const actualRule = normalizedPreservedRowVisibility(child.row_visibility);
     const configuredRule = hiddenPreserve?.[String(child.id)];
     if (!configuredRule
-        || JSON.stringify(actualRule) !== JSON.stringify(normalizedPreservedRowVisibility(configuredRule))) {
+        || !semanticallyEqual(actualRule, normalizedPreservedRowVisibility(configuredRule))) {
       throw configurationError(`Mapped current-set field ${child.id} has an unreviewed hidden-value rule`);
     }
     if (projected.required) {
@@ -178,6 +219,9 @@ export function buildDepartmentCurrentSetCompatibilityContract({ form, configura
       throw configurationError(`Current Department ${definition.key} container drifted`);
     }
     const children = new Map(repeatableRowChildren(container).map(child => [String(child.id), child]));
+    // Mapping membership and each child's projected properties are protected;
+    // the original contract did not make mapping-object insertion order
+    // meaningful, so compatibility comparison normalizes children by ID.
     const projectedChildren = definition.mappedChildIds.map((id) => {
       const child = children.get(id);
       if (!child) throw configurationError(`Mapped current-set field ${id} is missing`);
@@ -247,18 +291,17 @@ export function assertDepartmentCurrentSetCompatibility({ form, configuration })
       || !contract.required_blank_policy || !contract.equipment_hidden_preserve) {
     throw configurationError('Current Department form compatibility contract is missing or invalid');
   }
-  if (JSON.stringify(configuration.required_blank_policy) !== JSON.stringify(contract.required_blank_policy)) {
+  if (!semanticallyEqual(configuration.required_blank_policy, contract.required_blank_policy)) {
     throw configurationError('Current Department blank-value policy no longer matches its reviewed form contract');
   }
-  if (JSON.stringify(configuration.equipment_hidden_preserve)
-      !== JSON.stringify(contract.equipment_hidden_preserve)) {
+  if (!semanticallyEqual(configuration.equipment_hidden_preserve, contract.equipment_hidden_preserve)) {
     throw configurationError('Current Department hidden-value rules no longer match their reviewed form contract');
   }
   const actual = buildDepartmentCurrentSetCompatibilityContract({
     form,
     configuration,
   });
-  if (JSON.stringify(actual) !== JSON.stringify(contract)) {
+  if (JSON.stringify(canonicalCompatibility(actual)) !== JSON.stringify(canonicalCompatibility(contract))) {
     throw configurationError('Current Department form configuration changed; reload after an administrator reviews the current-set mapping');
   }
   return actual;
