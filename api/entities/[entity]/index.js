@@ -393,6 +393,8 @@ const isDeletedMember = (member) => {
   return /^deleted_[a-f0-9-]+@deleted\.local$/i.test(member.email);
 };
 
+import { hasGenericCommitmentFields } from '../../_lib/rollingCommitmentEntityBoundary.js';
+
 export default async function handler(req, res) {
   const { entity } = req.query;
   if (typeof entity !== 'string') {
@@ -410,6 +412,9 @@ export default async function handler(req, res) {
   }
 
   const tableName = getTableName(entity);
+  if (req.method === 'POST' && hasGenericCommitmentFields(tableName, req.body)) {
+    return res.status(403).json({ error: 'Membership commitments must be created through the membership payment and renewal services.' });
+  }
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);

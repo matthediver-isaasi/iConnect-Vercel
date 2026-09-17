@@ -1,3 +1,4 @@
+import { monthlyCommitmentFields, monthlyInstalmentCount, assertMonthlyCollectionsWithinTerm, monthlyActivationSchedule } from './rollingMonthlyRenewal.js';
 // GoCardless Phase 2 — individual membership monthly Direct Debit.
 //
 // Pure decision logic (exported for node --test):
@@ -219,7 +220,7 @@ export function resolveDdOffer(simResult) {
   }
   if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) return null;
 
-  const instalmentCount = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
+  const instalmentCount = monthlyInstalmentCount(config);
   const monthlyAmountMinor = toMinorUnits(monthlyAmount);
   if (!monthlyAmountMinor) return null;
 
@@ -364,12 +365,13 @@ export function computeSubscriptionCollectionDate(
   const scheduleLowerBound = hasInitialPayment
     ? laterDate(addOneCalendarMonth(initialPaymentChargeDate || snapshot.accepted_at), earliestChargeDate)
     : toDateOnly(earliestChargeDate);
-  const notBefore = laterDate(scheduleLowerBound, currentDate);
+  const termLowerBound = snapshot?.commitment?.term_start_date || null;
+  const notBefore = laterDate(laterDate(scheduleLowerBound, currentDate), termLowerBound);
 
-  if (hasInitialPayment && snapshot.first_collection_rule === 'earliest') {
+  if ((hasInitialPayment || termLowerBound) && snapshot.first_collection_rule === 'earliest') {
     return { startDate: notBefore ? fmt(notBefore) : null, dayOfMonth: null };
   }
-  if (hasInitialPayment && snapshot.first_collection_rule === 'nominated_day') {
+  if ((hasInitialPayment || termLowerBound) && snapshot.first_collection_rule === 'nominated_day') {
     const day = Math.min(28, Math.max(1, parseInt(snapshot.collection_day, 10) || 1));
     if (!notBefore) return { startDate: null, dayOfMonth: day };
     let candidate = new Date(Date.UTC(notBefore.getUTCFullYear(), notBefore.getUTCMonth(), day));
@@ -444,6 +446,8 @@ export function buildAgreementSnapshot({
   if (!offer) throw new Error('offer is required');
   const snapshot = {
     kind: 'monthly_direct_debit',
+    start_mode: simResult?.config?.start_mode || 'fixed_date',
+    commitment: monthlyCommitmentFields({ offer, simResult, paymentMethod: 'direct_debit' }),
     monthly_amount: offer.monthlyAmount,
     monthly_amount_minor: offer.monthlyAmountMinor,
     instalment_count: offer.instalmentCount,
@@ -587,12 +591,17 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
   const subscriptionInstalments = remainingSubscriptionInstalments(snapshot);
   const billingRequestPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
   const initialPaymentChargeDate = agreement.metadata?.gocardless_initial_payment?.charge_date || null;
-  const { startDate, dayOfMonth } = computeSubscriptionCollectionDate(
+  const proposedSchedule = computeSubscriptionCollectionDate(
     snapshot,
     earliestChargeDate,
     initialPaymentChargeDate,
     typeof deps.now === 'function' ? deps.now() : new Date(),
   );
+  // A partial provider setup is replayed with its original request parameters.
+  // Recomputing from callback time invalidates idempotency and shifts payments.
+  const startDate = existingPlan?.start_date || proposedSchedule.startDate;
+  const dayOfMonth = existingPlan ? existingPlan.day_of_month : proposedSchedule.dayOfMonth;
+  assertMonthlyCollectionsWithinTerm(snapshot, startDate, subscriptionInstalments);
 
   let plan = existingPlan;
   if (!plan) {
@@ -736,7 +745,7 @@ export function membershipHistoryTableForAgreement(agreement) {
   return null;
 }
 
-export async function activateMembershipForAgreement(agreement, { trigger, db: dbArg } = {}) {
+export async function activateMembershipForAgreement(agreement, { trigger, db: dbArg, now = new Date() } = {}) {
   const db = dbArg || supabase;
   const snapshot = agreement?.metadata?.dd;
   const table = membershipHistoryTableForAgreement(agreement);
@@ -752,14 +761,15 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
   const activate = decideMembershipActivation({ activationRule: snapshot.activation_rule, trigger });
-  const nextStatus = activate ? 'active' : (snapshot.activation_rule === 'manual' ? 'pending_activation' : null);
+  const schedule = monthlyActivationSchedule(snapshot, activate, now);
+  const nextStatus = schedule.status;
   if (!nextStatus || nextStatus === row.status) {
     return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
   }
 
   const { error: upErr } = await db
     .from(table)
-    .update({ status: nextStatus })
+    .update(schedule)
     .eq('id', row.id)
     .eq('status', row.status);
   if (upErr) throw new Error(`update membership history failed: ${upErr.message}`);

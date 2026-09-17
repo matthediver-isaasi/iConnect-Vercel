@@ -13,6 +13,7 @@ import {
   MONTHLY_PAYMENT_PROVIDERS,
 } from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
+import MembershipCommitmentNotice from "@/components/membership/MembershipCommitmentNotice";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -91,6 +92,7 @@ export default function FormPaymentSubmit({
   const [paymentError, setPaymentError] = useState(null);
   const [stripeMounted, setStripeMounted] = useState(false);
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
+  const [preparedMembershipTerm, setPreparedMembershipTerm] = useState(null);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
   const [paymentStage, setPaymentStage] = useState(null);
   const [externalCheckoutUrl, setExternalCheckoutUrl] = useState(null);
@@ -359,6 +361,7 @@ export default function FormPaymentSubmit({
       }
 
       // Stripe: load Stripe.js and mount the PaymentElement inline.
+      setPreparedMembershipTerm(json);
       if (!window.Stripe) {
         const script = document.createElement('script');
         script.src = 'https://js.stripe.com/v3/';
@@ -597,6 +600,7 @@ export default function FormPaymentSubmit({
         </>
       ) : stripeMounted && selectedProvider === 'stripe' ? (
         <div className="w-full max-w-2xl space-y-4" data-testid={`form-payment-provider-content-${field.id}`}>
+          <MembershipCommitmentNotice startDate={preparedMembershipTerm?.membershipStartDate} renewalDate={preparedMembershipTerm?.membershipRenewalDate} />
           {stripeAddressRequired && (
             <div
               id={`form-payment-address-element-${field.id}`}
@@ -629,10 +633,12 @@ export default function FormPaymentSubmit({
           </p>
           {effective.membership && (
             <p className="text-xs text-muted-foreground" data-testid={`form-payment-membership-context-${field?.id}`}>
-              {[effective.membership.config_name, effective.membership.tier_label, effective.membership.membership_year]
+              {[effective.membership.config_name, effective.membership.tier_label,
+                effective.membership.membership_start_date ? null : effective.membership.membership_year]
                 .filter(Boolean).join(' — ')}
             </p>
           )}
+          <MembershipCommitmentNotice startDate={effective.membership?.membership_start_date} renewalDate={effective.membership?.membership_renewal_date} />
           {providers === null && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Checking payment options…

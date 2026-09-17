@@ -256,6 +256,7 @@ async function handlePost(req, res, resolvedTenantId) {
     });
 
   let agreementInsert = {
+    ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     member_id: member.id,
     agreement_type: 'member',
@@ -263,7 +264,7 @@ async function handlePost(req, res, resolvedTenantId) {
     status: STATUS.PAYMENT_SETUP_REQUIRED,
     idempotency_key: idempotencyKey,
     environment: creds.environment || 'sandbox',
-    metadata: { dd: snapshot },
+    metadata: { dd: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
   };
   if (reusable) {
     agreementInsert.gocardless_mandate_id = reusable.mandateId;
@@ -330,6 +331,7 @@ async function handlePost(req, res, resolvedTenantId) {
   // (or the reuse path below) flips it per the tier's activation rule.
   if (!existingHistory) {
     const { error: histErr } = await supabase.from('member_membership_history').insert({
+      ...(snapshot.commitment || {}),
       tenant_id: tenantId,
       member_id: member.id,
       membership_year: yearLabel,
@@ -338,11 +340,11 @@ async function handlePost(req, res, resolvedTenantId) {
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,
       annual_cost: simResult.annualCost,
-      final_cost: snapshot.plan_total,
+      final_cost: snapshot.commitment?.commitment_snapshot?.amounts?.final_cost ?? snapshot.plan_total,
       currency: offer.currency,
       billing_period: 'monthly_direct_debit',
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
+      vat_amount: snapshot.commitment?.commitment_snapshot?.amounts?.vat_amount ?? (simResult.vatAmount || 0),
       total_with_vat: snapshot.plan_total,
       payment_method: 'direct_debit',
       status: 'pending_payment_setup',

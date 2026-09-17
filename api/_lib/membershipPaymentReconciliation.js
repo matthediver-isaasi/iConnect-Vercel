@@ -18,6 +18,7 @@
 import { supabase } from './database.js';
 import { getAccountingProviderByName, PROVIDER_XERO } from './accountingProvider.js';
 import { triggerWorkflows } from './workflows.js';
+import { feeTokenCommitment } from './rollingFeeCommitment.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -102,6 +103,11 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
 
   // Persist the new state.
   const update = { payment_status: afterStatus };
+  if (afterStatus === 'paid' && row.term_key
+      && row.commitment_snapshot?.payment_frequency === 'upfront' && !row.billing_agreement_id) {
+    const { formPaymentActivationFields } = await import('./formMembershipPaymentQuote.js');
+    Object.assign(update, formPaymentActivationFields(row));
+  }
   if (afterStatus === 'paid' && snapshot.paidAt) {
     update.paid_at = snapshot.paidAt;
   }
@@ -246,6 +252,8 @@ export async function recordSucceededMembershipPaymentIntent(
     .from(table)
     .select('*')
     .eq('stripe_payment_intent_id', pi.id)
+    .eq('tenant_id', tenantId)
+    .eq(entityCol, entityId)
     .maybeSingle();
   if (existingByPI && (existingByPI.payment_status === 'paid' || existingByPI.payment_status === 'voided')) {
     return { status: 'already-recorded', table, recordId: existingByPI.id, workflowFired: false, detail: `history row ${existingByPI.id} already references PI ${pi.id} (payment_status=${existingByPI.payment_status})` };
@@ -254,7 +262,8 @@ export async function recordSucceededMembershipPaymentIntent(
   // 2. Locate the target history row (a stamped-but-unpaid row wins).
   let row = existingByPI || null;
   if (!row && feeToken?.history_record_id) {
-    const { data } = await db.from(table).select('*').eq('id', feeToken.history_record_id).maybeSingle();
+    const { data } = await db.from(table).select('*').eq('id', feeToken.history_record_id)
+      .eq('tenant_id', tenantId).eq(entityCol, entityId).eq('membership_year', md.membership_year).maybeSingle();
     row = data || null;
   }
   if (!row) {
@@ -288,6 +297,49 @@ export async function recordSucceededMembershipPaymentIntent(
     }
 
     const chargedAmount = pi.amount / 100;
+    let savedFields = {};
+    if (feeToken?.cost_breakdown?.commitment) {
+      try {
+        const commitment = feeTokenCommitment(feeToken);
+        if (!commitment) throw new Error('Fee quote commitment is incomplete');
+        const amounts = commitment.commitment_snapshot.amounts;
+        if (Math.round(amounts.total_with_vat * 100) !== pi.amount
+            || amounts.currency.toLowerCase() !== pi.currency.toLowerCase()) {
+          return { status: 'conflict', table, detail: 'Fee commitment does not match the captured amount/currency' };
+        }
+        savedFields = {
+          ...commitment,
+          config_id: commitment.commitment_snapshot.config_id,
+          annual_cost: amounts.annual_cost,
+          final_cost: amounts.final_cost,
+          vat_amount: amounts.vat_amount,
+          total_with_vat: amounts.total_with_vat,
+          currency: amounts.currency,
+          billing_period: commitment.commitment_snapshot.billing_period,
+          payment_method: commitment.commitment_snapshot.payment_method,
+        };
+        const { formPaymentActivationFields } = await import('./formMembershipPaymentQuote.js');
+        Object.assign(savedFields, formPaymentActivationFields(savedFields));
+      } catch (error) {
+        return { status: 'unmatched', table, detail: `Cannot recover fee commitment: ${error.message}` };
+      }
+    } else if (md.membership_quote_id) {
+      try {
+        const { loadFormMembershipPaymentQuote, historyFromFormPaymentSnapshot, formPaymentActivationFields } = await import('./formMembershipPaymentQuote.js');
+        const saved = await loadFormMembershipPaymentQuote(db, pi);
+        savedFields = historyFromFormPaymentSnapshot(saved);
+        Object.assign(savedFields, formPaymentActivationFields(savedFields));
+        if (Math.round(savedFields.total_with_vat * 100) !== pi.amount
+            || savedFields.currency.toLowerCase() !== pi.currency.toLowerCase()) {
+          return { status: 'conflict', table, detail: 'Saved membership quote does not match the captured amount/currency; administrator review required' };
+        }
+      } catch (error) {
+        return { status: 'unmatched', table, detail: `Cannot recover saved membership commitment: ${error.message}` };
+      }
+    } else if (String(md.membership_year || '').startsWith('rolling:')
+        || ['form-membership-payment', 'member-portal'].includes(md.source)) {
+      return { status: 'unmatched', table, detail: 'Payment has no authoritative saved membership terms; administrator review required before reconstructing dates or pricing' };
+    }
     const cb = feeToken?.cost_breakdown || {};
     const nowIso = new Date().toISOString();
     const { data: insertedRow, error: insertErr } = await db
@@ -306,6 +358,7 @@ export async function recordSucceededMembershipPaymentIntent(
         payment_method: 'stripe',
         stripe_payment_intent_id: pi.id,
         status: 'active',
+        ...savedFields,
         payment_status: 'paid',
         paid_at: nowIso,
         notes: `[Stripe Reconciliation] Record reconstructed from succeeded Stripe payment ${pi.id} because the checkout confirmation step failed before creating it. Amount charged: ${(pi.currency || 'gbp').toUpperCase()} ${chargedAmount.toFixed(2)}. Tier/discount breakdown unavailable — admin review recommended.`,
@@ -324,7 +377,7 @@ export async function recordSucceededMembershipPaymentIntent(
           .eq(entityCol, entityId)
           .eq('membership_year', md.membership_year)
           .maybeSingle();
-        if (raced?.payment_status === 'paid') {
+        if (raced?.payment_status === 'paid' && raced.stripe_payment_intent_id === pi.id) {
           return { status: 'already-recorded', table, recordId: raced.id, workflowFired: false, detail: 'concurrent confirm recorded this payment' };
         }
         row = raced || null;
@@ -359,6 +412,11 @@ export async function recordSucceededMembershipPaymentIntent(
 
   const amountMismatch = Number.isFinite(pi.amount) && row.total_with_vat != null
     && Math.round(Number(row.total_with_vat) * 100) !== pi.amount;
+  if (row.term_key && (amountMismatch
+      || row.currency?.toLowerCase() !== pi.currency?.toLowerCase()
+      || row.billing_agreement_id)) {
+    return { status: 'conflict', table, recordId: row.id, detail: 'Captured payment does not match the reserved membership commitment; do not charge again' };
+  }
   if (amountMismatch) {
     console.error(`[MEMBERSHIP-RECONCILE] Amount mismatch while reconciling PI ${pi.id}: row ${row.id} expects ${Math.round(Number(row.total_with_vat) * 100)}, PI charged ${pi.amount}. Recording anyway (money already captured) — flagged in note.`);
   }
@@ -370,14 +428,18 @@ export async function recordSucceededMembershipPaymentIntent(
   let workflowFired = false;
 
   if (!wasPaid && !reconstructed) {
+    const activation = row.term_key
+      ? (await import('./formMembershipPaymentQuote.js')).formPaymentActivationFields(row)
+      : {};
     // Atomic transition guard: only one caller (webhook vs client confirm
     // vs admin script) wins the not-yet-paid -> paid update.
     const { data: updated, error: updErr } = await db
       .from(table)
       .update({
+        ...activation,
         payment_status: 'paid',
         paid_at: row.paid_at || paidAtIso,
-        payment_method: 'stripe',
+        payment_method: row.term_key ? row.payment_method : 'stripe',
         stripe_payment_intent_id: pi.id,
       })
       .eq('id', row.id)
@@ -389,7 +451,7 @@ export async function recordSucceededMembershipPaymentIntent(
       return { status: 'raced', table, recordId: row.id, workflowFired: false, detail: 'Another process recorded this payment concurrently' };
     }
   } else if (!row.stripe_payment_intent_id) {
-    await db.from(table).update({ payment_method: 'stripe', stripe_payment_intent_id: pi.id }).eq('id', row.id);
+    await db.from(table).update({ payment_method: row.term_key ? row.payment_method : 'stripe', stripe_payment_intent_id: pi.id }).eq('id', row.id);
   }
 
   // 3. Apply the payment to the attached accounting invoice (best-effort).

@@ -1130,7 +1130,9 @@ function ddConfigFields(config) {
       dd_invoicing_mode: 'annual',
     };
   }
-  const instalments = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
+  const termLimit = config.start_mode === 'immediate'
+    ? ({ annual: 12, quarterly: 3, monthly: 1 }[config.billing_period] || 12) : 12;
+  const instalments = Math.min(termLimit, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
   const rule = ['earliest', 'nominated_day', 'anniversary'].includes(config.dd_first_collection_rule)
     ? config.dd_first_collection_rule : 'earliest';
   const activation = ['mandate', 'first_payment', 'manual'].includes(config.dd_activation_rule)

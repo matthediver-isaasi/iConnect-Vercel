@@ -1,4 +1,5 @@
 import { calculateMembershipYearWindow } from './membershipYear.js';
+import { buildRollingTerm } from '../../shared/rollingMembershipTerm.js';
 
 const DAY = 86_400_000;
 const MONTHLY_PERIODS = new Set(['monthly', 'monthly_card', 'monthly_direct_debit']);
@@ -50,6 +51,10 @@ export function normalizeAnnualRenewalConfig(config = {}) {
 
 export function isAnnualNonRecurring(record = {}) {
   const period = String(record.billing_period || 'annual').toLowerCase();
+  if (record.term_key || record.commitment_snapshot?.start_mode === 'immediate') {
+    return !['monthly_card', 'monthly_direct_debit'].includes(period) && !record.billing_agreement_id
+      && record.commitment_snapshot?.payment_frequency !== 'monthly';
+  }
   return period === 'annual' && !MONTHLY_PERIODS.has(period);
 }
 
@@ -71,6 +76,15 @@ function windowFromLabel(label, config) {
 }
 
 export function deriveAnnualTerm(history = {}, config = {}, now = new Date()) {
+  if (history.term_key || config.start_mode === 'immediate' || history.commitment_snapshot?.start_mode === 'immediate') {
+    const start = dateOnly(history.term_start_date);
+    const end = dateOnly(history.term_end_date);
+    const nextStart = dateOnly(history.membership_renewal_date);
+    if (!history.commitment_snapshot || !start || !end || !nextStart || +addDays(end, 1) !== +nextStart) {
+      throw new Error('Legacy rolling membership requires review: trusted term dates and commitment are missing or inconsistent.');
+    }
+    return { start, end, nextStart };
+  }
   const persistedStart = dateOnly(history.term_start_date);
   const persistedEnd = dateOnly(history.term_end_date);
   if (persistedStart || persistedEnd) {
@@ -98,6 +112,14 @@ export function classifyAnnualRenewal({
   const targetWindow = targetMembershipYear?.start
     ? { start: dateOnly(targetMembershipYear.start), end: dateOnly(targetMembershipYear.end) }
     : null;
+  if (!previousRecord && hasActiveMonthlyAgreement) {
+    return {
+      applicable: false, eligible: false, state: 'recurring',
+      code: 'recurring_membership_managed_separately',
+      message: 'This membership is already reserved by a recurring monthly payment plan.',
+      policy: normalizeAnnualRenewalConfig(config),
+    };
+  }
   if (!previousRecord) {
     return {
       applicable: false,
@@ -119,12 +141,15 @@ export function classifyAnnualRenewal({
     };
   }
 
-  const policy = normalizeAnnualRenewalConfig(config);
+  const policy = normalizeAnnualRenewalConfig(previousRecord.commitment_snapshot?.config || config);
   const previousTerm = deriveAnnualTerm(previousRecord, config, now);
   const targetStart = addDays(previousTerm.end, 1);
-  const targetEnd = fullYearEnd(targetStart);
-  const openDate = addDays(previousTerm.end, -policy.windowDays);
-  const graceCutoff = addDays(previousTerm.end, policy.graceDays);
+  const rolling = !!previousRecord.term_key;
+  const targetEnd = rolling
+    ? dateOnly(buildRollingTerm({ startDate: toDateString(targetStart), billingPeriod: config.billing_period, previousTerm: previousRecord, anchorDate: previousRecord.term_anchor_date }).term_end_date)
+    : fullYearEnd(targetStart);
+  const openDate = addDays(rolling ? targetStart : previousTerm.end, -policy.windowDays);
+  const graceCutoff = addDays(rolling ? targetStart : previousTerm.end, policy.graceDays);
   const today = dateOnly(now);
 
   if (existingTargetRecord) {
@@ -163,7 +188,7 @@ async function loadEntityHistory(client, { tenantId, memberId, organizationId })
   const idColumn = memberId ? 'member_id' : 'organization_id';
   const id = memberId || organizationId;
   const { data, error } = await client.from(table)
-    .select('id, membership_year, billing_period, status, payment_status, config_id, term_start_date, term_end_date, scheduled_activation_date, created_at')
+    .select('*')
     .eq('tenant_id', tenantId)
     .eq(idColumn, id)
     .order('created_at', { ascending: false })
@@ -172,12 +197,12 @@ async function loadEntityHistory(client, { tenantId, memberId, organizationId })
   return data || [];
 }
 
-export async function hasActiveMonthlyBillingAgreement(client, { tenantId, memberId }) {
-  if (!memberId) return false;
+export async function hasActiveMonthlyBillingAgreement(client, { tenantId, memberId, organizationId }) {
+  if (!memberId && !organizationId) return false;
   const { data, error } = await client.from('membership_billing_agreements')
     .select('id, status, provider')
     .eq('tenant_id', tenantId)
-    .eq('member_id', memberId)
+    .eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId)
     .in('status', [...ACTIVE_AGREEMENT_STATUSES]);
   if (error) throw new Error(`Could not resolve monthly billing agreement: ${error.message}`);
   return (data || []).some((row) => ['gocardless', 'stripe'].includes(row.provider || 'gocardless'));
@@ -191,7 +216,7 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
   membershipYear,
   now = new Date(),
 }) {
-  if (String(config?.billing_period || 'annual').toLowerCase() !== 'annual') {
+  if (config?.start_mode !== 'immediate' && String(config?.billing_period || 'annual').toLowerCase() !== 'annual') {
     return { applicable: false, eligible: true, state: 'recurring', lifecycle: { kind: 'recurring' } };
   }
   const rows = await loadEntityHistory(client, { tenantId, memberId, organizationId });
@@ -206,7 +231,7 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
   const previousRecord = candidates[0]?.row || null;
   const hasMonthly = previousRecord && !isAnnualNonRecurring(previousRecord)
     ? true
-    : await hasActiveMonthlyBillingAgreement(client, { tenantId, memberId });
+    : await hasActiveMonthlyBillingAgreement(client, { tenantId, memberId, organizationId });
   const result = classifyAnnualRenewal({
     previousRecord,
     targetMembershipYear: membershipYear,
@@ -237,17 +262,18 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
 
 export async function resolveAnnualRenewal(client, { tenantId, history, config = null, now = new Date() }) {
   if (!history) throw new Error('A membership history record is required.');
-  let tier = config;
+  let tier = history.commitment_snapshot?.config || config;
   if (!tier && history.config_id) {
     const { data, error } = await client.from('membership_tier_config')
       .select('*').eq('id', history.config_id).eq('tenant_id', tenantId).maybeSingle();
     if (error) throw new Error(`Could not load annual renewal configuration: ${error.message}`);
     tier = data;
   }
+  tier = history.commitment_snapshot?.config || tier;
   if (!tier || !isAnnualNonRecurring(history)) return { applicable: false };
   const policy = normalizeAnnualRenewalConfig(tier);
   const term = deriveAnnualTerm(history, tier, now);
-  const graceCutoff = addDays(term.end, policy.graceDays);
+  const graceCutoff = addDays(history.term_key ? term.nextStart : term.end, policy.graceDays);
   const expired = dateOnly(now) > graceCutoff;
   return {
     applicable: true,

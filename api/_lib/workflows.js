@@ -18,6 +18,7 @@ import {
   zeroDuePaymentFields,
 } from './zeroDueMembership.js';
 import { validateWorkflowOrganizationMembershipSimulation } from './workflowMembershipSimulation.js';
+import { workflowRollingCommitment, hasRollingMonthlyArrangement } from './rollingFeeCommitment.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -1871,6 +1872,9 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${targetYearLabel} already exists` };
     }
 
+    if (await hasRollingMonthlyArrangement(supabase, { tenantId, organizationId, simResult })) {
+      return { action_type: 'create_membership', status: 'skipped', message: 'An existing monthly payment arrangement must renew through its provider-managed commitment' };
+    }
     const record = {
       tenant_id: tenantId,
       organization_id: organizationId,
@@ -1899,6 +1903,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       status: 'active',
       notes: `Created by workflow "${workflow.name}" (year ${simResult.yearNumber})`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
+      ...workflowRollingCommitment(simResult, { zeroDue, addonTotals }),
     };
 
     if (vatRate !== null) {
@@ -2275,6 +2280,9 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
     }
 
     // Record the membership (mirrors the renewal cron's member insert).
+    if (await hasRollingMonthlyArrangement(supabase, { tenantId, memberId, simResult })) {
+      return { action_type: 'create_membership', status: 'skipped', target: 'member', message: 'An existing monthly payment arrangement must renew through its provider-managed commitment' };
+    }
     const { data: record, error: insertError } = await supabase
       .from('member_membership_history')
       .insert({
@@ -2305,6 +2313,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         status: 'active',
         notes: `Created by workflow "${workflow.name}" (year ${simResult.yearNumber})`,
         ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
+        ...workflowRollingCommitment(simResult, { zeroDue }),
       })
       .select()
       .single();

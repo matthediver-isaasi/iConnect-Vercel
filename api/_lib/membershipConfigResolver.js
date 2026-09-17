@@ -1,5 +1,32 @@
 import { supabase } from './database.js';
 
+// A renewal stays in the purchased structure's scope; changing a member's
+// preferences or a cron's execution date must not move an existing commitment.
+export async function resolveRollingSuccessorConfig(client, { tenantId, previousTerm }) {
+  const snapshot = previousTerm?.commitment_snapshot;
+  const priorConfig = snapshot?.config;
+  const boundary = previousTerm?.membership_renewal_date;
+  if (!priorConfig || !boundary) throw new Error('Rolling membership requires review: trusted commitment configuration and renewal date are missing.');
+  const { data, error } = await client.from('membership_tier_config')
+    .select('*').eq('tenant_id', tenantId)
+    .or(`effective_from.is.null,effective_from.lte.${boundary}`)
+    .or(`effective_to.is.null,effective_to.gte.${boundary}`);
+  if (error) throw new Error(`Could not resolve rolling renewal configuration: ${error.message}`);
+  const normalize = (value) => String(value ?? '').trim().toLowerCase();
+  const matches = (data || []).filter((config) =>
+    config.is_active !== false
+    && config.start_mode === 'immediate'
+    && (config.structure_scope_type || 'organization') === (priorConfig.structure_scope_type || 'organization')
+    && normalize(config.structure_field_id) === normalize(priorConfig.structure_field_id)
+    && normalize(config.structure_match_value) === normalize(priorConfig.structure_match_value));
+  if (matches.length !== 1) {
+    throw new Error(matches.length
+      ? `Rolling renewal on ${boundary} has overlapping eligible structures; review the effective dates.`
+      : `No eligible membership structure exists for rolling renewal on ${boundary}; review the structure effective dates.`);
+  }
+  return matches[0];
+}
+
 function membershipYearValue(value) {
   const match = String(value ?? '').trim().match(/^(-?\d+)/);
   if (!match) return Number.NEGATIVE_INFINITY;

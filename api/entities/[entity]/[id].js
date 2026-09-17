@@ -13,6 +13,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
+import { hasGenericCommitmentFields, constrainGenericCommitmentMutation } from '../../_lib/rollingCommitmentEntityBoundary.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
 import {
@@ -293,6 +294,9 @@ export default async function handler(req, res, dependencies = {}) {
   }
 
   const tableName = getTableName(entity);
+  if (['POST', 'PUT', 'PATCH'].includes(req.method) && hasGenericCommitmentFields(tableName, req.body)) {
+    return res.status(403).json({ error: 'Membership commitments must be managed through the membership payment and renewal services.' });
+  }
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
@@ -2028,6 +2032,7 @@ export default async function handler(req, res, dependencies = {}) {
         .from(tableName)
         .update(sanitizedBody)
         .eq('id', id);
+      patchQuery = constrainGenericCommitmentMutation(tableName, patchQuery);
       
       // Apply tenant filter to ensure user can only update records in their tenant (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
@@ -3347,11 +3352,11 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       console.log(`[Entity DELETE] About to delete from ${tableName} where id=${id}`);
-      const { data: deleteData, error, count } = await supabase
+      const deleteQuery = supabase
         .from(tableName)
         .delete()
-        .eq('id', id)
-        .select();
+        .eq('id', id);
+      const { data: deleteData, error, count } = await constrainGenericCommitmentMutation(tableName, deleteQuery).select();
 
       if (error) {
         console.error(`[Entity DELETE] Error deleting ${tableName} id=${id}:`, error.message, error.details, error.hint, error.code);

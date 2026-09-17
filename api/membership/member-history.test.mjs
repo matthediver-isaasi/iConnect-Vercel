@@ -372,3 +372,23 @@ test('uses deterministic tie breakers when history dates and years are invalid',
   assert.equal(compareMembershipHistory(rows[0], rows[1]), -1);
   assert.ok(Number.isFinite(compareMembershipHistory(rows[0], rows[1])));
 });
+
+test('sorts rolling terms by persisted start date instead of the rolling key', () => {
+  const rows = [{
+    id: 'older',
+    membership_year: 'rolling:2026-01-15',
+    term_start_date: '2026-01-15',
+    created_at: '2027-02-01T00:00:00Z',
+    membership_source: 'personal',
+  }, {
+    id: 'newer',
+    membership_year: 'rolling:2026-10-15',
+    term_start_date: '2026-10-15',
+    created_at: '2026-10-01T00:00:00Z',
+    membership_source: 'personal',
+  }];
+
+  rows.sort(compareMembershipHistory);
+
+  assert.deepEqual(rows.map((row) => row.id), ['newer', 'older']);
+});

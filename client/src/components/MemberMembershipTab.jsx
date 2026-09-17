@@ -61,6 +61,54 @@ function formatCost(value, currency) {
   return `${symbol}${parseFloat(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatMembershipDate(value) {
+  if (!value) return 'Unknown';
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function formatBillingDuration(commitment) {
+  const months = Number(commitment?.durationMonths);
+  if (Number.isInteger(months) && months > 0) {
+    if (months === 12) return 'Annual (12 months)';
+    if (months === 3) return 'Quarterly (3 months)';
+    if (months === 1) return 'Monthly (1 month)';
+    return `${months} months`;
+  }
+  return commitment?.billingPeriod
+    ? `${commitment.billingPeriod.charAt(0).toUpperCase()}${commitment.billingPeriod.slice(1)} (duration unknown)`
+    : 'Unknown';
+}
+
+function formatPaymentMethod(value) {
+  const labels = {
+    stripe: 'Card (paid in full)',
+    stripe_monthly_card: 'Stripe',
+    card_monthly: 'Stripe',
+    gocardless: 'GoCardless',
+    direct_debit: 'GoCardless',
+    invoice: 'Invoice',
+  };
+  return labels[value] || (value ? String(value).replaceAll('_', ' ') : 'Unknown');
+}
+
+function formatPaymentFrequency(value, monthlyAmount, currency) {
+  if (!value) return 'Unknown';
+  const label = String(value).replaceAll('_', ' ');
+  return monthlyAmount != null && String(value).toLowerCase().includes('month')
+    ? `${label.charAt(0).toUpperCase()}${label.slice(1)} (${formatCost(monthlyAmount, currency)} per collection)`
+    : `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
+function membershipTermLabel(record) {
+  if (record?.term_start_date || record?.term_end_date) {
+    return `${formatMembershipDate(record.term_start_date)} – ${formatMembershipDate(record.term_end_date)}`;
+  }
+  if (String(record?.membership_year || '').startsWith('rolling:')) return 'Dates unknown';
+  return record?.membership_year || 'Unknown';
+}
+
 function MemberYearCostSection({
   yearData,
   yearLabel,
@@ -177,7 +225,15 @@ function MemberYearCostSection({
           )}
         </div>
       </div>
-      <p className="font-semibold" data-testid={`text-member-year-${testIdPrefix}`}>{yearData.membershipYear}</p>
+      <p className="font-semibold" data-testid={`text-member-year-${testIdPrefix}`}>
+        {String(yearData.membershipYear || '').startsWith('rolling:')
+          ? membershipTermLabel({
+            membership_year: yearData.membershipYear,
+            term_start_date: yearData.startDate,
+            term_end_date: yearData.endDate,
+          })
+          : yearData.membershipYear}
+      </p>
 
       {!readOnly && hasOverride && (
         <div className="mt-2 p-2 rounded-md bg-warning/10 dark:bg-warning/30 border border-warning/30 dark:border-warning">
@@ -1186,6 +1242,11 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   );
 
   const history = Array.isArray(data?.history) ? data.history : [];
+  const currentCommitments = Array.isArray(data?.currentCommitments)
+    ? data.currentCommitments : [];
+  const hasCurrentPersistedCommitment = currentCommitments.some((commitment) => (
+    commitment.lifecycle === 'current' && commitment.source === 'personal'
+  ));
   // The summary/current-year cards are member-scoped. Organisation rows are
   // displayed in the shared history ledger, but must not make a personal
   // simulation appear recorded for the member.
@@ -1284,6 +1345,77 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   return (
     <div className="space-y-4">
       {pauseControls}
+      {currentCommitments.map((commitment) => (
+        <Card
+          key={`${commitment.source}:${commitment.id}`}
+          className={commitment.lifecycle === 'scheduled' ? 'border-blue-200 dark:border-blue-800' : 'border-green-200 dark:border-green-900'}
+          data-testid={`card-member-commitment-${commitment.id}`}
+        >
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+              <CalendarDays className="w-4 h-4" />
+              {commitment.lifecycle === 'scheduled' ? 'Scheduled Membership Commitment' : 'Current Membership Commitment'}
+              <Badge variant={commitment.lifecycle === 'scheduled' ? 'outline' : 'secondary'}>
+                {commitment.lifecycle === 'scheduled' ? 'Scheduled' : 'Current'}
+              </Badge>
+              <Badge variant="outline">
+                {commitment.source === 'organisation' ? 'Inherited from organisation' : 'Personal membership'}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Membership Start Date</dt>
+                <dd className="font-medium" data-testid={`text-commitment-start-${commitment.id}`}>
+                  {formatMembershipDate(commitment.startDate)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Membership Renewal Date</dt>
+                <dd className="font-medium" data-testid={`text-commitment-renewal-${commitment.id}`}>
+                  {formatMembershipDate(commitment.renewalDate)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Current Term End</dt>
+                <dd className="font-medium">{formatMembershipDate(commitment.endDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Billing Period</dt>
+                <dd className="font-medium">{formatBillingDuration(commitment)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Membership Structure</dt>
+                <dd className="font-medium">
+                  {commitment.structureName || 'Unknown'}
+                  {commitment.tierLabel && commitment.tierLabel !== commitment.structureName
+                    ? ` · ${commitment.tierLabel}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Agreed Price for this Billing Period</dt>
+                <dd className="font-medium" data-testid={`text-commitment-price-${commitment.id}`}>
+                  {formatCost(commitment.agreedPrice, commitment.currency)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Payment Frequency</dt>
+                <dd className="font-medium">
+                  {formatPaymentFrequency(commitment.paymentFrequency, commitment.monthlyAmount, commitment.currency)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Payment Method</dt>
+                <dd className="font-medium">{formatPaymentMethod(commitment.paymentMethod)}</dd>
+              </div>
+            </dl>
+            <p className="text-xs text-muted-foreground mt-4">
+              Persisted commitment · pricing remains fixed for this term.
+            </p>
+          </CardContent>
+        </Card>
+      ))}
       {!config && !isLoading && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
@@ -1306,7 +1438,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           </CardContent>
         </Card>
       )}
-      {config && (
+      {config && !hasCurrentPersistedCommitment && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -1353,7 +1485,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         </Card>
       )}
 
-      {config && (
+      {config && !hasCurrentPersistedCommitment && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
             <CardHeader>
@@ -1440,7 +1572,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           )}
         </div>
       )}
-      {config && historicalReadOnly && (
+      {config && historicalReadOnly && !hasCurrentPersistedCommitment && (
         <Card data-testid="card-member-paid-snapshot-future">
           <CardContent className="py-4 text-sm text-muted-foreground">
             Future pricing is unavailable until a live member-scoped tier is matched.
@@ -1466,9 +1598,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
               <table className="w-full text-sm" data-testid="table-member-history">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="text-left p-3 font-medium">Year</th>
-                    <th className="text-left p-3 font-medium">Tier</th>
-                    <th className="text-right p-3 font-medium">{periodLabel} Cost</th>
+                    <th className="text-left p-3 font-medium">Term</th>
+                    <th className="text-left p-3 font-medium">Structure</th>
+                    <th className="text-right p-3 font-medium">Agreed Price</th>
                     <th className="text-right p-3 font-medium">Adjustments</th>
                     <th className="text-center p-3 font-medium">Method</th>
                     <th className="text-right p-3 font-medium">Net Cost</th>
@@ -1496,11 +1628,39 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                     return (
                       <Fragment key={membershipRecordKey}>
                       <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
-                        <td className="p-3 font-medium">{record.membership_year}</td>
+                        <td className="p-3 font-medium">
+                          <div>{membershipTermLabel(record)}</div>
+                          {(record.term_start_date || record.membership_renewal_date) && (
+                            <div className="text-xs text-muted-foreground font-normal mt-1">
+                              Renewal: {formatMembershipDate(record.membership_renewal_date)}
+                              {' · '}
+                              {record.term_duration_months
+                                ? `${record.term_duration_months} ${Number(record.term_duration_months) === 1 ? 'month' : 'months'}`
+                                : 'Duration unknown'}
+                            </div>
+                          )}
+                          {!record.term_start_date && !record.membership_renewal_date && (
+                            <div className="text-xs text-muted-foreground font-normal mt-1">
+                              Legacy record · commitment dates unknown
+                            </div>
+                          )}
+                        </td>
                         <td className="p-3">
                           <Badge variant="secondary">{record.tier_label || '-'}</Badge>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {record.commitment_snapshot?.config?.name
+                              || record.commitment_snapshot?.structure_name
+                              || (record.config_id ? `Structure ${record.config_id}` : 'Structure unknown')}
+                          </div>
                         </td>
-                        <td className="p-3 text-right">{formatCost(record.annual_cost, record.currency)}</td>
+                        <td className="p-3 text-right">
+                          {formatCost(
+                            record.commitment_snapshot?.amounts?.total_with_vat
+                              ?? record.total_with_vat
+                              ?? record.final_cost,
+                            record.commitment_snapshot?.amounts?.currency || record.currency,
+                          )}
+                        </td>
                         <td className="p-3 text-right text-xs space-y-0.5">
                           {hasAdjustments ? (
                             <>
@@ -1517,11 +1677,12 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                           ) : '-'}
                         </td>
                         <td className="p-3 text-center" data-testid={`cell-member-history-method-${record.id}`}>
-                          {record.payment_method === 'stripe' ? (
-                            <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400 inline-block" />
-                          ) : record.payment_method ? (
-                            <FileText className="w-4 h-4 text-muted-foreground inline-block" />
-                          ) : '-'}
+                          <div>{formatPaymentMethod(record.payment_method)}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {record.payment_frequency
+                              || record.commitment_snapshot?.payment_frequency
+                              || 'Frequency unknown'}
+                          </div>
                         </td>
                         <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
                         <td className="p-3 text-right font-semibold">{formatCost(record.total_with_vat || record.final_cost, record.currency)}</td>

@@ -181,6 +181,7 @@ test('member quote exposes the flat monthly-card offer from the resolved structu
     termsVersion: 'v1',
     invoicingMode: 'annual',
     monthlyPostGraceCollectionPolicy: 'stop_collecting',
+    autoRenew: true,
   });
   assert.equal(quote.membership_year_start, '2026-01-01');
 });

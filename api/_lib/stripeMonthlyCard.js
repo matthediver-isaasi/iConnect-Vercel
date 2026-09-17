@@ -1,3 +1,4 @@
+import { monthlyCommitmentFields, monthlyInstalmentCount, monthlySnapshotCommitment, monthlyActivationSchedule } from './rollingMonthlyRenewal.js';
 // Task #3620 — Monthly membership payments by card via Stripe Subscriptions.
 //
 // Mirrors the GoCardless monthly DD plan model (api/_lib/gocardlessDirectDebit.js):
@@ -116,7 +117,7 @@ export function resolveCardMonthlyOffer(simResult) {
   }
   if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) return null;
 
-  const instalmentCount = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
+  const instalmentCount = monthlyInstalmentCount(config);
   const monthlyAmountMinor = toMinorUnits(monthlyAmount);
   if (!monthlyAmountMinor) return null;
 
@@ -124,6 +125,7 @@ export function resolveCardMonthlyOffer(simResult) {
     monthlyAmount: parseFloat(monthlyAmount.toFixed(2)),
     monthlyAmountMinor,
     instalmentCount,
+    autoRenew: config.dd_auto_renew !== false,
     planTotal: parseFloat(((monthlyAmountMinor * instalmentCount) / 100).toFixed(2)),
     currency: simResult.currency || config.currency || 'GBP',
     activationRule: ACTIVATION_RULES.includes(config.dd_activation_rule)
@@ -154,6 +156,9 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
   if (!offer) throw new Error('offer is required');
   return {
     kind: CARD_PLAN_KIND,
+    start_mode: simResult?.config?.start_mode || 'fixed_date',
+    commitment: monthlyCommitmentFields({ offer, simResult, paymentMethod: 'card_monthly' }),
+    auto_renew: offer.autoRenew,
     monthly_amount: offer.monthlyAmount,
     monthly_amount_minor: offer.monthlyAmountMinor,
     instalment_count: offer.instalmentCount,
@@ -538,7 +543,13 @@ export async function ensureStripeCardCancellationBoundary({
     || subscription?.start_date
     || subscription?.current_period_start,
   );
-  const agreedEnd = addUtcMonthsClamped(billingAnchor, duration.interval_count);
+  const commitment = monthlySnapshotCommitment(snapshot);
+  const savedBoundary = commitment
+    ? Math.floor(new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`).getTime() / 1000)
+    : null;
+  const agreedEnd = savedBoundary
+    ? Math.min(savedBoundary, addUtcMonthsClamped(billingAnchor, duration.interval_count))
+    : addUtcMonthsClamped(billingAnchor, duration.interval_count);
   const directCancelAt = Number(subscription?.cancel_at)
     || (subscription?.cancel_at_period_end ? Number(subscription.current_period_end) : 0)
     || Number(subscription?.ended_at) || null;
@@ -681,7 +692,7 @@ export async function ensureStripeCardCancellationBoundary({
  * Apply the snapshot's activation rule to the linked membership-history row.
  * Card twin of activateMembershipForAgreement (which requires metadata.dd).
  */
-export async function activateMembershipForCardAgreement(agreement, { trigger, db: dbArg } = {}) {
+export async function activateMembershipForCardAgreement(agreement, { trigger, db: dbArg, now = new Date() } = {}) {
   const db = dbArg || supabase;
   const snapshot = agreement?.metadata?.card;
   const table = membershipHistoryTableForAgreement(agreement);
@@ -697,13 +708,14 @@ export async function activateMembershipForCardAgreement(agreement, { trigger, d
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
   const activate = decideCardActivation({ activationRule: snapshot.activation_rule, trigger });
-  const nextStatus = activate ? 'active' : (snapshot.activation_rule === 'manual' ? 'pending_activation' : null);
+  const schedule = monthlyActivationSchedule(snapshot, activate, now);
+  const nextStatus = schedule.status;
   if (!nextStatus || nextStatus === row.status) {
     return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
   }
   const { error: upErr } = await db
     .from(table)
-    .update({ status: nextStatus })
+    .update(schedule)
     .eq('id', row.id)
     .eq('status', row.status);
   if (upErr) throw new Error(`update membership history failed: ${upErr.message}`);

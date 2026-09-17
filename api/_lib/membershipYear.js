@@ -1,16 +1,23 @@
+import { buildRollingTerm } from '../../shared/rollingMembershipTerm.js';
+
+export function rollingMembershipWindow(config, startDate, previousTerm = null) {
+  const term = buildRollingTerm({
+    startDate: previousTerm?.membership_renewal_date || startDate,
+    billingPeriod: config.billing_period,
+    anchorDate: previousTerm?.term_anchor_date,
+    previousTerm,
+  });
+  return {
+    label: term.term_key,
+    start: new Date(`${term.term_start_date}T00:00:00.000Z`),
+    end: new Date(`${term.term_end_date}T00:00:00.000Z`),
+    ...term,
+  };
+}
+
 export function calculateMembershipYearWindow(config, referenceDate = new Date()) {
   if (config && config.start_mode === 'immediate') {
-    const start = new Date(referenceDate);
-    start.setHours(0, 0, 0, 0);
-    const year = start.getFullYear();
-    const end = new Date(start);
-    end.setFullYear(end.getFullYear() + 1);
-    end.setDate(end.getDate() - 1);
-    return {
-      label: `${year}/${year + 1}`,
-      start,
-      end,
-    };
+    return rollingMembershipWindow(config, referenceDate);
   }
 
   const startMonth = (config && config.membership_start_month) || 1;
@@ -39,15 +46,7 @@ export function calculateNextMembershipYearWindow(config, referenceDate = new Da
   nextStart.setDate(nextStart.getDate() + 1);
 
   if (config && config.start_mode === 'immediate') {
-    const end = new Date(nextStart);
-    end.setFullYear(end.getFullYear() + 1);
-    end.setDate(end.getDate() - 1);
-    const ny = nextStart.getFullYear();
-    return {
-      label: `${ny}/${ny + 1}`,
-      start: nextStart,
-      end,
-    };
+    return rollingMembershipWindow(config, nextStart, current);
   }
 
   const startMonth = (config && config.membership_start_month) || 1;

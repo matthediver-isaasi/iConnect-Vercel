@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
+import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -106,9 +107,9 @@ export default async function handler(req, res) {
     };
     const annualRenewalGate = async () => {
       const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-      const simulation = isMemberToken
+      const simulation = simulationFromFeeCommitment(feeToken) || (isMemberToken
         ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year })
-        : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year });
+        : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year }));
       if (!simulation.success) return { eligible: false, error: simulation.error || 'Could not validate annual renewal eligibility', code: 'annual_renewal_unavailable' };
       return resolveEntityAnnualRenewalEligibility(supabase, {
         tenantId: feeToken.tenant_id,
@@ -143,9 +144,9 @@ export default async function handler(req, res) {
       let renewalLifecycle = null;
       try {
         const { getConfigForOrganisation, getConfigForMember } = await import('../../_lib/membershipConfigResolver.js');
-        tierConfig = isMemberToken
+        tierConfig = feeTokenCommitment(feeToken)?.commitment_snapshot?.config || (isMemberToken
           ? await getConfigForMember(feeToken.tenant_id, feeToken.member_id)
-          : await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id);
+          : await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id));
         if (tierConfig?.online_card_payment) {
           const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
           const creds = await getStripeCredentials(feeToken.tenant_id, 'membership');
@@ -159,9 +160,9 @@ export default async function handler(req, res) {
       // surface explains why its payment controls are unavailable.
       try {
         const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const lifecycleSimulation = isMemberToken
+        const lifecycleSimulation = simulationFromFeeCommitment(feeToken) || (isMemberToken
           ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year })
-          : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year });
+          : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year }));
         if (lifecycleSimulation.success) {
           renewalLifecycle = await resolveEntityAnnualRenewalEligibility(supabase, {
             tenantId: feeToken.tenant_id,
@@ -271,7 +272,7 @@ export default async function handler(req, res) {
             if (stripeCreds?.secret_key) {
               const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
               const { resolveCardMonthlyOffer } = await import('../../_lib/stripeMonthlyCard.js');
-              const cardSim = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+              const cardSim = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
                 source: 'token-card-monthly',
                 mode: 'manual',
                 targetYear: feeToken.membership_year,
@@ -296,7 +297,7 @@ export default async function handler(req, res) {
           if (creds?.accessToken && tierConfig?.dd_enabled) {
             const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
             const { resolveDdOffer, publicDdConsentTerms } = await import('../../_lib/gocardlessDirectDebit.js');
-            const ddSim = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+            const ddSim = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
               source: 'token-dd',
               mode: 'manual',
               targetYear: feeToken.membership_year,
@@ -394,6 +395,7 @@ export default async function handler(req, res) {
         renewalMessage: renewalLifecycle?.eligible === false ? renewalLifecycle.error : null,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
+        commitment: feeTokenCommitment(feeToken),
         finalCost: parseFloat(feeToken.final_cost),
         vatRatePercent: tokenVatRate,
         vatAmount: tokenVatAmount,
@@ -619,6 +621,19 @@ export default async function handler(req, res) {
         if (!annualEligibility.eligible) {
           return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
         }
+        let reservedTerm = null;
+        try {
+          reservedTerm = await reserveRollingFeePayment(supabase, feeToken);
+          if (reservedTerm) {
+            const { error } = await supabase.from('membership_fee_token')
+              .update({ history_record_id: reservedTerm.id })
+              .eq('id', feeToken.id).eq('tenant_id', feeToken.tenant_id);
+            if (error) throw new Error(`Could not link membership reservation: ${error.message}`);
+            feeToken.history_record_id = reservedTerm.id;
+          }
+        } catch (error) {
+          return res.status(409).json({ error: error.message, code: 'rolling_payment_conflict' });
+        }
 
         // Double-payment guard (provider-independent): an open monthly plan
         // agreement (card OR Direct Debit) for this membership year blocks
@@ -652,6 +667,31 @@ export default async function handler(req, res) {
         const tokenBreakdown = feeToken.cost_breakdown || {};
         const chargeTotal = tokenBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
         const amount = Math.round(chargeTotal * 100);
+        if (reservedTerm && (feeToken.stripe_payment_intent_id || reservedTerm.stripe_payment_intent_id)) {
+          const { retrieveTenantPaymentIntent } = await import('../../_lib/stripeCredentials.js');
+          const recovered = await retrieveTenantPaymentIntent(feeToken.tenant_id, 'membership',
+            feeToken.stripe_payment_intent_id || reservedTerm.stripe_payment_intent_id);
+          const existingIntent = recovered?.paymentIntent || recovered?.payment_intent || recovered;
+          if (!existingIntent?.id || existingIntent.status === 'canceled'
+              || existingIntent.amount !== amount
+              || existingIntent.metadata?.token_id !== feeToken.id) {
+            return res.status(409).json({ error: 'The saved membership payment needs review; a second payment has not been created' });
+          }
+          return res.json({ clientSecret: existingIntent.client_secret, paymentIntentId: existingIntent.id });
+        }
+        if (reservedTerm) {
+          if (feeToken.stripe_payment_attempted_at
+              && Date.now() - new Date(feeToken.stripe_payment_attempted_at).getTime() > 23 * 60 * 60 * 1000) {
+            return res.status(409).json({ error: 'The previous payment setup has an unknown outcome and needs review; a second payment has not been created' });
+          }
+          if (!feeToken.stripe_payment_attempted_at) {
+            const { error } = await supabase.from('membership_fee_token')
+              .update({ stripe_payment_attempted_at: new Date().toISOString() })
+              .eq('id', feeToken.id).eq('tenant_id', feeToken.tenant_id)
+              .is('stripe_payment_attempted_at', null);
+            if (error) return res.status(503).json({ error: 'Could not reserve the payment setup attempt; no payment has been started' });
+          }
+        }
         const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
         const cur = (feeToken.currency || 'GBP').toLowerCase();
         const minCents = STRIPE_MIN_CENTS[cur] || 50;
@@ -693,9 +733,9 @@ export default async function handler(req, res) {
             tenant_id: feeToken.tenant_id,
           },
           description: `Membership fee for ${payerName || 'Member'} - ${feeToken.membership_year}`,
-        });
+        }, reservedTerm ? { idempotencyKey: `rolling-fee-payment:${feeToken.tenant_id}:${reservedTerm.id}` } : undefined);
 
-        await supabase
+        const { error: paymentLinkError } = await supabase
           .from('membership_fee_token')
           .update({
             stripe_payment_intent_id: paymentIntent.id,
@@ -703,6 +743,9 @@ export default async function handler(req, res) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', feeToken.id);
+        if (reservedTerm && paymentLinkError) {
+          return res.status(503).json({ error: 'Payment setup needs reconciliation before it can be opened; please retry without starting another payment' });
+        }
 
         return res.json({
           clientSecret: paymentIntent.client_secret,
@@ -711,7 +754,9 @@ export default async function handler(req, res) {
       }
 
       if (action === 'confirm_payment') {
-        const annualEligibility = await annualRenewalGate();
+        // A succeeded payment completes the bought quote, not today's offer.
+        const annualEligibility = feeTokenCommitment(feeToken)
+          ? { eligible: true } : await annualRenewalGate();
         if (!annualEligibility.eligible) {
           return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
         }
@@ -756,11 +801,13 @@ export default async function handler(req, res) {
         // Idempotency probe — by history row first (the original path).
         const { data: existingByPI } = await supabase
           .from(historyTable)
-          .select('id')
+          .select('id, payment_status')
           .eq('stripe_payment_intent_id', paymentIntentId)
+          .eq('tenant_id', feeToken.tenant_id)
+          .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
           .maybeSingle();
 
-        if (existingByPI) {
+        if (existingByPI?.payment_status === 'paid') {
           console.log(`[Public Fee] Idempotent return: history row already exists for PI ${paymentIntentId}`);
           if (feeToken.status !== 'paid') {
             await supabase.from('membership_fee_token').update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', feeToken.id);
@@ -847,7 +894,7 @@ export default async function handler(req, res) {
           .eq('id', feeToken.id);
 
         const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = isMemberToken
+        const simResult = simulationFromFeeCommitment(feeToken) || (isMemberToken
           ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
               source: 'stripe-payment',
               mode: 'manual',
@@ -857,7 +904,7 @@ export default async function handler(req, res) {
               source: 'stripe-payment',
               mode: 'manual',
               targetYear: feeToken.membership_year,
-            });
+            }));
 
         // Task #1112 — explicit handling of simResult.success === false.
         // Previously this dropped through to the (recordCreated=false)
@@ -885,6 +932,8 @@ export default async function handler(req, res) {
               .from(historyTable)
               .select('*')
               .eq('id', feeToken.history_record_id || '00000000-0000-0000-0000-000000000000')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
               .maybeSingle();
             historyRecord = existing
               || (await supabase
@@ -897,8 +946,8 @@ export default async function handler(req, res) {
             if (historyRecord && !historyRecord.stripe_payment_intent_id) {
               await supabase
                 .from(historyTable)
-                .update({ payment_method: 'stripe', stripe_payment_intent_id: paymentIntentId })
-                .eq('id', historyRecord.id);
+                .update({ payment_method: historyRecord.term_key ? historyRecord.payment_method : 'stripe', stripe_payment_intent_id: paymentIntentId })
+                .eq('id', historyRecord.id).eq('tenant_id', feeToken.tenant_id);
             }
             recordCreated = !!historyRecord;
           } catch (linkErr) {
@@ -915,6 +964,7 @@ export default async function handler(req, res) {
           const { data: insertedRecord, error: insertError } = await supabase
             .from(historyTable)
             .insert({
+              ...(feeTokenCommitment(feeToken) || {}),
               tenant_id: feeToken.tenant_id,
               ...(isMemberToken
                 ? { member_id: feeToken.member_id }
@@ -949,6 +999,9 @@ export default async function handler(req, res) {
               payment_method: 'stripe',
               stripe_payment_intent_id: paymentIntentId,
               status: 'active',
+              ...(feeTokenCommitment(feeToken)
+                ? (await import('../../_lib/formMembershipPaymentQuote.js')).formPaymentActivationFields(feeTokenCommitment(feeToken))
+                : {}),
               notes: `Payment received via Stripe (${paymentIntentId}). Fee link: ${token.substring(0, 8)}...${tokenAddons.length > 0 ? ` ${tokenAddons.length} add-on line(s) included.` : ''}`,
             })
             .select()
@@ -1161,7 +1214,25 @@ export default async function handler(req, res) {
           // invoice path AND the newly-created-on-confirm path. The helper
           // is idempotent and a no-op when the row is already in a terminal
           // payment state.
-          if (xeroInvoice && historyRecord?.id) {
+          if (historyRecord?.term_key) {
+            try {
+              const { recordSucceededMembershipPaymentIntent } = await import('../../_lib/membershipPaymentReconciliation.js');
+              const result = await recordSucceededMembershipPaymentIntent({
+                tenantId: feeToken.tenant_id,
+                paymentIntent,
+                baseUrl: req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : '',
+                source: 'public_rolling_fee_confirm',
+              }, {
+                db: supabase,
+                ...(xeroInvoice && !accountingSyncError ? { applyPayment: async () => xeroInvoice } : {}),
+              });
+              if (!['recorded', 'already-recorded', 'raced'].includes(result.status)) {
+                return confirmFailure(result.detail || 'The captured membership payment needs reconciliation');
+              }
+            } catch (error) {
+              return confirmFailure(`The captured membership payment needs reconciliation: ${error.message}`);
+            }
+          } else if (xeroInvoice && historyRecord?.id) {
             try {
               const { reconcileMembershipInvoicePayment } = await import('../../_lib/membershipPaymentReconciliation.js');
               // Task #3253 — pass the request-derived base URL so the
@@ -1271,7 +1342,7 @@ export default async function handler(req, res) {
         }
 
         const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+        const simResult = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
           source: 'fee-token-dd',
           mode: 'manual',
           targetYear: feeToken.membership_year,
@@ -1301,7 +1372,7 @@ export default async function handler(req, res) {
 
         const yearLabel = simResult.membershipYear?.label || feeToken.membership_year;
 
-        const { data: existingHistory } = await supabase
+        let { data: existingHistory } = await supabase
           .from('member_membership_history')
           .select('id, status, payment_status, payment_method, billing_agreement_id, stripe_payment_intent_id')
           .eq('tenant_id', feeToken.tenant_id)
@@ -1375,13 +1446,14 @@ export default async function handler(req, res) {
           });
 
         const agreementInsert = {
+          ...(snapshot.commitment || {}),
           tenant_id: feeToken.tenant_id,
           member_id: feeToken.member_id,
           agreement_type: 'member',
           status: STATUS.PAYMENT_SETUP_REQUIRED,
           idempotency_key: idempotencyKey,
           environment: creds.environment || 'sandbox',
-          metadata: { dd: snapshot },
+          metadata: { dd: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
         };
         if (reusable) {
           agreementInsert.gocardless_mandate_id = reusable.mandateId;
@@ -1401,8 +1473,18 @@ export default async function handler(req, res) {
           ? { agreement: rotatedAgreement, created: false }
           : await claimMonthlyConsentAgreement({ db: supabase, agreementInsert });
         let agreement = claim.agreement;
+        if (agreement.tenant_id !== feeToken.tenant_id || agreement.member_id !== feeToken.member_id || agreement.organization_id) {
+          return res.status(409).json({ error: 'The saved billing agreement does not match this fee link owner' });
+        }
         snapshot = agreement.metadata?.dd;
         idempotencyKey = agreement.idempotency_key;
+        if (snapshot.commitment?.term_key) {
+          try {
+            existingHistory = await reserveRollingMonthlyHistory(supabase, agreement, snapshot, simResult);
+          } catch (error) {
+            return res.status(409).json({ error: error.message });
+          }
+        }
 
         let authorisationUrl = null;
         if (!agreement.gocardless_mandate_id) {
@@ -1457,6 +1539,7 @@ export default async function handler(req, res) {
 
         if (!existingHistory) {
           const { error: histErr } = await supabase.from('member_membership_history').insert({
+            ...(snapshot.commitment || {}),
             tenant_id: feeToken.tenant_id,
             member_id: feeToken.member_id,
             membership_year: yearLabel,
@@ -1550,7 +1633,7 @@ export default async function handler(req, res) {
         }
 
         const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+        const simResult = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
           source: 'fee-token-card-monthly',
           mode: 'manual',
           targetYear: feeToken.membership_year,
@@ -1566,7 +1649,7 @@ export default async function handler(req, res) {
 
         const yearLabel = simResult.membershipYear?.label || feeToken.membership_year;
 
-        const { data: existingHistory } = await supabase
+        let { data: existingHistory } = await supabase
           .from('member_membership_history')
           .select('id, status, payment_status, payment_method, billing_agreement_id, stripe_payment_intent_id')
           .eq('tenant_id', feeToken.tenant_id)
@@ -1594,17 +1677,52 @@ export default async function handler(req, res) {
           .select('*')
           .eq('idempotency_key', idempotencyKey)
           .maybeSingle();
-        if (existingAgreement) {
+        if (existingAgreement && (!feeTokenCommitment(feeToken) || existingAgreement.redirect_url
+            || existingAgreement.status !== STATUS.PAYMENT_SETUP_REQUIRED)) {
           if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
             return res.json({ checkoutUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
           }
           return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
         }
 
-        const snapshot = buildCardAgreementSnapshot({ offer, simResult });
+        const snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
         const Stripe = (await import('stripe')).default;
         const stripe = new Stripe(stripeCredentials.secret_key);
         const environment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
+        let rollingAgreement = null;
+        if (snapshot.commitment?.term_key) {
+          try {
+            const { assertMonthlyCollectionsWithinTerm } = await import('../../_lib/rollingMonthlyRenewal.js');
+            assertMonthlyCollectionsWithinTerm(snapshot, new Date(), snapshot.instalment_count || offer.instalmentCount);
+          } catch (error) {
+            return res.status(409).json({ error: error.message, code: 'monthly_collection_outside_commitment' });
+          }
+          rollingAgreement = existingAgreement;
+          if (rollingAgreement && (rollingAgreement.tenant_id !== feeToken.tenant_id
+              || rollingAgreement.member_id !== feeToken.member_id || rollingAgreement.organization_id)) {
+            return res.status(409).json({ error: 'The saved card agreement does not match this fee link owner' });
+          }
+          if (!rollingAgreement) {
+            const { data, error } = await supabase.from('membership_billing_agreements').insert({
+              ...snapshot.commitment,
+              tenant_id: feeToken.tenant_id,
+              member_id: feeToken.member_id,
+              agreement_type: 'member',
+              provider: 'stripe',
+              status: STATUS.PAYMENT_SETUP_REQUIRED,
+              idempotency_key: idempotencyKey,
+              environment,
+              metadata: { card: snapshot, commitment: snapshot.commitment },
+            }).select('*').single();
+            if (error) return res.status(409).json({ error: 'Another payment setup already reserves this term. Please reload to continue.' });
+            rollingAgreement = data;
+          }
+          try {
+            existingHistory = await reserveRollingMonthlyHistory(supabase, rollingAgreement, snapshot, simResult);
+          } catch (error) {
+            return res.status(409).json({ error: error.message });
+          }
+        }
 
         const customer = await findOrCreateStripeCustomer(stripe, {
           email: tokenMember.email,
@@ -1641,7 +1759,9 @@ export default async function handler(req, res) {
             subscription_data: {
               // Stripe-side finite-billing boundary (see api/membership/monthly-card.js):
               // 15 days past the final (Nth) monthly invoice, safely before an N+1th.
-              cancel_at: (() => {
+              cancel_at: snapshot.commitment?.membership_renewal_date
+                ? Math.floor(new Date(`${snapshot.commitment.membership_renewal_date}T00:00:00Z`).getTime() / 1000)
+                : (() => {
                 const d = new Date();
                 d.setUTCMonth(d.getUTCMonth() + (offer.instalmentCount - 1));
                 d.setUTCDate(d.getUTCDate() + 15);
@@ -1651,13 +1771,19 @@ export default async function handler(req, res) {
             },
             success_url: `${origin}/membership-fees/${token}?card=success`,
             cancel_url: `${origin}/membership-fees/${token}?card=cancelled`,
-          });
+          }, rollingAgreement ? { idempotencyKey: `rolling-fee-checkout:${rollingAgreement.id}` } : undefined);
         } catch (err) {
           console.error('[Public Fee] Card checkout session creation failed:', err.message);
           return res.status(502).json({ error: 'Could not start card checkout. Please try again.' });
         }
 
-        const { data: agreement, error: agreeErr } = await supabase
+        const { data: agreement, error: agreeErr } = rollingAgreement
+          ? await supabase.from('membership_billing_agreements').update({
+              stripe_customer_id: customer?.id || null,
+              stripe_checkout_session_id: session.id,
+              redirect_url: session.url,
+            }).eq('id', rollingAgreement.id).eq('tenant_id', feeToken.tenant_id).select('*').single()
+          : await supabase
           .from('membership_billing_agreements')
           .insert({
             tenant_id: feeToken.tenant_id,
@@ -1691,6 +1817,7 @@ export default async function handler(req, res) {
 
         if (!existingHistory) {
           const { error: histErr } = await supabase.from('member_membership_history').insert({
+            ...(snapshot.commitment || {}),
             tenant_id: feeToken.tenant_id,
             member_id: feeToken.member_id,
             membership_year: yearLabel,

@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, CreditCard, AlertCircle, Info, Landmark } from "
 import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
+import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -31,6 +32,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
+  const [paymentTerm, setPaymentTerm] = useState(null);
   const [startingDd, setStartingDd] = useState(false);
   const [ddStarted, setDdStarted] = useState(false);
   const [hasDdPlan, setHasDdPlan] = useState(false);
@@ -271,7 +273,14 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to initialise payment');
       }
-      const { clientSecret, membershipYear: yr } = await res.json();
+      const prepared = await res.json();
+      if (prepared.zeroDue) {
+        setPaymentComplete(true);
+        onChange?.({ status: 'paid', membershipYear: prepared.membershipYear, amount: 0 });
+        return;
+      }
+      const { clientSecret, membershipYear: yr } = prepared;
+      setPaymentTerm(prepared);
       setPaymentYear(yr);
       if (yr) {
         sessionStorage.setItem('pending_form_membership_payment_year', yr);
@@ -524,7 +533,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <div className="text-center">
               <p className="font-medium" data-testid="text-payment-success">Membership fee paid</p>
               <p className="text-sm text-muted-foreground">
-                {data?.membershipYear} - {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
+                {membershipTermLabel(paymentYear || data?.membershipYear)} - {formatCurrency(paymentTerm?.amount ?? data?.totalWithVat ?? data?.finalCost, paymentTerm?.currency || data?.currency)}
               </p>
             </div>
           </div>
@@ -544,7 +553,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         <div className="space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <p className="text-sm font-medium" data-testid="text-membership-year">{data.membershipYear}</p>
+              <p className="text-sm font-medium" data-testid="text-membership-year">{membershipTermLabel(data.membershipYear)}</p>
               {data.tierLabel && (
                 <p className="text-xs text-muted-foreground" data-testid="text-tier-label">{data.tierLabel}</p>
               )}
@@ -887,6 +896,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
         {paymentMode === 'stripe' && (
           <div className="space-y-3">
+            <MembershipCommitmentNotice startDate={paymentTerm?.membershipStartDate} renewalDate={paymentTerm?.membershipRenewalDate} />
             <div
               id={`form-stripe-address-element-${field.id}`}
               className="min-h-[100px] rounded-md border p-3"
@@ -909,7 +919,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   Processing payment...
                 </>
               ) : (
-                `Confirm payment of ${formatCurrency(payableAmount, data.currency)}`
+                `Confirm payment of ${formatCurrency(paymentTerm?.amount ?? payableAmount, paymentTerm?.currency || data.currency)}`
               )}
             </Button>
           </div>

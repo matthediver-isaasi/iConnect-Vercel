@@ -43,6 +43,11 @@ import { sendTenantEmail } from './tenantEmailService.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
 import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
+import {
+  monthlySnapshotCommitment, monthlyRenewalIdentity, simulateMonthlySuccessor,
+  reserveRollingMonthlyRenewal, completeRollingMonthlySetup, assertMonthlyCollectionsWithinTerm, assertTrustedMonthlyTerm,
+  sendRollingMonthlyNotice,
+} from './rollingMonthlyRenewal.js';
 
 // ---------------------------------------------------------------------------
 // Card renewal lifecycle emails (card-flavoured twins of the DD renewal set;
@@ -87,7 +92,9 @@ function cardContextFromAgreement(agreement, firstName) {
   const snap = agreement?.metadata?.card || {};
   return {
     firstName: firstName || 'Member',
-    yearLabel: snap.membership_year || 'this year',
+    yearLabel: snap.commitment?.term_key
+      ? `${snap.commitment.term_start_date} – ${snap.commitment.term_end_date}`
+      : snap.membership_year || 'this year',
     instalmentCount: snap.instalment_count || 12,
     monthlyAmount: snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '',
     currency: snap.currency || 'GBP',
@@ -141,6 +148,9 @@ export async function sendCardRenewalEmail(eventKey, agreement, { db = supabase,
  */
 export function resolveCardAutoRenew(simResult, snapshot) {
   const config = simResult?.success ? simResult.config : null;
+  if (monthlySnapshotCommitment(snapshot)) {
+    return snapshot.auto_renew === true;
+  }
   if (config && 'dd_auto_renew' in config) return config.dd_auto_renew !== false;
   return snapshot?.auto_renew !== false;
 }
@@ -170,16 +180,23 @@ export function pickReusablePaymentMethod(customer, paymentMethods = []) {
  * cancel_at sits 15 days after the final (Nth) monthly invoice, safely
  * before an (N+1)th could be raised.
  */
-export function buildRenewalSubscriptionParams({ customerId, paymentMethodId, offer, tenantId, memberId, yearLabel, previousAgreementId, now = new Date() }) {
+export function buildRenewalSubscriptionParams({ customerId, paymentMethodId, offer, tenantId, memberId, yearLabel, previousAgreementId, snapshot, productId, agreementId, now = new Date() }) {
   const cancelAt = new Date(now.getTime());
   cancelAt.setUTCMonth(cancelAt.getUTCMonth() + (offer.instalmentCount - 1));
   cancelAt.setUTCDate(cancelAt.getUTCDate() + 15);
+  const commitment = monthlySnapshotCommitment(snapshot);
+  if (commitment) {
+    assertMonthlyCollectionsWithinTerm(snapshot, now, offer.instalmentCount);
+    const boundary = new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`);
+    if (cancelAt > boundary) cancelAt.setTime(boundary.getTime());
+  }
   const metadata = {
     kind: CARD_PLAN_KIND,
     tenant_id: tenantId,
     member_id: memberId,
     membership_year: yearLabel || '',
     renewal_of_agreement_id: previousAgreementId || '',
+    ...(agreementId ? { agreement_id: agreementId } : {}),
   };
   return {
     customer: customerId,
@@ -194,9 +211,9 @@ export function buildRenewalSubscriptionParams({ customerId, paymentMethodId, of
         currency: (offer.currency || 'GBP').toLowerCase(),
         unit_amount: offer.monthlyAmountMinor,
         recurring: { interval: 'month' },
-        product_data: {
+        ...(productId ? { product: productId } : { product_data: {
           name: `Membership ${yearLabel || ''}`.trim(),
-        },
+        } }),
       },
     }],
     cancel_at: Math.floor(cancelAt.getTime() / 1000),
@@ -311,25 +328,42 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
   const d = defaultDeps(deps);
   const db = d.db;
 
-  const simResult = await d.simulate(tenantId, memberId, { source: 'card-renewal', mode: 'automatic' });
+  const priorSnapshot = previousAgreement.metadata?.card;
+  const rolling = monthlySnapshotCommitment(priorSnapshot);
+  if (rolling && (d.now() < new Date(`${rolling.membership_renewal_date}T00:00:00.000Z`)
+      || priorSnapshot.auto_renew !== true || renewalRow?.mode !== 'auto')) {
+    return { renewed: false, detail: 'Rolling renewal is not due or automatic renewal consent is absent.' };
+  }
+  const simResult = await simulateMonthlySuccessor({
+    tenantId, memberId, snapshot: priorSnapshot, simulate: d.simulate,
+    source: 'card-renewal', resolveConfig: deps.resolveConfig, db, provider: 'stripe',
+  });
   if (!simResult?.success) return { renewed: false, detail: `simulation failed: ${simResult?.error || 'unknown'}` };
   const yearLabel = simResult.membershipYear?.label;
   if (!yearLabel || yearLabel === previousAgreement.metadata?.card?.membership_year) {
     return { renewed: false, detail: `membership year has not rolled over yet (${yearLabel})` };
   }
-  if (simResult.existingRecord) {
+  if (simResult.existingRecord && !rolling) {
     return { renewed: false, detail: `record for ${yearLabel} already exists` };
   }
   const offer = resolveCardMonthlyOffer(simResult);
   if (!offer) return { renewed: false, detail: 'monthly card payment no longer offered for this tier' };
 
   const idempotencyKey = `card-agree:${tenantId}:${memberId}:${yearLabel}`;
+  let rollingReservation = null;
+  if (rolling) {
+    rollingReservation = await reserveRollingMonthlyRenewal({
+      db, tenantId, memberId, previousAgreement,
+      snapshot: buildCardAgreementSnapshot({ offer, simResult, acceptedAt: d.now().toISOString() }),
+      provider: 'stripe', idempotencyKey,
+    });
+  }
   const { data: existingAgreement } = await db
     .from('membership_billing_agreements')
     .select('*')
     .eq('idempotency_key', idempotencyKey)
     .maybeSingle();
-  if (existingAgreement) {
+  if (existingAgreement && !rolling) {
     return { renewed: false, agreement: existingAgreement, detail: 'renewal agreement already exists' };
   }
 
@@ -361,22 +395,95 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
   // before any local record exists.
   let subscription;
   try {
-    subscription = await stripe.subscriptions.create(
+    let productId;
+    const savedSubscriptionId = rollingReservation?.agreement?.stripe_subscription_id;
+    if (savedSubscriptionId) {
+      subscription = await stripe.subscriptions.retrieve(savedSubscriptionId);
+      if (!subscription?.id) throw new Error('Previously linked Stripe renewal subscription could not be verified.');
+    }
+    if (rollingReservation && !subscription) {
+      // A Stripe idempotency key is only retained for 24 hours. An interrupted
+      // old setup must discover its prior subscription, not blindly charge
+      // again with an expired key.
+      const age = d.now() - new Date(rollingReservation.snapshot.accepted_at);
+      if (age >= 20 * 60 * 60 * 1000) {
+        if (!stripe.subscriptions.list) throw new Error('Interrupted Stripe renewal requires subscription discovery before retry.');
+        let cursor;
+        const matches = [];
+        do {
+          const page = await stripe.subscriptions.list({
+            customer: reusable.customerId, status: 'all', limit: 100,
+            ...(cursor ? { starting_after: cursor } : {}),
+          });
+          matches.push(...(page.data || []).filter((item) => item.metadata?.agreement_id === rollingReservation.agreement.id));
+          cursor = page.has_more ? page.data?.at(-1)?.id : null;
+          if (page.has_more && !cursor) throw new Error('Stripe subscription discovery returned an incomplete page.');
+        } while (cursor);
+        if (matches.length !== 1) throw new Error('Interrupted Stripe renewal requires review: could not identify exactly one existing subscription.');
+        subscription = matches[0];
+      }
+    }
+    if (rollingReservation && !subscription) {
+      const product = await stripe.products.create({
+        name: `Membership ${yearLabel}`,
+        metadata: { tenant_id: tenantId, agreement_id: rollingReservation.agreement.id },
+      }, { idempotencyKey: `card-renew-product:${rollingReservation.agreement.id}` });
+      if (!product?.id) throw new Error('Stripe did not return a renewal product.');
+      productId = product.id;
+    }
+    if (!subscription) subscription = await stripe.subscriptions.create(
       buildRenewalSubscriptionParams({
         customerId: reusable.customerId,
         paymentMethodId: reusable.paymentMethodId,
-        offer,
+        offer: rollingReservation ? {
+          ...offer,
+          monthlyAmountMinor: rollingReservation.snapshot.monthly_amount_minor,
+          instalmentCount: rollingReservation.snapshot.instalment_count,
+          currency: rollingReservation.snapshot.currency,
+        } : offer,
         tenantId,
         memberId,
         yearLabel,
         previousAgreementId: previousAgreement.id,
-        now: d.now(),
+        snapshot: rollingReservation?.snapshot,
+        productId,
+        agreementId: rollingReservation?.agreement.id,
+        // Pin request parameters across retries. Stripe idempotency rejects
+        // a moved cancellation timestamp even when all prices are unchanged.
+        now: rollingReservation ? new Date(rollingReservation.snapshot.accepted_at) : d.now(),
       }),
       { idempotencyKey: `card-renew-sub:${tenantId}:${memberId}:${yearLabel}` },
     );
   } catch (err) {
     console.error(`[Card Renewals] off-session subscription failed for member ${memberId}:`, err.message);
+    if (rollingReservation) throw err;
     return { renewed: false, failed: true, detail: `card charge setup failed: ${err.message}` };
+  }
+
+  if (rollingReservation) {
+    const { agreement } = rollingReservation;
+    const fields = {
+      stripe_subscription_id: subscription.id, stripe_customer_id: reusable.customerId, environment,
+    };
+    const { error } = await db.from('membership_billing_agreements').update(fields)
+      .eq('id', agreement.id).eq('tenant_id', tenantId);
+    if (error) throw new Error(`Could not attach renewal subscription: ${error.message}`);
+    await d.ensurePlan({
+      agreement: { ...agreement, ...fields },
+      session: { subscription: subscription.id, customer: reusable.customerId }, db,
+    });
+    await completeRollingMonthlySetup(db, agreement, fields);
+    await upsertRenewalRow(db, {
+      tenant_id: tenantId, member_id: memberId, previous_agreement_id: previousAgreement.id,
+      renewal_year: yearLabel, mode: 'auto', status: 'renewed',
+      new_agreement_id: agreement.id, notice_sent_at: renewalRow?.notice_sent_at,
+    });
+    if (agreement.metadata?.renewal_setup_pending) {
+      await d.sendEmail('renewal_confirmed', { ...agreement, ...fields }, {
+        db, ...(d.send ? { send: d.send } : {}),
+      });
+    }
+    return { renewed: true, agreement: { ...agreement, ...fields }, detail: `renewed into ${yearLabel}` };
   }
 
   // Fresh immutable snapshot at CURRENT tier terms — never copied from the
@@ -494,6 +601,7 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
   // Only consider the latest agreement per member (earlier years superseded).
   const latestByMember = new Map();
   for (const a of agreements) {
+    if (a.metadata?.renewal_setup_pending) continue;
     const prev = latestByMember.get(a.member_id);
     if (!prev || new Date(a.created_at) > new Date(prev.created_at)) latestByMember.set(a.member_id, a);
   }
@@ -508,6 +616,7 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
         continue;
       }
       const snapshot = agreement.metadata?.card;
+      await assertTrustedMonthlyTerm(db, tenantId, snapshot);
       const window = computeRenewalWindow(snapshot);
       if (!window || today < window.noticeDate) continue;
 
@@ -529,7 +638,7 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
         continue;
       }
 
-      const renewalYear = deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
+      const renewalYear = monthlyRenewalIdentity(snapshot) || deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 
       const { data: renewalRow } = await db
         .from('membership_dd_renewals')
@@ -550,7 +659,10 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
       const hasNextYearRecord = !!nextRecord && nextRecord.payment_method !== 'card_monthly';
 
       // Live tier terms decide the renewal mode (shared dd_auto_renew knob).
-      const simResult = await d.simulate(tenantId, agreement.member_id, { source: 'card-renewal', mode: 'automatic' });
+      const simResult = await simulateMonthlySuccessor({
+        tenantId, memberId: agreement.member_id, snapshot, simulate: d.simulate,
+        source: 'card-renewal', resolveConfig: deps.resolveConfig, db, provider: 'stripe',
+      });
       const offer = simResult?.success ? resolveCardMonthlyOffer(simResult) : null;
 
       const decision = decideRenewalAction({
@@ -569,6 +681,20 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
           continue;
         }
         const eventKey = decision.mode === 'auto' ? 'renewal_notice' : 'renewal_confirmation_required';
+        if (monthlySnapshotCommitment(snapshot)) {
+          const outcome = await sendRollingMonthlyNotice({
+            db, tenantId, agreement, renewalYear, mode: decision.mode, eventKey, now: today,
+            sendEmail: (key, row, options) => d.sendEmail(key, row, { ...options, ...(d.send ? { send: d.send } : {}) }),
+            extraContext: {
+              renewalYear: `${new Date(simResult.membershipYear.start).toISOString().slice(0, 10)} – ${new Date(simResult.membershipYear.end).toISOString().slice(0, 10)}`,
+              newMonthlyAmount: Number(offer.monthlyAmount).toFixed(2),
+              newInstalmentCount: offer.instalmentCount, newPlanTotal: Number(offer.planTotal).toFixed(2),
+              newCurrency: offer.currency,
+            },
+          });
+          if (outcome.sent) results.cardRenewalNotices = (results.cardRenewalNotices || 0) + 1;
+          continue;
+        }
         await d.sendEmail(eventKey, agreement, {
           db,
           ...(d.send ? { send: d.send } : {}),

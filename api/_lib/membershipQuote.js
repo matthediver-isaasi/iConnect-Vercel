@@ -23,6 +23,7 @@ import { evaluateDiscountsForEntity, applyDiscountsToAnnualCost } from './discou
 import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
 import { resolveCardMonthlyOffer } from './stripeMonthlyCard.js';
 import { resolveDdOffer } from './gocardlessDirectDebit.js';
+import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 
 // Sentinel entity id used when calling helpers that expect an entity id but
 // only need it for stored-value lookups (a nil uuid matches no rows, so all
@@ -184,6 +185,11 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
   if (!config) {
     return { success: false, error: 'The selected membership structure was not found or is not active' };
   }
+  const commencement = new Date(now).toISOString().slice(0, 10);
+  if ((config.effective_from && config.effective_from > commencement)
+      || (config.effective_to && config.effective_to < commencement)) {
+    return { success: false, error: 'The selected membership structure is not effective on the commencement date' };
+  }
   const target = (config.structure_scope_type === 'member') ? 'member' : 'organization';
   const membershipYear = calculateMembershipYearWindow(config, now);
 
@@ -286,6 +292,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       invoice_description: config.invoice_description || null,
        direct_debit_allowed: false,
     };
+  attachQuoteCommitment(quote, config, matchedBand);
   // Keep the DD terms canonical and derived from the same matched band as
   // the fee. In particular, never infer an instalment amount from annual
   // pricing (banded structures must use the band's explicit DD amount).
@@ -351,10 +358,31 @@ export function quoteFromSimulationResult(simResult, target) {
     invoice_description: simResult.config?.invoice_description || null,
      direct_debit_allowed: false,
   };
+  attachQuoteCommitment(quote, simResult.config, simResult.matchedBand, simResult.commitment, simResult.previousTerm);
   const directDebitOffer = target === 'member' ? resolveDdOffer(simResult) : null;
   quote.direct_debit_offer = directDebitOffer;
   quote.direct_debit_allowed = directDebitOffer !== null;
   const monthlyCardOffer = target === 'member' ? resolveCardMonthlyOffer(simResult) : null;
   if (monthlyCardOffer) quote.monthly_card_offer = monthlyCardOffer;
   return quote;
+}
+
+function attachQuoteCommitment(quote, config, matchedBand, existing = null, previousTerm = null) {
+  const commitment = existing || buildRollingCommitment({
+    config,
+    startDate: quote.membership_year_start,
+    previousTerm,
+    paymentMethod: 'upfront',
+    paymentFrequency: 'upfront',
+    amounts: {
+      annual_cost: quote.annual_cost, final_cost: quote.final_cost,
+      vat_amount: quote.vat_amount, total_with_vat: quote.total_with_vat,
+      currency: quote.currency,
+    },
+    pricingSnapshot: { matchedBand, custom_discount_details: quote.custom_discount_details },
+  });
+  if (commitment.term_key) {
+    quote.commitment = commitment;
+    quote.membership_year = commitment.term_key;
+  }
 }

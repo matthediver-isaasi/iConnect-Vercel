@@ -3,6 +3,8 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
+import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import { snapshotFormMembershipPayment, saveFormMembershipPaymentQuote, loadFormMembershipPaymentQuote, formPaymentActivationFields, createReservedFormMembershipIntent } from '../_lib/formMembershipPaymentQuote.js';
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
@@ -342,16 +344,32 @@ async function handlePost(req, res, resolvedTenantId) {
   if (req.body.configId) explicitConfigId = req.body.configId;
 
   if (action === 'create_payment') {
-    const simOptions = { source: 'form-payment-create', mode: 'manual', fieldOverrides, configId: explicitConfigId };
-    const simResult = isMemberScoped
+    const simOptions = {
+      source: 'form-payment-create', mode: 'manual', fieldOverrides, configId: explicitConfigId,
+      ...(req.membershipPaymentContext?.source === 'member-portal'
+        ? { targetYear: req.membershipPaymentContext.targetYear } : {}),
+    };
+    let simResult = isMemberScoped
       ? await simulateMembershipForMember(tenantId, member.id, simOptions)
       : await simulateMembershipForOrg(tenantId, organizationId, simOptions);
 
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
     }
+    if (req.membershipPaymentContext?.source === 'member-portal') {
+      const eligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+        tenantId, ...(isMemberScoped ? { memberId: member.id } : { organizationId }),
+        config: simResult.config, membershipYear: simResult.membershipYear,
+      });
+      if (!eligibility.eligible) {
+        return res.status(409).json({ error: eligibility.message, code: eligibility.code, lifecycle: eligibility.lifecycle });
+      }
+      simResult.paymentSchedule = annualRecordSchedule(eligibility);
+    }
     const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
     const addonTotals = computeAddonTotals(addonLines);
+    const paymentSnapshot = snapshotFormMembershipPayment(simResult, addonLines);
+    simResult = paymentSnapshot.simResult;
 
     if (simResult.existingRecord) {
       return settleExistingFormZeroDueMembership({
@@ -366,6 +384,9 @@ async function handlePost(req, res, resolvedTenantId) {
     }
 
     if (isZeroDueMembership(simResult, addonTotals)) {
+      if (simResult.commitment?.commitment_snapshot) {
+        simResult.commitment.commitment_snapshot.payment_method = 'none';
+      }
       return settleFormZeroDueMembership({
         req,
         res,
@@ -439,7 +460,7 @@ async function handlePost(req, res, resolvedTenantId) {
       ? `Membership fee for ${memberName || 'Member'} - ${simResult.membershipYear?.label}`
       : `Membership fee - ${simResult.membershipYear?.label}`;
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    paymentSnapshot.paymentIntentParams = {
       amount,
       currency,
       customer: stripeCustomer.id,
@@ -450,46 +471,47 @@ async function handlePost(req, res, resolvedTenantId) {
         membership_year: simResult.membershipYear?.label,
         tenant_id: tenantId,
         source: 'form-membership-payment',
+        membership_quote_version: '1',
       },
       description,
-    });
+    };
+    paymentSnapshot.stripeEnvironment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
+    let reservation;
+    try {
+      reservation = await saveFormMembershipPaymentQuote(supabase, {
+        tenantId, memberId: member.id, organizationId, snapshot: paymentSnapshot,
+      });
+    } catch (error) {
+      return res.status(409).json({
+        error: error.message,
+        code: 'MEMBERSHIP_PAYMENT_RESERVATION_FAILED',
+      });
+    }
+    if (reservation.quote.stripeEnvironment !== paymentSnapshot.stripeEnvironment) {
+      return res.status(409).json({ error: 'The Stripe environment changed after this membership payment was prepared. Please contact an administrator; do not start another payment.' });
+    }
+    const paymentIntent = await createReservedFormMembershipIntent(supabase, stripe, reservation);
+    simResult = reservation.quote.simResult;
+    const reservedAddonTotals = computeAddonTotals(reservation.quote.addonLines);
 
     return res.json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
-      amount: chargeAmount,
-      netAmount: isMemberScoped ? simResult.finalCost : Math.round(((Number(simResult.finalCost) || 0) + addonTotals.subtotal) * 100) / 100,
-      vatAmount: isMemberScoped ? (simResult.vatAmount || 0) : Math.round(((Number(simResult.vatAmount) || 0) + addonTotals.vat) * 100) / 100,
+      amount: paymentIntent.amount / 100,
+      netAmount: isMemberScoped ? simResult.finalCost : Math.round(((Number(simResult.finalCost) || 0) + reservedAddonTotals.subtotal) * 100) / 100,
+      vatAmount: isMemberScoped ? (simResult.vatAmount || 0) : Math.round(((Number(simResult.vatAmount) || 0) + reservedAddonTotals.vat) * 100) / 100,
       vatRatePercent: simResult.vatRatePercent || null,
       currency: simResult.currency || 'GBP',
       membershipYear: simResult.membershipYear?.label,
+      membershipStartDate: simResult.commitment?.term_start_date || null,
+      membershipRenewalDate: simResult.commitment?.membership_renewal_date || null,
     });
   }
 
   if (action === 'confirm_payment') {
-    const { paymentIntentId, membershipYear: confirmYear } = req.body;
+    const { paymentIntentId } = req.body;
     if (!paymentIntentId) {
       return res.status(400).json({ error: 'paymentIntentId is required' });
-    }
-
-    const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
-    const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
-    const historyIdVal = isMemberScoped ? member.id : organizationId;
-
-    const { data: existingByPI } = await supabase
-      .from(historyTable)
-      .select('id')
-      .eq('stripe_payment_intent_id', paymentIntentId)
-      .maybeSingle();
-
-    if (existingByPI) {
-      console.log(`[FormPayment] Idempotent return: record already exists for PI ${paymentIntentId}`);
-      return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
-    }
-
-    const approvalCheck = await checkApproval(tenantId, member.id, organizationId, confirmYear);
-    if (approvalCheck.blocked) {
-      return res.status(400).json({ error: approvalCheck.message || 'Fees have not yet been approved for payment.' });
     }
 
     const { retrieveTenantPaymentIntent } = await import('../_lib/stripeCredentials.js');
@@ -529,7 +551,7 @@ async function handlePost(req, res, resolvedTenantId) {
     // logged distinctly and must tell the payer the charge went through and
     // will be reconciled (Task #3278), never imply the payment failed.
     const confirmFailure = (reason, extra = {}) => {
-      console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [FormPayment] Succeeded PI ${paymentIntentId} could not be recorded: ${reason}`, JSON.stringify({ tenantId, memberId: member.id, organizationId: organizationId || null, ...extra }));
+      console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [FormPayment] Succeeded PI ${paymentIntentId} could not be recorded: ${reason}`, JSON.stringify({ tenantId, memberId: member.id, organizationId: paymentIntent.metadata?.organization_id || null, ...extra }));
       return res.status(400).json({
         error: 'Your card payment was successful and you will receive a Stripe receipt, but we could not finish updating your membership record automatically. It will be reconciled by the administrator shortly — please do NOT pay again.',
         paymentSucceeded: true,
@@ -545,17 +567,39 @@ async function handlePost(req, res, resolvedTenantId) {
       return confirmFailure('metadata tenant_id mismatch', { piTenantId: paymentIntent.metadata?.tenant_id });
     }
 
-    const targetYear = confirmYear || paymentIntent.metadata?.membership_year;
-
-    const confirmSimOptions = { source: 'form-payment-confirm', mode: 'manual', targetYear, fieldOverrides, configId: explicitConfigId };
-    const simResult = isMemberScoped
-      ? await simulateMembershipForMember(tenantId, member.id, confirmSimOptions)
-      : await simulateMembershipForOrg(tenantId, organizationId, confirmSimOptions);
+    // A callback is evidence of payment, not a new quote request. Never let
+    // browser config/year/answers or today's pricing replace the accepted terms.
+    const targetYear = paymentIntent.metadata?.membership_year;
+    let saved;
+    try {
+      saved = await loadFormMembershipPaymentQuote(supabase, paymentIntent);
+    } catch (error) {
+      return confirmFailure(error.message);
+    }
+    // The payment owns the scope agreed at checkout, even if the member has
+    // joined/left an organisation since paying. Browser year is not authority.
+    const organizationId = saved ? saved.organizationId : (paymentIntent.metadata?.organization_id || null);
+    const isMemberScoped = !organizationId;
+    const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
+    const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
+    const historyIdVal = isMemberScoped ? member.id : organizationId;
+    const { data: existingByPI } = await supabase.from(historyTable).select('id')
+      .eq('tenant_id', tenantId).eq(historyIdCol, historyIdVal)
+      .eq('stripe_payment_intent_id', paymentIntentId).maybeSingle();
+    if (existingByPI) {
+      return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
+    }
+    if (!saved) {
+      return confirmFailure('Legacy payment has no authoritative saved membership terms; administrator review is required before creating a membership');
+    }
+    const approvalCheck = await checkApproval(tenantId, member.id, organizationId, targetYear);
+    if (approvalCheck.blocked) return confirmFailure(approvalCheck.message || 'Fees have not been approved');
+    const simResult = saved.simResult;
 
     if (!simResult.success) {
       return confirmFailure(`simulation failed during confirm: ${simResult.error || 'unknown'}`, { simSteps: simResult.steps });
     }
-    const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
+    const addonLines = saved.addonLines;
     const addonTotals = computeAddonTotals(addonLines);
 
     const confirmChargeTotal = isMemberScoped
@@ -564,6 +608,9 @@ async function handlePost(req, res, resolvedTenantId) {
     const expectedAmount = Math.round(confirmChargeTotal * 100);
     if (paymentIntent.amount !== expectedAmount) {
       return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
+    }
+    if (paymentIntent.currency?.toUpperCase() !== (simResult.currency || 'GBP').toUpperCase()) {
+      return confirmFailure('Payment currency does not match saved membership terms');
     }
 
     let recordCreated = false;
@@ -584,6 +631,8 @@ async function handlePost(req, res, resolvedTenantId) {
         .maybeSingle();
 
       const insertData = {
+        ...(simResult.commitment || {}),
+        ...(saved?.quoteId ? { membership_payment_quote_id: saved.quoteId } : {}),
         tenant_id: tenantId,
         [historyIdCol]: historyIdVal,
         membership_year: simResult.membershipYear?.label || targetYear,
@@ -611,7 +660,8 @@ async function handlePost(req, res, resolvedTenantId) {
         override_type: simResult.overrideType || null,
         payment_method: 'stripe',
         stripe_payment_intent_id: paymentIntentId,
-        status: 'active',
+        ...formPaymentActivationFields(simResult.commitment, paidAtIso),
+        ...(!simResult.commitment && simResult.paymentSchedule ? simResult.paymentSchedule : {}),
         // Card payments are settled immediately — mark the row paid at
         // creation so the reconciliation cron never re-processes it (and
         // never double-fires the membership-paid workflow).
@@ -645,7 +695,7 @@ async function handlePost(req, res, resolvedTenantId) {
 
     let xeroInvoice = null;
     let accountingSyncError = null;
-    if (recordCreated) {
+    if (newlyCreated) {
       try {
         const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
         const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
@@ -683,6 +733,7 @@ async function handlePost(req, res, resolvedTenantId) {
           nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
           markAsPaid: true,
           stripePaymentIntentId: paymentIntentId,
+          idempotencyKey: `membership-upfront-invoice:${tenantId}:${paymentIntentId}`,
           invoiceDescription: simResult.config?.invoice_description || null,
           ...(isMemberScoped ? {} : { extraLineItems: buildExtraLineItems(addonLines) }),
         });
@@ -804,6 +855,7 @@ async function settleFormZeroDueMembership({
   const membershipYear = simResult.membershipYear?.label;
   const paidAt = new Date().toISOString();
   const insertData = {
+    ...(snapshotFormMembershipPayment(simResult, [], 'none').simResult.commitment || {}),
     tenant_id: tenantId,
     [idColumn]: idValue,
     membership_year: membershipYear,
@@ -832,6 +884,8 @@ async function settleFormZeroDueMembership({
     status: 'active',
     notes: 'Membership activated with no payment due.',
     ...zeroDuePaymentFields(paidAt),
+    ...(!simResult.commitment && simResult.paymentSchedule ? simResult.paymentSchedule : {}),
+    ...(simResult.commitment ? formPaymentActivationFields(simResult.commitment, paidAt) : {}),
   };
 
   const { data: insertedRow, error: insertError } = await supabase

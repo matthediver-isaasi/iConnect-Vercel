@@ -65,6 +65,8 @@
 import { getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { stripeInvoiceAddressFromSnapshot } from './stripeInvoiceAddress.js';
+import { commitmentFromQuote } from './rollingMembershipCommitment.js';
+import { formPaymentActivationFields } from './formMembershipPaymentQuote.js';
 import {
   accountingProviderContext,
   accountingProviderContextsEqual,
@@ -645,6 +647,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     // ── Insert the paid history row. ─────────────────────────────────────
     const paidAtIso = new Date().toISOString();
     const insertData = {
+      ...commitmentFromQuote(quote),
       tenant_id: tenantId,
       [historyIdCol]: entityId,
       membership_year: quote.membership_year,
@@ -669,7 +672,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       free_period_days_applied: quote.free_period_days_applied || 0,
       payment_method: submission.payment_provider || null,
       ...(isStripe && paymentRef ? { stripe_payment_intent_id: paymentRef } : {}),
-      status: 'active',
+      ...formPaymentActivationFields(quote.commitment, paidAtIso),
       // Settled at creation so reconciliation never re-processes it (and
       // never double-fires the membership-paid workflow).
       payment_status: 'paid',

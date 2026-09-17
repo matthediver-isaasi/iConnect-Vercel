@@ -206,7 +206,9 @@ function contextFromAgreement(agreement, member) {
     : (agreement?.metadata?.card || agreement?.metadata?.dd || {});
   return {
     firstName: member?.first_name || (agreement?.organization_id ? 'there' : 'Member'),
-    yearLabel: snap.membership_year || 'this year',
+    yearLabel: snap.commitment?.term_key
+      ? `${snap.commitment.term_start_date} – ${snap.commitment.term_end_date}`
+      : snap.membership_year || 'this year',
     instalmentCount: snap.instalment_count || 12,
     monthlyAmount: snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '',
     currency: snap.currency || 'GBP',

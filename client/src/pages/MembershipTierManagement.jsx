@@ -35,6 +35,7 @@ import {
   TIER_LIFECYCLE,
 } from "@/lib/membershipTierNavigation";
 import { parseFlatMembershipCost } from "../../../shared/membershipFlatCost.js";
+import { billingPeriodMonths } from "../../../shared/rollingMembershipTerm.js";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -863,6 +864,9 @@ export default function MembershipTierManagement() {
   // "Cannot access ... before initialization" (TDZ) and crashes the page.
   const isMemberScoped = config.structure_scope_type === 'member';
   const isAnnualStructure = isAnnualTierStructure(config);
+  const maxTermInstalments = config.start_mode === 'immediate'
+    ? billingPeriodMonths(config.billing_period || 'annual') : 12;
+  const effectiveInstalmentCount = Math.min(maxTermInstalments, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
 
   // Spec: when the Direct Debit plan total differs from the annual cost the
   // admin must EXPLICITLY confirm the difference before saving (not just see
@@ -871,7 +875,7 @@ export default function MembershipTierManagement() {
     if (!isMemberScoped || !config.dd_enabled || config.pricing_model !== 'flat') return null;
     const annual = parseFloat(config.flat_cost);
     const monthly = parseFloat(config.dd_monthly_amount);
-    const count = parseInt(config.dd_instalment_count, 10) || 12;
+    const count = effectiveInstalmentCount;
     if (isNaN(annual) || isNaN(monthly)) return null;
     const planTotal = Math.round(monthly * count * 100) / 100;
     if (Math.abs(planTotal - annual) < 0.005) return null;
@@ -901,7 +905,7 @@ export default function MembershipTierManagement() {
         ...configWithoutUiFlags,
         dd_enabled: ddEnabled,
         card_monthly_enabled: isMemberScoped && !!config.card_monthly_enabled,
-        dd_instalment_count: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) ? (parseInt(config.dd_instalment_count, 10) || 12) : (config.dd_instalment_count ?? 12),
+        dd_instalment_count: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) ? effectiveInstalmentCount : (config.dd_instalment_count ?? 12),
         dd_monthly_amount: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
         dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
         dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
@@ -1639,7 +1643,7 @@ export default function MembershipTierManagement() {
                   <div>
                     <Label className="flex items-center gap-2"><Landmark className="w-4 h-4" /> Monthly Direct Debit</Label>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                      Let members pay their annual membership in monthly instalments by Direct Debit (GoCardless).
+                      Let members pay their membership term in monthly instalments by Direct Debit (GoCardless). For immediate-start memberships, the Pricing tab Billing Period sets the renewal date; monthly payments do not shorten that term.
                     </p>
                   </div>
                   <Switch
@@ -1657,8 +1661,8 @@ export default function MembershipTierManagement() {
                         <Input
                           type="number"
                           min="1"
-                          max="12"
-                          value={config.dd_instalment_count ?? 12}
+                          max={maxTermInstalments}
+                          value={effectiveInstalmentCount}
                           onChange={(e) => handleConfigChange('dd_instalment_count', e.target.value)}
                           disabled={!isEditable}
                           data-testid="input-dd-instalment-count"
@@ -1935,8 +1939,8 @@ export default function MembershipTierManagement() {
                       <Input
                         type="number"
                         min="1"
-                        max="12"
-                        value={config.dd_instalment_count ?? 12}
+                        max={maxTermInstalments}
+                        value={effectiveInstalmentCount}
                         onChange={(e) => handleConfigChange('dd_instalment_count', e.target.value)}
                         disabled={!isEditable}
                         data-testid="input-card-instalment-count"

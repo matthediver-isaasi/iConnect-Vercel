@@ -38,6 +38,10 @@ import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
 import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
+import {
+  monthlySnapshotCommitment, monthlyRenewalIdentity, simulateMonthlySuccessor,
+  reserveRollingMonthlyRenewal, completeRollingMonthlySetup, assertTrustedMonthlyTerm, sendRollingMonthlyNotice,
+} from './rollingMonthlyRenewal.js';
 
 export const RENEWAL_NOTICE_DAYS = 30;
 
@@ -70,6 +74,13 @@ export function deriveNextYearLabel(label) {
  * no membership_year_start.
  */
 export function computeRenewalWindow(snapshot, noticeDays = RENEWAL_NOTICE_DAYS) {
+  const commitment = monthlySnapshotCommitment(snapshot);
+  if (commitment) {
+    const yearEnd = new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`);
+    if (!Number.isFinite(yearEnd.getTime())) return null;
+    return { yearEnd, noticeDate: new Date(yearEnd.getTime() - noticeDays * 86_400_000) };
+  }
+  if (snapshot?.start_mode === 'immediate') return null;
   const start = snapshot?.membership_year_start ? new Date(snapshot.membership_year_start) : null;
   if (!start || Number.isNaN(start.getTime())) return null;
   const yearEnd = new Date(Date.UTC(start.getUTCFullYear() + 1, start.getUTCMonth(), start.getUTCDate()));
@@ -112,6 +123,9 @@ export function decideRenewalAction({ snapshot, planStatus, autoRenew, renewalRo
   if (today < window.noticeDate) {
     return { action: 'none', reason: 'before notice window' };
   }
+  if (monthlySnapshotCommitment(snapshot) && ['notice_processing', 'notice_error'].includes(renewalRow?.status)) {
+    return { action: 'send_notice', mode: autoRenew ? 'auto' : 'confirm' };
+  }
   if (!renewalRow) {
     return { action: 'send_notice', mode: autoRenew ? 'auto' : 'confirm' };
   }
@@ -119,7 +133,7 @@ export function decideRenewalAction({ snapshot, planStatus, autoRenew, renewalRo
   if (today < window.yearEnd) {
     return { action: 'none', reason: 'notice sent; waiting for year end' };
   }
-  if (renewalRow.mode === 'auto') {
+  if (renewalRow.mode === 'auto' && autoRenew !== false) {
     return { action: 'renew_auto' };
   }
   return { action: 'await_confirmation', reason: 'confirmation-required renewal awaiting member' };
@@ -161,17 +175,59 @@ export async function executeAutoRenewal({ tenantId, memberId, previousAgreement
   const d = defaultDeps(deps);
   const db = d.db;
 
-  const simResult = await d.simulate(tenantId, memberId, { source: 'dd-renewal', mode: 'automatic' });
+  const priorSnapshot = previousAgreement.metadata?.dd;
+  const rolling = monthlySnapshotCommitment(priorSnapshot);
+  if (rolling && (d.now() < new Date(`${rolling.membership_renewal_date}T00:00:00.000Z`)
+      || priorSnapshot.auto_renew !== true || renewalRow?.mode !== 'auto')) {
+    return { renewed: false, detail: 'Rolling renewal is not due or automatic renewal consent is absent.' };
+  }
+  const simResult = await simulateMonthlySuccessor({
+    tenantId, memberId, snapshot: priorSnapshot, simulate: d.simulate,
+    source: 'dd-renewal', resolveConfig: deps.resolveConfig, db, provider: 'gocardless',
+  });
   if (!simResult?.success) return { renewed: false, detail: `simulation failed: ${simResult?.error || 'unknown'}` };
   const yearLabel = simResult.membershipYear?.label;
   if (!yearLabel || yearLabel === previousAgreement.metadata?.dd?.membership_year) {
     return { renewed: false, detail: `membership year has not rolled over yet (${yearLabel})` };
   }
-  if (simResult.existingRecord) {
+  if (simResult.existingRecord && !rolling) {
     return { renewed: false, detail: `record for ${yearLabel} already exists` };
   }
   const offer = resolveDdOffer(simResult);
   if (!offer) return { renewed: false, detail: 'DD no longer offered for this tier' };
+  if (rolling) {
+    const reservation = await reserveRollingMonthlyRenewal({
+      db, tenantId, memberId, previousAgreement,
+      snapshot: buildAgreementSnapshot({ offer, simResult, acceptedAt: d.now().toISOString() }),
+      provider: 'gocardless', idempotencyKey: buildIdempotencyKey('dd-agree', tenantId, memberId, yearLabel),
+    });
+    let { agreement } = reservation;
+    const mandate = agreement.gocardless_mandate_id
+      ? { mandateId: agreement.gocardless_mandate_id, customerId: agreement.gocardless_customer_id }
+      : await d.findMandate({ tenantId, memberId, db });
+    if (!mandate) return { renewed: false, detail: 'no reusable active mandate' };
+    const mandateFields = {
+      gocardless_mandate_id: mandate.mandateId, gocardless_customer_id: mandate.customerId,
+    };
+    const { error } = await db.from('membership_billing_agreements').update(mandateFields)
+      .eq('id', agreement.id).eq('tenant_id', tenantId);
+    if (error) throw new Error(`Could not attach renewal mandate: ${error.message}`);
+    agreement = { ...agreement, ...mandateFields };
+    await d.ensureSubscription(agreement, { db, gc: deps.gc, now: d.now });
+    await d.activateMembership(agreement, { trigger: 'mandate_active', db });
+    await completeRollingMonthlySetup(db, agreement);
+    await upsertRenewalRow(db, {
+      tenant_id: tenantId, member_id: memberId, previous_agreement_id: previousAgreement.id,
+      renewal_year: yearLabel, mode: 'auto', status: 'renewed',
+      new_agreement_id: agreement.id, notice_sent_at: renewalRow?.notice_sent_at,
+    });
+    if (agreement.metadata?.renewal_setup_pending) {
+      await d.sendEmail('renewal_confirmed', agreement, {
+        db, ...(d.send ? { send: d.send } : {}),
+      });
+    }
+    return { renewed: true, agreement, detail: `renewed into ${yearLabel}` };
+  }
 
   const mandate = await d.findMandate({ tenantId, memberId, db });
   if (!mandate) return { renewed: false, detail: 'no reusable active mandate' };
@@ -293,6 +349,7 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
   // Only consider the latest agreement per member (earlier years superseded).
   const latestByMember = new Map();
   for (const a of agreements) {
+    if (a.metadata?.renewal_setup_pending) continue;
     const prev = latestByMember.get(a.member_id);
     if (!prev || new Date(a.created_at) > new Date(prev.created_at)) latestByMember.set(a.member_id, a);
   }
@@ -307,6 +364,7 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
         continue;
       }
       const snapshot = agreement.metadata?.dd;
+      await assertTrustedMonthlyTerm(db, tenantId, snapshot);
       const window = computeRenewalWindow(snapshot);
       if (!window || today < window.noticeDate) continue;
 
@@ -330,7 +388,7 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
         continue;
       }
 
-      const renewalYear = deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
+      const renewalYear = monthlyRenewalIdentity(snapshot) || deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 
       const { data: renewalRow } = await db
         .from('membership_dd_renewals')
@@ -351,13 +409,18 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
       const hasNextYearRecord = !!nextRecord && nextRecord.payment_method !== 'direct_debit';
 
       // Live tier terms decide the renewal mode.
-      const simResult = await d.simulate(tenantId, agreement.member_id, { source: 'dd-renewal', mode: 'automatic' });
+      const simResult = await simulateMonthlySuccessor({
+        tenantId, memberId: agreement.member_id, snapshot, simulate: d.simulate,
+        source: 'dd-renewal', resolveConfig: deps.resolveConfig, db, provider: 'gocardless',
+      });
       const offer = simResult?.success ? resolveDdOffer(simResult) : null;
 
       const decision = decideRenewalAction({
         snapshot,
         planStatus,
-        autoRenew: offer ? offer.autoRenew : snapshot.auto_renew !== false,
+        autoRenew: monthlySnapshotCommitment(snapshot)
+          ? snapshot.auto_renew === true
+          : offer ? offer.autoRenew : snapshot.auto_renew !== false,
         renewalRow,
         hasNextYearRecord,
         today,
@@ -369,6 +432,20 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
           continue;
         }
         const eventKey = decision.mode === 'auto' ? 'renewal_notice' : 'renewal_confirmation_required';
+        if (monthlySnapshotCommitment(snapshot)) {
+          const outcome = await sendRollingMonthlyNotice({
+            db, tenantId, agreement, renewalYear, mode: decision.mode, eventKey, now: today,
+            sendEmail: (key, row, options) => d.sendEmail(key, row, { ...options, ...(d.send ? { send: d.send } : {}) }),
+            extraContext: {
+              renewalYear: `${new Date(simResult.membershipYear.start).toISOString().slice(0, 10)} – ${new Date(simResult.membershipYear.end).toISOString().slice(0, 10)}`,
+              newMonthlyAmount: Number(offer.monthlyAmount).toFixed(2),
+              newInstalmentCount: offer.instalmentCount, newPlanTotal: Number(offer.planTotal).toFixed(2),
+              newCurrency: offer.currency,
+            },
+          });
+          if (outcome.sent) results.ddRenewalNotices = (results.ddRenewalNotices || 0) + 1;
+          continue;
+        }
         await d.sendEmail(eventKey, agreement, {
           db,
           ...(d.send ? { send: d.send } : {}),

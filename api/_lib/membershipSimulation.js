@@ -1,10 +1,82 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
-import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel } from './membershipConfigResolver.js';
+import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel, resolveRollingSuccessorConfig } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
-import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from './membershipYear.js';
+import { calculateMembershipYearWindow, calculateNextMembershipYearWindow, rollingMembershipWindow } from './membershipYear.js';
+
+export async function resolveRollingSimulationContext(client, {
+  tenantId, memberId, organizationId, config, options = {}, now = new Date(),
+}) {
+  const { data: rows, error } = await client.from(memberId ? 'member_membership_history' : 'organisation_membership_history')
+    .select('*').eq('tenant_id', tenantId).eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId);
+  if (error) throw new Error(`Could not load purchased membership terms: ${error.message}`);
+  const histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+  const rollingRows = histories.filter(row => row.term_key);
+  if (config?.start_mode !== 'immediate' && !rollingRows.length && !options.previousTerm) return null;
+  if (histories.some(row => !row.term_key) && !rollingRows.length && !options.previousTerm) {
+    throw new Error('Legacy rolling membership requires review: no trusted commencement date and pricing commitment are available.');
+  }
+  const today = new Date(now).toISOString().slice(0, 10);
+  const sorted = rollingRows.sort((a, b) => b.term_start_date.localeCompare(a.term_start_date));
+  const current = sorted.find(row => row.term_start_date <= today) || sorted.at(-1);
+  const requested = options.source !== 'cron' && options.targetYear && sorted.find(row => row.term_key === options.targetYear);
+  const requestedNext = options.targetYear && options.targetYear !== current?.term_key;
+  const renewalSource = ['simulate', 'cron', 'renewal', 'manual'].includes(options.source);
+  const currentSettled = current && (current.payment_status === 'paid' || current.paid_at
+    || Number(current.total_with_vat ?? current.final_cost) === 0 || current.billing_agreement_id);
+  const needsNext = !!currentSettled && !requested && (requestedNext || renewalSource
+    || today >= current.membership_renewal_date);
+  const previousTerm = options.previousTerm
+    ? (sorted.find(row => row.term_key === options.previousTerm.term_key) || options.previousTerm)
+    : (needsNext ? current : null);
+  if (!previousTerm && (requested || current)) return { existing: requested || current };
+  if (previousTerm) {
+    if (!options.previousTerm && (previousTerm.billing_agreement_id
+      || previousTerm.commitment_snapshot?.payment_frequency === 'monthly')) {
+      throw new Error('This rolling membership is managed by a recurring payment plan; use its renewal confirmation process.');
+    }
+    if (!previousTerm.membership_renewal_date || !previousTerm.commitment_snapshot) {
+      throw new Error('Rolling membership requires review: saved renewal boundary or pricing snapshot is missing.');
+    }
+    const existing = sorted.find(row => row.term_start_date === previousTerm.membership_renewal_date);
+    if (existing) return { existing, previousTerm };
+    config = await resolveRollingSuccessorConfig(client, { tenantId, previousTerm });
+    // Provider renewals pass their own explicitly resolved ID; never accept an
+    // unrelated or no-longer-eligible structure in a renewal request.
+    if (options.configId && options.configId !== config.id) {
+      throw new Error('Selected membership structure is not the eligible structure at the saved renewal boundary.');
+    }
+  }
+  if (!config) throw new Error('No eligible membership structure exists for this rolling membership.');
+  return {
+    config, previousTerm,
+    window: rollingMembershipWindow(config, options.termStartDate || options.asOfDate || now, previousTerm),
+  };
+}
+
+function purchasedRollingSimulation(row, entity, steps, invoicingSettings) {
+  if (!row.commitment_snapshot?.config || !row.membership_renewal_date || !row.term_start_date || !row.term_end_date) {
+    throw new Error('Rolling membership requires review: the saved commitment is incomplete.');
+  }
+  const config = row.commitment_snapshot.config;
+  return {
+    success: true, ...entity, config, steps, invoicingSettings,
+    existingRecord: row, previousTerm: null, commitment: row,
+    membershipYear: { label: row.term_key, start: new Date(`${row.term_start_date}T00:00:00.000Z`), end: new Date(`${row.term_end_date}T00:00:00.000Z`), ...row },
+    tierLabel: row.tier_label, fieldValue: row.field_value,
+    matchedBand: row.band_id ? { id: row.band_id } : null,
+    annualCost: Number(row.annual_cost), annualCostBeforeDiscounts: Number(row.annual_cost),
+    finalCost: Number(row.final_cost), totalWithVat: Number(row.total_with_vat ?? row.final_cost),
+    vatAmount: Number(row.vat_amount || 0), vatRatePercent: row.vat_rate_percent,
+    currency: row.currency, billingPeriod: row.commitment_snapshot.billing_period,
+    yearNumber: row.year_number, customDiscountTotal: Number(row.custom_discount_total || 0),
+    customDiscountDetails: row.custom_discount_details || [], prorataCost: row.prorata_cost,
+    freeDiscount: Number(row.free_period_discount || 0), rolloverDiscount: Number(row.rollover_discount || 0),
+    invoicePreview: null, nominalCode: config.nominal_code || null,
+  };
+}
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
   const {
@@ -60,6 +132,14 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
     : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, asOfDate);
+  let rollingContext;
+  try {
+    rollingContext = await resolveRollingSimulationContext(supabase, { tenantId, organizationId, config, options });
+  } catch (error) {
+    return { success: false, steps, code: 'rolling_membership_review_required', error: error.message };
+  }
+  if (rollingContext?.existing) return purchasedRollingSimulation(rollingContext.existing, { org }, steps, invoicingSettings);
+  if (rollingContext) config = rollingContext.config;
   if (!config) {
     const allActive = await getAllActiveConfigs(tenantId, asOfDate);
     const scopedCount = allActive.filter(c => c.structure_field_id && c.structure_match_value).length;
@@ -78,7 +158,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   // target year window from the just-resolved config (only to derive the date), then
   // re-resolve as of that date so future-scheduled configs are honoured.
   let configResolutionDate = asOfDate || null;
-  if (!explicitConfigId) {
+  if (!explicitConfigId && !rollingContext) {
     const bootstrapCurrentYear = calculateMembershipYear(config);
     const bootstrapNextYear = calculateNextMembershipYear(config);
     let targetWindow;
@@ -135,7 +215,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   log('Calculate Membership Year', `Current year: ${currentYear.label}, Next year: ${nextYear.label}`);
 
   let membershipYear;
-  if (targetYear) {
+  if (rollingContext) {
+    membershipYear = rollingContext.window;
+  } else if (targetYear) {
     membershipYear = targetYear === currentYear.label ? currentYear : nextYear;
   } else {
     membershipYear = source === 'simulate' ? nextYear : currentYear;
@@ -144,7 +226,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const assumedGoLiveDate = goLiveDate || new Date().toISOString().split('T')[0];
-  const yearNumber = determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
+  const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
   const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYear, config);
 
   if (goLiveDate) {
@@ -189,6 +271,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   let fieldValue = null;
 
   if (isFlat) {
+    if (rollingContext && (config.flat_cost == null || !Number.isFinite(Number(config.flat_cost)) || Number(config.flat_cost) < 0)) {
+      throw new Error('The rolling membership structure has no valid agreed price; review its pricing before renewal.');
+    }
     annualCostRaw = parseFloat(config.flat_cost) || 0;
     annualCost = annualCostRaw;
     tierLabel = 'Flat Rate';
@@ -271,6 +356,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
       }];
       log('Apply Override', `Discount override: ${override.discount_type === 'percentage' ? val + '%' : val.toFixed(2)} off, discount amount: ${overrideDiscountAmt.toFixed(2)}, net cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
     } else if (override.override_type === 'structure' && override.config_id) {
+      if (rollingContext && override.config_id !== config.id) throw new Error('A rolling structure override must be resolved as an eligible structure before a new commitment is quoted.');
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
         const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
@@ -316,14 +402,14 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     .eq('organization_id', organizationId);
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
-  const isNewOrg = (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
-  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+  const isNewOrg = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+  const effectiveJoinDate = rollingContext ? new Date(membershipYear.start) : goLiveDate ? new Date(goLiveDate) : new Date();
 
   const yearStartMidnight = new Date(membershipYear.start);
   yearStartMidnight.setHours(0, 0, 0, 0);
   const yearEndMidnight = new Date(membershipYear.end);
   yearEndMidnight.setHours(0, 0, 0, 0);
-  const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+  const totalDaysInYear = Math.floor(((rollingContext ? membershipYear.end : yearEndMidnight) - (rollingContext ? membershipYear.start : yearStartMidnight)) / (1000 * 60 * 60 * 24)) + 1;
   let dailyCost = null;
   let prorataDays = null;
   let prorataCost = null;
@@ -340,7 +426,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
-    if (config.prorata_enabled && isNewOrg) {
+    if (config.prorata_enabled && isNewOrg && !rollingContext) {
       proRataEnabled = true;
       const joinMidnight = new Date(effectiveJoinDate);
       joinMidnight.setHours(0, 0, 0, 0);
@@ -669,6 +755,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     finalCost: computedFinalCost,
     currency,
     membershipYear,
+    previousTerm: rollingContext?.previousTerm || null,
     yearNumber,
     dailyCost: isPriceOverride ? null : dailyCost,
     totalDaysInYear,
@@ -1036,6 +1123,14 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
     : await getConfigForMember(tenantId, memberId, fieldOverrides, asOfDate);
+  let rollingContext;
+  try {
+    rollingContext = await resolveRollingSimulationContext(supabase, { tenantId, memberId, config, options });
+  } catch (error) {
+    return { success: false, steps, code: 'rolling_membership_review_required', error: error.message };
+  }
+  if (rollingContext?.existing) return purchasedRollingSimulation(rollingContext.existing, { member }, steps, invoicingSettings);
+  if (rollingContext) config = rollingContext.config;
   if (!config) {
     const allActive = await getAllActiveConfigs(tenantId, asOfDate);
     const memberConfigs = allActive.filter(c => c.structure_scope_type === 'member');
@@ -1052,7 +1147,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   // window from the just-resolved config to derive its start date, then re-resolve as
   // of that date so future-scheduled configs governing the next year are honoured.
   let configResolutionDate = asOfDate || null;
-  if (!explicitConfigId) {
+  if (!explicitConfigId && !rollingContext) {
     const bootstrapCurrentYear = calculateMembershipYear(config);
     const bootstrapNextYear = calculateNextMembershipYear(config);
     let targetWindow;
@@ -1099,7 +1194,9 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   log('Calculate Membership Year', `Current year: ${currentYearObj.label}, Next year: ${nextYearObj.label}`);
 
   let membershipYear;
-  if (targetYear) {
+  if (rollingContext) {
+    membershipYear = rollingContext.window;
+  } else if (targetYear) {
     membershipYear = targetYear === currentYearObj.label ? currentYearObj : nextYearObj;
   } else {
     membershipYear = source === 'simulate' ? nextYearObj : currentYearObj;
@@ -1108,7 +1205,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   const goLiveDate = await getMemberGoLiveDate(memberId, tenantId);
   const createdDate = member.created_on ? String(member.created_on).split('T')[0] : null;
   const assumedGoLiveDate = goLiveDate || createdDate || new Date().toISOString().split('T')[0];
-  const yearNumber = determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
+  const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
   const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYearObj, config);
 
   if (goLiveDate) {
@@ -1145,6 +1242,9 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   let fieldValue = null;
 
   if (isFlat) {
+    if (rollingContext && (config.flat_cost == null || !Number.isFinite(Number(config.flat_cost)) || Number(config.flat_cost) < 0)) {
+      throw new Error('The rolling membership structure has no valid agreed price; review its pricing before renewal.');
+    }
     annualCostRaw = parseFloat(config.flat_cost) || 0;
     annualCost = annualCostRaw;
     tierLabel = 'Flat Rate';
@@ -1217,6 +1317,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
       }];
       log('Apply Override', `Discount override: ${override.discount_type === 'percentage' ? val + '%' : val.toFixed(2)} off, discount amount: ${overrideDiscountAmt.toFixed(2)}, net cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
     } else if (override.override_type === 'structure' && override.config_id) {
+      if (rollingContext && override.config_id !== config.id) throw new Error('A rolling structure override must be resolved as an eligible structure before a new commitment is quoted.');
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
         const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
@@ -1254,14 +1355,14 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     .eq('member_id', memberId);
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYearObj.label);
-  const isNewMember = (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
-  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : (createdDate ? new Date(createdDate) : new Date());
+  const isNewMember = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+  const effectiveJoinDate = rollingContext ? new Date(membershipYear.start) : goLiveDate ? new Date(goLiveDate) : (createdDate ? new Date(createdDate) : new Date());
 
   const yearStartMidnight = new Date(membershipYear.start);
   yearStartMidnight.setHours(0, 0, 0, 0);
   const yearEndMidnight = new Date(membershipYear.end);
   yearEndMidnight.setHours(0, 0, 0, 0);
-  const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+  const totalDaysInYear = Math.floor(((rollingContext ? membershipYear.end : yearEndMidnight) - (rollingContext ? membershipYear.start : yearStartMidnight)) / (1000 * 60 * 60 * 24)) + 1;
   let dailyCost = null;
   let prorataDays = null;
   let prorataCost = null;
@@ -1278,7 +1379,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
-    if (config.prorata_enabled && isNewMember) {
+    if (config.prorata_enabled && isNewMember && !rollingContext) {
       proRataEnabled = true;
       const joinMidnight = new Date(effectiveJoinDate);
       joinMidnight.setHours(0, 0, 0, 0);
@@ -1589,6 +1690,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     success: true,
     member: { id: member.id, name: memberName, email: member.email },
     config,
+    previousTerm: rollingContext?.previousTerm || null,
     matchedBand,
     tierLabel,
     fieldValue,

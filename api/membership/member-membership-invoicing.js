@@ -13,6 +13,7 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
 import { resolveMemberFeeApproval, setMemberFeeApproval } from '../_lib/membershipFeeApproval.js';
 
 export default async function handler(req, res) {
@@ -293,6 +294,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
        ...annualRecordSchedule(renewalEligibility),
+       ...upfrontRollingCommitment(simResult),
        notes: `Manual renewal via admin action (year ${simResult.yearNumber}, member: ${memberName}). Term: ${renewalEligibility.lifecycle.termStart} to ${renewalEligibility.lifecycle.termEnd}.`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })

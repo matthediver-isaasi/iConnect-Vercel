@@ -20,6 +20,7 @@
 // agreement is created.
 
 import { supabase } from '../_lib/database.js';
+import { reserveRollingMonthlyHistory } from '../_lib/rollingFeeCommitment.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getSessionMember } from '../_lib/session.js';
@@ -267,7 +268,7 @@ async function handleStart(req, res, resolvedTenantId) {
   }
 
   // Already paid / already in progress for this year?
-  const { data: existingHistory } = await supabase
+  let { data: existingHistory } = await supabase
     .from('organisation_membership_history')
     .select('id, status, payment_status, payment_method, billing_agreement_id')
     .eq('tenant_id', tenantId)
@@ -333,13 +334,14 @@ async function handleStart(req, res, resolvedTenantId) {
   };
 
   const agreementInsert = {
+    ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     organization_id: org.id,
     agreement_type: 'organization',
     status: STATUS.PAYMENT_SETUP_REQUIRED,
     idempotency_key: idempotencyKey,
     environment: creds.environment || 'sandbox',
-    metadata: { dd: snapshot },
+    metadata: { dd: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
     primary_contact_member_id: member.id,
     dd_payer: payerChoice,
     billing_contact_email: payerChoice === 'billing_contact' ? String(billingContactEmail).trim().toLowerCase() : null,
@@ -363,9 +365,19 @@ async function handleStart(req, res, resolvedTenantId) {
     ? { agreement: rotatedAgreement, created: false }
     : await claimMonthlyConsentAgreement({ agreementInsert });
   let agreement = claim.agreement;
+  if (agreement.tenant_id !== tenantId || agreement.organization_id !== org.id || agreement.member_id) {
+    return res.status(409).json({ error: 'The saved billing agreement belongs to a different membership owner' });
+  }
   snapshot = agreement.metadata?.dd;
   idempotencyKey = agreement.idempotency_key;
   const claimedPayerChoice = agreement.dd_payer || payerChoice;
+  if (snapshot.commitment?.term_key) {
+    try {
+      existingHistory = await reserveRollingMonthlyHistory(supabase, agreement, snapshot, simResult);
+    } catch (error) {
+      return res.status(409).json({ error: error.message });
+    }
+  }
 
   let authorisationUrl = null;
   if (!agreement.gocardless_mandate_id && claimedPayerChoice === 'self') {
@@ -410,6 +422,7 @@ async function handleStart(req, res, resolvedTenantId) {
   // Pending membership-history row linked to the agreement.
   if (!existingHistory) {
     const { error: histErr } = await supabase.from('organisation_membership_history').insert({
+      ...(snapshot.commitment || {}),
       tenant_id: tenantId,
       organization_id: org.id,
       membership_year: yearLabel,
@@ -429,12 +442,22 @@ async function handleStart(req, res, resolvedTenantId) {
       payment_status: 'unpaid',
       billing_agreement_id: agreement.id,
       notes: `Monthly Direct Debit: ${offer.instalmentCount} x ${offer.currency} ${offer.monthlyAmount}`,
+      ...(snapshot.commitment?.term_key ? {
+        annual_cost: snapshot.commitment.commitment_snapshot.amounts.annual_cost,
+        final_cost: snapshot.commitment.commitment_snapshot.amounts.final_cost,
+        vat_amount: snapshot.commitment.commitment_snapshot.amounts.vat_amount,
+        total_with_vat: snapshot.commitment.commitment_snapshot.amounts.total_with_vat,
+        currency: snapshot.commitment.commitment_snapshot.amounts.currency,
+      } : {}),
     });
     if (histErr) {
       console.error('[OrgDirectDebit] Failed to create membership history row:', histErr);
       return res.status(500).json({ error: 'Failed to record membership' });
     }
   } else if (existingHistory.billing_agreement_id !== agreement.id) {
+    if (snapshot.commitment?.term_key) {
+      return res.status(409).json({ error: 'A different payment arrangement already owns this membership term' });
+    }
     const { error: linkErr } = await supabase
       .from('organisation_membership_history')
       .update({ billing_agreement_id: agreement.id })

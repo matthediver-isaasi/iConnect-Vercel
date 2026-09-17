@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
+import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
 
 function formatCurrency(amount, currency) {
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -44,6 +45,7 @@ export default function MembershipFees() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
+  const [paymentTerm, setPaymentTerm] = useState(null);
   const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);
 
   const stripeRef = useRef(null);
@@ -189,7 +191,13 @@ export default function MembershipFees() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to initialize payment');
       }
-      const { clientSecret, membershipYear: yr } = await res.json();
+      const prepared = await res.json();
+      if (prepared.zeroDue) {
+        setPaymentComplete(true);
+        return;
+      }
+      const { clientSecret, membershipYear: yr } = prepared;
+      setPaymentTerm(prepared);
       setPaymentYear(yr);
       // Save membership year for 3D Secure redirect recovery
       if (yr) {
@@ -213,10 +221,13 @@ export default function MembershipFees() {
       const elements = stripe.elements({ clientSecret });
       elementsRef.current = elements;
 
-      const cardElement = elements.create('payment');
+      const addressElement = elements.create('address', { mode: 'billing' });
+      const cardElement = elements.create('payment', { fields: { billingDetails: { address: 'never' } } });
 
       setTimeout(() => {
         const container = document.getElementById('portal-stripe-payment-element');
+        const addressContainer = document.getElementById('portal-stripe-address-element');
+        if (addressContainer) addressElement.mount(addressContainer);
         if (container) {
           cardElement.mount(container);
         }
@@ -332,7 +343,7 @@ export default function MembershipFees() {
             <CheckCircle2 className="w-14 h-14 mx-auto mb-4 text-green-500" />
             <h2 className="text-xl font-semibold mb-2">Payment Complete</h2>
             <p className="text-muted-foreground mb-4">
-              Your membership fee for {data?.membershipYear} has been received.
+              Your membership fee for {membershipTermLabel(paymentYear || data?.membershipYear)} has been received.
             </p>
             <div className="p-4 rounded-md bg-muted">
               <p className="text-sm text-muted-foreground">Amount Paid</p>
@@ -384,7 +395,7 @@ export default function MembershipFees() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Period</span>
-              <span className="font-medium text-sm" data-testid="text-period">{data?.membershipYear}</span>
+              <span className="font-medium text-sm" data-testid="text-period">{membershipTermLabel(data?.membershipYear)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Tier</span>
@@ -567,6 +578,8 @@ export default function MembershipFees() {
               </>
             ) : (
               <div className="space-y-4">
+                <MembershipCommitmentNotice startDate={paymentTerm?.membershipStartDate} renewalDate={paymentTerm?.membershipRenewalDate} />
+                <div id="portal-stripe-address-element" className="min-h-[100px] border rounded-md p-3" />
                 <div id="portal-stripe-payment-element" className="min-h-[200px] border rounded-md p-3" />
 
                 {paymentError && (
@@ -587,7 +600,7 @@ export default function MembershipFees() {
                   ) : (
                     <CreditCard className="w-4 h-4 mr-2" />
                   )}
-                  {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}`}
+                  {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(paymentTerm?.amount ?? data?.totalWithVat ?? data?.finalCost, paymentTerm?.currency || data?.currency)}`}
                 </Button>
               </div>
             )}

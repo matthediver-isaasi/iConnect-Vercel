@@ -12,6 +12,24 @@ import {
   zeroDuePaymentFields,
 } from '../_lib/zeroDueMembership.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import formMembershipPaymentHandler from '../forms/membership-payment.js';
+
+// All portal upfront payments use the same durable quote/reservation and
+// callback recorder as form payments. Scope on confirm comes from that quote,
+// not from the member's possibly changed current organisation.
+export async function handlePortalUpfrontPayment(req, res, member, delegate = formMembershipPaymentHandler) {
+  const delegatedRequest = Object.create(req);
+  delegatedRequest.body = {
+    action: req.body.action,
+    memberId: member.id,
+    paymentIntentId: req.body.paymentIntentId,
+  };
+  delegatedRequest.membershipPaymentContext = {
+    source: 'member-portal',
+    targetYear: req.body.action === 'create_payment' ? req.body.membershipYear || null : null,
+  };
+  return delegate(delegatedRequest, res);
+}
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -37,6 +55,9 @@ export default async function handler(req, res) {
     const tenantId = member.tenant_id;
     const organizationId = member.organization_id;
     const isMemberScoped = !organizationId;
+    if (req.method === 'POST' && ['create_payment', 'confirm_payment'].includes(req.body?.action)) {
+      return handlePortalUpfrontPayment(req, res, member);
+    }
 
     if (req.method === 'GET') {
       return isMemberScoped

@@ -145,8 +145,11 @@ test('invoice failure keeps the membership record and surfaces a partial result'
   assert.match(invoiceBlock, /invoiceError = invErr\.message/);
   // …and the record is never rolled back.
   assert.ok(!/\.delete\(\)/.test(invoiceBlock), 'no rollback of the membership record on invoice failure');
-  // Result status distinguishes full success from record-without-invoice.
-  assert.match(invoiceBlock, /status: invoice \? 'success' : 'partial'/);
+  // The shared delivery helper now handles both invoice creation and ambiguous
+  // email delivery, rather than an inline invoice-only ternary.
+  assert.match(invoiceBlock, /\.\.\.membershipInvoiceDeliveryActionState\(invoice, invoiceEmailResult\)/);
+  const deliveryHelper = src.slice(src.indexOf('export function membershipInvoiceDeliveryActionState'));
+  assert.match(deliveryHelper, /status: invoice \? 'success' : 'partial'/);
   assert.match(invoiceBlock, /invoice_error/);
   // The membership id is returned either way.
   assert.match(invoiceBlock, /membership_id: inserted\.id/);

@@ -13,6 +13,7 @@ const PERSONAL_COLUMNS = [
   'tenant_id',
   'member_id',
   'membership_year',
+  'config_id',
   'tier_label',
   'band_id',
   'annual_cost',
@@ -29,6 +30,15 @@ const PERSONAL_COLUMNS = [
   'accounting_invoice_number',
   'purchase_order_number',
   'payment_method',
+  'billing_period',
+  'term_start_date',
+  'term_end_date',
+  'membership_renewal_date',
+  'term_duration_months',
+  'term_anchor_date',
+  'term_key',
+  'previous_term_id',
+  'commitment_snapshot',
   'stripe_payment_intent_id',
   'status',
   'created_at',
@@ -42,6 +52,7 @@ const ORGANISATION_COLUMNS = [
   'tenant_id',
   'organization_id',
   'membership_year',
+  'config_id',
   'tier_label',
   'band_id',
   'annual_cost',
@@ -59,6 +70,15 @@ const ORGANISATION_COLUMNS = [
   'accounting_invoice_number',
   'purchase_order_number',
   'payment_method',
+  'billing_period',
+  'term_start_date',
+  'term_end_date',
+  'membership_renewal_date',
+  'term_duration_months',
+  'term_anchor_date',
+  'term_key',
+  'previous_term_id',
+  'commitment_snapshot',
   'stripe_payment_intent_id',
   'status',
   'created_at',
@@ -94,6 +114,13 @@ function compareDescending(a, b) {
 }
 
 export function compareMembershipHistory(a, b) {
+  const termDifference = compareDescending(
+    timestampValue(a.term_start_date),
+    timestampValue(b.term_start_date),
+  );
+  if (termDifference !== 0
+      && (a.term_start_date || b.term_start_date)) return termDifference;
+
   const yearDifference = compareDescending(
     membershipYearValue(a.membership_year),
     membershipYearValue(b.membership_year),

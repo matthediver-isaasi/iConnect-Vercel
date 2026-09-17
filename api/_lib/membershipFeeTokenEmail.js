@@ -209,6 +209,15 @@ export async function sendMembershipFeeTokenEmail({
   if (!organizationId && !memberId) {
     return { success: false, error: 'organizationId or memberId is required' };
   }
+  try {
+    const { snapshotRollingFeeQuote } = await import('./rollingFeeCommitment.js');
+    costBreakdown = await snapshotRollingFeeQuote(client, {
+      tenantId, memberId, organizationId, membershipYear, tierConfig,
+      historyRecordId, costBreakdown, finalCost, currency, tierLabel,
+    });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 
   let toEmails = Array.isArray(recipientEmails)
     ? [...new Set(recipientEmails.map((e) => (e || '').trim().toLowerCase()).filter(Boolean))]
@@ -403,6 +412,9 @@ export async function sendMembershipFeeTokenEmail({
       })
       .eq('id', tokenId);
     if (refreshErr) {
+      if (costBreakdown?.commitment) {
+        return { success: false, error: `The original rolling fee quote cannot be replaced: ${refreshErr.message}` };
+      }
       console.warn('[FeeTokenEmail] Token snapshot refresh failed (non-fatal):', refreshErr.message);
     }
 

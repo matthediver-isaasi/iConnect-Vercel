@@ -7,6 +7,124 @@ import { getPausedMemberIdSet } from './memberPause.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+export function rollingReminderSendDate(renewalDate, reminder) {
+  const date = new Date(`${String(renewalDate).slice(0, 10)}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime())) throw new Error('Rolling reminder has no valid saved renewal date.');
+  date.setUTCDate(date.getUTCDate() + offsetInDays(reminder) * (reminder.direction === 'after' ? 1 : -1));
+  return date;
+}
+
+// Term-keyed, recoverable delivery claim. A crashed send can be retried after
+// the lease; delivery is at-least-once across the external email crash window.
+export async function claimRollingReminder(client, record, now = new Date()) {
+  const sentAt = now.toISOString();
+  const identity = {
+    tenant_id: record.tenant_id, reminder_id: record.reminder_id,
+    membership_year: record.membership_year, scope_type: record.scope_type,
+    organization_id: record.organization_id || null, member_id: record.member_id || null,
+  };
+  const { data, error } = await client.from('membership_tier_reminder_send')
+    .insert({ ...identity, status: 'processing', sent_at: sentAt }).select('id, sent_at').maybeSingle();
+  if (!error) return data;
+  if (error.code !== '23505') throw new Error(`Could not claim rolling reminder: ${error.message}`);
+  let lookup = client.from('membership_tier_reminder_send').select('id, status, sent_at')
+    .eq('tenant_id', identity.tenant_id).eq('reminder_id', identity.reminder_id).eq('membership_year', identity.membership_year);
+  lookup = identity.member_id ? lookup.eq('member_id', identity.member_id) : lookup.eq('organization_id', identity.organization_id);
+  const { data: prior, error: readError } = await lookup.maybeSingle();
+  if (readError) throw new Error(`Could not inspect rolling reminder claim: ${readError.message}`);
+  if (!prior || prior.status === 'sent'
+    || (prior.status === 'processing' && now - new Date(prior.sent_at) < 15 * 60 * 1000)) return null;
+  const { data: claimed, error: claimError } = await client.from('membership_tier_reminder_send')
+    .update({ status: 'processing', sent_at: sentAt, error: null })
+    .eq('id', prior.id).eq('tenant_id', identity.tenant_id).eq('status', prior.status).eq('sent_at', prior.sent_at)
+    .select('id, sent_at').maybeSingle();
+  if (claimError) throw new Error(`Could not reclaim rolling reminder: ${claimError.message}`);
+  return claimed;
+}
+
+export function rollingReminderCandidates(histories, today) {
+  const date = new Date(today).toISOString().slice(0, 10);
+  return (histories || []).filter(row =>
+    row.term_key && row.commitment_snapshot?.config && row.membership_renewal_date
+    && row.term_start_date <= date && !['cancelled', 'void'].includes(row.status)
+    && !(histories || []).some(next =>
+      next.id !== row.id
+      && (next.member_id || next.organization_id) === (row.member_id || row.organization_id)
+      && next.tenant_id === row.tenant_id
+      && next.term_start_date >= row.membership_renewal_date
+      && (next.payment_status === 'paid' || next.paid_at)
+      && !['cancelled', 'void'].includes(next.status)));
+}
+
+async function processRollingReminders(tenantId, results, today) {
+  const paused = await getPausedMemberIdSet(tenantId);
+  for (const scope of ['member', 'organization']) {
+    const memberScope = scope === 'member';
+    const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
+    const { data: histories, error } = await supabase.from(table).select('*')
+      .eq('tenant_id', tenantId).not('term_key', 'is', null);
+    if (error) throw new Error(`Could not load rolling reminder terms: ${error.message}`);
+    for (const history of rollingReminderCandidates(histories, today)) {
+      if (memberScope && paused.has(history.member_id)) continue;
+      const { data: owner, error: ownerError } = await supabase.from(memberScope ? 'member' : 'organization')
+        .select(memberScope ? 'id, email, first_name, last_name, name, role_id' : 'id, name')
+        .eq('tenant_id', tenantId).eq('id', memberScope ? history.member_id : history.organization_id).maybeSingle();
+      if (ownerError) throw new Error(`Could not load rolling reminder recipient: ${ownerError.message}`);
+      if (!owner) continue;
+      const reminders = await loadActiveReminders(tenantId, history.config_id);
+      const renewalDate = new Date(`${history.membership_renewal_date}T00:00:00.000Z`);
+      for (const reminder of reminders) {
+        if (rollingReminderSendDate(history.membership_renewal_date, reminder) > today) continue;
+        const roles = reminder.recipient_role_ids || [];
+        const recipients = memberScope
+          ? (owner.email && (!roles.length || roles.includes(owner.role_id)) ? [owner] : [])
+          : (await resolveOrgRecipients(tenantId, owner.id, roles)).filter(member => !paused.has(member.id));
+        if (!recipients.length) continue;
+        const template = await loadTemplate(tenantId, reminder.email_template_id);
+        if (!template) continue;
+        const claim = await claimRollingReminder(supabase, {
+          tenant_id: tenantId, reminder_id: reminder.id, membership_year: history.term_key, scope_type: scope,
+          member_id: memberScope ? owner.id : null, organization_id: memberScope ? null : owner.id,
+        });
+        if (!claim) continue;
+        const first = recipients[0];
+        const memberName = first.name || [first.first_name, first.last_name].filter(Boolean).join(' ');
+        const data = buildOrgContext({
+          org: memberScope ? {} : owner, member: first,
+          membershipYear: { label: `${history.term_start_date} – ${history.term_end_date}` },
+          simResult: { tierLabel: history.tier_label, finalCost: history.final_cost, currency: history.currency },
+          renewalDate, reminder,
+        });
+        Object.assign(data, { member_id: first.id, member_name: memberName, memberName, member_email: first.email });
+        const { subject, html } = renderTemplate(template, scope, data);
+        let status = 'sent';
+        let sendError = null;
+        try {
+          await sendTenantEmail({ tenantId, to: recipients.map(member => member.email), subject, html });
+          for (const recipient of recipients) {
+            await recordTransactionalInboxMessage({
+              tenantId, memberId: recipient.id, to: recipient.email, subject, html,
+              fromAddress: null, communicationCategoryId: await resolveCommunicationCategoryIdForLabel(tenantId, 'membership'),
+              labelKey: 'membership',
+            });
+          }
+        } catch (error) {
+          status = 'error';
+          sendError = error.message;
+        }
+        const { error: finishError } = await supabase.from('membership_tier_reminder_send')
+          .update({ status, error: sendError, recipient_email: recipients.map(member => member.email).join(', ') })
+          .eq('id', claim.id).eq('tenant_id', tenantId).eq('status', 'processing').eq('sent_at', claim.sent_at);
+        if (finishError) throw new Error(`Could not complete rolling reminder delivery: ${finishError.message}`);
+        if (results) {
+          results[status === 'sent' ? 'processed' : 'errors'] = (results[status === 'sent' ? 'processed' : 'errors'] || 0) + 1;
+          (results.details || []).push({ tenantId, type: 'reminder', scope, historyId: history.id, termKey: history.term_key, status, reason: sendError });
+        }
+      }
+    }
+  }
+}
+
 function toMidnight(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -151,16 +269,20 @@ async function logSend({ tenantId, reminderId, membershipYear, scopeType, organi
  */
 export async function processTenantReminders(tenantId, results) {
   const today = toMidnight(new Date());
+  await processRollingReminders(tenantId, results, new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`));
 
   const { data: configs, error: cfgErr } = await supabase
     .from('membership_tier_config')
-    .select('id, structure_scope_type, name')
+    .select('id, structure_scope_type, name, start_mode')
     .eq('tenant_id', tenantId)
     .is('effective_to', null);
 
   if (cfgErr || !configs || configs.length === 0) return;
 
   for (const config of configs) {
+    // Rolling reminders above only use purchased terms, including retired
+    // structures. Never bootstrap an unknown legacy anniversary by simulation.
+    if (config.start_mode === 'immediate') continue;
     let reminders;
     try {
       reminders = await loadActiveReminders(tenantId, config.id);

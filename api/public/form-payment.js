@@ -633,6 +633,8 @@ async function handleQuote(req, res, supabase, tenantData) {
     membership: membershipMeta ? {
       config_name: membershipMeta.quote.config_name || null,
       membership_year: membershipMeta.quote.membership_year || null,
+      membership_start_date: membershipMeta.quote.commitment?.term_start_date || null,
+      membership_renewal_date: membershipMeta.quote.commitment?.membership_renewal_date || null,
       tier_label: membershipMeta.quote.tier_label || null,
       monthly_card: monthlyCard,
       direct_debit: directDebit,
@@ -843,7 +845,9 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   const environment = creds.secret_key.startsWith('sk_test_') ? 'test' : 'live';
   const snapshot = buildCardAgreementSnapshot({ offer, simResult: {
     membershipYear: { label: quote.membership_year, start: quote.membership_year_start },
-    config: { id: quote.config_id }, matchedBand: quote.band_id ? { id: quote.band_id } : null,
+    config: quote.commitment?.commitment_snapshot?.config || { id: quote.config_id },
+    commitment: quote.commitment,
+    matchedBand: quote.commitment?.commitment_snapshot?.pricing?.matchedBand || (quote.band_id ? { id: quote.band_id } : null),
     tierLabel: quote.tier_label, fieldValue: quote.field_value,
     annualCost: quote.annual_cost, finalCost: quote.final_cost,
     vatRatePercent: quote.vat_rate_percent, vatAmount: quote.vat_amount,
@@ -1138,6 +1142,9 @@ async function handleCreate(req, res, supabase, tenantData) {
   });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const { membershipMeta, amount, currency } = resolved;
+  if (membershipMeta?.quote?.commitment?.commitment_snapshot) {
+    membershipMeta.quote.commitment.commitment_snapshot.payment_method = provider;
+  }
   const monthlyDirectDebitOffer = provider === 'gocardless'
     && membershipMeta?.quote?.target === 'member'
     ? membershipMeta.quote.direct_debit_offer || null
@@ -1476,6 +1483,8 @@ async function handleCreate(req, res, supabase, tenantData) {
             provider: 'stripe',
             submissionId: submissionRow.id,
             clientSecret: prior.intent.client_secret,
+            membershipStartDate: submissionRow.payment_meta?.membership?.quote?.commitment?.term_start_date || null,
+            membershipRenewalDate: submissionRow.payment_meta?.membership?.quote?.commitment?.membership_renewal_date || null,
             publishableKey: prior.publishableKey,
             mode: prior.publishableKey?.startsWith('pk_test_') ? 'test' : 'live',
             amount,
@@ -1548,6 +1557,8 @@ async function handleCreate(req, res, supabase, tenantData) {
               provider: 'stripe',
               submissionId: submissionRow.id,
               clientSecret: winnerIntent.client_secret,
+              membershipStartDate: (winnerRow.payment_meta || submissionRow.payment_meta)?.membership?.quote?.commitment?.term_start_date || null,
+              membershipRenewalDate: (winnerRow.payment_meta || submissionRow.payment_meta)?.membership?.quote?.commitment?.membership_renewal_date || null,
               publishableKey: creds.publishable_key,
               mode: creds.mode,
               amount,
@@ -1563,6 +1574,8 @@ async function handleCreate(req, res, supabase, tenantData) {
       provider: 'stripe',
       submissionId: submissionRow.id,
       clientSecret: paymentIntent.client_secret,
+      membershipStartDate: submissionRow.payment_meta?.membership?.quote?.commitment?.term_start_date || null,
+      membershipRenewalDate: submissionRow.payment_meta?.membership?.quote?.commitment?.membership_renewal_date || null,
       publishableKey: creds.publishable_key,
       mode: creds.mode,
       amount,
@@ -1682,8 +1695,9 @@ async function handleCreateMonthlyDirectDebit({
           label: quote.membership_year,
           start: quote.membership_year_start,
         },
-        config: { id: quote.config_id },
-        matchedBand: quote.band_id ? { id: quote.band_id } : null,
+        config: quote.commitment?.commitment_snapshot?.config || { id: quote.config_id },
+        commitment: quote.commitment,
+        matchedBand: quote.commitment?.commitment_snapshot?.pricing?.matchedBand || (quote.band_id ? { id: quote.band_id } : null),
         tierLabel: quote.tier_label,
         fieldValue: quote.field_value,
         annualCost: quote.annual_cost,

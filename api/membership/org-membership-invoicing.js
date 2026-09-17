@@ -20,6 +20,7 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -364,6 +365,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
        ...annualRecordSchedule(renewalEligibility),
+       ...upfrontRollingCommitment(simResult),
        notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Term: ${renewalEligibility.lifecycle.termStart} to ${renewalEligibility.lifecycle.termEnd}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
@@ -631,6 +633,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
       ...annualRecordSchedule(renewalEligibility),
+      ...upfrontRollingCommitment(simResult),
       notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })

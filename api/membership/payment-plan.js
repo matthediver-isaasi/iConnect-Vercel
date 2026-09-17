@@ -43,6 +43,11 @@ export default async function handler(req, res) {
 function shapePlan(plan) {
   const terms = plan.membership_billing_agreements?.metadata?.dd
     || plan.membership_billing_agreements?.metadata?.card || {};
+  const agreement = plan.membership_billing_agreements || {};
+  const commitment = agreement.commitment_snapshot
+    || agreement.metadata?.commitment
+    || terms.commitment
+    || null;
   const arrears = Array.isArray(plan.membership_monthly_arrears_period)
     ? plan.membership_monthly_arrears_period.filter((p) => !p.settled_at) : [];
   const arrearsAmountMinor = arrears.reduce((sum, p) => sum + (Number(p.amount_minor) || 0), 0);
@@ -74,6 +79,19 @@ function shapePlan(plan) {
       : (collectionStopped ? null : (plan.amount_minor != null ? plan.amount_minor / 100 : null)),
     nextPlannedCollectionDate: collectionStopped ? null
       : (activeCatchUp?.provider_charge_date || (arrears.length ? null : plan.next_charge_date)),
+    commitment: commitment ? {
+      ...commitment,
+      term_start_date: agreement.term_start_date || commitment.term_start_date || null,
+      term_end_date: agreement.term_end_date || commitment.term_end_date || null,
+      membership_renewal_date: agreement.membership_renewal_date
+        || commitment.membership_renewal_date
+        || null,
+      term_duration_months: agreement.term_duration_months
+        ?? commitment.term_duration_months
+        ?? null,
+      term_anchor_date: agreement.term_anchor_date || commitment.term_anchor_date || null,
+      term_key: agreement.term_key || commitment.term_key || null,
+    } : null,
   };
 }
 
@@ -145,7 +163,7 @@ async function handleMemberView(req, res) {
 
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, membership_billing_agreements!billing_agreement_id(id, status, metadata), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
+    .select('*, membership_billing_agreements!billing_agreement_id(id, status, metadata, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
     .eq('tenant_id', member.tenant_id)
     .eq('member_id', member.id)
     .order('created_at', { ascending: false })
@@ -195,7 +213,7 @@ async function handleAdminList(req, res) {
   // Both individual (member) and organisational plans.
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, member!member_id(id, first_name, last_name, email), organization!organization_id(id, name), membership_billing_agreements!billing_agreement_id(id, dd_payer, billing_contact_name, billing_contact_email, mandate_completed_by, metadata), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
+    .select('*, member!member_id(id, first_name, last_name, email), organization!organization_id(id, name), membership_billing_agreements!billing_agreement_id(id, dd_payer, billing_contact_name, billing_contact_email, mandate_completed_by, metadata, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
     .eq('tenant_id', context.tenantId)
     .order('created_at', { ascending: false })
     .limit(200);

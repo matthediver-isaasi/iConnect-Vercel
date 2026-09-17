@@ -1,3 +1,4 @@
+import { reserveRollingMonthlyRenewal, completeRollingMonthlySetup } from '../_lib/rollingMonthlyRenewal.js';
 // Task #3620 — member-facing monthly card (Stripe subscription) checkout.
 //
 //   POST { action: 'start', memberId } -> begin monthly-card payment for the
@@ -223,22 +224,42 @@ async function handlePost(req, res, resolvedTenantId) {
     .select('*')
     .eq('idempotency_key', idempotencyKey)
     .maybeSingle();
-  if (existingAgreement) {
+  const isRolling = simResult.config?.start_mode === 'immediate';
+  if (existingAgreement && !isRolling) {
     if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
       return res.json({ checkoutUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
     }
     return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
   }
 
-  const snapshot = buildCardAgreementSnapshot({ offer, simResult });
+  let snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
   const Stripe = (await import('stripe')).default;
   const stripe = new Stripe(stripeCredentials.secret_key);
   const environment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
+  let reservedAgreement = null;
+  if (isRolling) {
+    if (snapshot.commitment.term_start_date > new Date().toISOString().slice(0, 10)) {
+      return res.status(409).json({ error: `Monthly card payments can begin on ${snapshot.commitment.term_start_date}.`, code: 'rolling_term_not_started' });
+    }
+    const reservation = await reserveRollingMonthlyRenewal({
+      db: supabase, tenantId, memberId: member.id, snapshot, provider: 'stripe', idempotencyKey,
+      previousAgreement: { id: null, environment }, confirmedCheckout: true,
+    });
+    reservedAgreement = reservation.agreement;
+    snapshot = reservation.snapshot;
+    if (reservedAgreement.redirect_url) {
+      return res.json({ checkoutUrl: reservedAgreement.redirect_url, agreementId: reservedAgreement.id, resumed: true });
+    }
+    if (Date.now() - new Date(snapshot.accepted_at).getTime() >= 20 * 60 * 60 * 1000) {
+      return res.status(409).json({ error: 'The interrupted card checkout requires review before another session can be created.', code: 'rolling_checkout_review_required' });
+    }
+  }
 
   const customer = await findOrCreateStripeCustomer(stripe, {
     email: member.email,
     name: [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined,
     metadata: { tenant_id: tenantId, member_id: member.id },
+    ...(reservedAgreement ? { idempotencyKey: `rolling-card-customer:${reservedAgreement.id}` } : {}),
   });
   if (!customer?.id) {
     return res.status(502).json({
@@ -250,7 +271,7 @@ async function handlePost(req, res, resolvedTenantId) {
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const origin = host ? `${proto}://${host}` : '';
 
-  const currency = (offer.currency || 'GBP').toLowerCase();
+  const currency = (snapshot.currency || 'GBP').toLowerCase();
   let session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -266,11 +287,11 @@ async function handlePost(req, res, resolvedTenantId) {
         quantity: 1,
         price_data: {
           currency,
-          unit_amount: offer.monthlyAmountMinor,
+          unit_amount: snapshot.monthly_amount_minor,
           recurring: { interval: 'month' },
           product_data: {
             name: `Membership ${yearLabel || ''}`.trim(),
-            description: `${offer.instalmentCount} monthly instalments of ${offer.currency} ${offer.monthlyAmount.toFixed(2)} (total ${offer.currency} ${offer.planTotal.toFixed(2)})`,
+            description: `${snapshot.instalment_count} monthly instalments of ${snapshot.currency} ${Number(snapshot.monthly_amount).toFixed(2)} (total ${snapshot.currency} ${Number(snapshot.plan_total).toFixed(2)})`,
           },
         },
       }],
@@ -291,13 +312,14 @@ async function handlePost(req, res, resolvedTenantId) {
       },
       success_url: `${origin}/membership/monthly-card/complete?member_id=${member.id}&card=success`,
       cancel_url: `${origin}/membership/monthly-card/cancelled?member_id=${member.id}&card=cancelled`,
-    });
+    }, reservedAgreement ? { idempotencyKey: `rolling-card-checkout:${reservedAgreement.id}` } : undefined);
   } catch (err) {
     console.error('[MonthlyCard] Checkout session creation failed:', err.message);
     return res.status(502).json({ error: 'Could not start card checkout. Please try again.' });
   }
 
   const agreementInsert = {
+    ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     member_id: member.id,
     agreement_type: 'member',
@@ -308,14 +330,15 @@ async function handlePost(req, res, resolvedTenantId) {
     idempotency_key: idempotencyKey,
     redirect_url: session.url,
     environment,
-    metadata: { card: snapshot },
+    metadata: { card: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
   };
 
-  const { data: agreement, error: agreeErr } = await supabase
-    .from('membership_billing_agreements')
-    .insert(agreementInsert)
-    .select()
-    .single();
+  const { data: agreement, error: agreeErr } = reservedAgreement
+    ? await supabase.from('membership_billing_agreements').update({
+        stripe_customer_id: customer.id, stripe_checkout_session_id: session.id,
+        redirect_url: session.url,
+      }).eq('id', reservedAgreement.id).eq('tenant_id', tenantId).select().single()
+    : await supabase.from('membership_billing_agreements').insert(agreementInsert).select().single();
   if (agreeErr) {
     if (agreeErr.code === '23505') {
       const { data: raced } = await supabase
@@ -333,8 +356,9 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   // Pending membership-history row linked to the agreement (webhook flips it).
-  if (!existingHistory) {
+  if (!existingHistory && !reservedAgreement) {
     const { error: histErr } = await supabase.from('member_membership_history').insert({
+      ...(snapshot.commitment || {}),
       tenant_id: tenantId,
       member_id: member.id,
       membership_year: yearLabel,
@@ -343,11 +367,11 @@ async function handlePost(req, res, resolvedTenantId) {
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,
       annual_cost: simResult.annualCost,
-      final_cost: snapshot.plan_total,
+      final_cost: snapshot.commitment?.commitment_snapshot?.amounts?.final_cost ?? snapshot.plan_total,
       currency: offer.currency,
       billing_period: 'monthly_card',
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
+      vat_amount: snapshot.commitment?.commitment_snapshot?.amounts?.vat_amount ?? (simResult.vatAmount || 0),
       total_with_vat: snapshot.plan_total,
       payment_method: 'card_monthly',
       status: 'pending_payment_setup',
@@ -359,13 +383,14 @@ async function handlePost(req, res, resolvedTenantId) {
       console.error('[MonthlyCard] Failed to create membership history row:', histErr);
       return res.status(500).json({ error: 'Failed to record membership' });
     }
-  } else if (!existingHistory.billing_agreement_id) {
+  } else if (existingHistory && !existingHistory.billing_agreement_id) {
     const { error: linkErr } = await supabase
       .from('member_membership_history')
       .update({ billing_agreement_id: agreement.id })
       .eq('id', existingHistory.id);
     if (linkErr) console.error('[MonthlyCard] Failed to link history row:', linkErr);
   }
+  if (reservedAgreement) await completeRollingMonthlySetup(supabase, agreement);
 
   // Confirm-mode renewal (Task #3621): a member starting a card plan for the
   // renewal year themselves marks any pending 'notice_sent' renewal row

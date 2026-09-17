@@ -17,6 +17,98 @@ const HISTORY_TABLE_MISSING_CODES = new Set(['42P01', 'PGRST205']);
 const VALID_HISTORY_SOURCES = new Set(['personal', 'organisation']);
 const GC_COLLECTED_STATUSES = ['confirmed', 'paid_out'];
 
+function dateValue(value) {
+  if (!value) return Number.NaN;
+  const parsed = Date.parse(String(value).includes('T') ? value : `${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function firstPresent(...values) {
+  return values.find((value) => value !== null && value !== undefined && value !== '') ?? null;
+}
+
+/**
+ * Shape only persisted commitment fields. In particular, this helper never
+ * consults the current tier configuration or a simulation: bought terms must
+ * continue to describe the structure and price agreed at commencement.
+ */
+export function shapePersistedCommitment(record, now = new Date()) {
+  if (!record?.term_key && !record?.membership_renewal_date && !record?.commitment_snapshot) {
+    return null;
+  }
+  const snapshot = record.commitment_snapshot && typeof record.commitment_snapshot === 'object'
+    ? record.commitment_snapshot : {};
+  const configSnapshot = snapshot.config && typeof snapshot.config === 'object'
+    ? snapshot.config : {};
+  const pricing = snapshot.pricing && typeof snapshot.pricing === 'object'
+    ? snapshot.pricing : {};
+  const amounts = snapshot.amounts && typeof snapshot.amounts === 'object'
+    ? snapshot.amounts : {};
+  const startDate = firstPresent(record.term_start_date, snapshot.term_start_date);
+  const renewalDate = firstPresent(record.membership_renewal_date, snapshot.membership_renewal_date);
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+  const start = dateValue(startDate);
+  const renewal = dateValue(renewalDate);
+  let lifecycle = 'unknown';
+  if (record.status === 'scheduled' || (Number.isFinite(start) && start > today.getTime())) {
+    lifecycle = 'scheduled';
+  } else if (Number.isFinite(start) && Number.isFinite(renewal)
+      && start <= today.getTime() && today.getTime() < renewal) {
+    lifecycle = 'current';
+  } else if (Number.isFinite(renewal) && renewal <= today.getTime()) {
+    lifecycle = 'past';
+  }
+  return {
+    id: record.id,
+    source: record.membership_source || 'personal',
+    lifecycle,
+    termKey: firstPresent(record.term_key, snapshot.term_key),
+    startDate,
+    endDate: firstPresent(record.term_end_date, snapshot.term_end_date),
+    renewalDate,
+    durationMonths: firstPresent(record.term_duration_months, snapshot.term_duration_months),
+    anchorDate: firstPresent(record.term_anchor_date, snapshot.term_anchor_date),
+    structureId: firstPresent(record.config_id, snapshot.config_id, configSnapshot.id),
+    structureName: firstPresent(
+      snapshot.structure_name,
+      configSnapshot.name,
+      record.tier_label,
+    ),
+    tierLabel: firstPresent(record.tier_label, pricing.tier_label, snapshot.tier_label),
+    billingPeriod: firstPresent(snapshot.billing_period, configSnapshot.billing_period),
+    agreedPrice: firstPresent(
+      amounts.total_with_vat,
+      amounts.final_cost,
+      pricing.total_with_vat,
+      pricing.final_cost,
+      record.total_with_vat,
+      record.final_cost,
+    ),
+    agreedNetPrice: firstPresent(amounts.final_cost, pricing.final_cost, record.final_cost),
+    monthlyAmount: firstPresent(amounts.monthly_amount, pricing.monthly_amount),
+    currency: firstPresent(amounts.currency, pricing.currency, record.currency),
+    paymentFrequency: firstPresent(
+      record.payment_frequency,
+      snapshot.payment_frequency,
+      snapshot.collection_frequency,
+    ),
+    paymentMethod: firstPresent(record.payment_method, snapshot.payment_method),
+    status: record.status || null,
+  };
+}
+
+export function shapePersistedCommitments(history, now = new Date()) {
+  return (history || [])
+    .map((record) => shapePersistedCommitment(record, now))
+    .filter(Boolean)
+    .sort((left, right) => {
+      const startDifference = dateValue(right.startDate) - dateValue(left.startDate);
+      if (Number.isFinite(startDifference) && startDifference !== 0) return startDifference;
+      return String(left.id || '').localeCompare(String(right.id || ''));
+    });
+}
+
 /**
  * The member-detail page only needs a bounded window of the accounting
  * ledger.  Do not accept a caller supplied limit: changing the page size
@@ -145,7 +237,7 @@ async function fetchOneHistoryRecord(db, source, recordId, tenantId) {
   const ownerSelect = source === 'personal' ? 'member_id' : 'organization_id';
   const { data, error } = await db
     .from(table)
-    .select(`id, tenant_id, ${ownerSelect}, membership_year, billing_period, billing_agreement_id`)
+    .select(`id, tenant_id, ${ownerSelect}, membership_year, billing_period, billing_agreement_id, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot`)
     .eq('id', recordId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -424,6 +516,7 @@ async function handleInstalmentGet(req, res, {
         membershipYear: candidate.membership_year || null,
         billingPeriod: candidate.billing_period || 'annual',
         billingAgreementId: null,
+        commitment: shapePersistedCommitment(candidate),
       },
       agreement: null,
       modeSnapshot: {
@@ -454,7 +547,7 @@ async function handleInstalmentGet(req, res, {
 
   const { data: agreement, error: agreementError } = await db
     .from('membership_billing_agreements')
-    .select('id, tenant_id, member_id, organization_id, agreement_type, provider, status, metadata')
+    .select('id, tenant_id, member_id, organization_id, agreement_type, provider, status, metadata, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot')
     .eq('id', candidate.billing_agreement_id)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -526,6 +619,7 @@ async function handleInstalmentGet(req, res, {
       memberId: candidate.member_id || null,
       organizationId: candidate.organization_id || null,
       billingAgreementId: agreement.id,
+      commitment: shapePersistedCommitment(candidate),
     },
     agreement: {
       id: agreement.id,
@@ -536,6 +630,18 @@ async function handleInstalmentGet(req, res, {
       status: agreement.status || null,
       mode: mode,
       modeSnapshot: accounting.snapshot,
+      commitment: shapePersistedCommitment({
+        ...candidate,
+        term_start_date: agreement.term_start_date || candidate.term_start_date,
+        term_end_date: agreement.term_end_date || candidate.term_end_date,
+        membership_renewal_date: agreement.membership_renewal_date || candidate.membership_renewal_date,
+        term_duration_months: agreement.term_duration_months || candidate.term_duration_months,
+        term_anchor_date: agreement.term_anchor_date || candidate.term_anchor_date,
+        term_key: agreement.term_key || candidate.term_key,
+        commitment_snapshot: agreement.commitment_snapshot
+          || agreement.metadata?.commitment
+          || candidate.commitment_snapshot,
+      }),
     },
     modeSnapshot,
     plan: responsePlan,
@@ -851,6 +957,14 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
   }
   const history = [...personalHistory, ...organisationHistory].sort((left, right) => {
+    const leftTermStart = dateValue(left.term_start_date);
+    const rightTermStart = dateValue(right.term_start_date);
+    if ((Number.isFinite(leftTermStart) || Number.isFinite(rightTermStart))
+        && leftTermStart !== rightTermStart) {
+      if (!Number.isFinite(leftTermStart)) return 1;
+      if (!Number.isFinite(rightTermStart)) return -1;
+      return rightTermStart - leftTermStart;
+    }
     const leftYear = Number.parseInt(String(left.membership_year || ''), 10);
     const rightYear = Number.parseInt(String(right.membership_year || ''), 10);
     if (Number.isFinite(leftYear) && Number.isFinite(rightYear) && leftYear !== rightYear) {
@@ -863,6 +977,10 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
+  const commitments = shapePersistedCommitments(history);
+  const currentCommitments = commitments.filter((commitment) => (
+    commitment.lifecycle === 'current' || commitment.lifecycle === 'scheduled'
+  ));
 
   const liveConfig = await resolveConfig(tenantId, memberId);
   let config = liveConfig;
@@ -951,15 +1069,26 @@ async function handleGet(req, res, tenantId, db = supabase, {
       currentYearCost: null,
       nextYearPreview: null,
       history,
+      commitments,
+      currentCommitments,
       pause,
       pricingCapability,
     });
   }
 
-  const currentYear = configResolvedFromPaidHistory
+  const personalRollingCommitment = commitments.find((commitment) => (
+    commitment.source === 'personal' && commitment.lifecycle === 'current'
+  ));
+  const personalRollingRecord = personalRollingCommitment
+    ? personalHistory.find((record) => record.id === personalRollingCommitment.id)
+    : null;
+  const currentYear = personalRollingRecord
+    ? { label: personalRollingRecord.term_key || personalRollingRecord.membership_year, start: null }
+    : configResolvedFromPaidHistory
     ? { label: historicalSnapshot.record.membership_year, start: null }
     : calculateMembershipYearWindow(config);
-  const nextYear = configResolvedFromPaidHistory ? null : calculateNextMembershipYearWindow(config);
+  const nextYear = configResolvedFromPaidHistory || personalRollingRecord
+    ? null : calculateNextMembershipYearWindow(config);
   const currentYearStartDate = currentYear.start
     ? currentYear.start.toISOString().split('T')[0]
     : null;
@@ -973,7 +1102,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   // Pricing and simulation remain member-scoped. Organisation history is
   // included in the ledger display above, but must not make a member's
   // personal year card appear recorded.
-  const currentYearRecord = historicalSnapshot?.record
+  const currentYearRecord = personalRollingRecord || historicalSnapshot?.record
     || personalHistory.find(h => h.membership_year === currentYear.label);
 
   if (currentYearRecord) {
@@ -986,7 +1115,10 @@ async function handleGet(req, res, tenantId, db = supabase, {
 
     currentYearCost = {
       membershipYear: currentYear.label,
-      startDate: currentYearStartDate,
+      startDate: currentYearRecord.term_start_date || currentYearStartDate,
+      renewalDate: currentYearRecord.membership_renewal_date || null,
+      endDate: currentYearRecord.term_end_date || null,
+      durationMonths: currentYearRecord.term_duration_months || null,
       tierLabel: currentYearRecord.tier_label || null,
       fieldValue: currentYearRecord.field_value,
       annualCost: recAnnual,
@@ -1062,6 +1194,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
     currentYearCost,
     nextYearPreview,
     history,
+    commitments,
+    currentCommitments,
     currentYear: currentYear.label,
     pricingCapability,
   });

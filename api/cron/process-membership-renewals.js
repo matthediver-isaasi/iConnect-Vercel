@@ -22,6 +22,25 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { processTenantAnnualExpirySweep } from '../_lib/annualMembershipExpiryEnforcement.js';
+import { annualRecordSchedule, resolveEntityAnnualRenewalEligibility } from '../_lib/annualRenewalPolicy.js';
+import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
+
+export function buildCronRollingFields(simResult, eligibility, addonTotals = { subtotal: 0, vat: 0, total: 0 }) {
+  if (simResult.config?.start_mode !== 'immediate') return {};
+  return {
+    ...annualRecordSchedule(eligibility),
+    ...upfrontRollingCommitment(simResult, { addonTotals }),
+  };
+}
+
+async function resolveCronRollingFields(tenantId, owner, simResult, addonTotals) {
+  if (simResult.config?.start_mode !== 'immediate') return {};
+  const eligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+    tenantId, ...owner, config: simResult.config, membershipYear: simResult.membershipYear,
+  });
+  if (!eligibility.eligible) throw new Error(eligibility.message || 'Rolling renewal is not eligible.');
+  return buildCronRollingFields(simResult, eligibility, addonTotals);
+}
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -828,6 +847,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) included.` : ''}`,
+      ...await resolveCronRollingFields(tenantId, { organizationId: orgId }, simResult, addonTotals),
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
@@ -1294,6 +1314,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, member: ${memberName})`,
+      ...await resolveCronRollingFields(tenantId, { memberId }, simResult),
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()

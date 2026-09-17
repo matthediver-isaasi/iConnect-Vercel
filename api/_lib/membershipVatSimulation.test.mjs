@@ -188,6 +188,7 @@ before(async () => {
   const libRoot = path.join(temporaryRoot, 'api', '_lib');
   const membershipRoot = path.join(temporaryRoot, 'api', 'membership');
   await cp(new URL('./membershipSimulation.js', import.meta.url), path.join(libRoot, 'membershipSimulation.js'), { recursive: true });
+  await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'), { recursive: true });
   for (const file of [
     'discountHelper.js',
     'selectionMatcher.js',
