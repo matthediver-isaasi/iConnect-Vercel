@@ -5189,6 +5189,330 @@ test('configured compact previews follow the opposite endpoint in both picker di
   assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
 });
 
+test('related list preview columns inherit the linked object list view and preserve explicit empty choices', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const targetField = field({
+    id: 'target-list-field',
+    custom_object_id: targetId,
+    name: 'status',
+    label: 'Status',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetId,
+        object_key: 'targets',
+        configuration: { views: { list: { field_ids: [targetField.id] } } },
+      }),
+    ],
+    preference_field: [targetField],
+    custom_object_record: [{
+      id: 'source-record',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+      data: {},
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      show_on_source: true,
+      show_on_target: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const inherited = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(inherited.preview_columns, [{
+    type: 'field',
+    field_id: targetField.id,
+    label: targetField.label,
+  }]);
+  assert.deepEqual(inherited.data, []);
+
+  db.tables.custom_object_relationship_definition[0].configuration = {
+    compact_preview: { target_field_ids: [] },
+  };
+  const explicitEmpty = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(explicitEmpty.preview_columns, []);
+});
+
+test('inherited related list fields project rows in both directions and enforce field access', async () => {
+  const sourceId = objectId;
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = 'fallback-bidirectional-definition';
+  const sourceField = field({
+    id: 'source-list-field',
+    custom_object_id: sourceId,
+    name: 'source_value',
+    label: 'Source value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetAllowed = field({
+    id: 'target-list-allowed',
+    custom_object_id: targetId,
+    name: 'target_value',
+    label: 'Target value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetDenied = field({
+    id: 'target-list-denied',
+    custom_object_id: targetId,
+    name: 'secret_value',
+    label: 'Secret value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetInactive = field({
+    id: 'target-list-inactive',
+    custom_object_id: targetId,
+    name: 'old_value',
+    label: 'Old value',
+    field_type: 'text',
+    is_required: false,
+    is_active: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [
+      object({
+        configuration: { views: { list: { field_ids: [sourceField.id] } } },
+      }),
+      object({
+        id: targetId,
+        object_key: 'targets',
+        configuration: {
+          views: {
+            list: {
+              field_ids: [targetAllowed.id, targetDenied.id, targetInactive.id],
+            },
+          },
+        },
+      }),
+    ],
+    preference_field: [sourceField, targetAllowed, targetDenied, targetInactive],
+    custom_object_record: [
+      {
+        id: 'source-record',
+        tenant_id: tenantId,
+        custom_object_id: sourceId,
+        archived_at: null,
+        data: { source_value: 'Source row' },
+      },
+      {
+        id: 'target-record',
+        tenant_id: tenantId,
+        custom_object_id: targetId,
+        archived_at: null,
+        data: {
+          target_value: 'Target row',
+          secret_value: 'Do not expose',
+          old_value: 'Archived schema',
+        },
+      },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: sourceId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      show_on_source: true,
+      show_on_target: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [{
+      id: 'fallback-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-record',
+      target_record_id: 'target-record',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: sourceId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+    custom_object_field_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: targetId,
+      role_id: roleId,
+      field_id: targetDenied.id,
+      access_level: 'none',
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const fromSource = await service.listRelationships(sourceId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(fromSource.preview_columns, [{
+    type: 'field',
+    field_id: targetAllowed.id,
+    label: targetAllowed.label,
+  }]);
+  assert.deepEqual(fromSource.data[0].related.compact_fields, [{
+    field_id: targetAllowed.id,
+    key: targetAllowed.name,
+    label: targetAllowed.label,
+    value: 'Target row',
+  }]);
+
+  const fromTarget = await service.listRelationships(targetId, {
+    definitionId,
+    recordId: 'target-record',
+    side: 'target',
+  });
+  assert.deepEqual(fromTarget.preview_columns, [{
+    type: 'field',
+    field_id: sourceField.id,
+    label: sourceField.label,
+  }]);
+  assert.deepEqual(fromTarget.data[0].related.compact_fields, [{
+    field_id: sourceField.id,
+    key: sourceField.name,
+    label: sourceField.label,
+    value: 'Source row',
+  }]);
+
+  const extra = field({
+    id: 'target-list-extra',
+    custom_object_id: targetId,
+    name: 'extra_value',
+    label: 'Extra value',
+    field_type: 'text',
+    is_required: false,
+  });
+  db.tables.preference_field.push(extra);
+  db.tables.custom_object_relationship_definition[0].configuration = {
+    compact_preview_fields: { target_field_ids: [targetAllowed.id] },
+    compact_preview: {
+      target_field_ids: [extra.id],
+      target_columns: [
+        {
+          type: 'relationship',
+          relationship_definition_id: 'nested-definition',
+          side: 'source',
+          label: 'Nested custom heading',
+        },
+        { type: 'field', field_id: targetAllowed.id, label: 'Authored target heading' },
+      ],
+    },
+  };
+  const mixed = await service.listRelationships(sourceId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(mixed.preview_columns, [
+    { type: 'field', field_id: extra.id, label: extra.label },
+    {
+      type: 'relationship',
+      relationship_definition_id: 'nested-definition',
+      side: 'source',
+      label: 'Nested custom heading',
+    },
+    { type: 'field', field_id: targetAllowed.id, label: 'Authored target heading' },
+  ]);
+});
+
+test('core-to-custom related lists inherit custom object list fields', async () => {
+  const definitionId = 'core-custom-list-definition';
+  const targetField = field({
+    id: 'core-target-list-field',
+    name: 'qualification',
+    label: 'Qualification',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: { views: { list: { field_ids: [targetField.id] } } },
+    })],
+    preference_field: [targetField],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    custom_object_record: [{
+      id: 'qualification-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+      data: { qualification: 'First Aid' },
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [{
+      id: 'core-fallback-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).listCoreRelationships('member', 'member-1', { definitionId });
+  assert.deepEqual(result.preview_columns, [{
+    type: 'field',
+    field_id: targetField.id,
+    label: targetField.label,
+  }]);
+  assert.deepEqual(result.data[0].related.compact_fields, [{
+    field_id: targetField.id,
+    key: targetField.name,
+    label: targetField.label,
+    value: 'First Aid',
+  }]);
+});
+
 test('core picker projects migrated BNMS owning-Organisation context after search, pagination, and exclusions', async () => {
   const departmentObjectId = objectId;
   const memberDepartmentId = 'picker-member-department';

@@ -204,7 +204,12 @@ function RelationshipPanel({
   });
   const loading = loadingOverlay && (query.isPending || query.isFetching);
   const edges = query.data?.data || [];
-  const previewColumns = compactPreviewColumns(
+  // The server resolves per-relationship overrides or the linked object's
+  // list defaults, including field visibility and headings for empty lists.
+  // Keep the old reader only for responses from pre-upgrade endpoints.
+  const previewColumns = Array.isArray(query.data?.preview_columns)
+    ? query.data.preview_columns
+    : compactPreviewColumns(
     definition,
     editSide,
     edges.flatMap((edge) => edge.related?.compact_fields || []),
@@ -221,7 +226,7 @@ function RelationshipPanel({
     recordLabel: endpoint.kind === "custom_object" ? "Record" : labelForSide(definition, editSide),
     relationshipFields: edgeFields,
     previewColumns,
-  }), [definition, editSide, edgeFields.map((field) => field.id).join("|"), previewColumns.map((column) => `${column.type}:${column.field_id || column.relationship_definition_id}:${column.side || ""}`).join("|")]);
+  }), [definition, editSide, edgeFields.map((field) => `${field.id}:${field.label}`).join("|"), JSON.stringify(previewColumns)]);
   const preferences = useRelationshipTablePreferences({
     definitionId: definition.id,
     side: editSide,

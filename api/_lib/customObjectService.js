@@ -2203,35 +2203,154 @@ export function createCustomObjectService({
   }
 
   function configuredCompactPreviewFieldIds(definition, side) {
-    const previews = [
-      definition?.configuration?.compact_preview,
-      definition?.configuration?.compact_preview_fields,
-    ].filter((preview) => preview && typeof preview === 'object');
+    const previews = compactPreviewConfigurations(definition);
     const ids = previews.flatMap((preview) => {
       const configured = preview[`${side}_field_ids`] ?? preview[side] ?? [];
       return Array.isArray(configured) ? configured : [];
     });
-    const preview = previews[0] || {};
-    const columnIds = Array.isArray(preview[`${side}_columns`])
-      ? preview[`${side}_columns`]
-        .filter((column) => column?.type === 'field')
-        .map((column) => column.field_id)
-      : [];
+    // Current column descriptors may carry field IDs in addition to the
+    // scalar aliases.  Legacy compact_preview_fields never had columns.
+    const columnIds = previews.slice(0, 1).flatMap((preview) =>
+      Array.isArray(preview[`${side}_columns`])
+        ? preview[`${side}_columns`]
+          .filter((column) => column?.type === 'field')
+          .map((column) => column.field_id)
+        : []);
     return [...new Set([
       ...ids,
       ...columnIds,
     ].filter(Boolean).map(String))];
   }
 
+  function configuredCompactPreviewScalarFieldIds(definition, side) {
+    return [...new Set(compactPreviewConfigurations(definition).flatMap((preview) => {
+      const configured = preview[`${side}_field_ids`] ?? preview[side] ?? [];
+      return Array.isArray(configured) ? configured : [];
+    }).filter(Boolean).map(String))];
+  }
+
+  function compactPreviewConfigurations(definition) {
+    return [
+      definition?.configuration?.compact_preview,
+      definition?.configuration?.compact_preview_fields,
+    ].filter((preview) => preview && typeof preview === 'object' && !Array.isArray(preview));
+  }
+
+  function hasExplicitCompactPreview(definition, side) {
+    const keys = [`${side}_field_ids`, `${side}_columns`, side];
+    return compactPreviewConfigurations(definition)
+      .some((preview) => keys.some((key) => Object.hasOwn(preview, key)));
+  }
+
   function configuredCompactPreviewColumns(definition, side) {
-    const preview = definition?.configuration?.compact_preview
-      ?? definition?.configuration?.compact_preview_fields
-      ?? {};
+    const previews = compactPreviewConfigurations(definition);
+    const preview = previews[0] || {};
     const configured = preview[`${side}_columns`];
-    if (Array.isArray(configured)) return configured;
+    if (Array.isArray(configured)) {
+      const currentFieldIds = new Set(configured
+        .filter((column) => column?.type === 'field' && column.field_id)
+        .map((column) => String(column.field_id)));
+      const scalarFields = configuredCompactPreviewScalarFieldIds(definition, side)
+        .filter((fieldId) => !currentFieldIds.has(fieldId))
+        .map((fieldId) => ({
+          type: 'field', field_id: String(fieldId),
+        }));
+      // Scalar aliases are prepended as the legacy client does, while current
+      // column descriptors retain authored order and labels.
+      return [
+        ...scalarFields,
+        ...configured,
+      ];
+    }
     return configuredCompactPreviewFieldIds(definition, side).map((fieldId) => ({
       type: 'field', field_id: String(fieldId),
     }));
+  }
+
+  async function effectiveRelationshipPreviewColumns(
+    definition,
+    relatedSide,
+    { includeArchived = false, allowUnavailableExplicit = false } = {},
+  ) {
+    if (definition[`${relatedSide}_kind`] !== 'custom_object') return [];
+    const explicit = hasExplicitCompactPreview(definition, relatedSide);
+    const customObjectId = definition[`${relatedSide}_custom_object_id`];
+    let endpointDefinition;
+    let endpointFields;
+    let endpointAccess;
+    try {
+      endpointDefinition = includeArchived
+        ? await object(customObjectId)
+        : await activeObject(customObjectId);
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    } catch (error) {
+      if (
+        !allowUnavailableExplicit
+        || !explicit
+        || !(error instanceof CustomObjectHttpError)
+        || ![404, 409].includes(error.status)
+      ) throw error;
+      return configuredCompactPreviewColumns(definition, relatedSide).flatMap((column) => {
+        if (column?.type === 'field' && column.field_id) return [{
+          type: 'field',
+          field_id: String(column.field_id),
+          label: String(column.label || 'Field'),
+        }];
+        if (
+          column?.type === 'relationship'
+          && column.relationship_definition_id
+          && ['source', 'target'].includes(column.side)
+        ) return [{
+          type: 'relationship',
+          relationship_definition_id: String(column.relationship_definition_id),
+          side: column.side,
+          label: String(column.label || 'Related record'),
+        }];
+        return [];
+      });
+    }
+    const readableById = new Map(
+      allowedFields(endpointFields, endpointAccess)
+        .map((field) => [String(field.id), field]),
+    );
+    const configured = explicit
+      ? configuredCompactPreviewColumns(definition, relatedSide)
+      : (Array.isArray(endpointDefinition.configuration?.views?.list?.field_ids)
+        ? [...new Set(endpointDefinition.configuration.views.list.field_ids
+          .filter(Boolean).map(String))]
+          .map((fieldId) => ({ type: 'field', field_id: fieldId }))
+        : []);
+    return configured.flatMap((column) => {
+      if (column?.type === 'field') {
+        const field = readableById.get(String(column.field_id));
+        if (!field) return [];
+        const metadata = getCustomObjectFieldMetadata(field);
+        return [{
+          type: 'field',
+          field_id: String(field.id),
+          label: String(column.label || metadata.label || metadata.key),
+        }];
+      }
+      if (
+        column?.type === 'relationship'
+        && column.relationship_definition_id
+        && ['source', 'target'].includes(column.side)
+      ) {
+        return [{
+          type: 'relationship',
+          relationship_definition_id: String(column.relationship_definition_id),
+          side: column.side,
+          label: String(column.label || 'Related record'),
+        }];
+      }
+      return [];
+    }).filter((column, index, all) => all.findIndex((candidate) =>
+      column.type === 'field'
+        ? candidate.type === 'field' && candidate.field_id === column.field_id
+        : candidate.type === 'relationship'
+          && candidate.relationship_definition_id === column.relationship_definition_id
+          && candidate.side === column.side) === index);
   }
 
   function configuredPickerContextColumn(definition, side) {
@@ -2300,8 +2419,9 @@ export function createCustomObjectService({
 
     const previewFieldMatch = sortField.match(/^field:(.+)$/);
     if (previewFieldMatch) {
-      const configured = configuredCompactPreviewFieldIds(definition, relatedSide)
-        .includes(previewFieldMatch[1]);
+      const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+      const configured = previewColumns.some((column) =>
+        column.type === 'field' && column.field_id === previewFieldMatch[1]);
       if (!configured || definition[`${relatedSide}_kind`] !== 'custom_object') {
         throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
       }
@@ -2322,7 +2442,8 @@ export function createCustomObjectService({
     const relationshipMatch = sortField.match(/^relationship:([^:]+):(source|target)$/);
     if (relationshipMatch) {
       const [, relationshipDefinitionId, routedSide] = relationshipMatch;
-      const configured = configuredCompactPreviewColumns(definition, relatedSide)
+      const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+      const configured = previewColumns
         .some((column) => column?.type === 'relationship'
           && String(column.relationship_definition_id) === relationshipDefinitionId
           && column.side === routedSide);
@@ -2424,6 +2545,9 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(400, 'Side does not belong to the relationship definition');
     }
     const relatedSide = side === 'source' ? 'target' : 'source';
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide, {
+      allowUnavailableExplicit: true,
+    });
     const columns = [
       { id: 'record', sortField: 'record', defaultWidth: 240 },
       ...relationshipFieldDefinitions(definition)
@@ -2433,16 +2557,13 @@ export function createCustomObjectService({
           sortField: `relationship_field:${field.id}`,
           defaultWidth: 180,
         })),
-      ...configuredCompactPreviewFieldIds(definition, relatedSide).map((fieldId) => ({
-        id: `field:${fieldId}`,
-        sortField: `field:${fieldId}`,
+      ...previewColumns.filter((column) => column.type === 'field').map((column) => ({
+        id: `field:${column.field_id}`,
+        sortField: `field:${column.field_id}`,
         defaultWidth: 180,
       })),
-      ...configuredCompactPreviewColumns(definition, relatedSide)
-        .filter((column) =>
-          column?.type === 'relationship'
-          && column.relationship_definition_id
-          && ['source', 'target'].includes(column.side))
+      ...previewColumns
+        .filter((column) => column.type === 'relationship')
         .map((column) => ({
           id: `relationship:${column.relationship_definition_id}:${column.side}`,
           sortField: `relationship:${column.relationship_definition_id}:${column.side}`,
@@ -3211,6 +3332,7 @@ export function createCustomObjectService({
     );
     const p = pagination(query);
     const sort = await relationshipListSort(definition, side, relatedSide, query);
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .eq('relationship_definition_id', definition.id)
@@ -3242,7 +3364,9 @@ export function createCustomObjectService({
       definition[`${relatedSide}_custom_object_id`],
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
       {
-        previewFieldIds: configuredCompactPreviewFieldIds(definition, relatedSide),
+        previewFieldIds: previewColumns
+          .filter((column) => column.type === 'field')
+          .map((column) => column.field_id),
       },
     );
     if (definition[`${relatedSide}_kind`] === 'custom_object') {
@@ -3263,6 +3387,7 @@ export function createCustomObjectService({
       total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
+      preview_columns: previewColumns,
     };
   }
 
@@ -3571,6 +3696,9 @@ export function createCustomObjectService({
     const p = pagination(query);
     const relatedSide = side === 'source' ? 'target' : 'source';
     const sort = await relationshipListSort(definition, side, relatedSide, query);
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide, {
+      includeArchived,
+    });
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
       .eq(`${side}_record_id`, recordId)
@@ -3600,7 +3728,9 @@ export function createCustomObjectService({
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
       {
         includeArchived,
-        previewFieldIds: configuredCompactPreviewFieldIds(definition, relatedSide),
+        previewFieldIds: previewColumns
+          .filter((column) => column.type === 'field')
+          .map((column) => column.field_id),
       },
     );
     if (definition[`${relatedSide}_kind`] === 'custom_object') {
@@ -3622,6 +3752,7 @@ export function createCustomObjectService({
     return {
       data: projected,
       total: count || 0, page: p.page, pageSize: p.pageSize,
+      preview_columns: previewColumns,
     };
   }
 

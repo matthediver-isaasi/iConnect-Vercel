@@ -197,6 +197,85 @@ test("keeps one accessible loading surface through delayed definitions and rows"
   await view.cleanup();
 });
 
+test("server presentation columns survive empty responses and render in embedded and standalone lists", async () => {
+  const definition = {
+    ...definitionFor(customContext),
+    target_kind: "custom_object",
+    target_custom_object_id: "equipment-object",
+    source_label: "Equipment Register",
+  };
+  const columns = [
+    { type: "field", field_id: "manufacturer", label: "Manufacturer" },
+    { type: "field", field_id: "model", label: "Model" },
+  ];
+  for (const embedded of [false, true]) {
+    let payload = rows([], { preview_columns: columns });
+    globalThis.fetch = async () => json(payload);
+    const view = await mount(
+      <RelatedRecordsPanel
+        context={customContext}
+        record={{ id: customContext.recordId }}
+        definition={definition}
+        side="source"
+        embedded={embedded}
+      />,
+    );
+    try {
+      assert.match(view.container.textContent, /No equipment register linked yet/);
+      payload = rows([{
+        relationship_id: "equipment-edge",
+        related_kind: "custom_object",
+        related_record_id: "equipment-record",
+        related: {
+          id: "equipment-record", kind: "custom_object",
+          custom_object_id: "equipment-object", primary_label: "Scanner",
+          compact_fields: [
+            { field_id: "manufacturer", label: "Manufacturer", value: "Example manufacturer" },
+            { field_id: "model", label: "Model", value: "Scanner model A" },
+          ],
+        },
+      }], { preview_columns: columns });
+      await act(async () => view.client.invalidateQueries({ queryKey: ["record-relationships"] }));
+      await settle();
+      assert.match(view.container.textContent, /Manufacturer/);
+      assert.match(view.container.textContent, /Model/);
+      assert.match(view.container.textContent, /Example manufacturer/);
+      assert.match(view.container.textContent, /Scanner model A/);
+      // Metadata labels can change without changing column identity.
+      payload = { ...payload, preview_columns: [{ ...columns[0], label: "Manufacturer name" }, columns[1]] };
+      await act(async () => view.client.invalidateQueries({ queryKey: ["record-relationships"] }));
+      await settle();
+      assert.match(view.container.textContent, /Manufacturer name/);
+    } finally {
+      await view.cleanup();
+    }
+  }
+});
+
+test("authoritative empty preview metadata overrides client definition and row fields", async () => {
+  const definition = {
+    ...definitionFor(customContext),
+    configuration: { compact_preview: {
+      target_columns: [{ type: "field", field_id: "hidden", label: "Hidden column" }],
+    } },
+  };
+  globalThis.fetch = async () => json(rows([edge("Visible record")], { preview_columns: [] }));
+  const view = await mount(
+    <RelatedRecordsPanel
+      context={customContext}
+      record={{ id: customContext.recordId }}
+      definition={definition}
+      side="source"
+    />,
+  );
+  try {
+    assert.match(view.container.textContent, /Visible record/);
+    assert.doesNotMatch(view.container.textContent, /Hidden column/);
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test("definition failure exposes an alert and retries through the actual hook", async () => {
   let definitionCalls = 0;
   globalThis.fetch = async url => {
