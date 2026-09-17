@@ -65,6 +65,42 @@ test('target-resolution signature drift rejects before processor side effects', 
   assert.match(source.slice(signature, structured), /STRIPE_ADDRESS_TARGET_RESOLUTION_DRIFT/);
 });
 
+for (const resolved of [false, true]) {
+  test(`monthly first-payment address wait completes ordinary processing (${resolved ? 'resolved' : 'normal'} path)`, async () => {
+    const form = stripeLeaseForm();
+    const db = createHandlerDatabase({
+      form,
+      submission: monthlyFirstPaymentPendingSubmission(form, { resolved }),
+    });
+    const result = await invokeHandlerWithDb(db);
+
+    assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+    assert.notEqual(result.response.body.success, false);
+    assert.equal(result.response.body.addressAwaitingFirstPayment, true);
+    assert.equal(result.response.body.stripe_address_mappings?.pending, true);
+    assert.equal(result.response.body.stripe_address_mappings?.reason, 'first_payment_not_paid');
+    assert.equal(db.submission.payment_meta.stripe_address_mappings_pending, true);
+    assert.equal(db.submission.payment_meta.stripe_address_mappings_result?.reason, 'first_payment_not_paid');
+    assert.equal(
+      db.calls.some(call => call.name === 'release_form_stripe_address_mapping_processing'),
+      true,
+      'the nonblocking wait must still release the address lease',
+    );
+  });
+}
+
+test('monthly address validation errors remain blocking instead of becoming a first-payment wait', async () => {
+  const form = stripeLeaseForm();
+  const submission = monthlyFirstPaymentPendingSubmission(form);
+  delete submission.payment_meta.stripe_billing_address;
+  const db = createHandlerDatabase({ form, submission });
+  const result = await invokeHandlerWithDb(db);
+
+  assert.equal(result.response.statusCode, 409, JSON.stringify(result.response.body));
+  assert.equal(result.response.body.code, 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE');
+  assert.notEqual(result.response.body.addressAwaitingFirstPayment, true);
+});
+
 /*
  * These tests deliberately exercise the handler rather than extracting the
  * lease helper. Supabase's PostgREST query builders are thenables, but are not
@@ -162,6 +198,26 @@ function stripeLeaseSubmission(form, {
     processing_notes: [],
     submission_email_state: null,
   };
+}
+
+function monthlyFirstPaymentPendingSubmission(form, {
+  resolved = false,
+} = {}) {
+  const submission = stripeLeaseSubmission(form, {
+    paymentMeta: {
+      monthly_card: {
+        agreement_id: 'agreement-monthly-address-wait',
+      },
+    },
+  });
+  submission.payment_provider = 'stripe_monthly_card';
+  submission.payment_status = 'setup_complete';
+  if (resolved) {
+    submission.created_member_id = 'member-monthly-address-wait';
+    submission.created_organization_id = ADDRESS_ORGANIZATION_ID;
+    submission.entity_processing_completed_at = '2026-01-01T00:00:00.000Z';
+  }
+  return submission;
 }
 
 class HandlerQuery {

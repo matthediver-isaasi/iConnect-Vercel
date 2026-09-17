@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createFormPaymentReconciliationHandler,
   formPaymentReconciliationResponse,
+  isFormPaymentReconciliationHeartbeatHealthy,
 } from './reconcile-form-payments.js';
 
 function response() {
@@ -32,6 +33,19 @@ test('response distinguishes successful invocation, partial work, and hidden swe
   assert.equal(out.partial, true);
   assert.ok(!JSON.stringify(out).includes('private internal failure'));
   assert.equal(formPaymentReconciliationResponse({ errors: [], budgetExhausted: true }, 100).partial, true);
+});
+
+test('budget-only deferral is partial but healthy for the cron heartbeat', () => {
+  const budgetOnly = {
+    errors: [],
+    partial: true,
+    budgetExhausted: true,
+    issues: [{ scope: 'completion-stage', code: 'budget-exhausted' }],
+  };
+  const out = formPaymentReconciliationResponse(budgetOnly, 100);
+  assert.equal(out.ok, true);
+  assert.equal(out.partial, true);
+  assert.equal(isFormPaymentReconciliationHeartbeatHealthy(budgetOnly), true);
 });
 
 test('handler authenticates before work and returns actual reconciliation health', async () => {

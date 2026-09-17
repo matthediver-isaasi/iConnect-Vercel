@@ -40,3 +40,9 @@ after the charge and are not payment-time evidence. Persist the first normalized
 charge snapshot with a write-once database operation; if that evidence cannot
 be retrieved, leave the paid completion retryable/attention-required rather
 than silently substituting mutable data.
+
+Monthly plan creation must not depend on profile address mapping when that mapping's payment proof is recorded on the plan itself.
+
+**Why:** The monthly processor returned an address-pending response before membership binding, while mapping waited for a paid invoice recorded on the still-nonexistent plan. Every retry repeated the same dependency cycle.
+
+**How to apply:** Preserve payment-gated address writes as an independent pending obligation. Only a successful full processor response with an explicit first-payment-wait signal may let monthly setup proceed; an early partial response or a created member alone does not prove that structured actions and relationships completed. Do not turn setup confirmation into payment proof.

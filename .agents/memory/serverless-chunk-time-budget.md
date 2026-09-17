@@ -31,3 +31,9 @@ Queue registration can defeat a later `SKIP LOCKED` claim if it first attempts `
 **Why:** A concurrent-worker regression blocked during registration on an entry locked by another transaction, before it reached the non-blocking claim query.
 
 **How to apply:** Exclude already-registered entries before insertion while retaining conflict handling for genuinely concurrent new entries. Exercise claims with two connections and a short statement timeout; a single-connection test will miss this failure.
+
+An unstarted stage deferred by its minimum-time reserve is pending work, not a worker failure—even when the overall deadline has not expired.
+
+**Why:** A successful paid-application processing stage consumed most of a slice, leaving insufficient reserve for membership and email. The next invocation completed normally, but the first misleadingly reported failures because it tested only deadline expiry. An address-to-completion handoff produced a similar false failure.
+
+**How to apply:** Track explicit budget deferrals separately from attempted-stage errors. Keep partial progress visible without marking the heartbeat unhealthy for a deferral alone; real failures and ambiguous effects must remain failures even when a later stage is deferred.

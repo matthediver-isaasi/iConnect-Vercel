@@ -303,6 +303,147 @@ test('an exhausted worker records a resumable outcome before beginning another c
   assert.equal(db.row.payment_meta.completion.status, 'retryable');
 });
 
+test('a successful pipeline that leaves less than the stage reserve defers membership and email as budget work', async () => {
+  const db = oneOffFinalizationDb({ pipelineOperation: { status: 'claimed' } });
+  db.row.payment_meta = {
+    completion: { version: 1, status: 'queued', attempts: 0 },
+    membership: { quote: { target: 'member' } },
+  };
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  const realNow = Date.now;
+  let clock = 3_000_000;
+  process.env.APP_URL = 'https://internal.example.test';
+  Date.now = () => clock;
+  globalThis.fetch = async () => {
+    clock += 31_000;
+    return { ok: true, json: async () => ({ success: true }) };
+  };
+  try {
+    const result = await finalizeFormSubmission({
+      supabase: db,
+      submission: structuredClone(db.row),
+      form: {
+        id: 'form-1',
+        fields: [],
+        entity_pipelines: { members: [{ id: 'primary', isPrimary: true }] },
+        submission_emails: [],
+      },
+      baseUrl: 'https://tenant.example.test',
+      deadlineAt: clock + 40_000,
+    });
+    assert.equal(result.finalized, false);
+    assert.equal(result.retryable, true);
+    assert.equal(result.budgetExhausted, true);
+    assert.deepEqual(result.budgetDeferredStages, ['membership', 'submission_emails']);
+    assert.equal(db.row.payment_meta.completion.status, 'retryable');
+  } finally {
+    globalThis.fetch = previousFetch;
+    Date.now = realNow;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+  }
+});
+
+test('a later completion attempt reuses the successful pipeline checkpoint', async () => {
+  const db = oneOffFinalizationDb({ pipelineOperation: { status: 'claimed' } });
+  db.row.payment_meta = { completion: { version: 1, status: 'queued', attempts: 0 } };
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  const realNow = Date.now;
+  const originalRpc = db.rpc.bind(db);
+  let operationDone = false;
+  let pipelineCalls = 0;
+  let clock = 4_000_000;
+  db.rpc = async (name, args) => {
+    if (name === 'begin_form_paid_pipeline_operation') {
+      return { data: { status: operationDone ? 'done' : 'claimed' }, error: null };
+    }
+    return originalRpc(name, args);
+  };
+  process.env.APP_URL = 'https://internal.example.test';
+  Date.now = () => clock;
+  globalThis.fetch = async () => {
+    pipelineCalls += 1;
+    clock += 31_000;
+    operationDone = true;
+    return { ok: true, json: async () => ({ success: true }) };
+  };
+  try {
+    const options = {
+      supabase: db,
+      form: {
+        id: 'form-1',
+        fields: [],
+        entity_pipelines: { members: [{ id: 'primary', isPrimary: true }] },
+        submission_emails: [],
+      },
+      baseUrl: 'https://tenant.example.test',
+      deadlineAt: clock + 40_000,
+    };
+    const first = await finalizeFormSubmission({
+      ...options,
+      submission: structuredClone(db.row),
+    });
+    assert.equal(first.budgetExhausted, true);
+    clock = 5_000_000;
+    const second = await finalizeFormSubmission({
+      ...options,
+      submission: structuredClone(db.row),
+      deadlineAt: clock + 40_000,
+    });
+    assert.equal(second.finalized, true);
+    assert.equal(pipelineCalls, 1, 'the checkpointed pipeline must not be called again');
+  } finally {
+    globalThis.fetch = previousFetch;
+    Date.now = realNow;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+  }
+});
+
+test('a real DD failure remains an error when a later email stage is budget-deferred', async () => {
+  const db = oneOffFinalizationDb({
+    pipelineOperation: { status: 'claimed' },
+    dueDiligenceReadyError: { message: 'readiness temporarily unavailable' },
+  });
+  db.row.payment_meta = { completion: { version: 1, status: 'queued', attempts: 0 } };
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  const realNow = Date.now;
+  let clock = 6_000_000;
+  process.env.APP_URL = 'https://internal.example.test';
+  Date.now = () => clock;
+  globalThis.fetch = async () => {
+    clock += 25_000;
+    return { ok: true, json: async () => ({ success: true }) };
+  };
+  try {
+    const result = await finalizeFormSubmission({
+      supabase: db,
+      submission: structuredClone(db.row),
+      form: {
+        id: 'form-1',
+        fields: [],
+        entity_pipelines: { members: [{ id: 'primary', isPrimary: true }] },
+        submission_emails: [],
+      },
+      baseUrl: 'https://tenant.example.test',
+      deadlineAt: clock + 40_000,
+    });
+    assert.equal(result.finalized, false);
+    assert.equal(result.retryable, true);
+    assert.equal(result.budgetExhausted, undefined);
+    assert.equal(result.budgetDeferredStages?.includes('submission_emails'), true);
+    assert.equal(db.row.payment_meta.completion.status, 'retryable');
+  } finally {
+    globalThis.fetch = previousFetch;
+    Date.now = realNow;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+  }
+});
+
 test('attention is terminal and finalization does not reclaim or replay it', async () => {
   const db = oneOffFinalizationDb();
   db.row.payment_meta = { completion: { version: 1, status: 'attention', attempts: 1 } };

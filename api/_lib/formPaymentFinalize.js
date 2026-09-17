@@ -371,7 +371,7 @@ export async function finalizeFormSubmission({
       finalized: false,
       ...(requiresAttention
         ? { requiresAttention: true }
-        : { retryable: true, budgetExhausted: !hasBudget() }),
+        : { retryable: true }),
     };
   }
 
@@ -381,6 +381,8 @@ export async function finalizeFormSubmission({
   // guards). Failures are recorded on the submission, never thrown.
   let membershipSucceeded = true;
   let membershipCompletionPending = false;
+  let membershipSkippedForBudget = false;
+  let membershipFailed = false;
   if (meta.membership?.quote && canStartStage()) {
     const membershipStartedAt = Date.now();
     try {
@@ -393,6 +395,7 @@ export async function finalizeFormSubmission({
         deadlineAt,
       });
       membershipSucceeded = membershipResult?.created === true || membershipResult?.alreadyProcessed === true;
+      membershipFailed = !membershipSucceeded;
       // A membership row can exist while its provider invoice, Stripe
       // settlement, or paid workflow is still outstanding. Do not report the
       // whole form complete in that state: their own durable checkpoints keep
@@ -407,10 +410,12 @@ export async function finalizeFormSubmission({
     } catch (err) {
       console.error('[formPaymentFinalize] Membership finalisation failed for', submission.id, err?.message);
       membershipSucceeded = false;
+      membershipFailed = true;
     }
     logCompletionTiming(submission, 'membership', membershipStartedAt, membershipSucceeded ? 'ok' : 'incomplete');
   } else if (meta.membership?.quote) {
     membershipSucceeded = false;
+    membershipSkippedForBudget = true;
   }
 
   // The prospective-payment marker limits this to new paid submissions. DD
@@ -418,22 +423,28 @@ export async function finalizeFormSubmission({
   // membership binding. A later paid-finalization reconciliation retries this
   // idempotent work if either prerequisite was incomplete.
   let dueDiligenceReadyPersisted = false;
+  let dueDiligenceSkippedForBudget = false;
+  let dueDiligenceFailed = false;
   if (pipelineSucceeded && membershipSucceeded && hasBudget()) {
     try {
       await markOneOffDueDiligenceReady(supabase, submission);
       dueDiligenceReadyPersisted = true;
       await initializeDueDiligenceSafely(supabase, submission);
     } catch (err) {
+      dueDiligenceFailed = true;
       console.error('[formPaymentFinalize] Could not mark one-off DD readiness for', submission.id, err?.message);
     }
+  } else if (pipelineSucceeded && membershipSucceeded && !hasBudget()) {
+    dueDiligenceSkippedForBudget = true;
   } else {
     console.warn('[formPaymentFinalize] One-off DD remains unready after incomplete financial finalization', submission.id);
   }
 
   // Configured submission emails — exactly-once via the shared guarded sender.
-  let emailCompleted = canStartStage();
+  let emailCompleted = true;
+  let emailSkippedForBudget = false;
   let emailRequiresAttention = false;
-  if (emailCompleted) try {
+  if (canStartStage()) try {
     const emailStartedAt = Date.now();
     const emailResult = await sendSubmissionEmailsGuarded({
       supabase,
@@ -464,6 +475,9 @@ export async function finalizeFormSubmission({
     // delivery; completion remains retryable while the durable email outcome
     // is unavailable, but payment status is never reopened.
     emailCompleted = false;
+  } else {
+    emailCompleted = false;
+    emailSkippedForBudget = true;
   }
 
   const completionSucceeded = pipelineSucceeded
@@ -472,6 +486,41 @@ export async function finalizeFormSubmission({
     && emailCompleted
     && !emailRequiresAttention
     && dueDiligenceReadyPersisted;
+  const budgetDeferredStages = [
+    ...(membershipSkippedForBudget ? ['membership'] : []),
+    ...(dueDiligenceSkippedForBudget ? ['due_diligence'] : []),
+    ...(emailSkippedForBudget ? ['submission_emails'] : []),
+  ];
+  // A minimum-budget deferral is not a stage failure. If a real stage
+  // failure/attention is also present, retain that signal so reconciliation
+  // does not turn a provider or pipeline error into a healthy-looking budget
+  // wait.
+  const realStageFailure = (meta.membership?.quote && !membershipSucceeded && !membershipSkippedForBudget)
+    || membershipCompletionPending
+    || (!emailCompleted && !emailSkippedForBudget)
+    || dueDiligenceFailed;
+  const completionAttention = pipelineResult.ambiguous || emailRequiresAttention;
+  const budgetOnlyDeferral = !completionAttention
+    && !realStageFailure
+    && (budgetDeferredStages.length > 0 || !hasBudget());
+  const completionError = completionAttention
+    ? (pipelineResult.ambiguous
+      ? 'entity processing accepted an operation but its outcome is ambiguous; administrator review is required'
+      : 'email delivery outcome is ambiguous; administrator review is required')
+    : (realStageFailure
+      ? (membershipCompletionPending
+        ? 'membership accounting or workflow remains incomplete'
+        : (membershipFailed
+          ? 'membership finalisation is incomplete'
+          : (dueDiligenceFailed
+            ? 'one-off due-diligence readiness is incomplete'
+            : ((!emailCompleted && !emailSkippedForBudget)
+              ? 'submission email delivery is incomplete'
+              : 'a required completion stage is incomplete'))))
+      : (budgetOnlyDeferral
+        ? `worker budget deferred required stage(s): ${budgetDeferredStages.join(', ') || 'completion'}`
+        : 'a required completion stage is incomplete'));
+  const emailCompletionStatus = (emailRequiresAttention) ? 'attention' : 'retryable';
   if (claimedCompletion) {
     await recordCompletionOutcome(
       supabase,
@@ -479,29 +528,25 @@ export async function finalizeFormSubmission({
       claimedCompletion,
       completionSucceeded
         ? 'done'
-        : ((pipelineResult.ambiguous || emailRequiresAttention) ? 'attention' : 'retryable'),
+        : (completionAttention ? 'attention' : emailCompletionStatus),
       completionSucceeded
         ? {}
         : {
           stage: membershipCompletionPending ? 'accounting' : 'processing',
-          error: !hasBudget()
-            ? 'worker budget exhausted'
-            : (pipelineResult.ambiguous
-              ? 'entity processing accepted an operation but its outcome is ambiguous; administrator review is required'
-            : (emailRequiresAttention
-              ? 'email delivery outcome is ambiguous; administrator review is required'
-            : (membershipCompletionPending
-              ? 'membership accounting or workflow remains incomplete'
-              : 'a required completion stage is incomplete'))),
+          error: completionError,
         },
     );
   }
   return {
     finalized: completionSucceeded || !claimedCompletion,
     ...(claimedCompletion && !completionSucceeded
-      ? ((pipelineResult.ambiguous || emailRequiresAttention)
+      ? (completionAttention
         ? { requiresAttention: true }
-        : { retryable: true, budgetExhausted: !hasBudget() })
+        : {
+          retryable: true,
+          ...(budgetOnlyDeferral ? { budgetExhausted: true } : {}),
+          ...(budgetDeferredStages.length > 0 ? { budgetDeferredStages } : {}),
+        })
       : {}),
     ...(resumingUnreadyFinalization ? { retriedUnreadyFinalization: true } : {}),
   };

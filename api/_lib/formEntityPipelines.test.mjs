@@ -35,6 +35,61 @@ function makeSupabaseSpy() {
 
 const FORM_WITH_PIPELINES = { id: 'f1', entity_pipelines: { members: [{ id: 'p1' }], organisations: [] } };
 
+test('only complete monthly processing may defer profile mapping until the first payment', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  const completeBody = {
+    success: true,
+    addressAwaitingFirstPayment: true,
+    created_member_id: 'member-monthly',
+    structured_actions: { success: true },
+    related_records: { success: true },
+    stripe_address_mappings: { pending: true, reason: 'first_payment_not_paid' },
+  };
+  try {
+    const cases = [
+      { label: 'monthly full success', defer: true },
+      { label: 'one-off', provider: 'stripe', paymentStatus: 'paid' },
+      { label: 'unconfirmed setup', paymentStatus: 'pending' },
+      { label: 'other address error', body: { ...completeBody, stripe_address_mappings: { pending: true, reason: 'target_unresolved' } } },
+      { label: 'structured failure', body: { ...completeBody, structured_actions: { success: false } } },
+      { label: 'relationship failure', body: { ...completeBody, related_records: { success: false } } },
+      { label: 'failed response', body: { ...completeBody, success: false } },
+      { label: 'unproven response', body: { ...completeBody, success: undefined } },
+      { label: 'no explicit completed-processing handoff', body: { ...completeBody, addressAwaitingFirstPayment: undefined } },
+      { label: 'early address return', status: 409, body: { ...completeBody, success: false, retryable: true, code: 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE' } },
+    ];
+    for (const entry of cases) {
+      globalThis.fetch = async () => new Response(JSON.stringify(entry.body || completeBody), {
+        status: entry.status || 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await runFormEntityPipelines({
+        supabase: makeSupabaseSpy(),
+        submission: {
+          id: 'sub-monthly', tenant_id: 'tenant-1',
+          payment_provider: entry.provider || 'stripe_monthly_card',
+          payment_status: entry.paymentStatus || 'setup_complete',
+          payment_meta: {},
+        },
+        form: FORM_WITH_PIPELINES,
+      });
+      assert.equal(result.partial, !entry.defer, entry.label);
+      assert.equal(result.addressAwaitingFirstPayment === true, !!entry.defer, entry.label);
+      if (entry.defer) {
+        assert.equal(result.failed, false);
+        assert.equal(result.memberId, 'member-monthly');
+        assert.equal(result.stripeAddressMappings.pending, true);
+      }
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+  }
+});
+
 test('missing baseUrl with pipelines writes a visible processing note (no silent skip)', async () => {
   const supabase = makeSupabaseSpy();
   const result = await runFormEntityPipelines({

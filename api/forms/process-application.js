@@ -1250,6 +1250,46 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     const hasStripeAddressMappingWork = !!(
       persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
     );
+    // A monthly-card setup can complete before the local plan/payment
+    // evidence is recorded (even when Stripe has already paid the invoice).
+    // Address mappings are deliberately payment-gated, but that one expected
+    // wait must not prevent ordinary entity/structured/related work. Keep
+    // this exception narrow: all other pending/error results retain the
+    // existing 409 recovery contract.
+    let addressAwaitingFirstPayment = false;
+    const isStandaloneMonthlyFirstPaymentWait = (result, {
+      structuredActionResult = null,
+      relatedRecords = null,
+    } = {}) => {
+      if (persistedSubmission.payment_provider !== 'stripe_monthly_card'
+        || persistedSubmission.payment_status !== 'setup_complete'
+        || !result?.configured
+        || result.applied
+        || result.alreadyApplied
+        || result.pending !== true
+        || result.reason !== 'first_payment_not_paid') {
+        return false;
+      }
+      // A wait signal is safe only when this invocation has no other
+      // incomplete processor contract.  The durable flags cover retries
+      // written by older invocations where the in-memory result is absent.
+      if (structuredActionResult?.success === false || relatedRecords?.success === false) {
+        return false;
+      }
+      const paymentMeta = persistedSubmission.payment_meta || {};
+      // A retry may carry a stale durable pending marker even though the
+      // current invocation just completed that contract. Only an explicit
+      // current success can clear/override its corresponding marker.
+      if (paymentMeta.structured_actions_pending === true
+        && structuredActionResult?.success !== true) {
+        return false;
+      }
+      if (paymentMeta.related_records_pending === true
+        && relatedRecords?.success !== true) {
+        return false;
+      }
+      return true;
+    };
     // A completed address snapshot is normally an authoritative historical
     // fast path. Do not let it hide a structured-action retry that was already
     // persisted as incomplete, including rows written before the explicit
@@ -1680,11 +1720,21 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (stripeAddressMappings?.configured
             && !stripeAddressMappings.applied
             && !stripeAddressMappings.alreadyApplied) {
-          return respondWithIncompleteStripeAddressMappings({
-            result: { ...stripeAddressMappings, pending: true },
-            memberId: existingSubmission.created_member_id,
-            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
-          });
+          const pendingResult = { ...stripeAddressMappings, pending: true };
+          if (isStandaloneMonthlyFirstPaymentWait(pendingResult, {
+            structuredActionResult,
+            relatedRecords,
+          })) {
+            // Preserve the durable pending marker below while allowing the
+            // already-completed ordinary processor work to return 200.
+            addressAwaitingFirstPayment = true;
+          } else {
+            return respondWithIncompleteStripeAddressMappings({
+              result: pendingResult,
+              memberId: existingSubmission.created_member_id,
+              organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+            });
+          }
         }
         for (const outcome of relatedRecords?.outcomes || []) {
           addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
@@ -1705,7 +1755,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             related_records_result: relatedRecords,
             } : {}),
             ...(stripeAddressMappings?.configured ? {
-              stripe_address_mappings_pending: false,
+              stripe_address_mappings_pending: addressAwaitingFirstPayment,
               stripe_address_mappings_result: stripeAddressMappings,
             } : {}),
           };
@@ -1750,6 +1800,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
           ...(relatedRecords ? { related_records: relatedRecords } : {}),
           stripe_address_mappings: stripeAddressMappings,
+          ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
         });
       }
     }
@@ -5015,11 +5066,22 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (stripeAddressMappings?.configured
         && !stripeAddressMappings.applied
         && !stripeAddressMappings.alreadyApplied) {
-      return respondWithIncompleteStripeAddressMappings({
-        result: { ...stripeAddressMappings, pending: true },
-        memberId: resolvedMemberId,
-        organizationId: resolvedOrganizationId,
-      });
+      const pendingResult = { ...stripeAddressMappings, pending: true };
+      if (isStandaloneMonthlyFirstPaymentWait(pendingResult, {
+        structuredActionResult,
+        relatedRecords,
+      })) {
+        // This is the expected setup_complete/monthly-card ordering gap:
+        // ordinary processing has completed, while the address worker waits
+        // for the first paid invoice.  Do not clear the pending marker.
+        addressAwaitingFirstPayment = true;
+      } else {
+        return respondWithIncompleteStripeAddressMappings({
+          result: pendingResult,
+          memberId: resolvedMemberId,
+          organizationId: resolvedOrganizationId,
+        });
+      }
     }
 
     // Persist processing notes (per-field outcomes from upsert/clear
@@ -5057,7 +5119,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           related_records_result: relatedRecords,
           } : {}),
           ...(stripeAddressMappings?.configured ? {
-            stripe_address_mappings_pending: false,
+            stripe_address_mappings_pending: addressAwaitingFirstPayment,
             stripe_address_mappings_result: stripeAddressMappings,
           } : {}),
         };
@@ -5125,6 +5187,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
       ...(relatedRecords ? { related_records: relatedRecords } : {}),
       stripe_address_mappings: stripeAddressMappings,
+      ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
     });
   } catch (error) {
     await releaseStripeProcessingLease();

@@ -191,6 +191,25 @@ function recordMonitoringFailure(results, scope, error, {
   results.partial = true;
 }
 
+// Budget deferrals are expected scheduler backpressure, not a failed
+// reconciliation. Keep them visible in the response, but do not add a
+// heartbeat failure: a slice that safely handed work to the next invocation
+// should remain healthy.
+function recordBudgetDeferral(results, scope, {
+  submissionId = null,
+  stages = null,
+} = {}) {
+  if (!Array.isArray(results.issues)) results.issues = [];
+  results.issues.push({
+    scope,
+    ...(submissionId ? { submissionId } : {}),
+    code: 'budget-exhausted',
+    message: SAFE_MONITORING_MESSAGES['budget-exhausted'],
+    ...(Array.isArray(stages) && stages.length > 0 ? { stages } : {}),
+  });
+  results.partial = true;
+}
+
 // A paid one-off may have crashed after its financial finalized stamp but
 // before the durable DD-ready marker. Claim this prerequisite-only recovery
 // separately from DD actions so concurrent crons cannot rerun it together.
@@ -994,7 +1013,7 @@ export async function reconcileFormPayments(supabase, {
           results.budgetExhausted = true;
           results.partial = true;
           results.managed.skippedBudget += 1;
-          recordMonitoringFailure(results, 'reconciliation-work', null, { code: 'budget-exhausted' });
+          recordBudgetDeferral(results, 'reconciliation-work');
           return { stop: true };
         }
         const { data: work, error } = await supabase.rpc('claim_form_payment_reconciliation_work');
@@ -1008,7 +1027,7 @@ export async function reconcileFormPayments(supabase, {
             results.budgetExhausted = true;
             results.partial = true;
             results.managed.skippedBudget += 1;
-            recordMonitoringFailure(results, 'reconciliation-work', null, { code: 'budget-exhausted' });
+            recordBudgetDeferral(results, 'reconciliation-work');
             return { stop: true };
           }
           return { stop: false };
@@ -1108,12 +1127,13 @@ export async function reconcileFormPayments(supabase, {
       if (fin.finalized || fin.alreadyFinalized) {
         results.completion.completed += 1;
         if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
+      } else if (fin.requiresAttention) {
+        results.completion.failed += 1;
+        recordMonitoringFailure(results, 'completion-stage', null, { submissionId: row.id });
       } else if (fin.budgetExhausted) {
         results.budgetExhausted = true;
         results.partial = true;
-        recordMonitoringFailure(results, 'completion-stage', null, {
-          submissionId: row.id, code: 'budget-exhausted',
-        });
+        recordBudgetDeferral(results, 'completion-stage', { submissionId: row.id });
       } else if (fin.inProgress) {
         results.partial = true;
       } else {
@@ -1134,6 +1154,9 @@ export async function reconcileFormPayments(supabase, {
     let retrySucceeded = false;
     let retryError = null;
     let waitingForTarget = false;
+    let waitingForFirstPayment = false;
+    let deferredToCompletion = false;
+    let releaseSucceeded = false;
     try {
         if (row.payment_provider === 'stripe_monthly_card'
             && !row.payment_meta?.stripe_billing_address) {
@@ -1206,6 +1229,7 @@ export async function reconcileFormPayments(supabase, {
           // from address work; this guard keeps a stale/mock claim from
           // turning an unresolved target into an address retry loop.
           retryError = 'address mapping deferred to payment completion';
+          deferredToCompletion = true;
           results.partial = true;
           results.addressRecovery.deferredToCompletion =
             (results.addressRecovery.deferredToCompletion || 0) + 1;
@@ -1218,7 +1242,13 @@ export async function reconcileFormPayments(supabase, {
           retrySucceeded = mappingResult?.applied === true || mappingResult?.alreadyApplied === true;
           if (!retrySucceeded) {
             retryError = mappingResult?.reason || 'Stripe address mapping is still pending';
-            if (mappingResult?.reason === 'stripe_address_mapping_target_unresolved') {
+            if (row.payment_provider === 'stripe_monthly_card'
+                && row.payment_status === 'setup_complete'
+                && mappingResult?.pending === true
+                && mappingResult?.reason === 'first_payment_not_paid') {
+              waitingForFirstPayment = true;
+              results.partial = true;
+            } else if (mappingResult?.reason === 'stripe_address_mapping_target_unresolved') {
               // No target exists yet because the fenced completion stage
               // creates it. This is a dependency, not evidence of form drift.
               waitingForTarget = true;
@@ -1265,7 +1295,10 @@ export async function reconcileFormPayments(supabase, {
             if (finishError) {
               console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError.message);
               recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
-            } else results.managed.released += 1;
+            } else {
+              results.managed.released += 1;
+              releaseSucceeded = true;
+            }
           } catch (finishError) {
             console.warn('[formPaymentReconciliation] Stripe address retry release failed for', row.id, finishError?.message);
             recordMonitoringFailure(results, 'stripe-address-mapping-retry-release', finishError, { submissionId: row.id });
@@ -1273,6 +1306,15 @@ export async function reconcileFormPayments(supabase, {
         }
         if (retrySucceeded) results.addressRecovery.succeeded += 1;
         else if (waitingForTarget) results.addressRecovery.waitingForTarget += 1;
+        else if (waitingForFirstPayment && releaseSucceeded) {
+          results.addressRecovery.waitingForFirstPayment =
+            (results.addressRecovery.waitingForFirstPayment || 0) + 1;
+        }
+        else if (deferredToCompletion && releaseSucceeded) {
+          // The payment completion lease, not this address lease, owns the
+          // mapping. A successful handoff is pending work, not a failed
+          // address recovery.
+        }
         else results.addressRecovery.failed += 1;
   }
 

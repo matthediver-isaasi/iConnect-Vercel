@@ -226,9 +226,22 @@ export async function runFormEntityPipelines({
         result.structuredActions = body.structured_actions || null;
         result.relatedRecords = body.related_records || null;
         result.stripeAddressMappings = body.stripe_address_mappings || null;
+        // Monthly setup must establish the plan before its first paid invoice
+        // can authorize profile address writes. Only a successful full
+        // processor response may defer that separate mapping obligation.
+        // A 409 is still incomplete: it may have returned before other actions.
+        const addressAwaitingFirstPayment = submission.payment_provider === 'stripe_monthly_card'
+          && submission.payment_status === 'setup_complete'
+          && body.success === true
+          && body.addressAwaitingFirstPayment === true
+          && body.stripe_address_mappings?.pending === true
+          && body.stripe_address_mappings?.reason === 'first_payment_not_paid'
+          && body.structured_actions?.success !== false
+          && body.related_records?.success !== false;
         result.partial = body.structured_actions?.success === false
           || body.related_records?.success === false
-          || body.stripe_address_mappings?.pending === true;
+          || (body.stripe_address_mappings?.pending === true && !addressAwaitingFirstPayment);
+        if (addressAwaitingFirstPayment) result.addressAwaitingFirstPayment = true;
         if (body.success === false && !result.partial) result.failed = true;
         if (result.partial) result.detail = 'application processing has pending or failed actions';
         else if (result.failed) result.detail = 'application processing reported failure';
@@ -284,7 +297,9 @@ export async function runFormEntityPipelines({
       if (knownPartial) {
         result.ran = true;
         result.partial = true;
-        result.detail = 'application processing has durable incomplete structured actions';
+        result.detail = knownPartial.code === 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE'
+          ? 'application processing has durable incomplete Stripe address mappings'
+          : 'application processing has durable incomplete structured actions';
         result.structuredActions = knownPartial.structured_actions || null;
         result.stripeAddressMappings = knownPartial.stripe_address_mappings || null;
         result.memberId = knownPartial.created_member_id || null;

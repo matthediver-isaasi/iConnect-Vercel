@@ -588,6 +588,122 @@ test('pipeline HTTP failure persists an owner-CAS retry reason and a retry final
   }
 });
 
+test('standalone monthly first-payment address wait still reaches membership history and DD', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'monthly-card-address-wait-secret';
+  const pipelineForm = {
+    ...FORM,
+    entity_pipelines: { members: [{ id: 'primary-member' }], organisations: [] },
+  };
+  const db = happyFake({
+    payment_meta: {
+      monthly_card: { agreement_id: 'ag1' },
+      stripe_address_mappings_pending: true,
+      stripe_address_mappings_result: {
+        configured: true,
+        applied: false,
+        pending: true,
+        reason: 'first_payment_not_paid',
+      },
+    },
+  });
+  db.tables.form[0] = pipelineForm;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      success: true,
+      created_member_id: 'mem1',
+      addressAwaitingFirstPayment: true,
+      stripe_address_mappings: {
+        configured: true,
+        applied: false,
+        pending: true,
+        reason: 'first_payment_not_paid',
+      },
+    }),
+  });
+  try {
+    const result = await run(db);
+    assert.equal(result.handled, true);
+    assert.equal(db.tables.member_membership_history.length, 1);
+    assert.equal(db._readRow('form_submission', 'sub1').payment_status, 'setup_complete');
+    assert.equal(db._readRow('form_submission', 'sub1').payment_paid_at, undefined);
+    assert.equal(
+      db._readRow('form_submission', 'sub1').payment_meta.stripe_address_mappings_pending,
+      true,
+      'finalizer must not mark the first-payment address wait done',
+    );
+    assert.equal(
+      db.log.some(entry => entry.name === 'claim_form_due_diligence_initialization'),
+      true,
+      'DD initialization remains after ordinary monthly finalization',
+    );
+    assert.equal(db.tables.form_stripe_address_mapping_ledger?.length || 0, 0);
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('monthly address wait remains blocked when the processor reports partial', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'monthly-card-address-partial-secret';
+  const pipelineForm = {
+    ...FORM,
+    entity_pipelines: { members: [{ id: 'primary-member' }], organisations: [] },
+  };
+  const db = happyFake({}, {
+    // Keep the setup row independent from the accepted-wait regression.
+    tables: {
+      form_submission: [makeSub({
+        created_member_id: 'mem1',
+        payment_meta: {
+          monthly_card: { agreement_id: 'ag1' },
+          stripe_address_mappings_pending: true,
+        },
+      })],
+      form: [pipelineForm],
+      membership_billing_agreements: [AGREEMENT],
+      member_membership_history: [],
+    },
+  });
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      success: true,
+      created_member_id: 'mem1',
+      stripe_address_mappings: {
+        configured: true,
+        applied: false,
+        pending: true,
+        reason: 'first_payment_not_paid',
+      },
+    }),
+  });
+  try {
+    const result = await run(db);
+    assert.equal(result.handled, false);
+    assert.equal(result.retryable, true);
+    assert.equal(db.tables.member_membership_history.length, 0);
+    assertRetryState(db, 'APPLICATION_PROCESSING_INCOMPLETE');
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 // ===========================================================================
 // Tests: no-op / early returns
 // ===========================================================================

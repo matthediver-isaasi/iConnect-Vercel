@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { reconcileFormPayments } from './formPaymentReconciliation.js';
+import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
 
 const form = {
   id: 'form-1',
@@ -184,6 +185,54 @@ test('an uncreated target is reported as waiting, not configuration drift, and d
       && call.args.p_succeeded === false));
 });
 
+test('monthly address waits remain pending, while ledger and release failures remain errors', async () => {
+  for (const failure of [null, 'ledger', 'release']) {
+    const row = baseAddressRow(`monthly-wait-${failure}`, {
+      monthly_card: { agreement_id: 'agreement-monthly' },
+      stripe_billing_address: { line1: '1 Test Street', city: 'Leeds', postal_code: 'LS1 1AA', country: 'GB' },
+      stripe_address_mapping_config: {
+        version: 1,
+        mappings: [{ source: 'line1', target_entity: 'member', target_type: 'custom', target_field: 'billing_line1' }],
+      },
+    });
+    row.payment_provider = 'stripe_monthly_card';
+    row.payment_status = 'setup_complete';
+    row.created_member_id = 'member-monthly';
+    row.payment_meta.stripe_address_mapping_config.target_resolution =
+      buildStripeAddressTargetResolution(form, row.payment_meta.stripe_address_mapping_config.mappings);
+    const db = makeDb({ addressClaims: [row] });
+    if (failure === 'ledger') {
+      const originalFrom = db.from;
+      db.from = table => {
+        const query = originalFrom(table);
+        if (table === 'form_stripe_address_mapping_ledger') {
+          query.maybeSingle = async () => ({ data: null, error: { message: 'ledger unavailable' } });
+        }
+        return query;
+      };
+    }
+    if (failure === 'release') {
+      const originalRpc = db.rpc;
+      db.rpc = async (name, args) => name === 'finish_form_stripe_address_mapping_retry'
+        ? { data: null, error: { message: 'release unavailable' } }
+        : originalRpc(name, args);
+    }
+    const result = await reconcileFormPayments(db, { baseUrl: 'https://tenant.example.test' });
+    assert.equal(result.addressRecovery.attempted, 1, failure || 'wait');
+    assert.equal(result.addressRecovery.succeeded, 0, failure || 'wait');
+    assert.equal(result.addressRecovery.failed, failure ? 1 : 0, failure || 'wait');
+    assert.equal(result.addressRecovery.waitingForFirstPayment || 0, failure ? 0 : 1, failure || 'wait');
+    if (!failure) {
+      assert.equal(result.partial, true);
+      assert.equal(result.__heartbeatFailures?.length || 0, 0);
+      assert.ok(db.calls.some(call => call.name === 'finish_form_stripe_address_mapping_retry'
+        && call.args.p_succeeded === false && call.args.p_error === 'first_payment_not_paid'));
+    } else {
+      assert.ok(result.__heartbeatFailures?.length > 0);
+    }
+  }
+});
+
 test('managed claims are one-at-a-time and do not reserve an unused batch', async () => {
   const rows = Array.from({ length: 10 }, (_, index) => baseAddressRow(`bounded-${index}`));
   const db = makeDb({ addressClaims: rows });
@@ -225,6 +274,47 @@ test('budget stop claims no address lease and reports waiting completion safely'
   assert.equal(result.completion.waitingForAddress, 0);
   assert.equal(result.partial, true);
   assert.equal(result.managed.skippedBudget, 1);
+  assert.equal(result.__heartbeatFailures, undefined, 'scheduler backpressure is not a heartbeat failure');
+  assert.ok(result.issues.some(issue => issue.code === 'budget-exhausted'));
+});
+
+test('budget-only completion deferral stays pending without incrementing failed', async () => {
+  const row = baseAddressRow('budget-completion', {
+    completion: { version: 1, status: 'queued' },
+  });
+  const db = makeDb({ completionRows: [row] });
+  const result = await reconcileFormPayments(db, {
+    baseUrl: 'https://tenant.example.test',
+    timeBudgetMs: 40_000,
+    finalizeCompletion: async () => ({ finalized: false, retryable: true, budgetExhausted: true }),
+  });
+
+  assert.equal(result.completion.attempted, 1);
+  assert.equal(result.completion.failed, 0);
+  assert.equal(result.budgetExhausted, true);
+  assert.equal(result.__heartbeatFailures, undefined);
+  assert.ok(result.issues.some(issue =>
+    issue.scope === 'completion-stage' && issue.code === 'budget-exhausted'));
+});
+
+test('a real completion error is not relabelled as a budget deferral', async () => {
+  const row = baseAddressRow('mixed-completion-error', {
+    completion: { version: 1, status: 'queued' },
+  });
+  const db = makeDb({ completionRows: [row] });
+  const result = await reconcileFormPayments(db, {
+    baseUrl: 'https://tenant.example.test',
+    timeBudgetMs: 40_000,
+    finalizeCompletion: async () => ({
+      finalized: false,
+      retryable: true,
+      budgetDeferredStages: ['submission_emails'],
+    }),
+  });
+
+  assert.equal(result.completion.failed, 1);
+  assert.equal(result.__heartbeatFailures?.length, 1);
+  assert.equal(result.issues.some(issue => issue.code === 'budget-exhausted'), false);
 });
 
 test('a slow completion consumes this invocation and the next invocation selects newer work', async () => {
@@ -351,4 +441,53 @@ test('a missing managed-work RPC is visible, partial, and never falls back to ol
   assert.equal(db.calls.filter(call =>
     call.name === 'claim_form_payment_completion_retries'
       || call.name === 'claim_form_stripe_address_mapping_retries').length, 0);
+});
+
+test('completion-owned address handoff is pending, while provider failure remains failed', async () => {
+  const handoff = baseAddressRow('address-handoff', {
+    stripe_billing_address: { line1: '1 Handoff Street' },
+    completion: { version: 1, status: 'queued' },
+  });
+  const handoffDb = makeDb({ addressClaims: [handoff] });
+  const handoffResult = await reconcileFormPayments(handoffDb, {
+    baseUrl: 'https://tenant.example.test',
+    timeBudgetMs: 40_000,
+  });
+  assert.equal(handoffResult.addressRecovery.deferredToCompletion, 1);
+  assert.equal(handoffResult.addressRecovery.failed, 0);
+  assert.equal(handoffResult.__heartbeatFailures, undefined);
+
+  const releaseFailure = baseAddressRow('address-handoff-release-failure', {
+    stripe_billing_address: { line1: '1 Release Failure Street' },
+    completion: { version: 1, status: 'queued' },
+  });
+  const releaseDb = makeDb({ addressClaims: [releaseFailure] });
+  const releaseRpc = releaseDb.rpc.bind(releaseDb);
+  releaseDb.rpc = async (name, args) => {
+    if (name === 'finish_form_stripe_address_mapping_retry') {
+      releaseDb.calls.push({ name, args });
+      return { data: null, error: { message: 'lease release unavailable' } };
+    }
+    return releaseRpc(name, args);
+  };
+  const releaseResult = await reconcileFormPayments(releaseDb, {
+    baseUrl: 'https://tenant.example.test',
+    timeBudgetMs: 40_000,
+  });
+  assert.equal(releaseResult.addressRecovery.failed, 1);
+  assert.ok(releaseResult.__heartbeatFailures?.some(entry =>
+    entry.scope === 'stripe-address-mapping-retry-release'));
+
+  const providerFailure = baseAddressRow('address-provider-failure');
+  const providerDb = makeDb({ addressClaims: [providerFailure] });
+  const providerResult = await reconcileFormPayments(providerDb, {
+    baseUrl: 'https://tenant.example.test',
+    timeBudgetMs: 40_000,
+    retrievePaymentIntent: async () => {
+      throw new Error('provider unavailable');
+    },
+  });
+  assert.equal(providerResult.addressRecovery.failed, 1);
+  assert.ok(providerResult.__heartbeatFailures?.some(entry =>
+    entry.scope === 'stripe-address-mapping-retry'));
 });
