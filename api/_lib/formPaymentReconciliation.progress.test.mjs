@@ -116,7 +116,7 @@ function baseAddressRow(id, paymentMeta = {}) {
   };
 }
 
-test('failed old target does not block newer address recovery and paid completion', async () => {
+test('an uncreated target is reported as waiting, not configuration drift, and does not block completion', async () => {
   const oldRow = baseAddressRow('old-target', {
     stripe_billing_address: {
       line1: '1 Old Street',
@@ -148,7 +148,8 @@ test('failed old target does not block newer address recovery and paid completio
   });
 
   assert.equal(result.addressRecovery.attempted, 2);
-  assert.equal(result.addressRecovery.failed, 1);
+  assert.equal(result.addressRecovery.failed, 0);
+  assert.equal(result.addressRecovery.waitingForTarget, 1);
   assert.equal(result.addressRecovery.succeeded, 1);
   assert.equal(result.completion.claimed, 1);
   assert.equal(result.completion.attempted, 1);
@@ -156,7 +157,8 @@ test('failed old target does not block newer address recovery and paid completio
   assert.equal(result.completion.waitingForAddress, 0);
   assert.ok(result.issues.some(issue =>
     issue.submissionId === oldRow.id
-      && issue.code === 'target-resolution-changed'));
+      && issue.code === 'address-target-not-created'));
+  assert.ok(!result.issues.some(issue => issue.code === 'target-resolution-changed'));
   assert.ok(db.calls.some(call =>
     call.name === 'finish_form_stripe_address_mapping_retry'
       && call.args.p_submission_id === oldRow.id

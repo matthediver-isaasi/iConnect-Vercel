@@ -79,3 +79,48 @@ test('handler authenticates before work and returns actual reconciliation health
     else process.env.CRON_SECRET = originalSecret;
   }
 });
+
+test('targeted route requires exactly one UUID and cannot fall back to the global worker', async () => {
+  const originalSecret = process.env.CRON_SECRET;
+  const id = 'd67f867e-0f99-4320-ae9f-c58f2788a847';
+  const calls = [];
+  const handler = createFormPaymentReconciliationHandler({
+    db: {},
+    targetedOnly: true,
+    reconcile: async () => { assert.fail('Targeted requests must never sweep the queue'); },
+    reconcileSubmission: async (_db, options) => {
+      calls.push(options);
+      return { scope: 'submission', submissionId: options.submissionId, finalized: 1, errors: [] };
+    },
+    createReporter: () => async () => {},
+  });
+  try {
+    process.env.CRON_SECRET = 'fixture-cron-secret';
+    const headers = { authorization: 'Bearer fixture-cron-secret' };
+    for (const url of [
+      '/', '/?submission_id=', '/?submission_id=not-a-uuid',
+      `/?submission_id=${id}&submission_id=${id}`,
+    ]) {
+      const res = response();
+      await handler({ method: 'GET', headers, url }, res);
+      assert.equal(res.statusCode, 400);
+      assert.equal(calls.length, 0);
+    }
+    let res = response();
+    await handler({ method: 'GET', headers, query: { submission_id: [id, id] } }, res);
+    assert.equal(res.statusCode, 400);
+    res = response();
+    await handler({ method: 'GET', headers: {}, url: `/?submission_id=${id}` }, res);
+    assert.equal(res.statusCode, 401);
+    assert.equal(calls.length, 0);
+    res = response();
+    await handler({ method: 'GET', headers, url: `/?submission_id=${id}` }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.scope, 'submission');
+    assert.equal(res.body.submissionId, id);
+    assert.deepEqual(calls, [{ submissionId: id, timeBudgetMs: 40_000 }]);
+  } finally {
+    if (originalSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = originalSecret;
+  }
+});

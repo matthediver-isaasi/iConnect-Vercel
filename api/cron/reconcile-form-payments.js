@@ -11,6 +11,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { reconcileFormPayments } from '../_lib/formPaymentReconciliation.js';
+import { reconcileFormPaymentSubmission } from '../_lib/formPaymentTargetedRecovery.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 export function isFormPaymentReconciliationHeartbeatHealthy(results) {
@@ -37,6 +38,8 @@ export function formPaymentReconciliationResponse(results, durationMs) {
 export function createFormPaymentReconciliationHandler({
   db = supabase,
   reconcile = reconcileFormPayments,
+  reconcileSubmission = reconcileFormPaymentSubmission,
+  targetedOnly = false,
   createReporter = createHeartbeatReporter,
 } = {}) {
   return async function handler(req, res) {
@@ -56,6 +59,16 @@ export function createFormPaymentReconciliationHandler({
       res.setHeader('Allow', 'GET, POST');
       return res.status(405).json({ ok: false, error: 'Method not allowed' });
     }
+    // A targeted request must never silently fall back to the global sweep.
+    const query = new URL(req.url || '/', 'http://internal.invalid').searchParams;
+    const submissionId = req.query?.submission_id ?? query.get('submission_id');
+    if (targetedOnly || submissionId !== null) {
+      if (typeof submissionId !== 'string'
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(submissionId)
+          || query.getAll('submission_id').length > 1) {
+        return res.status(400).json({ ok: false, error: 'A single valid submission_id UUID is required.' });
+      }
+    }
 
     const reportHeartbeat = createReporter({
       envVar: HEARTBEAT_ENV_VARS.formPaymentReconciliation,
@@ -71,10 +84,9 @@ export function createFormPaymentReconciliationHandler({
       // One small slice per minute reduces contention with slow integrations.
       // It is an advisory scheduling budget; interrupted leases become eligible
       // again after two minutes.
-      const results = await reconcile(db, {
-        limit: 20,
-        timeBudgetMs: 40 * 1000,
-      });
+      const results = submissionId !== null
+        ? await reconcileSubmission(db, { submissionId, timeBudgetMs: 40 * 1000 })
+        : await reconcile(db, { limit: 20, timeBudgetMs: 40 * 1000 });
       await reportHeartbeat(isFormPaymentReconciliationHeartbeatHealthy(results));
       return res.status(200).json(formPaymentReconciliationResponse(results, Date.now() - startTime));
     } catch (err) {

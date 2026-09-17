@@ -141,6 +141,7 @@ const SAFE_MONITORING_CODES = new Set([
   'address-prerequisite-missing',
   'payment-access-proof-missing',
   'target-resolution-changed',
+  'address-target-not-created',
   'budget-exhausted',
 ]);
 
@@ -149,6 +150,7 @@ const SAFE_MONITORING_MESSAGES = {
   'address-prerequisite-missing': 'Stripe billing address prerequisite is not available.',
   'payment-access-proof-missing': 'Durable payment access proof is not available.',
   'target-resolution-changed': 'Persisted Stripe address target resolution changed; mapping was not applied.',
+  'address-target-not-created': 'Stripe billing address is saved; mapping is waiting for the member or organisation to be created.',
   'budget-exhausted': 'Worker budget was exhausted before this stage could run.',
 };
 
@@ -291,7 +293,7 @@ export async function reconcileFormPayments(supabase, {
     finalized: 0,
     errors: [],
     issues: [],
-    addressRecovery: { attempted: 0, succeeded: 0, failed: 0 },
+    addressRecovery: { attempted: 0, succeeded: 0, failed: 0, waitingForTarget: 0 },
     completion: {
       claimed: 0,
       attempted: 0,
@@ -409,6 +411,11 @@ export async function reconcileFormPayments(supabase, {
         if (fin.finalized || fin.alreadyFinalized) {
           results.completion.completed += 1;
           if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
+        } else if (fin.budgetExhausted) {
+          results.budgetExhausted = true;
+          recordMonitoringFailure(results, 'completion-stage', null, {
+            submissionId: row.id, code: 'budget-exhausted',
+          });
         } else if (fin.inProgress) {
           // Another owner currently holds the durable completion claim. It is
           // not a duplicate-effect failure, but this invocation remains
@@ -1120,6 +1127,7 @@ export async function reconcileFormPayments(supabase, {
         results.addressRecovery.attempted += 1;
         let retrySucceeded = false;
         let retryError = null;
+        let waitingForTarget = false;
         try {
         if (row.payment_provider === 'stripe_monthly_card'
             && !row.payment_meta?.stripe_billing_address) {
@@ -1193,15 +1201,16 @@ export async function reconcileFormPayments(supabase, {
           if (!retrySucceeded) {
             retryError = mappingResult?.reason || 'Stripe address mapping is still pending';
             if (mappingResult?.reason === 'stripe_address_mapping_target_unresolved') {
-              recordMonitoringFailure(
-                results,
-                'stripe-address-mapping-retry',
-                null,
-                {
-                  submissionId: row.id,
-                  code: 'target-resolution-changed',
-                },
-              );
+              // No target exists yet because the fenced completion stage
+              // creates it. This is a dependency, not evidence of form drift.
+              waitingForTarget = true;
+              results.partial = true;
+              results.issues.push({
+                scope: 'stripe-address-mapping-retry',
+                submissionId: row.id,
+                code: 'address-target-not-created',
+                message: SAFE_MONITORING_MESSAGES['address-target-not-created'],
+              });
             }
           }
         } else {
@@ -1209,9 +1218,6 @@ export async function reconcileFormPayments(supabase, {
           // mapping ledger is expected for forms without configured mappings.
           retrySucceeded = !!row.payment_meta?.stripe_billing_address;
         }
-        // The RPC ledger makes every replay safe; no public cron-summary
-        // counter is needed (and retaining the established response shape
-        // keeps monitoring consumers backwards compatible).
         } catch (err) {
           retryError = err?.message;
           console.warn('[formPaymentReconciliation] Stripe address mapping retry failed for', row.id, err?.message);
@@ -1248,6 +1254,7 @@ export async function reconcileFormPayments(supabase, {
           }
         }
         if (retrySucceeded) results.addressRecovery.succeeded += 1;
+        else if (waitingForTarget) results.addressRecovery.waitingForTarget += 1;
         else results.addressRecovery.failed += 1;
       }
       if (attempts >= MAX_ADDRESS_ATTEMPTS && canStartAddressAttempt()) {

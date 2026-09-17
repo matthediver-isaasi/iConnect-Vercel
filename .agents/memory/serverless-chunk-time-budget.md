@@ -19,3 +19,9 @@ description: Why browser-driven chunked backfills must bound each invocation by 
 **Why:** Repeated manual payment sweeps spent their single prerequisite slot on old failed address mappings while newer paid submissions were skipped. Heartbeat-only failures were omitted from the JSON response, so callers saw successful invocations with no explanation for zero finalizations.
 
 **How to apply:** Claim prerequisites sequentially within a bounded allowance, reserve enough time to start the downstream finalizer, and finish each owned lease. Return safe stage-level failure and waiting counts; never weaken immutable payment evidence or mapping checks just to clear a queue.
+
+The downstream reserve must include its claim, form lookup and URL resolution overhead—not merely the finalizer's minimum stage-start threshold.
+
+**Why:** Payment address recovery succeeded, but later completion receipts still reached the processor with less than its minimum start budget. Multiple queue claims looked like progress even though member creation never started.
+
+**How to apply:** Judge progress by completed durable stages, not claim counts. A single-submission manual recovery can isolate an urgent receipt, but it does not prove that the global worker schedules later receipts fairly.
