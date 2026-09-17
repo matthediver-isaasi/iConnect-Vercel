@@ -439,3 +439,17 @@ mtime_ms = 1789642936543
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/457f723c-3fbc-41e4-a17a-9db19cb6ad6d/0e74747b-c805-4699-9a50-cc6939dc8a7b"
 storage_version_token = "1789643009795978"
 content_type = "text/csv"
+
+[[outputs]]
+id = "fy07op4CjTInjHJAMDrs8"
+uri = "file://reports/bnms-workforce-import-preparation/report.html"
+type = "text"
+title = "BNMS workforce import — final preparation review"
+description = "Approved mappings, retained duplicates, per-Department totals, rerun safeguards, operational impact, and the separate final approval boundary. No live import performed."
+logical_id = "3a2fafe0-25b9-4367-bd2c-36d1c372089e"
+content_hash = "sha256:e19588af04161f467f5a068f9c57c85e67fe6d8121daa8b7d736d015fe9fb4dd"
+size = 22933
+mtime_ms = 1789644218917
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3a2fafe0-25b9-4367-bd2c-36d1c372089e/fb3ce490-971a-4dad-93c5-eb8a3369e66a"
+storage_version_token = "1789644288890214"
+content_type = "text/html"

@@ -14,3 +14,19 @@ hashes already stored as importer identities.
 **How to apply:** Freeze the identity-hash normalizer once identities have been
 persisted. Add encoding and punctuation tolerance only to the live matching
 normalizer, and cover both the pinned source totals and rerun behavior.
+
+## Occurrence-bearing workforce exports
+
+Preserve repeated measurement rows even when approved mapping transformations
+make previously different rows identical. Bind identity to the exact source
+bytes and physical source line, not normalized business values.
+
+**Why:** The user explicitly chose to retain every workforce occurrence after
+reviewing duplicate impacts. Blank-answer normalization is a mapping decision,
+not permission to deduplicate or aggregate measurements.
+
+**How to apply:** Keep occurrence provenance separate from display-field values.
+Require a fresh review for changed/reordered source files. When live canonical
+dropdown strings contain trailing spaces, preserve those exact configured values
+through a separately reviewed import validator; do not silently repair metadata
+or broaden the ordinary record validator.
