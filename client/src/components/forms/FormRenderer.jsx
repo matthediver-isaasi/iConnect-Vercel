@@ -427,6 +427,8 @@ function RepeatableRowsField({
   hiddenFieldIds = new Set(),
   parentHidden = false,
   availabilityProbe = false,
+  currentSetOptionLabels = null,
+  currentSetExistingBlankFieldsByRow = null,
 }) {
   const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
   const firstChild = config.children[0] || null;
@@ -534,10 +536,20 @@ function RepeatableRowsField({
       hiddenFieldIds,
       parentHidden: repeatableParentHidden,
       validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
+      allowRequiredBlank: ({ child, row }) => currentSetExistingBlankFieldsByRow?.[row?._row_id]
+        ?.includes(child.id) === true,
       isAllowedSpecialSelection: ({ child, value: selected }) => (
-        isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child)
+        (isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child))
+        || (() => {
+          const entries = currentSetOptionLabels?.[child.id]
+            || currentSetOptionLabels?.[field.id]?.[child.id] || [];
+          const options = Array.isArray(entries)
+            ? entries
+            : Object.entries(entries || {}).map(([id, label]) => ({ id, label }));
+          return options.some(option => String(option?.id ?? option?.value ?? '') === String(selected));
+        })()
       ),
-    }), [field, hiddenFieldIds, repeatableParentHidden, rows, childValidity, rootAllFields]);
+    }), [field, hiddenFieldIds, repeatableParentHidden, rows, childValidity, rootAllFields, currentSetExistingBlankFieldsByRow, currentSetOptionLabels]);
   const duplicateErrors = useMemo(() => {
     const byCell = new Map();
     validation.errors
@@ -727,6 +739,8 @@ function RepeatableRowsField({
         rootAllFields={rootAllFields}
         rootAllFormValues={rootAllFormValues}
         prefillData={prefillData}
+        currentSetOptionLabels={currentSetOptionLabels}
+        currentSetExistingBlankFieldsByRow={currentSetExistingBlankFieldsByRow}
         membershipFeeQuote={membershipFeeQuote}
         notListedDisplayLabel={notListedDisplayLabel}
         repeatableSiblingUniqueValues={siblingUniqueValues}
@@ -812,6 +826,8 @@ function RepeatableRowsField({
           rootAllFields={rootAllFields}
           rootAllFormValues={rootAllFormValues}
           prefillData={prefillData}
+          currentSetOptionLabels={currentSetOptionLabels}
+          currentSetExistingBlankFieldsByRow={currentSetExistingBlankFieldsByRow}
           membershipFeeQuote={membershipFeeQuote}
           notListedDisplayLabel={notListedDisplayLabel}
           repeatableSiblingUniqueValues={repeatableSiblingUniqueValues(uniquenessRows, firstChild, rowId)}
@@ -1272,7 +1288,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1280,6 +1296,30 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     value: suppliedValue,
   });
   const value = resolvedFieldValue.value;
+  // Only trusted, authorized current-set responses may label a persisted
+  // selection which is absent from today's option query. This makes legacy
+  // static/cascade values reviewable without treating a browser-supplied ID as
+  // an available option or weakening dependency checks.
+  const trustedCurrentSetOptionLabels = currentSetOptionLabels
+    || prefillData?.departmentCurrentSetOptionLabels || {};
+  const currentSetFieldOptions = trustedCurrentSetOptionLabels?.[field.id]
+    || trustedCurrentSetOptionLabels?.[String(field.id)]
+    || trustedCurrentSetOptionLabels?.[field.repeatable_container_field_id]?.[field.id]
+    || [];
+  const persistedValues = Array.isArray(value) ? value : [value];
+  const authorizedPersistedOptions = useMemo(() => {
+    const options = Array.isArray(currentSetFieldOptions)
+      ? currentSetFieldOptions
+      : ((currentSetFieldOptions?.id || currentSetFieldOptions?.value)
+        ? [currentSetFieldOptions]
+        : Object.entries(currentSetFieldOptions || {}).map(([id, label]) => ({ id, label })));
+    const values = new Set(persistedValues.filter(item => item !== undefined && item !== null && item !== '')
+      .map(item => String(item)));
+    return options.map(option => ({
+      id: String(option?.id ?? option?.value ?? ''),
+      label: String(option?.label ?? option?.name ?? option?.value ?? ''),
+    })).filter(option => option.id && option.label && values.has(option.id));
+  }, [currentSetFieldOptions, persistedValues.join('\u0000')]);
   const hasNotListedSelection = supportsFormNotListedChoice(field)
     && containsFormNotListedValue(value);
   const notListedText = resolveRawFormNotListedText(field, allFormValues);
@@ -1690,20 +1730,28 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     staleTime: 60 * 1000,
   });
   const rawRelationshipOptions = useMemo(
-    () => normalizeRelationshipOptions(relationshipOptionPayload),
-    [relationshipOptionPayload],
+    () => {
+      const available = normalizeRelationshipOptions(relationshipOptionPayload);
+      const seen = new Set(available.map(option => String(option.id)));
+      return [...available, ...authorizedPersistedOptions.filter(option => !seen.has(String(option.id)))];
+    },
+    [relationshipOptionPayload, authorizedPersistedOptions],
   );
   const relationshipOptions = useMemo(
-    () => intersectConditionalOptions(
-      prependFormNotListedOption(
+    () => {
+      const options = intersectConditionalOptions(
+        prependFormNotListedOption(
         field,
         rawRelationshipOptions,
         (id, label) => ({ id, label }),
-      ),
-      conditionalResolution,
-      option => option.id,
-    ),
-    [field, rawRelationshipOptions, conditionalResolution],
+        ),
+        conditionalResolution,
+        option => option.id,
+      );
+      const seen = new Set(options.map(option => String(option.id)));
+      return [...options, ...authorizedPersistedOptions.filter(option => !seen.has(String(option.id)))];
+    },
+    [field, rawRelationshipOptions, conditionalResolution, authorizedPersistedOptions],
   );
   const relationshipResultIsEmpty = usesRowOptionSource && !isDistinctRowSource(field)
     ? relationshipDependenciesReady && relationshipOptionsLoaded && !relationshipOptionsError
@@ -1773,11 +1821,23 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   });
 
   const staticOptions = useMemo(
-    () => intersectConditionalOptions(
-      (field.options || []).filter(option => typeof option !== 'string' || option.trim() !== ''),
+    () => {
+      const options = intersectConditionalOptions(
+        (field.options || []).filter(option => typeof option !== 'string' || option.trim() !== ''),
       conditionalResolution,
-    ),
-    [field.options, conditionalResolution],
+      );
+      const seen = new Set(options.map(option => String(option)));
+      return [...options, ...authorizedPersistedOptions
+        .filter(option => !seen.has(option.id))
+        .map(option => ({ value: option.id, label: option.label, __currentSetLegacy: true }))];
+    },
+    [field.options, conditionalResolution, authorizedPersistedOptions],
+  );
+  const staticOptionValue = option => String(
+    option && typeof option === 'object' ? (option.value ?? option.id ?? '') : option,
+  );
+  const staticOptionLabel = option => (
+    option && typeof option === 'object' ? (option.label ?? option.name ?? option.value ?? option.id) : option
   );
   const organisationOptions = useMemo(
     () => intersectConditionalOptions(
@@ -2223,6 +2283,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
           ? hiddenFieldIds.has(field.id)
           : Array.isArray(hiddenFieldIds) && hiddenFieldIds.includes(field.id)
       )}
+      currentSetOptionLabels={currentSetOptionLabels}
+      currentSetExistingBlankFieldsByRow={currentSetExistingBlankFieldsByRow}
       availabilityProbe={availabilityProbe}
       onVisibilityChange={(hidden, status) => {
         setRepeatableContainerHidden(previous => previous === hidden ? previous : hidden);
@@ -2612,7 +2674,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
 
       case 'dropdown':
       case 'select': {
-        const effectiveStaticOptions = staticOptions.filter(repeatableOptionIsAvailable);
+        const effectiveStaticOptions = staticOptions.filter(option => repeatableOptionIsAvailable(staticOptionValue(option)));
         const otherChoiceAvailable = field.allow_other && repeatableOptionIsAvailable('other');
         const noRemainingStaticOptions = staticOptions.length > 0
           && effectiveStaticOptions.length === 0
@@ -2641,8 +2703,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               </SelectTrigger>
               <SelectContent side="bottom">
                 {effectiveStaticOptions.map((option, index) => (
-                  <SelectItem key={index} value={option}>
-                    {option}
+                  <SelectItem key={index} value={staticOptionValue(option)}>
+                    {staticOptionLabel(option)}
                   </SelectItem>
                 ))}
                 {otherChoiceAvailable && (
@@ -2675,11 +2737,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'radio':
         return (
           <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
-            {staticOptions.filter(repeatableOptionIsAvailable).map((option, index) => (
+            {staticOptions.filter(option => repeatableOptionIsAvailable(staticOptionValue(option))).map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
-                <RadioGroupItem value={option} id={`${field.id}-${index}`} />
+                <RadioGroupItem value={staticOptionValue(option)} id={`${field.id}-${index}`} />
                 <Label htmlFor={`${field.id}-${index}`} className="font-normal">
-                  {option}
+                  {staticOptionLabel(option)}
                 </Label>
               </div>
             ))}
@@ -2716,8 +2778,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               </p>
             )}
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-              {staticOptions.filter(repeatableOptionIsAvailable).map((option, index) => {
-                const isChecked = checkboxSelectedValues.includes(option);
+              {staticOptions.filter(option => repeatableOptionIsAvailable(staticOptionValue(option))).map((option, index) => {
+                const optionValue = staticOptionValue(option);
+                const isChecked = checkboxSelectedValues.includes(optionValue);
                 const isOptionDisabled = isFieldDisabled || (checkboxIsMaxReached && !isChecked);
                 return (
                   <div key={index} className="flex items-center space-x-2">
@@ -2728,9 +2791,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                       onCheckedChange={(checked) => {
                         if (isOptionDisabled) return;
                         if (checked) {
-                          onChange([...checkboxSelectedValues, option]);
+                          onChange([...checkboxSelectedValues, optionValue]);
                         } else {
-                          onChange(checkboxSelectedValues.filter(v => v !== option));
+                          onChange(checkboxSelectedValues.filter(v => v !== optionValue));
                         }
                       }}
                     />
@@ -2738,7 +2801,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                       htmlFor={`${field.id}-${index}`} 
                       className={`font-normal cursor-pointer ${isOptionDisabled && !isChecked ? 'text-slate-400' : ''}`}
                     >
-                      {option}
+                      {staticOptionLabel(option)}
                     </Label>
                   </div>
                 );

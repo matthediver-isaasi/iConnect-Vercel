@@ -52,6 +52,13 @@ import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { sameFormAnswerValues, validateFutureDateFields } from '../../shared/formFutureDates.js';
 import { validateConditionalDisplayNameCopies } from '../_lib/formConditionalDisplayNameCopy.js';
+import {
+  DEPARTMENT_CURRENT_SET_FORM_ID,
+  DepartmentCurrentSetError,
+  assertCurrentSetFormValues,
+  loadDepartmentCurrentSet,
+} from '../_lib/departmentCurrentSet.js';
+import { departmentCurrentSetValidationOptions } from '../_lib/departmentCurrentSetValidation.js';
 
 function idempotencyAnswerValues(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
@@ -90,6 +97,16 @@ async function loadSurveySubmissionSnapshot(supabase, {
     throw new Error('The saved survey snapshot could not be loaded');
   }
   return data;
+}
+
+export function hasCurrentSetCommit(result) {
+  // `success: true` is a transport/application result, not evidence that the
+  // Department transaction committed. The reconciliation RPC returns its
+  // durable commit/replay marker together with the resulting concurrency
+  // version only after the transaction has completed.
+  return ['committed', 'replayed'].includes(result?.current_set?.status)
+    && typeof result.current_set?.version === 'string'
+    && result.current_set.version.length > 0;
 }
 
 export default async function handler(req, res, dependencies = {}) {
@@ -184,7 +201,7 @@ export default async function handler(req, res, dependencies = {}) {
     let hasTenantSession = false;
     let sessionHasAdminAccess = false;
     try {
-      const sessionMember = await getSessionMember(req);
+        const sessionMember = await (dependencies.getSessionMember || getSessionMember)(req);
       // Only honour a session that belongs to THIS tenant, so a member's
       // session for another tenant can't attach their identity here. A member's
       // tenant may be set directly or inherited from their organisation
@@ -207,21 +224,54 @@ export default async function handler(req, res, dependencies = {}) {
       console.warn('[Public Form Submission] Session member lookup failed (continuing as anonymous):', sessionErr?.message);
     }
     try {
-      const tenantContext = await getTenantContext(req);
+      // Fixture callers provide the resolved tenant explicitly. Do not make
+      // their otherwise in-process handler tests perform a second live tenant
+      // or session lookup merely to discover optional administrator access.
+      const resolveTenantContext = dependencies.getTenantContext
+        || (dependencies.tenantData ? async () => null : getTenantContext);
+      const tenantContext = await resolveTenantContext(req);
       sessionHasAdminAccess = tenantContext?.tenantId === tenantData.id
-        && await hasAdminAccess(tenantContext);
+        && await (dependencies.hasAdminAccess || hasAdminAccess)(tenantContext);
     } catch (adminErr) {
       console.warn('[Public Form Submission] Session admin lookup failed (continuing without admin authority):', adminErr?.message);
       sessionHasAdminAccess = false;
     }
 
+    // Only the explicitly configured BNMS form can enter the current-set
+    // lifecycle. The separate config table keeps privileged reconciliation
+    // mappings out of both the public form projection and submitted payload.
+    let currentSetConfiguration = null;
+    if (form.id === DEPARTMENT_CURRENT_SET_FORM_ID) {
+      const { data: currentSetConfig, error: currentSetConfigError } = await supabase
+        .from('department_current_set_config')
+        .select('config')
+        .eq('tenant_id', tenantData.id)
+        .eq('form_id', form.id)
+        .maybeSingle();
+      if (currentSetConfigError && currentSetConfigError.code !== '42P01') {
+        console.error('[Public Form Submission] Current-set configuration lookup failed:', currentSetConfigError.message);
+        return res.status(503).json({ error: 'Current Department data is temporarily unavailable' });
+      }
+      currentSetConfiguration = currentSetConfig?.config || null;
+    }
+    const hasCurrentSetProcessing = !!currentSetConfiguration;
+
     // Forms that require authentication cannot be submitted publicly —
     // EXCEPT surveys with a verified same-tenant session: surveys always
     // submit through this endpoint (it's the only scoring path), so an
     // authenticated member with a valid session for this tenant is allowed.
+    // Current-set forms are likewise session-only; their per-Department
+    // responder check happens in the dedicated preflight/RPC below.
     if (form.require_authentication) {
       const isAuthedSurvey = form.form_type === 'survey' && hasTenantSession;
-      if (!isAuthedSurvey) {
+      const isAuthedCurrentSet = hasCurrentSetProcessing && hasTenantSession;
+      if (hasCurrentSetProcessing && !hasTenantSession) {
+        return res.status(401).json({
+          error: 'A signed-in member is required to update current Department data',
+          code: 'CURRENT_SET_AUTHENTICATION_REQUIRED',
+        });
+      }
+      if (!isAuthedSurvey && !isAuthedCurrentSet) {
         return res.status(403).json({ error: 'This form requires authentication' });
       }
     }
@@ -455,6 +505,43 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
+    // A current-set save must be bound to a same-tenant authenticated
+    // respondent and a fully loaded Department set before its ordinary
+    // submission row is persisted. This is a preflight only: the authoritative
+    // RPC revalidates the relationship, version and ownership at commit time.
+    let currentSetRepeatableValidation = null;
+    if (hasCurrentSetProcessing) {
+      try {
+        const parsedCurrentSet = assertCurrentSetFormValues({
+          values: submission_data || {},
+          configuration: currentSetConfiguration,
+        });
+        const loadedCurrentSet = await loadDepartmentCurrentSet({
+          db: supabase,
+          req,
+          tenantId: tenantData.id,
+          formId: form.id,
+          departmentId: parsedCurrentSet.departmentId,
+          getMember: dependencies.getSessionMember || getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+        // These exceptions are computed solely from the fresh, authenticated
+        // server prefill. Never derive a baseline from incoming metadata or
+        // submitted rows: the commit RPC independently version-checks this
+        // exact authorized snapshot.
+        currentSetRepeatableValidation = departmentCurrentSetValidationOptions(
+          currentSetConfiguration,
+          loadedCurrentSet,
+        );
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        console.error('[Public Form Submission] Current-set preflight failed:', error);
+        return res.status(503).json({ error: 'Current Department data is temporarily unavailable' });
+      }
+    }
+
     const relationshipForm = isSurvey ? {
       ...form,
       fields: surveyVersion?.fields || [],
@@ -507,6 +594,7 @@ export default async function handler(req, res, dependencies = {}) {
           submissionData: submission_data || {},
           visibilityOptions: submissionVisibilityOptions,
           hiddenFieldIds: hiddenRelationshipFieldIds,
+          ...(currentSetRepeatableValidation || {}),
         });
         await createFormRelationshipService({
           db: supabase,
@@ -768,6 +856,76 @@ export default async function handler(req, res, dependencies = {}) {
     };
 
     const finishDuplicate = async (row) => {
+      // A lost response may leave a durable current-set submission before its
+      // processor reply reached the browser. Retry its idempotent lifecycle
+      // operation before reporting success; the database RPC replays a
+      // committed outcome instead of applying an older answer set again.
+      if (hasCurrentSetProcessing) {
+        const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
+        if (!internalApiBaseUrl) {
+          return res.status(503).json({
+            error: 'Current Department data is still being completed. Please retry.',
+            code: 'CURRENT_SET_PROCESSING_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+        try {
+          const processingResponse = await (dependencies.fetchImpl || fetch)(`${internalApiBaseUrl}/api/forms/process-application`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildFormProcessingHeaders({
+                tenantId: tenantData.id,
+                formId: form.id,
+                submissionId: row.id,
+                verifiedSubmitterMemberId: sessionMemberId,
+                verifiedAdminAccess: sessionHasAdminAccess,
+              }),
+              // The processing endpoint reloads the persisted form and
+              // re-evaluates its audience policy. Forward only the caller's
+              // existing session credential to our configured internal origin;
+              // it is never derived from, or sent to, a client-controlled URL.
+              ...(req.headers?.cookie ? { cookie: req.headers.cookie } : {}),
+              ...(req.headers?.authorization ? { authorization: req.headers.authorization } : {}),
+            },
+            body: JSON.stringify(buildPublicFormProcessingPayload({
+              form,
+              submission: row,
+              tenantId: tenantData.id,
+              prefillOrganizationId: prefill_organization_id,
+              roleId: clientRoleId,
+              verifiedSubmitterMemberId: sessionMemberId,
+              verifiedAdminAccess: sessionHasAdminAccess,
+            })),
+          });
+          const result = (processingResponse.headers.get('content-type') || '').includes('application/json')
+            ? await processingResponse.json() : {};
+          if (!processingResponse.ok) {
+            return res.status(processingResponse.status).json({
+              error: result.error || 'Current Department data could not be completed',
+              code: result.code || 'CURRENT_SET_PROCESSING_PENDING',
+              retryable: processingResponse.status >= 500,
+            });
+          }
+          if (!hasCurrentSetCommit(result)) {
+            return res.status(503).json({
+              error: 'Current Department data is still being completed. Please retry.',
+              code: 'CURRENT_SET_PROCESSING_PENDING',
+              submission_id: row.id,
+              retryable: true,
+            });
+          }
+        } catch (error) {
+          console.error('[Public Form Submission] Current-set retry processing failed:', error?.message);
+          return res.status(503).json({
+            error: 'Current Department data is still being completed. Please retry.',
+            code: 'CURRENT_SET_PROCESSING_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+      }
       if (row?.submission_email_state?.status === 'pending') {
         if (!row.submission_email_state.post_processing_completed_at) {
           return res.status(503).json({
@@ -878,7 +1036,7 @@ export default async function handler(req, res, dependencies = {}) {
     // Run idempotency recovery before enforcing the form's one-per-email
     // policy. A retry of the original request must be allowed to finish its
     // durable email state rather than being rejected as a new duplicate.
-    if (form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+    if (!hasCurrentSetProcessing && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
       const { data: candidates, error: dupErr } = await supabase
         .from('form_submission')
         .select('id')
@@ -905,7 +1063,7 @@ export default async function handler(req, res, dependencies = {}) {
     //    in production. Legitimate repeat submissions minutes apart are
     //    unaffected. Anonymous submissions with no email AND no organisation
     //    can't be matched and are allowed through unchanged.
-    if (!idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
+    if (!hasCurrentSetProcessing && !idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
       try {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
@@ -990,6 +1148,10 @@ export default async function handler(req, res, dependencies = {}) {
       // anonymous/public submissions, which keep falling back to the email /
       // "Anonymous submission" label in admin views).
       submitted_by_name: surveyIsAnonymous ? null : sessionMemberName,
+      // Current-set reconciliation authorizes against the immutable,
+      // server-resolved actor on this durable submission row. Never use a
+      // member ID supplied in form values or metadata.
+      ...(hasCurrentSetProcessing && sessionMemberId ? { created_member_id: sessionMemberId } : {}),
       // Anonymous surveys: redact identity-bearing answers (email/phone/name/
       // contact/signature fields) from the stored payload as well — the
       // dedupe key above was already derived before redaction.
@@ -1040,6 +1202,19 @@ export default async function handler(req, res, dependencies = {}) {
           reason: 'Waiting for submission post-processing',
           request_context: emailRequestContext,
         },
+      }),
+      // The row is durable before processing begins. This explicit state
+      // prevents readers from treating a submitted current-set edit as a
+      // committed Department reconciliation until the processor updates it.
+      // `pending` is intentionally ambiguous after a processor transport
+      // failure: the reconciliation ledger/RPC is the commit authority and a
+      // retry resolves it idempotently to committed or failed.
+      ...(hasCurrentSetProcessing && {
+        processing_notes: [{
+          kind: 'department_current_set_state',
+          status: 'pending',
+          at: new Date().toISOString(),
+        }],
       }),
       // Survey scoring (computed server-side against the published version)
       ...(isSurvey && {
@@ -1363,7 +1538,7 @@ export default async function handler(req, res, dependencies = {}) {
     let pipelineCreatedOrgId = null;
     let pipelineProcessingResult = null;
     // Anonymous surveys never run identity-creating pipelines.
-    if (hasEntityPipelines && !surveyIsAnonymous) {
+    if ((hasEntityPipelines || hasCurrentSetProcessing) && !surveyIsAnonymous) {
       try {
         // Resolve only when processing is needed. Never follow request Host
         // headers because this call carries an internal authentication proof.
@@ -1387,6 +1562,10 @@ export default async function handler(req, res, dependencies = {}) {
               verifiedSubmitterMemberId: sessionMemberId,
               verifiedAdminAccess: sessionHasAdminAccess,
             }),
+            // Current-set reconciliation rechecks the persisted form audience
+            // under the respondent's live session at commit time.
+            ...(req.headers?.cookie ? { cookie: req.headers.cookie } : {}),
+            ...(req.headers?.authorization ? { authorization: req.headers.authorization } : {}),
           },
           body: JSON.stringify(buildPublicFormProcessingPayload({
             form,
@@ -1404,9 +1583,15 @@ export default async function handler(req, res, dependencies = {}) {
         const hasJsonBody = contentType.includes('application/json');
         
         if (!pipelineResponse.ok) {
-          // Pipeline failed - rollback the form_submission record to prevent orphaned data
-          console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
-          await supabase.from('form_submission').delete().eq('id', submission.id);
+          // Generic pipeline failures retain their historical rollback
+          // behaviour. Current-set submissions are a durable idempotent
+          // operation, however: retain the row so a retry can safely re-run
+          // its submission-id-bound reconciliation rather than losing audit
+          // context or accidentally treating a later edit as the same save.
+          if (!hasCurrentSetProcessing) {
+            console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
+            await supabase.from('form_submission').delete().eq('id', submission.id);
+          }
           
           if (hasJsonBody) {
             try {
@@ -1450,6 +1635,15 @@ export default async function handler(req, res, dependencies = {}) {
               const result = await pipelineResponse.json();
               pipelineProcessingResult = result;
               console.log('[Public Form Submission] Entity pipeline processed:', result);
+              if (hasCurrentSetProcessing && !hasCurrentSetCommit(result)) {
+                return res.status(503).json({
+                  success: false,
+                  id: submission.id,
+                  error: 'Current Department data is still being completed. Please retry.',
+                  code: 'CURRENT_SET_PROCESSING_PENDING',
+                  retryable: true,
+                });
+              }
               if (result.structured_actions?.success === false) {
                 // Keep the submission and structured-action ledger intact:
                 // completed parent actions must be reusable by an administrator
@@ -1536,13 +1730,17 @@ export default async function handler(req, res, dependencies = {}) {
           }
         }
       } catch (err) {
-        // Network/runtime error during pipeline processing - rollback and return error
+        // A current-set request can have committed after transport failure.
+        // Keep its durable idempotency row for an explicit replay rather than
+        // deleting the only safe retry handle.
         console.error('[Public Form Submission] Entity pipeline error:', err);
-        console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
-        try {
-          await supabase.from('form_submission').delete().eq('id', submission.id);
-        } catch (deleteErr) {
-          console.error('[Public Form Submission] Failed to rollback submission:', deleteErr);
+        if (!hasCurrentSetProcessing) {
+          console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
+          try {
+            await supabase.from('form_submission').delete().eq('id', submission.id);
+          } catch (deleteErr) {
+            console.error('[Public Form Submission] Failed to rollback submission:', deleteErr);
+          }
         }
         return res.status(502).json({
           error: 'Failed to process application. Please try again.',

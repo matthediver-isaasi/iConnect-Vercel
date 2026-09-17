@@ -50,6 +50,13 @@ import {
   activeDisplayNameCopyIssues,
   resolveDisplayNameCopyValue,
 } from "@/lib/formConditionalCopyMode";
+import {
+  currentSetSaveBlocked,
+  currentSetCommitConfirmed,
+  currentSetSubmissionMetadata,
+  useDepartmentCurrentSet,
+} from "@/lib/departmentCurrentSet";
+import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -194,6 +201,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const signerEmail = urlParams.get('signer_email');
   const briefId = urlParams.get('brief_id');
   const vacancyId = urlParams.get('vacancy_id');
+  const currentSetDepartmentParam = urlParams.get('department_id');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -377,6 +385,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
+      if (departmentCurrentSet?.active
+          && (!departmentCurrentSet.baselineReady || departmentCurrentSet.error)) {
+        throw new Error(departmentCurrentSet.error?.message
+          || 'Current Department data has not been safely applied. Reload before saving a draft.');
+      }
       // Try to find an email field value for contact
       const emailField = form?.fields?.find(f => f.type === 'email');
       const contactEmail = emailField ? formValues[emailField.id] : null;
@@ -1033,6 +1046,24 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Duplicate-submission guard: shared per-session idempotency key (sent on
   // every attempt, rotated only after a successful submit).
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
+  const departmentCurrentSet = useDepartmentCurrentSet({
+    form,
+    departmentId: currentSetDepartmentParam,
+    principalId: memberInfo?.id,
+    formValues,
+    setFormValues,
+    ready: defaultsInitialized && (!draftToken || draftLoaded),
+  });
+  const departmentCurrentSetBlocked = currentSetSaveBlocked({
+    enabled: departmentCurrentSet.active,
+    departmentId: departmentCurrentSet.departmentId,
+    loading: departmentCurrentSet.loading,
+    error: departmentCurrentSet.error,
+    currentSet: departmentCurrentSet.currentSet,
+    sectionIds: departmentCurrentSet.sectionIds,
+    acknowledgements: departmentCurrentSet.acknowledgements,
+    baselineReady: departmentCurrentSet.baselineReady,
+  });
 
   // Per-submission side-effect runs (emails, field mappings), keyed by
   // submission id. When the server collapses a double submission and returns
@@ -1044,34 +1075,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
-      // Use public API endpoint that doesn't require authentication
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      
-      const response = await fetch('/api/public/form-submission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Send session cookies so require_authentication surveys accept a
-        // logged-in member even when the form is served cross-origin.
-        credentials: 'include',
-        body: JSON.stringify({
-          ...submissionData,
-          // Task #3331: the assignment token lets the server stamp the
-          // event/assignment/version — never a client-supplied event id.
-          ...(assignmentToken
-            && String(form?.id || '') === String(loadedForm?.id || '')
-            && { assignment_token: assignmentToken }),
-          idempotency_key: getIdempotencyKey(),
-          tenant: tenantSlug
-        })
+      // Use the shared authenticated public client. Besides preserving session
+      // cookies for current-set authorization, it resolves custom-domain
+      // tenants consistently with EmbedForm and the canvas form surface.
+      const result = await publicClient.submitForm({
+        ...submissionData,
+        ...(assignmentToken
+          && String(form?.id || '') === String(loadedForm?.id || '')
+          && { assignment_token: assignmentToken }),
+        idempotency_key: getIdempotencyKey(),
       });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to submit form');
+      if (departmentCurrentSet.active && !currentSetCommitConfirmed(result)) {
+        throw new Error('Current Department data has not been confirmed as saved. Retry or reload and review it before continuing.');
       }
-      
-      return response.json();
+      return result;
     },
     onSuccess: async (submissionResult) => {
       const submissionId = submissionResult?.id || null;
@@ -1508,6 +1525,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [formValues, form, submitted, submitFormMutation.isPending]);
 
   const handleFieldChange = (fieldId, newValue) => {
+    departmentCurrentSet.markEdited();
     lastChangedFieldRef.current = {
       formId: form?.id,
       fieldId,
@@ -1522,6 +1540,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   };
 
   const handleFormNotListedTextChange = (fieldId, text) => {
+    departmentCurrentSet.markEdited();
     setFormValues(prev => setFormNotListedText(prev, fieldId, text));
   };
 
@@ -2309,6 +2328,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // normal submit path and the payment step. Returns the submission payload
   // or null (after toasting) when validation fails.
   const buildSubmissionPayload = async () => {
+    if (departmentCurrentSetBlocked) {
+      setSubmissionError(departmentCurrentSetBlocked);
+      toast.error(departmentCurrentSetBlocked);
+      return null;
+    }
     if (displayNameCopyIssues.length) {
       toast.error('A selected record name is still loading or is no longer available. Please wait or choose another record.');
       return null;
@@ -2506,6 +2530,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
 
     const filteredFormValues = prepareFormSubmissionValues(form.fields, formValues);
+    const currentSetMetadata = currentSetSubmissionMetadata({
+      form,
+      departmentId: departmentCurrentSet.departmentId,
+      currentSet: departmentCurrentSet.currentSet,
+      acknowledgements: departmentCurrentSet.acknowledgements,
+    });
 
     // Determine organization ID to include with submission.
     // Task #3498: shared memo — MUST stay identical to what the membership
@@ -2537,6 +2567,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
       submission_data: {
         ...filteredFormValues,
+        ...(currentSetMetadata && {
+          [departmentCurrentSet.sectionIds.workforce]: formValues[departmentCurrentSet.sectionIds.workforce],
+          [departmentCurrentSet.sectionIds.equipment]: formValues[departmentCurrentSet.sectionIds.equipment],
+        }),
+        ...(currentSetMetadata && { __department_current_set: currentSetMetadata }),
         ...(signerEmail && { signer_email: signerEmail })
       },
       created_date: new Date().toISOString(),
@@ -2603,6 +2638,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            <div className="mt-3">
+              <DepartmentCurrentSetNotice
+                state={departmentCurrentSet}
+                blockedReason={departmentCurrentSetBlocked}
+              />
+            </div>
             <div className="flex gap-1 mt-4">
               {visibleCardFields.map((_, index) => (
                 <div
@@ -2636,6 +2677,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -2666,6 +2709,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={currentField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -2792,8 +2837,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       formValues={formValues}
                       buildPayload={buildSubmissionPayload}
                       idempotencyKey={getIdempotencyKey()}
-                      disabled={!canProceed || submitControl.disabled}
-                      disabledMessage={submitControl.message}
+                      disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
+                      disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                       busy={submitFormMutation.isPending}
                       onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
                       onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
@@ -2819,7 +2864,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   ) : (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!canProceed || submitControl.disabled || submitFormMutation.isPending}
+                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >
@@ -2849,6 +2894,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             {isLastStep && submitControl.disabled && submitControl.message && (
               <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
                 {submitControl.message}
+              </p>
+            )}
+            {isLastStep && departmentCurrentSetBlocked && (
+              <p className="text-xs text-warning text-center mt-2" data-testid="text-current-set-submit-blocked">
+                {departmentCurrentSetBlocked}
               </p>
             )}
             {isLastStep && defaultConsentMessage && (
@@ -2896,6 +2946,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            <div className="mt-3">
+              <DepartmentCurrentSetNotice
+                state={departmentCurrentSet}
+                blockedReason={departmentCurrentSetBlocked}
+              />
+            </div>
             {surveyIntroText(form) && (
               <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
             )}
@@ -2959,6 +3015,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -3000,6 +3058,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   communicationEligibilityReady={communicationEligibilityReady}
                   allFormValues={formValues}
                   prefillData={prefillData}
+                  currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                  currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                   allFields={form?.fields || []}
                   hiddenFieldIds={effectiveHiddenFieldIds}
                   membershipFeeQuote={membershipFeeQuote}
@@ -3284,7 +3344,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 ) : !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={submitControl.disabled || submitFormMutation.isPending}
+                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >
@@ -3307,8 +3367,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     formValues={formValues}
                     buildPayload={buildSubmissionPayload}
                     idempotencyKey={getIdempotencyKey()}
-                    disabled={submitControl.disabled}
-                    disabledMessage={submitControl.message}
+                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
+                    disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
                     onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
@@ -3337,6 +3397,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             {(isLastPage || !hasPages) && submitControl.disabled && submitControl.message && (
               <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
                 {submitControl.message}
+              </p>
+            )}
+            {(isLastPage || !hasPages) && departmentCurrentSetBlocked && (
+              <p className="text-xs text-warning text-center mt-2" data-testid="text-current-set-submit-blocked">
+                {departmentCurrentSetBlocked}
               </p>
             )}
             {(isLastPage || !hasPages) && defaultConsentMessage && (

@@ -136,7 +136,7 @@
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
-- [Parallel browser-test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories or one run deletes the other's active traces.
+- [Browser verification](browser-verification-index.md) — exact mutation-route contracts, isolated parallel test output, and animation-safe geometry assertions.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Form answer lifecycle](form-answer-lifecycle-index.md) — scalar row sources, temporal validation, retained derived labels, and hidden-answer authority.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
@@ -150,9 +150,9 @@
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
 - [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
 - [Due Diligence applicant identity](due-diligence-applicant-identity.md) — form application type selects the name; organisation applicants can also have contact members.
-- [Browser geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Positioned table overflow](positioned-table-overflow.md) — a bounded table scroller can still expand the document root unless positioned descendants are contained.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
+- [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.

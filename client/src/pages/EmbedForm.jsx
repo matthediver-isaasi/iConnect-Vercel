@@ -44,6 +44,13 @@ import {
   activeDisplayNameCopyIssues,
   resolveDisplayNameCopyValue,
 } from "@/lib/formConditionalCopyMode";
+import {
+  currentSetSaveBlocked,
+  currentSetCommitConfirmed,
+  currentSetSubmissionMetadata,
+  useDepartmentCurrentSet,
+} from "@/lib/departmentCurrentSet";
+import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -86,11 +93,13 @@ export default function EmbedFormPage() {
   };
 
   const handleFormNotListedTextChange = (fieldId, text) => {
+    departmentCurrentSet?.markEdited?.();
     setFormValues(prev => setFormNotListedText(prev, fieldId, text));
     notifyParentResize();
   };
 
   const handleFieldChange = (fieldId, value) => {
+    departmentCurrentSet?.markEdited?.();
     lastChangedFieldRef.current = {
       formId: form?.id,
       fieldId,
@@ -144,6 +153,7 @@ export default function EmbedFormPage() {
   const urlPrefillMemberId = searchParams.get('member_id');
   const urlPrefillOrgId = searchParams.get('organization_id');
   const tenantParam = searchParams.get('tenant');
+  const currentSetDepartmentParam = searchParams.get('department_id');
   const fontFamilyParam = searchParams.get('font') || '';
   const fontSizeParam = searchParams.get('fontSize') || '';
   // Canvas supplies its resolved microsite (or tenant) home. It is limited to
@@ -257,6 +267,24 @@ export default function EmbedFormPage() {
     ? { __access: error.errorData.access }
     : null);
   const formAccess = resolveFormAccess(accessPayload, !!authMember);
+  const departmentCurrentSet = useDepartmentCurrentSet({
+    form,
+    departmentId: currentSetDepartmentParam,
+    principalId: authMember?.id,
+    formValues,
+    setFormValues,
+    ready: defaultsInitialized,
+  });
+  const departmentCurrentSetBlocked = currentSetSaveBlocked({
+    enabled: departmentCurrentSet.active,
+    departmentId: departmentCurrentSet.departmentId,
+    loading: departmentCurrentSet.loading,
+    error: departmentCurrentSet.error,
+    currentSet: departmentCurrentSet.currentSet,
+    sectionIds: departmentCurrentSet.sectionIds,
+    acknowledgements: departmentCurrentSet.acknowledgements,
+    baselineReady: departmentCurrentSet.baselineReady,
+  });
   // Return-leg confirmation is safe before the form body is released: it can
   // only finalize a server-created pending payment carrying prior access proof.
   const paymentReturn = useFormPaymentReturn();
@@ -881,14 +909,18 @@ export default function EmbedFormPage() {
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
   const submitFormMutation = useMutation({
-    mutationFn: (submissionData) => publicClient.submitForm({
-      ...submissionData,
-      idempotency_key: getIdempotencyKey(),
-      // Submission-side mapping is out of scope for the authenticated prefill
-      // fallback (the server already uses the authenticated member/org), so
-      // only an explicit URL param is forwarded here — unchanged behaviour.
-      prefill_organization_id: urlPrefillOrgId || null
-    }),
+    mutationFn: async (submissionData) => {
+      const result = await publicClient.submitForm({
+        ...submissionData,
+        idempotency_key: getIdempotencyKey(),
+        // Preserve the existing explicit-URL-only prefill mapping.
+        prefill_organization_id: urlPrefillOrgId || null
+      });
+      if (departmentCurrentSet.active && !currentSetCommitConfirmed(result)) {
+        throw new Error('Current Department data has not been confirmed as saved. Retry or reload and review it before continuing.');
+      }
+      return result;
+    },
     onSuccess: async () => {
       rotateIdempotencyKey();
       setSubmitted(true);
@@ -1068,6 +1100,11 @@ export default function EmbedFormPage() {
   // Task #3483: all pre-submit validation + payload assembly, shared by the
   // normal submit path and the payment step. Returns the payload or null.
   const buildSubmissionPayload = async () => {
+    if (departmentCurrentSetBlocked) {
+      setSubmissionError(departmentCurrentSetBlocked);
+      toast.error(departmentCurrentSetBlocked);
+      return null;
+    }
     if (displayNameCopyIssues.length) {
       toast.error('A selected record name is still loading or is no longer available. Please wait or choose another record.');
       return null;
@@ -1153,12 +1190,25 @@ export default function EmbedFormPage() {
         !displayOnlyFieldIds.has(key)
       ))
     ));
+    const currentSetMetadata = currentSetSubmissionMetadata({
+      form,
+      departmentId: departmentCurrentSet.departmentId,
+      currentSet: departmentCurrentSet.currentSet,
+      acknowledgements: departmentCurrentSet.acknowledgements,
+    });
 
     // Match FormView submission structure exactly
     return {
       form_id: form.id,
       form_name: form.name,
-      submission_data: filteredFormValues
+      submission_data: {
+        ...filteredFormValues,
+        ...(currentSetMetadata && {
+          [departmentCurrentSet.sectionIds.workforce]: formValues[departmentCurrentSet.sectionIds.workforce],
+          [departmentCurrentSet.sectionIds.equipment]: formValues[departmentCurrentSet.sectionIds.equipment],
+        }),
+        ...(currentSetMetadata && { __department_current_set: currentSetMetadata }),
+      }
     };
   };
 
@@ -1425,6 +1475,9 @@ export default function EmbedFormPage() {
             {form.description && (
               <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
             )}
+            <div className="mt-3">
+              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+            </div>
             <div className="flex gap-1 mt-4">
               {visibleFields.map((_, index) => (
                 <div
@@ -1452,6 +1505,8 @@ export default function EmbedFormPage() {
                 formId={form?.id}
                 formSlug={form?.slug}
                 allFormValues={formValues}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
@@ -1477,6 +1532,8 @@ export default function EmbedFormPage() {
                 formId={form?.id}
                 formSlug={form?.slug}
                 allFormValues={formValues}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={currentField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
@@ -1517,8 +1574,8 @@ export default function EmbedFormPage() {
                     formValues={formValues}
                     buildPayload={buildSubmissionPayload}
                     idempotencyKey={getIdempotencyKey()}
-                    disabled={!canProceed || submitControl.disabled}
-                    disabledMessage={submitControl.message}
+                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
+                    disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                     onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
@@ -1549,7 +1606,7 @@ export default function EmbedFormPage() {
                 ) : (
                 <Button
                   onClick={handleSubmit}
-                  disabled={!canProceed || submitControl.disabled || submitFormMutation.isPending}
+                  disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
                   data-testid="button-submit-form"
                 >
                   {submitFormMutation.isPending ? (
@@ -1591,6 +1648,9 @@ export default function EmbedFormPage() {
           {form.description && (
             <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
           )}
+          <div className="mt-3">
+            <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+          </div>
           {surveyIntroText(form) && (
             <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
           )}
@@ -1643,6 +1703,8 @@ export default function EmbedFormPage() {
               formId={form?.id}
               formSlug={form?.slug}
               allFormValues={formValues}
+              currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+              currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
               allFields={form?.fields || []}
               rootAllFields={form?.fields || []}
               rootAllFormValues={formValues}
@@ -1666,6 +1728,8 @@ export default function EmbedFormPage() {
                 formId={form?.id}
                 formSlug={form?.slug}
                 allFormValues={formValues}
+                currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
@@ -1727,7 +1791,7 @@ export default function EmbedFormPage() {
                 <Button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={submitControl.disabled || submitFormMutation.isPending}
+                  disabled={submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
                   className="w-full sm:w-auto"
                   data-testid="button-submit-form"
                 >
@@ -1749,8 +1813,8 @@ export default function EmbedFormPage() {
                 formValues={formValues}
                 buildPayload={buildSubmissionPayload}
                 idempotencyKey={getIdempotencyKey()}
-                disabled={submitControl.disabled}
-                disabledMessage={submitControl.message}
+                disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
+                disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                 busy={submitFormMutation.isPending}
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                 onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {

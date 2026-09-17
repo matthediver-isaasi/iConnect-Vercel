@@ -54,6 +54,10 @@ args = "stripe-address-mappings"
 task = "workflow.run"
 args = "monthly-membership-activation"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "department-current-set"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -117,6 +121,17 @@ args = "node --test api/_lib/formEntityPipelines.test.mjs api/_lib/formMonthlyCa
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "department-current-set"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --test api/_lib/departmentCurrentSet*.test.mjs api/_lib/formRepeatableRowValidation.test.mjs api/public/form-draft.current-set.test.mjs api/public/form-submission.repeatable.test.mjs api/public/formSubmissionProcessingOrigin.test.mjs api/forms/process-application.current-set.test.mjs shared/formRepeatableRows.test.mjs scripts/*department-current-set*.test.mjs supabase/migrations/departmentCurrentSetMigration.test.mjs && npx tsx --test client/src/lib/departmentCurrentSet.test.mjs client/src/components/canvas/blocks/formEmbedDepartmentContext.test.mjs server/vercel-api-adapter.test.ts"
 
 [userenv]
 

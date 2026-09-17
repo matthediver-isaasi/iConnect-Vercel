@@ -4,6 +4,12 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { stripFormNoRelationshipValues } from '../../shared/formNoRelationshipChoice.js';
+import {
+  DEPARTMENT_CURRENT_SET_FORM_ID,
+  DEPARTMENT_CURRENT_SET_METADATA_KEY,
+  DepartmentCurrentSetError,
+  loadDepartmentCurrentSet,
+} from '../_lib/departmentCurrentSet.js';
 
 // Generate a secure random token
 function generateResumeToken() {
@@ -18,7 +24,48 @@ function hashToken(token) {
 // Default draft expiry: 30 days
 const DEFAULT_EXPIRY_DAYS = 30;
 
-export default async function handler(req, res) {
+function currentSetDepartmentId(draftData) {
+  const id = draftData?.[DEPARTMENT_CURRENT_SET_METADATA_KEY]?.department_id;
+  return typeof id === 'string' ? id : null;
+}
+
+async function authorizeCurrentSetDraft({
+  supabase, req, tenantId, form, draftData, getMember, getActiveSession,
+}) {
+  // This is deliberately destination-pinned. Do not make every ordinary
+  // draft depend on the optional current-set table during staged rollout.
+  if (form?.id !== DEPARTMENT_CURRENT_SET_FORM_ID) return null;
+  const { data: config, error } = await supabase
+    .from('department_current_set_config')
+    .select('config')
+    .eq('tenant_id', tenantId)
+    .eq('form_id', form.id)
+    .maybeSingle();
+  if (error && error.code !== '42P01') throw error;
+  if (!config?.config) return null;
+  const departmentId = currentSetDepartmentId(draftData);
+  if (!departmentId) {
+    throw new DepartmentCurrentSetError(
+      400,
+      'CURRENT_SET_INCOMPLETE',
+      'A current Department draft must include its authorized Department and version.',
+    );
+  }
+  const currentSet = await loadDepartmentCurrentSet({
+    db: supabase, req, tenantId, formId: form.id, departmentId, getMember, getActiveSession,
+  });
+  const version = draftData?.[DEPARTMENT_CURRENT_SET_METADATA_KEY]?.version;
+  if (typeof version !== 'string' || version !== currentSet?.version) {
+    throw new DepartmentCurrentSetError(
+      409,
+      'CURRENT_SET_CONFLICT',
+      'Current Department data changed. Reload and review it before saving this draft.',
+    );
+  }
+  return { departmentId, version };
+}
+
+export default async function handler(req, res, dependencies = {}) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -30,11 +77,11 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if ((!supabaseUrl || !supabaseServiceKey) && !dependencies.supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     // POST: Save or update a draft
@@ -59,7 +106,7 @@ export default async function handler(req, res) {
       }
 
       // Use centralized tenant resolver (handles subdomains and custom domains)
-      const tenantData = await resolveTenantFromRequest(req);
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
       console.log('[Form Draft] Tenant resolution:', { 
         tenantData: tenantData ? { id: tenantData.id, slug: tenantData.slug } : null,
         host: req.headers['x-forwarded-host'] || req.headers.host 
@@ -110,6 +157,19 @@ export default async function handler(req, res) {
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
       const safeDraftData = stripFormNoRelationshipValues(draft_data, form.fields);
+      let currentSetDraft;
+      try {
+        currentSetDraft = await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: safeDraftData,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
 
       // Calculate expiry date (always use default since settings column doesn't exist)
       const expiryDays = DEFAULT_EXPIRY_DAYS;
@@ -122,13 +182,20 @@ export default async function handler(req, res) {
         
         const { data: existingDraft, error: findError } = await supabase
           .from('form_draft_submission')
-          .select('id, form_id')
+          .select('id, form_id, draft_data')
           .eq('resume_token_hash', tokenHash)
           .eq('tenant_id', tenantData.id)
           .single();
 
         if (findError || !existingDraft || existingDraft.form_id !== form.id) {
           return res.status(404).json({ error: 'Draft not found or expired' });
+        }
+        if (currentSetDraft
+          && currentSetDepartmentId(existingDraft.draft_data) !== currentSetDraft.departmentId) {
+          return res.status(409).json({
+            error: 'This draft belongs to a different Department.',
+            code: 'CURRENT_SET_DRAFT_DEPARTMENT_MISMATCH',
+          });
         }
 
         // Update existing draft
@@ -196,7 +263,7 @@ export default async function handler(req, res) {
       }
 
       // Use centralized tenant resolver (handles subdomains and custom domains)
-      const tenantData = await resolveTenantFromRequest(req);
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
       if (!tenantData) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
@@ -246,6 +313,18 @@ export default async function handler(req, res) {
         supabase, req, tenantId: tenantData.id, policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      try {
+        await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: draft.draft_data,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
 
       // Schema drift detection is not currently supported (form table lacks updated_at column)
       const schemaChanged = false;
@@ -280,7 +359,7 @@ export default async function handler(req, res) {
       }
 
       // Use centralized tenant resolver (handles subdomains and custom domains)
-      const tenantData = await resolveTenantFromRequest(req);
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
       if (!tenantData) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
@@ -289,14 +368,14 @@ export default async function handler(req, res) {
 
       const { data: draft, error: draftError } = await supabase
         .from('form_draft_submission')
-        .select('form_id')
+        .select('form_id, draft_data')
         .eq('resume_token_hash', tokenHash)
         .eq('tenant_id', tenantData.id)
         .maybeSingle();
       if (draftError || !draft) return res.status(404).json({ error: 'Draft not found or expired' });
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('access_policy, deactivate_at')
+        .select('id, access_policy, deactivate_at')
         .eq('id', draft.form_id)
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
@@ -309,6 +388,18 @@ export default async function handler(req, res) {
         supabase, req, tenantId: tenantData.id, policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      try {
+        await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: draft.draft_data,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
 
       const { error: deleteError } = await supabase
         .from('form_draft_submission')

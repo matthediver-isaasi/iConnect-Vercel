@@ -37,6 +37,13 @@ import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../../../shared/formNoRelationshipChoice.js";
 import { validateFutureDateFields } from "../../../../../shared/formFutureDates.js";
+import {
+  currentSetSaveBlocked,
+  currentSetCommitConfirmed,
+  currentSetSubmissionMetadata,
+  useDepartmentCurrentSet,
+} from "@/lib/departmentCurrentSet";
+import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
 
 const formQuillModules = {
   toolbar: [
@@ -101,6 +108,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const urlPrefillMemberId = urlParams.get('member_id');
   const urlPrefillOrgId = urlParams.get('organization_id');
   const draftToken = urlParams.get('draft');
+  const currentSetDepartmentParam = urlParams.get('department_id');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -319,6 +327,24 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ? { __access: formError.errorData.access }
     : null);
   const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
+  const departmentCurrentSet = useDepartmentCurrentSet({
+    form,
+    departmentId: currentSetDepartmentParam,
+    principalId: memberInfo?.id,
+    formValues,
+    setFormValues,
+    ready: defaultsInitialized && (!draftToken || draftLoaded),
+  });
+  const departmentCurrentSetBlocked = currentSetSaveBlocked({
+    enabled: departmentCurrentSet.active,
+    departmentId: departmentCurrentSet.departmentId,
+    loading: departmentCurrentSet.loading,
+    error: departmentCurrentSet.error,
+    currentSet: departmentCurrentSet.currentSet,
+    sectionIds: departmentCurrentSet.sectionIds,
+    acknowledgements: departmentCurrentSet.acknowledgements,
+    baselineReady: departmentCurrentSet.baselineReady,
+  });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
     form,
     formSlug: form?.slug,
@@ -392,6 +418,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     
     setIsSavingDraft(true);
     try {
+      if (departmentCurrentSet?.active
+          && (!departmentCurrentSet.baselineReady || departmentCurrentSet.error)) {
+        throw new Error(departmentCurrentSet.error?.message
+          || 'Current Department data has not been safely applied. Reload before saving a draft.');
+      }
       // Try to find an email field value for contact
       const emailField = form?.fields?.find(f => f.type === 'email');
       const contactEmail = emailField ? formValues[emailField.id] : null;
@@ -1416,6 +1447,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, []);
 
   const handleFieldChange = useCallback((fieldId, newValue) => {
+    departmentCurrentSet.markEdited();
     lastChangedFieldRef.current = {
       formId: form?.id,
       fieldId,
@@ -1427,11 +1459,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       fieldId,
       value: newValue,
     }));
-  }, [form?.id, form?.fields]);
+  }, [departmentCurrentSet, form?.id, form?.fields]);
 
   const handleFormNotListedTextChange = useCallback((fieldId, text) => {
+    departmentCurrentSet.markEdited();
     setFormValues(prev => setFormNotListedText(prev, fieldId, text));
-  }, []);
+  }, [departmentCurrentSet]);
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
@@ -1446,6 +1479,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
+      // Current-set forms require the public endpoint's authoritative
+      // processing lifecycle, even for a signed-in member without pipelines.
+      if (departmentCurrentSet.active) {
+        const result = await publicClient.submitForm({ ...data, idempotency_key: getIdempotencyKey() });
+        if (!currentSetCommitConfirmed(result)) {
+          throw new Error('Current Department data has not been confirmed as saved. Retry or reload and review it before continuing.');
+        }
+        return result;
+      }
       // Survey forms (Task #3330) must ALWAYS go through the public
       // submission endpoint — it is the only path that validates answers
       // against the published version snapshot, computes scores server-side,
@@ -1477,6 +1519,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           }, 2000);
         }
       };
+
+      // The public endpoint has already completed the current-set transaction
+      // and its server-owned processing. Do not run a second client lifecycle.
+      if (departmentCurrentSet.active) {
+        finalize();
+        return;
+      }
 
       // Exactly-once side effects: when the server collapses a double
       // submission, both callbacks receive the SAME submission id (the
@@ -1658,6 +1707,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const handleSubmit = async () => {
     if (!form) return;
+    if (departmentCurrentSetBlocked) {
+      setValidationErrors([departmentCurrentSetBlocked]);
+      toast.error(departmentCurrentSetBlocked);
+      return;
+    }
 
     // Conditional-logic submit control: guard here too so the payment
     // auto-submit path (which calls handleSubmitRef directly) cannot bypass
@@ -1788,13 +1842,26 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
     ));
+    const currentSetMetadata = currentSetSubmissionMetadata({
+      form,
+      departmentId: departmentCurrentSet.departmentId,
+      currentSet: departmentCurrentSet.currentSet,
+      acknowledgements: departmentCurrentSet.acknowledgements,
+    });
 
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
       submitted_by_email: memberInfo?.email || null,
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
-      submission_data: filteredFormValues,
+      submission_data: {
+        ...filteredFormValues,
+        ...(currentSetMetadata && {
+          [departmentCurrentSet.sectionIds.workforce]: formValues[departmentCurrentSet.sectionIds.workforce],
+          [departmentCurrentSet.sectionIds.equipment]: formValues[departmentCurrentSet.sectionIds.equipment],
+        }),
+        ...(currentSetMetadata && { __department_current_set: currentSetMetadata }),
+      },
       created_date: new Date().toISOString()
     };
 
@@ -2049,6 +2116,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {surveyIntroText(form) && (
                   <CardDescription className="whitespace-pre-line" data-testid="text-survey-intro">{surveyIntroText(form)}</CardDescription>
                 )}
+                <div className="mt-3">
+                  <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+                </div>
                 <div className="flex gap-1 mt-4">
                   {visibleFields.map((_, index) => (
                     <div
@@ -2093,6 +2163,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   formId={form?.id}
                   formSlug={form?.slug}
                   allFormValues={formValues}
+                  currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                  currentSetExistingBlankFieldsByRow={currentField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                   allFields={form?.fields || []}
                 />
               )}
@@ -2133,7 +2205,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {isLastStep ? (
                   <Button 
                     onClick={handleSubmit}
-                    disabled={!canProceed || submitControl.disabled || isSubmitting}
+                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || isSubmitting}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >
@@ -2197,6 +2269,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             {show_form_description && form.description && (
               <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
             )}
+            <div className="mt-3">
+              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+            </div>
             {hasPages && (
               <div className="mt-4">
                 <div className="flex items-center justify-between mb-2">
@@ -2249,6 +2324,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     formSlug={form?.slug}
                     formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                     allFormValues={formValues}
+                    currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                    currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                     allFields={form?.fields || []}
                   />
                 ));
@@ -2279,6 +2356,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           formSlug={form?.slug}
                           formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                           allFormValues={formValues}
+                        currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                        currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                           allFields={form?.fields || []}
                         />
                       ))}
@@ -2309,6 +2388,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               formSlug={form?.slug}
                               formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                               allFormValues={formValues}
+                            currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
+                            currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
                               allFields={form?.fields || []}
                             />
                           ))}
@@ -2425,7 +2506,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {isLastPage ? (
                   <Button 
                     onClick={handleSubmit}
-                    disabled={submitControl.disabled || isSubmitting}
+                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked || isSubmitting}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >

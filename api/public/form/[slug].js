@@ -6,6 +6,7 @@ import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
+import { DEPARTMENT_CURRENT_SET_FORM_ID } from '../../_lib/departmentCurrentSet.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
@@ -29,6 +30,31 @@ const AUTHENTICATED_EXTRA_FIELDS = [
   'member_entity_action', 'organization_entity_action',
   'additional_member_creations'
 ];
+
+function publicCurrentSetConfiguration(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+  const workforceFieldId = config.workforce_container_field_id || config.workforce_field_id || null;
+  const equipmentFieldId = config.equipment_container_field_id || config.equipment_field_id || null;
+  // This is deliberately not the persisted configuration. In particular, do
+  // not expose object/relationship identifiers or reconciliation controls on
+  // the public form projection. The authenticated current-set endpoint
+  // supplies the complete, authorized prefill contract when it is needed.
+  if (typeof workforceFieldId !== 'string' || typeof equipmentFieldId !== 'string') return null;
+  return {
+    workforce_field_id: workforceFieldId,
+    equipment_field_id: equipmentFieldId,
+    // These are raw form IDs only. They let the renderer distinguish a
+    // retained legacy blank from a new/cleared required field without exposing
+    // any object or relationship configuration.
+    equipment_existing_blank_required_field_ids: [
+      config.equipment?.form_fields?.serial_number,
+      config.equipment?.form_fields?.year_installed,
+      ...Object.entries(config.equipment_fields || {})
+        .filter(([, value]) => value === 'serial_number' || value === 'year_installed')
+        .map(([fieldId]) => fieldId),
+    ].filter((id, index, ids) => typeof id === 'string' && ids.indexOf(id) === index),
+  };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -203,6 +229,29 @@ export default async function handler(req, res) {
     publicForm.form_width = getPublicFormWidth(form);
     publicForm.access_policy_required = access.restricted;
     publicForm.access = access;
+
+    // Department current-set editing is opt-in through a separately persisted
+    // server contract. Project only an innocuous enablement flag and the two
+    // form container IDs; never expose its privileged object mappings.
+    if (form.id === DEPARTMENT_CURRENT_SET_FORM_ID) {
+      const { data: currentSetConfig, error: currentSetConfigError } = await supabase
+        .from('department_current_set_config')
+        .select('config')
+        .eq('tenant_id', tenant.id)
+        .eq('form_id', form.id)
+        .maybeSingle();
+      // During a staged rollout an older database may not yet have this
+      // optional table. It must never prevent unrelated public forms loading.
+      if (currentSetConfigError && currentSetConfigError.code !== '42P01') {
+        console.error('[Public Form API] Current-set configuration lookup failed:', currentSetConfigError.message);
+        return res.status(503).json({ error: 'Form configuration is temporarily unavailable' });
+      }
+      const safeCurrentSetConfiguration = publicCurrentSetConfiguration(currentSetConfig?.config);
+      if (safeCurrentSetConfiguration) {
+        publicForm.current_set_enabled = true;
+        publicForm.current_set_configuration = safeCurrentSetConfiguration;
+      }
+    }
 
     if (hasValidSession) {
       for (const field of AUTHENTICATED_EXTRA_FIELDS) {

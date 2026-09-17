@@ -25,3 +25,9 @@ test("event click endpoints are discoverable through the Vercel API adapter", as
   assert.equal(typeof counts?.handler, "function");
   assert.deepEqual(counts?.params, {});
 });
+
+test("Department current-set prefill is discoverable through the Vercel API adapter", async () => {
+  const result = await findHandler("/api/public/form/current-set");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, {});
+});

@@ -478,6 +478,20 @@ class PublicClient {
       credentials: 'include'
     });
   }
+
+  // Department current-set data is only available to an authenticated,
+  // department-authorized respondent. The server resolves the member from the
+  // session; callers must never provide a member id or trusted row identities.
+  async getDepartmentCurrentSet(_formSlug, formId, departmentId) {
+    if (!formId || !departmentId) return null;
+    const params = new URLSearchParams({
+      department_id: departmentId,
+      form_id: formId,
+    });
+    return this._fetch(`/api/public/form/current-set?${params.toString()}`, {
+      credentials: 'include',
+    });
+  }
   
   // Categories
   async listCategories() {

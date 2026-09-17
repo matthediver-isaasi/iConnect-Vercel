@@ -72,6 +72,11 @@ import {
   validateMemberOrganizationGroupWrite,
   MemberOrganizationGroupValidationError,
 } from '../_lib/formMemberOrganizationGroup.js';
+import {
+  DEPARTMENT_CURRENT_SET_FORM_ID,
+  DepartmentCurrentSetError,
+  reconcileDepartmentCurrentSet,
+} from '../_lib/departmentCurrentSet.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -892,6 +897,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
       return res.status(404).json({ error: 'Persisted form submission was not found', code: 'SUBMISSION_NOT_FOUND' });
     }
+    let currentSetConfiguration = null;
+    if (persistedForm.id === DEPARTMENT_CURRENT_SET_FORM_ID) {
+      const { data: currentSetConfig, error: currentSetConfigError } = await supabase
+        .from('department_current_set_config')
+        .select('config')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('form_id', persistedForm.id)
+        .maybeSingle();
+      if (currentSetConfigError && currentSetConfigError.code !== '42P01') throw currentSetConfigError;
+      currentSetConfiguration = currentSetConfig?.config || null;
+    }
+    const hasCurrentSetProcessing = !!currentSetConfiguration;
     const persistedProcessingNotes = Array.isArray(persistedSubmission.processing_notes)
       ? persistedSubmission.processing_notes
       : [];
@@ -1246,6 +1263,73 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       allowPersistedCustomObjectCreates: trustedInternal,
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
+    let currentSetResult = null;
+    if (hasCurrentSetProcessing) {
+      // The signed public handoff stamps the submitter identity after resolving
+      // the browser session. It is not client input, and the reconcile RPC
+      // still revalidates the active Department responder relationship at the
+      // exact mutation point (including retries after revocation).
+      const currentSetMember = trustedInternal
+        ? (verified_submitter_member_id
+          ? { id: verified_submitter_member_id, tenant_id: effectiveEntityTenantId }
+          : null)
+        : authenticatedSubmitterMember;
+      try {
+        currentSetResult = await reconcileDepartmentCurrentSet({
+          db: supabase,
+          req,
+          tenantId: effectiveEntityTenantId,
+          formId: persistedForm.id,
+          submissionId: submission_id,
+          values: authoritativeAnswers,
+          getMember: async () => currentSetMember,
+        });
+        if (!['committed', 'replayed'].includes(currentSetResult?.status)
+          || typeof currentSetResult?.version !== 'string'
+          || !currentSetResult.version) {
+          throw new DepartmentCurrentSetError(
+            503,
+            'CURRENT_SET_UNCOMMITTED',
+            'Current Department data did not return a durable commit marker',
+          );
+        }
+        addProcessingNote({
+          kind: 'department_current_set_state',
+          status: currentSetResult?.status === 'replayed' ? 'committed' : currentSetResult?.status,
+          version: currentSetResult?.version || null,
+        });
+      } catch (error) {
+        // A retained submission is intentionally retryable, but it must not
+        // appear committed in submission/report views. An unavailable/ambiguous
+        // RPC result remains pending because the transaction may have committed
+        // before its response was lost; the reconciliation ledger is the
+        // authority and the next idempotent retry resolves it. Replace rather
+        // than append the display marker so readers have one current status.
+        const ambiguous = error?.status >= 500
+          || ['CURRENT_SET_UNAVAILABLE', 'CURRENT_SET_AMBIGUOUS'].includes(error?.code);
+        const failedState = {
+          kind: 'department_current_set_state',
+          status: ambiguous ? 'pending' : 'failed',
+          code: error?.code || 'CURRENT_SET_FAILED',
+          at: new Date().toISOString(),
+        };
+        try {
+          const { error: stateError } = await supabase.from('form_submission')
+            .update({
+              processing_notes: [
+                ...persistedProcessingNotes.filter(note => note?.kind !== 'department_current_set_state'),
+                failedState,
+              ],
+            })
+            .eq('id', submission_id)
+            .eq('tenant_id', effectiveEntityTenantId);
+          if (stateError) console.error('[AppProcessor] Failed to persist current-set failure state:', stateError);
+        } catch (stateError) {
+          console.error('[AppProcessor] Failed to persist current-set failure state:', stateError);
+        }
+        throw error;
+      }
+    }
 
     const hasStripeAddressMappingWork = !!(
       persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
@@ -1335,6 +1419,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
               applied: false,
               alreadyApplied: true,
             },
+            ...(currentSetResult ? { current_set: currentSetResult } : {}),
           });
         }
       }
@@ -1401,7 +1486,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     try {
       await preflightPersistedStructuredMemberOrganizationGroups({
         db: supabase,
-        form: persistedForm,
+        form: hasCurrentSetProcessing
+          ? { ...persistedForm, structured_actions: null }
+          : persistedForm,
         submission: persistedSubmission,
         tenantId: effectiveEntityTenantId,
         visibilityOptions: submitControlOptions,
@@ -1687,7 +1774,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         const relatedRecords = await processPrimaryPipelineRelatedRecords({
           db: supabase,
           tenantId: effectiveEntityTenantId,
-          form: persistedForm,
+          form: hasCurrentSetProcessing
+            ? { ...persistedForm, structured_actions: null }
+            : persistedForm,
           submission: persistedSubmission,
           memberId: existingSubmission.created_member_id,
           organizationId: existingSubmission.created_organization_id,
@@ -1801,6 +1890,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           ...(relatedRecords ? { related_records: relatedRecords } : {}),
           stripe_address_mappings: stripeAddressMappings,
           ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
+          ...(currentSetResult ? { current_set: currentSetResult } : {}),
         });
       }
     }
@@ -5105,7 +5195,12 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
       if (processingNotes.length > 0) {
-        updatePayload.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+        updatePayload.processing_notes = [
+          ...(hasCurrentSetProcessing
+            ? persistedProcessingNotes.filter(note => note?.kind !== 'department_current_set_state')
+            : persistedProcessingNotes),
+          ...processingNotes,
+        ];
       }
       if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult || stripeAddressMappings?.configured)) {
         updatePayload.payment_meta = {
@@ -5188,6 +5283,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       ...(relatedRecords ? { related_records: relatedRecords } : {}),
       stripe_address_mappings: stripeAddressMappings,
       ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
+      ...(currentSetResult ? { current_set: currentSetResult } : {}),
     });
   } catch (error) {
     await releaseStripeProcessingLease();
@@ -5203,6 +5299,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       return res.status(error.status || 403).json({
         error: error.message,
         code: error.code || 'STRUCTURED_ACTION_FORBIDDEN',
+      });
+    }
+    if (error instanceof DepartmentCurrentSetError) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        code: error.code || 'CURRENT_SET_FAILED',
+        retryable: error.status >= 500,
       });
     }
     if (error instanceof StripeAddressMappingError) {

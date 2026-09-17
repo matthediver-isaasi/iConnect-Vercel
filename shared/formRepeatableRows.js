@@ -884,7 +884,8 @@ export function validateRepeatableRows(field, value, options = {}) {
     for (const child of config.children) {
       if (hiddenChildIds.has(child.id)) continue;
       const selected = row[child.id];
-      if (child.required && isRepeatableValueEmpty(selected)) {
+      if (child.required && isRepeatableValueEmpty(selected)
+          && !options.allowRequiredBlank?.({ child, row, rowIndex, field })) {
         errors.push({ code: 'required_child', row: rowIndex, child_id: child.id, message: `${child.label || child.id} is required in row ${rowIndex + 1}` });
         continue;
       }

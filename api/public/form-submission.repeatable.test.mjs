@@ -1,17 +1,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import handler, { buildSubmissionEmailRequestContext } from './form-submission.js';
+import handler, {
+  buildSubmissionEmailRequestContext,
+  hasCurrentSetCommit,
+} from './form-submission.js';
 import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
   FORM_NOT_LISTED_TEXT_KEY,
   FORM_NOT_LISTED_VALUE,
 } from '../../shared/formNotListedChoice.js';
+import { buildDepartmentCurrentSetCompatibilityContract } from '../_lib/departmentCurrentSetCompatibility.js';
 
 const LIVE_ORGANISATION_FIELD_ID = 'field_1787065791684';
 const LIVE_ORGANISATION_REGION_SOURCE_ID = 'student_org_region';
 const LIVE_ORGANISATION_REGION_FIELD_ID = 'organization-region';
+const CURRENT_SET_FORM_ID = '8b6f44d3-83f8-449e-9496-b10b1dc28e5f';
+const CURRENT_SET_TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const CURRENT_SET_DEPARTMENT_ID = 'cd1ebfd3-3e16-4091-be5a-99992d926f2f';
+const CURRENT_SET_MEMBER_ID = '5e07a96c-cda1-4a0b-a6fe-951ffb62142';
+
+// Internal processing signatures are deliberately required by the handler.
+// Keep this test-only value stable; production still fails closed when absent.
+process.env.SESSION_SECRET ||= 'current-set-test-session-secret';
 
 function affectedFormFixture() {
   const organisationField = {
@@ -104,12 +116,15 @@ function makePublicSubmissionBoundaryDb(
     surveyVersion = null,
     surveySnapshots = null,
     existingSubmission = null,
+    currentSetConfig = null,
+    currentSetLoad = null,
     failReadyOnce = false,
     failCheckpointOnce = false,
   } = {},
 ) {
   const insertedSubmissions = [];
   const deletedSubmissionIds = [];
+  const queriedTables = [];
   let submissionRow = existingSubmission ? structuredClone(existingSubmission) : null;
   let readyFailuresRemaining = failReadyOnce ? 1 : 0;
   let checkpointFailuresRemaining = failCheckpointOnce ? 1 : 0;
@@ -117,6 +132,7 @@ function makePublicSubmissionBoundaryDb(
   class Query {
     constructor(table) {
       this.table = table;
+      queriedTables.push(table);
       this.selected = '';
       this.insertPayload = null;
       this.updatePayload = null;
@@ -161,6 +177,10 @@ function makePublicSubmissionBoundaryDb(
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (this.table === 'department_current_set_config') {
+        return { data: currentSetConfig ? { config: structuredClone(currentSetConfig) } : null, error: null };
+      }
+      if (this.table === 'form') return { data: form, error: null };
       if (this.table === 'survey_version') {
         const snapshotId = this.filters.find(
           filter => filter[0] === 'eq' && filter[1] === 'id',
@@ -171,6 +191,13 @@ function makePublicSubmissionBoundaryDb(
         };
       }
       if (this.table === 'form_submission' && submissionRow) {
+        const idempotencyKey = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'idempotency_key',
+        )?.[2];
+        if (idempotencyKey && submissionRow.idempotency_key !== undefined
+          && submissionRow.idempotency_key !== idempotencyKey) {
+          return { data: null, error: null };
+        }
         return { data: structuredClone(submissionRow), error: null };
       }
       if (this.table === 'organization') {
@@ -227,10 +254,16 @@ function makePublicSubmissionBoundaryDb(
   return {
     insertedSubmissions,
     deletedSubmissionIds,
+    queriedTables,
     getSubmissionRow() { return structuredClone(submissionRow); },
     client: {
       from(table) { return new Query(table); },
-      async rpc() { return { data: null, error: null }; },
+      async rpc(name) {
+        if (name === 'department_current_set_load_authenticated') {
+          return { data: structuredClone(currentSetLoad), error: null };
+        }
+        return { data: null, error: null };
+      },
     },
   };
 }
@@ -244,6 +277,80 @@ function makeResponseRecorder() {
       status(code) { response.statusCode = code; return this; },
       json(body) { response.body = body; return body; },
     },
+  };
+}
+
+function currentSetConfigFixture() {
+  const config = {
+    workforce_container_field_id: 'workforce',
+    equipment_container_field_id: 'equipment',
+    workforce_fields: {},
+    equipment_fields: { serial: 'serial_number', installed: 'year_installed' },
+    required_blank_policy: {
+      existing_equipment_blank_required_field_ids: ['serial', 'installed'],
+      new_equipment_required_field_ids: ['serial', 'installed'],
+    },
+    equipment_hidden_preserve: {},
+  };
+  return {
+    ...config,
+    form_compatibility: buildDepartmentCurrentSetCompatibilityContract({
+      form: currentSetFormFixture(),
+      configuration: config,
+    }),
+  };
+}
+
+function currentSetFormFixture() {
+  return {
+    ...affectedFormFixture(),
+    id: CURRENT_SET_FORM_ID,
+    tenant_id: CURRENT_SET_TENANT_ID,
+    require_authentication: true,
+    entity_action: 'none',
+    member_entity_action: 'none',
+    organization_entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+    fields: [{
+      id: 'workforce', type: 'repeatable_rows', min_rows: 0, max_rows: 20,
+      first_row_required: false, child_fields: [{ id: 'workforce_note', type: 'text' }],
+    }, {
+      id: 'equipment', type: 'repeatable_rows', min_rows: 0, max_rows: 100,
+      first_row_required: false, child_fields: [
+        { id: 'serial', type: 'text', required: true },
+        { id: 'installed', type: 'date', required: true, date_precision: 'year' },
+      ],
+    }],
+  };
+}
+
+function currentSetAnswers(version = 'department-version-1') {
+  return {
+    workforce: [],
+    equipment: [],
+    __department_current_set: {
+      department_id: CURRENT_SET_DEPARTMENT_ID,
+      version,
+      complete_sections: ['workforce', 'equipment'],
+    },
+  };
+}
+
+function currentSetLoadFixture(version = 'department-version-1') {
+  return {
+    version,
+    department_id: CURRENT_SET_DEPARTMENT_ID,
+    complete_sections: ['workforce', 'equipment'],
+    form_values: currentSetAnswers(version),
+  };
+}
+
+function jsonProcessingResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    async json() { return body; },
   };
 }
 
@@ -264,6 +371,239 @@ test('ordinary submissions validate persisted row-source answers before the firs
   assert.match(validationBlock, /form: relationshipForm/);
   assert.match(validationBlock, /submissionData: submission_data \|\| \{\}/);
   assert.doesNotMatch(validationBlock, /req\.body\.(?:fields|option_source)/);
+});
+
+test('Department current-set submissions are authenticated, preflighted, and processed without generic pipelines', async () => {
+  const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+  const preflight = source.indexOf('assertCurrentSetFormValues({');
+  const insert = source.indexOf('.insert(finalSubmissionRecord)');
+  assert.ok(preflight > -1, 'current-set metadata is validated');
+  assert.ok(preflight < insert, 'current-set authorization/preflight occurs before submission persistence');
+  assert.match(source, /const isAuthedCurrentSet = hasCurrentSetProcessing && hasTenantSession/);
+  assert.match(source, /if \(\(hasEntityPipelines \|\| hasCurrentSetProcessing\) && !surveyIsAnonymous\)/);
+  assert.match(source, /hasCurrentSetCommit\(result\)/);
+});
+
+test('current-set retries retain the durable submission and replay processing before success', async () => {
+  const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+  assert.match(source, /if \(hasCurrentSetProcessing\) \{[\s\S]*?Current-set retry processing failed/);
+  assert.match(source, /if \(!hasCurrentSetProcessing\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
+  assert.match(source, /!hasCurrentSetProcessing && form\.prevent_duplicate_email_submission/);
+});
+
+test('current-set form reports success only after the processor returns a durable commit marker', async () => {
+  const form = currentSetFormFixture();
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+  });
+  const processingBodies = [];
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'current-set-commit-key',
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async (_url, options) => {
+      processingBodies.push(JSON.parse(options.body));
+      return jsonProcessingResponse(200, {
+        success: true,
+        current_set: { status: 'committed', version: 'department-version-1' },
+      });
+    },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.body.success, true);
+  assert.equal(processingBodies.length, 1);
+  assert.equal(processingBodies[0].submission_id, 'submission-student-join');
+  assert.equal(db.insertedSubmissions[0].created_member_id, CURRENT_SET_MEMBER_ID);
+  assert.equal(db.insertedSubmissions[0].processing_notes[0].status, 'pending');
+
+  assert.equal(hasCurrentSetCommit({ success: true }), false);
+  assert.equal(hasCurrentSetCommit({ current_set: { status: 'committed' } }), false);
+  assert.equal(hasCurrentSetCommit({
+    current_set: { status: 'committed', version: 'department-version-1' },
+  }), true);
+});
+
+test('failed current-set processing preserves its durable submission rather than rolling it back', async () => {
+  const form = currentSetFormFixture();
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+  });
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'current-set-conflict-key',
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => jsonProcessingResponse(409, {
+      error: 'Current Department data changed',
+      code: 'CURRENT_SET_CONFLICT',
+    }),
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.body.code, 'CURRENT_SET_CONFLICT');
+  assert.equal(db.deletedSubmissionIds.length, 0);
+  assert.equal(db.insertedSubmissions.length, 1);
+});
+
+test('a committed current-set submission replays before an idempotent duplicate is acknowledged', async () => {
+  const form = currentSetFormFixture();
+  const existingSubmission = {
+    id: 'current-set-existing-submission',
+    idempotency_key: 'current-set-replay-key',
+    submission_data: currentSetAnswers(),
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+    existingSubmission,
+  });
+  const { response, res } = makeResponseRecorder();
+  let calls = 0;
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'current-set-replay-key',
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonProcessingResponse(200, {
+        success: true,
+        current_set: { status: 'replayed', version: 'department-version-1' },
+      });
+    },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.duplicate, true);
+  assert.equal(calls, 1);
+  assert.equal(db.insertedSubmissions.length, 0);
+});
+
+test('a revoked respondent cannot replay a pending current-set submission', async () => {
+  const form = currentSetFormFixture();
+  const existingSubmission = {
+    id: 'current-set-pending-submission',
+    idempotency_key: 'current-set-revoked-key',
+    submission_data: currentSetAnswers(),
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+    existingSubmission,
+  });
+  const { response, res } = makeResponseRecorder();
+  let fetchCalls = 0;
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'current-set-revoked-key',
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    getSessionMember: async () => null,
+    getActiveSession: async () => null,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return jsonProcessingResponse(200, { success: true });
+    },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.body.code, 'CURRENT_SET_AUTHENTICATION_REQUIRED');
+  assert.equal(fetchCalls, 0);
+});
+
+test('current-set users can make separate normal edits and forged metadata on other forms does not invoke reconciliation', async () => {
+  const form = currentSetFormFixture();
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+  });
+  const dependencies = {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => jsonProcessingResponse(200, {
+      success: true,
+      current_set: { status: 'committed', version: 'department-version-1' },
+    }),
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  };
+  for (const key of ['current-set-first-edit', 'current-set-second-edit']) {
+    const recorder = makeResponseRecorder();
+    await handler({
+      method: 'POST', headers: { host: 'bnms.test' },
+      body: { form_id: form.id, idempotency_key: key, submission_data: currentSetAnswers() },
+    }, recorder.res, dependencies);
+    assert.equal(recorder.response.statusCode, 201);
+  }
+  assert.equal(db.insertedSubmissions.length, 2);
+
+  const ordinaryForm = { ...affectedFormFixture(), entity_action: 'none', entity_pipelines: { members: [], organisations: [] } };
+  const ordinaryDb = makePublicSubmissionBoundaryDb(ordinaryForm);
+  const ordinaryRecorder = makeResponseRecorder();
+  let forgedFetches = 0;
+  await handler({
+    method: 'POST', headers: { host: 'student-join.test' },
+    body: {
+      form_id: ordinaryForm.id,
+      submission_data: {
+        student_email: 'student@example.test',
+        __department_current_set: currentSetAnswers().__department_current_set,
+      },
+    },
+  }, ordinaryRecorder.res, {
+    supabase: ordinaryDb.client,
+    tenantData: { id: ordinaryForm.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    fetchImpl: async () => { forgedFetches += 1; return jsonProcessingResponse(200, { success: true }); },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(ordinaryRecorder.response.statusCode, 201);
+  assert.equal(forgedFetches, 0);
+  assert.equal(ordinaryDb.queriedTables.includes('department_current_set_config'), false);
 });
 
 test('submission email diagnostics normalize token-bearing paths and ignore unknown surfaces', () => {

@@ -89,6 +89,8 @@ export async function validateRepeatableRowSubmission({
   relationshipService,
   visibilityOptions = {},
   hiddenFieldIds,
+  allowRequiredBlank,
+  isAllowedSpecialSelection,
 }) {
   if (!submissionData || typeof submissionData !== 'object' || Array.isArray(submissionData)) {
     throw new FormRelationshipError(400, 'Invalid submission data');
@@ -147,8 +149,10 @@ export async function validateRepeatableRowSubmission({
     const validation = validateRepeatableRows(validationField, structuralRows(value), {
       rootFields: fields,
       hiddenFieldIds: authoritativeHiddenFieldIds,
-      isAllowedSpecialSelection: ({ child, value: selected }) => (
-        isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child)
+      allowRequiredBlank,
+      isAllowedSpecialSelection: (selection) => (
+        (isFormNotListedValue(selection.value) && hasEnabledFormNotListedChoice(selection.child))
+        || isAllowedSpecialSelection?.(selection) === true
       ),
     });
     if (!validation.valid) {

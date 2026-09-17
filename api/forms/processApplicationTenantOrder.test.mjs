@@ -74,9 +74,22 @@ test('structured actions wait for actual primary pipelines and preserve existing
     src,
     /primaryRecords:\s*\{\s*memberId:\s*resolvedMemberId,\s*organizationId:\s*resolvedOrganizationId,\s*\}/,
   );
-  assert.match(
-    src,
-    /updatePayload\.processing_notes = \[\.\.\.persistedProcessingNotes, \.\.\.processingNotes\];/,
+  const assignment = src.match(/updatePayload\.processing_notes = (\[[\s\S]*?\n\s*\]);/);
+  assert.ok(assignment, 'processing must merge existing and newly produced notes');
+  const mergeNotes = new Function(
+    'persistedProcessingNotes', 'processingNotes', 'hasCurrentSetProcessing',
+    `return ${assignment[1]};`,
+  );
+  const oldNote = { kind: 'structured_action', message: 'Existing action note' };
+  const oldState = { kind: 'department_current_set_state', state: 'pending' };
+  const newNote = { kind: 'structured_action', message: 'New action note' };
+  const newState = { kind: 'department_current_set_state', state: 'committed' };
+  const persisted = [oldNote, oldState, null];
+  assert.deepEqual(mergeNotes(persisted, [newNote], false), [...persisted, newNote]);
+  assert.deepEqual(
+    mergeNotes(persisted, [newNote, newState], true),
+    [oldNote, null, newNote, newState],
+    'current-set status replacement must not discard unrelated persisted notes',
   );
 });
 

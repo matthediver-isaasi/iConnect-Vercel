@@ -128,6 +128,7 @@ import {
   buildSectionOverlayBackground,
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
+import { forwardCanvasDepartmentContext } from './formEmbedDepartmentContext';
 import { getEmbeddedPaymentReturnRelay, stripPaymentParams } from '@/lib/formPaymentReturn';
 import {
   PAYMENT_RETURN_READY_MESSAGE,
@@ -6166,6 +6167,12 @@ function FormEmbedRender({ block, asEditor, priority }) {
   // context, not inferred from an arbitrary provider return URL.
   if (block.id) params.set('payment_embed_instance', String(block.id));
   params.set('payment_embed_continue', micrositePrefix ? `/${micrositePrefix}` : '/');
+  // A Canvas page may be opened with an authorised Department context. Pass
+  // only that validated UUID to the same-origin public form iframe; never
+  // propagate arbitrary parent query values such as drafts or payment tokens.
+  if (typeof window !== 'undefined') {
+    forwardCanvasDepartmentContext(params, window.location.search);
+  }
   const qs = params.toString();
   const href = `/embed/form/${encodeURIComponent(form.slug)}${qs ? `?${qs}` : ''}`;
 
