@@ -170,6 +170,7 @@ export function savePaymentSubmissionContext({
   continuePath = null,
   status = null,
   terminalStatus = null,
+  presentationAccepted = false,
   pathname = typeof window !== 'undefined' ? window.location.pathname : '/',
   search = typeof window !== 'undefined' ? window.location.search : '',
   storage = typeof sessionStorage !== 'undefined' ? sessionStorage : null,
@@ -191,12 +192,21 @@ export function savePaymentSubmissionContext({
     ...(normalizedReturnPath ? { returnPath: normalizedReturnPath } : {}),
     ...(continuePath && normalizedContinuePath ? { continuePath: normalizedContinuePath } : {}),
     ...(normalizedStatus ? { status: normalizedStatus } : {}),
-    // A paid status is terminal even when callers only provide `status`.
-    // Keeping the marker explicit makes a refresh safe without trusting the
-    // status field alone.
+    // This is deliberately separate from terminalStatus: a verified Stripe
+    // charge can be acknowledged to the applicant while finalizing/accounting
+    // work remains queued on the server. It is only a local presentation
+    // receipt, never a claim that backend completion has finished.
+    ...(presentationAccepted === true ? { presentationAccepted: true } : {}),
+    // Preserve the established terminal status contract for non-acceptance
+    // flows. presentationAccepted is the separate local acknowledgement
+    // marker used by the one-off Stripe applicant copy.
     ...(terminalStatus === 'paid' || terminalStatus === 'attention'
       || normalizedStatus === 'paid' || normalizedStatus === 'attention'
-      ? { terminalStatus: terminalStatus === 'attention' || normalizedStatus === 'attention' ? 'attention' : 'paid' }
+      ? {
+        terminalStatus: terminalStatus === 'attention' || normalizedStatus === 'attention'
+          ? 'attention'
+          : 'paid',
+      }
       : {}),
   };
   storage.setItem(paymentContextKey(pathname, search), JSON.stringify(context));
@@ -229,6 +239,7 @@ export function loadPaymentSubmissionContext({
         : {}),
       ...(parsed.continuePath ? { continuePath: sanitizePaymentContinuePath(parsed.continuePath) } : {}),
       ...(VERIFIED_PAYMENT_STATUSES.has(parsed.status) ? { status: parsed.status } : {}),
+      ...(parsed.presentationAccepted === true ? { presentationAccepted: true } : {}),
       ...(parsed.terminalStatus === 'paid' || parsed.terminalStatus === 'attention'
         ? { terminalStatus: parsed.terminalStatus } : {}),
     };
@@ -337,8 +348,9 @@ export async function confirmFormPayment({
       : null;
     let status = VERIFIED_PAYMENT_STATUSES.has(json.status) ? json.status : null;
 
-    // Compatibility with the existing one-off response, which historically
-    // returned success/alreadyPaid without an explicit status.
+    // Preserve the legacy lifecycle mapping for non-Stripe and inline paths.
+    // This status compatibility is deliberately separate from the accepted
+    // presentation, which still requires explicit paymentSucceeded evidence.
     if (!status && res.ok && json.pending) status = 'pending';
     if (!status && res.ok && (json.success === true || json.alreadyPaid === true)) status = 'paid';
     // A server-verified successful charge whose accounting/finalisation failed
@@ -349,7 +361,10 @@ export async function confirmFormPayment({
     const result = {
       status,
       provider: verifiedProvider,
-      paymentSucceeded: json.paymentSucceeded === true || status === 'paid',
+      // Only the explicit server field is evidence that a one-off Stripe
+      // payment was verified. In particular, status/success/provider URL
+      // hints must not manufacture this boolean.
+      paymentSucceeded: json.paymentSucceeded === true,
       pending: json.pending === true || ['pending', 'finalizing', 'accounting_pending'].includes(status),
       retryable: typeof json.retryable === 'boolean'
         ? json.retryable

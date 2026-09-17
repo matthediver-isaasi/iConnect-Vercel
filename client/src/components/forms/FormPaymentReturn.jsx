@@ -52,6 +52,7 @@ const DEFAULT_PAYMENT_RETURN_STATE = {
   active: false,
   status: null,
   provider: null,
+  presentationAccepted: false,
   directDebitCompleted: false,
   error: null,
   canRecheck: false,
@@ -107,7 +108,12 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
         && !returnedSubmissionId
         && decision.submissionId === stored.submissionId));
   const terminalReceipt = receiptMatches
-    && (stored.terminalStatus === 'paid' || stored.terminalStatus === 'attention');
+    && (
+      stored.presentationAccepted === true
+      || stored.terminalStatus === 'paid'
+      || stored.terminalStatus === 'attention'
+    );
+  const presentationAccepted = receiptMatches && stored.presentationAccepted === true;
   const resumable = !isReturn && !!stored && !stored.legacy;
   const visibleStatus = receiptMatches
     && stored.status
@@ -119,8 +125,9 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
   if (terminalReceipt) {
     state = {
       active: true,
-       status: stored.terminalStatus,
+      status: stored.status || stored.terminalStatus || 'paid',
       provider: stored.provider || null,
+      presentationAccepted,
       directDebitCompleted: false,
       error: null,
       canRecheck: false,
@@ -131,6 +138,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'cancelled',
       provider: stored?.provider || null,
+      presentationAccepted: false,
       directDebitCompleted: false,
       error: null,
       canRecheck: false,
@@ -141,6 +149,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'failed',
       provider: stored?.provider || null,
+      presentationAccepted: false,
       directDebitCompleted: false,
       error: 'Payment was not completed. Nothing has been confirmed as charged.',
       canRecheck: false,
@@ -151,6 +160,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: 'pending',
       provider: null,
+      presentationAccepted: false,
       directDebitCompleted: false,
       error: null,
       canRecheck: false,
@@ -161,6 +171,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
       active: true,
       status: visibleStatus || 'confirming',
       provider: stored?.provider || decision.provider || null,
+      presentationAccepted: false,
       directDebitCompleted: isCompletedDirectDebit(
         stored?.provider || decision.provider || null,
         visibleStatus,
@@ -196,6 +207,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
     decision,
     isReturn,
     terminalReceipt,
+    presentationAccepted,
     context,
   };
 }
@@ -259,6 +271,16 @@ export function useFormPaymentReturn() {
       const out = await confirmFormPayment(context);
       if (!isCurrent()) return;
       const provider = out.provider || null;
+      // The only accepted one-off presentation is a response that carries
+      // both trusted Stripe identity and the explicit verified-payment bit.
+      // URL/session provider hints and generic success/status fields are not
+      // evidence. The response's provider and paymentSucceeded fields are the
+      // acceptance inputs. A known monthly-card return keeps its established
+      // lifecycle presentation even though that endpoint uses generic Stripe
+      // provider terminology.
+      const presentationAccepted = provider === 'stripe'
+        && out.paymentSucceeded === true
+        && context.provider !== 'stripe_monthly_card';
       // `attention` is terminal by design: a provider or processor may have
       // accepted an effect before its durable outcome was lost, so polling or
       // another browser confirmation must not replay it.
@@ -274,9 +296,10 @@ export function useFormPaymentReturn() {
           continuePath: context.continuePath,
           status: out.status,
           terminalStatus: terminal ? out.status : null,
+          presentationAccepted,
         });
       } catch { /* ignore */ }
-      if (terminal) {
+      if (terminal || presentationAccepted) {
         // Keep a short-lived, path-scoped receipt. Refreshing a verified
         // success must never reveal the payment form or issue another confirm;
         // this record contains only status/navigation metadata, never secrets.
@@ -286,14 +309,16 @@ export function useFormPaymentReturn() {
         active: true,
         status: out.status,
         provider,
+        presentationAccepted,
         directDebitCompleted,
         error: out.error || null,
-        canRecheck: !terminal && !directDebitCompleted,
+        canRecheck: !terminal && !presentationAccepted && !directDebitCompleted,
         pollingPaused: false,
         continuePath: context.continuePath || null,
       });
 
-      const shouldPoll = out.retryable
+      const shouldPoll = !presentationAccepted
+        && out.retryable
         && ['pending', 'finalizing', 'accounting_pending', 'blocked'].includes(out.status)
         // Keep the established pending Direct Debit / blocked manual flow;
         // only the Stripe finalization window needs to restart automatically.
@@ -327,7 +352,13 @@ export function useFormPaymentReturn() {
     mountedRef.current = true;
 
     const snapshot = readInitialPaymentReturn();
-    const { stored, decision, isReturn, terminalReceipt } = snapshot;
+    const {
+      stored,
+      decision,
+      isReturn,
+      terminalReceipt,
+      presentationAccepted,
+    } = snapshot;
     const cleanReturnUrl = () => {
       if (!isReturn) return;
       // Clean the payment params off the URL immediately — a refresh after
@@ -348,6 +379,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: stored?.terminalStatus || 'paid',
         provider: stored?.provider || null,
+        presentationAccepted,
         directDebitCompleted: false,
         error: null,
         canRecheck: false,
@@ -375,6 +407,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'cancelled',
         provider: stored?.provider || null,
+        presentationAccepted: false,
         directDebitCompleted: false,
         error: null,
         canRecheck: false,
@@ -392,6 +425,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'failed',
         provider: stored?.provider || null,
+        presentationAccepted: false,
         directDebitCompleted: false,
         error: 'Payment was not completed. Nothing has been confirmed as charged.',
         canRecheck: false,
@@ -410,6 +444,7 @@ export function useFormPaymentReturn() {
         active: true,
         status: 'pending',
         provider: null,
+        presentationAccepted: false,
         directDebitCompleted: false,
         error: null,
         canRecheck: false,
@@ -469,10 +504,47 @@ export function useFormPaymentReturn() {
       active: true,
       status: 'setup_complete',
       provider,
+      presentationAccepted: false,
       directDebitCompleted: true,
       error: null,
       canRecheck: false,
       continuePath: null,
+    });
+  }, [updateState]);
+
+  const adoptPaymentAcceptance = useCallback(({
+    submissionId,
+    provider = null,
+    status = 'paid',
+    paymentSucceeded = false,
+  } = {}) => {
+    if (!submissionId || provider !== 'stripe' || paymentSucceeded !== true) return;
+    let stored = null;
+    try { stored = loadPaymentSubmissionContext(); } catch { /* ignore */ }
+    try {
+      savePaymentSubmissionContext({
+        submissionId,
+        provider,
+        status,
+        terminalStatus: ['paid', 'attention'].includes(status) ? status : null,
+        returnPath: stored?.returnPath || null,
+        continuePath: stored?.continuePath || null,
+        presentationAccepted: true,
+      });
+    } catch { /* ignore */ }
+    contextRef.current = null;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    updateState({
+      active: true,
+      status,
+      provider,
+      presentationAccepted: true,
+      directDebitCompleted: false,
+      error: null,
+      canRecheck: false,
+      pollingPaused: false,
+      continuePath: stored?.continuePath || null,
     });
   }, [updateState]);
 
@@ -484,7 +556,7 @@ export function useFormPaymentReturn() {
     updateState({ ...DEFAULT_PAYMENT_RETURN_STATE });
   }, [updateState]);
   const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
-  return { ...state, dismiss, recheck, adoptCompletion };
+  return { ...state, dismiss, recheck, adoptCompletion, adoptPaymentAcceptance };
 }
 
 const SCREENS = {
@@ -574,6 +646,7 @@ const SCREENS = {
 export function FormPaymentReturnScreen({
   status,
   provider,
+  presentationAccepted = false,
   error,
   successMessage,
   onReturnToForm,
@@ -588,7 +661,8 @@ export function FormPaymentReturnScreen({
   onContinue,
 }) {
   const def = SCREENS[status] || SCREENS.confirming;
-  const Icon = def.icon;
+  const displayDef = presentationAccepted ? SCREENS.paid : def;
+  const Icon = displayDef.icon;
   const directDebitCompleted = provider === 'gocardless' && status === 'setup_complete';
   const pendingBody = provider === 'gocardless'
     ? 'Your Direct Debit set-up is being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.'
@@ -598,7 +672,9 @@ export function FormPaymentReturnScreen({
   const pausedBody = status === 'accounting_pending'
     ? 'We are still waiting for the remaining submission updates. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.'
     : 'We are still waiting for payment finalization. Automatic status checks are paused for now. Do not pay again. Choose “Check status again” to start another check window.';
-  const body = directDebitCompleted
+  const body = presentationAccepted
+    ? 'Thank you. Your payment has been received and your application has been submitted. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.'
+    : directDebitCompleted
     ? 'Your application has been submitted and your Direct Debit is set up.\nYour first payment will be collected separately.\nYou can now leave this page.'
     : status === 'paid'
     ? (successMessage || 'Thank you — your payment was received and your submission is complete.')
@@ -607,7 +683,9 @@ export function FormPaymentReturnScreen({
       : error
       ? error
       : status === 'pending' ? pendingBody : def.body;
-  const title = directDebitCompleted ? 'Application submitted' : def.title;
+  const title = presentationAccepted
+    ? 'Payment received — application submitted'
+    : directDebitCompleted ? 'Application submitted' : def.title;
   const showReturn = ['cancelled', 'failed'].includes(status) && onReturnToForm;
   // Never offer a completed, pending, or ambiguous payment back to the form:
   // that page contains payment controls and could invite a second attempt.
@@ -621,8 +699,8 @@ export function FormPaymentReturnScreen({
       data-payment-provider={provider || 'unknown'}
     >
       <CardContent className="p-10 text-center">
-        <div className={`w-16 h-16 ${def.bubbleClass} rounded-full flex items-center justify-center mx-auto mb-4`}>
-          <Icon className={`w-8 h-8 ${def.iconClass}`} />
+        <div className={`w-16 h-16 ${displayDef.bubbleClass} rounded-full flex items-center justify-center mx-auto mb-4`}>
+          <Icon className={`w-8 h-8 ${displayDef.iconClass}`} />
         </div>
         <h3 className="text-xl font-semibold text-slate-900 mb-2" data-testid="payment-return-title">{title}</h3>
         {body && <p className="text-slate-600 whitespace-pre-line" data-testid="payment-return-body">{body}</p>}

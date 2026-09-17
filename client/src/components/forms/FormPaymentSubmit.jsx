@@ -72,6 +72,7 @@ export default function FormPaymentSubmit({
   disabledMessage = null,
   busy = false,
   onPaid,
+  onPaymentAccepted,
   onSetupComplete,
   onNormalSubmit,
   submitLabel = 'Submit',
@@ -201,6 +202,15 @@ export default function FormPaymentSubmit({
           continuePath: continueHref,
         });
       } catch { /* Storage may be unavailable; keep the in-memory result. */ }
+      if (out.provider === 'stripe' && out.paymentSucceeded === true) {
+        onPaymentAccepted?.({
+          submissionId,
+          provider: out.provider,
+          status: out.status,
+          paymentSucceeded: out.paymentSucceeded,
+        });
+        return true;
+      }
       if (out.status !== 'paid') {
         if (out.status === 'setup_complete' && out.provider === 'gocardless') {
           // GoCardless setup_complete is a server-confirmed, finalized
@@ -226,7 +236,7 @@ export default function FormPaymentSubmit({
       confirmInFlightRef.current = false;
       if (isCurrent()) setConfirming(false);
     }
-  }, [onPaid, onSetupComplete, selectedProvider, continueHref]);
+  }, [onPaid, onPaymentAccepted, onSetupComplete, selectedProvider, continueHref]);
 
   const leaveForProvider = (url, paymentNavigation) => {
     // Stripe Checkout and some hosted mandate pages refuse to render in a

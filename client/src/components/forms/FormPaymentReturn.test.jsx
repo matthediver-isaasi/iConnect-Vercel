@@ -175,6 +175,103 @@ test('verified annual Stripe payment stays non-terminal while completion is queu
   container.remove();
 });
 
+test('trusted Stripe payment is accepted immediately for every server completion stage', async () => {
+  for (const status of ['finalizing', 'accounting_pending', 'attention']) {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', `/forms/accepted-${status}`);
+    savePaymentSubmissionContext({
+      submissionId: `accepted-${status}`,
+      provider: 'stripe',
+      pathname: `/forms/accepted-${status}`,
+    });
+    const calls = [];
+    globalThis.fetch = async (_url, options) => {
+      calls.push(JSON.parse(options.body));
+      return {
+        ok: status === 'attention' ? true : false,
+        json: async () => ({
+          provider: 'stripe',
+          status,
+          paymentSucceeded: true,
+          retryable: true,
+        }),
+      };
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(React.createElement(HookProbe));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(
+      container.querySelector('[data-testid="payment-return-title"]').textContent,
+      'Payment received — application submitted',
+    );
+    assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+    assert.match(
+      container.querySelector('[data-testid="payment-return-body"]').textContent,
+      /login instructions when your membership is ready/,
+    );
+    await act(async () => root.unmount());
+
+    const refreshedRoot = createRoot(container);
+    await act(async () => {
+      refreshedRoot.render(React.createElement(HookProbe));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.equal(calls.length, 1, `${status} acknowledgement must not confirm again on refresh`);
+    assert.equal(
+      container.querySelector('[data-testid="payment-return-title"]').textContent,
+      'Payment received — application submitted',
+    );
+    await act(async () => refreshedRoot.unmount());
+    container.remove();
+  }
+});
+
+test('verified-payment boolean without trusted Stripe provider stays safely unaccepted', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState(
+    {},
+    '',
+    '/forms/unknown-provider?form_payment_submission=unknown-provider&form_payment_provider=stripe',
+  );
+  savePaymentSubmissionContext({
+    submissionId: 'unknown-provider',
+    pathname: '/forms/unknown-provider',
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return {
+      ok: false,
+      json: async () => ({
+        status: 'accounting_pending',
+        paymentSucceeded: true,
+        retryable: false,
+      }),
+    };
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(HookProbe));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.equal(calls, 1);
+  assert.notEqual(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — application submitted',
+  );
+  assert.ok(container.querySelector('[data-testid="button-payment-return-recheck"]'));
+  await act(async () => root.unmount());
+  container.remove();
+});
+
 test('inline completion can adopt the verified DD outcome into the page-level screen', async () => {
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/forms/inline-dd');
@@ -205,6 +302,46 @@ test('inline completion can adopt the verified DD outcome into the page-level sc
   container.remove();
 });
 
+test('inline verified Stripe acceptance uses the same receipt and copy', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/inline-stripe');
+  let adoptPaymentAcceptance;
+  function AcceptProbe() {
+    const paymentReturn = useFormPaymentReturn();
+    adoptPaymentAcceptance = paymentReturn.adoptPaymentAcceptance;
+    if (!paymentReturn.active) return React.createElement('output', { 'data-testid': 'inactive' });
+    return React.createElement(FormPaymentReturnScreen, {
+      ...paymentReturn,
+      onRecheck: paymentReturn.recheck,
+      onReturnToForm: paymentReturn.dismiss,
+    });
+  }
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(React.createElement(AcceptProbe)));
+  await act(async () => {
+    adoptPaymentAcceptance({
+      submissionId: 'inline-stripe-accepted',
+      provider: 'stripe',
+      status: 'finalizing',
+      paymentSucceeded: true,
+    });
+  });
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — application submitted',
+  );
+  assert.match(container.textContent, /login instructions when your membership is ready/);
+  assert.equal(container.querySelector('[data-testid="button-payment-return-recheck"]'), null);
+  assert.match(
+    window.sessionStorage.getItem('form_payment_pending_submission') || '',
+    /"presentationAccepted":true/,
+  );
+  await act(async () => root.unmount());
+  container.remove();
+});
+
 test('verified paid receipt survives refresh without confirming or reopening payment', async () => {
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/forms/example');
@@ -212,6 +349,7 @@ test('verified paid receipt survives refresh without confirming or reopening pay
     submissionId: 'submission-paid',
     provider: 'stripe',
     terminalStatus: 'paid',
+    presentationAccepted: true,
     pathname: '/forms/example',
   });
   let calls = 0;
@@ -228,7 +366,10 @@ test('verified paid receipt survives refresh without confirming or reopening pay
   });
 
   assert.equal(calls, 0);
-  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment received');
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — application submitted',
+  );
   assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
   assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
 
@@ -281,7 +422,7 @@ test('a paid confirmation writes the terminal receipt used by refresh', async ()
     calls += 1;
     return {
       ok: true,
-      json: async () => ({ status: 'paid', provider: 'stripe' }),
+      json: async () => ({ status: 'paid', provider: 'stripe', paymentSucceeded: true }),
     };
   };
   const container = document.createElement('div');
@@ -301,7 +442,10 @@ test('a paid confirmation writes the terminal receipt used by refresh', async ()
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
   assert.equal(calls, 1, 'the receipt restores paid UI without a second confirm');
-  assert.equal(container.querySelector('[data-testid="payment-return-title"]').textContent, 'Payment received');
+  assert.equal(
+    container.querySelector('[data-testid="payment-return-title"]').textContent,
+    'Payment received — application submitted',
+  );
   await act(async () => refreshedRoot.unmount());
   container.remove();
 });
@@ -437,7 +581,7 @@ test('accounting_pending polling keeps its authoritative title through each dela
     json: async () => ({
       provider: 'stripe',
       status: 'accounting_pending',
-      paymentSucceeded: true,
+      paymentSucceeded: false,
       pending: true,
       retryable: true,
     }),

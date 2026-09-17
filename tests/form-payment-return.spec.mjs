@@ -96,6 +96,45 @@ for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixt
     expect(state.escapedWrites).toEqual([]);
   });
 
+  test(`${surface}: verified Stripe receipt is accepted without polling across finalization states`, async ({ page }) => {
+    for (const [status, httpStatus] of [
+      ['finalizing', 503],
+      ['accounting_pending', 503],
+      ['attention', 200],
+    ]) {
+      const state = await fixtures(page, [{
+        httpStatus,
+        body: {
+          provider: 'stripe',
+          status,
+          paymentSucceeded: true,
+          retryable: true,
+          error: 'Internal completion detail must not replace the receipt.',
+        },
+      }]);
+      const join = surface.includes('?') ? '&' : '?';
+      await page.goto(
+        `${surface}${join}payment_case=${status}&form_payment_submission=return-fixture-submission&form_payment_provider=gocardless`,
+      );
+      const screen = page.getByTestId('payment-return-screen');
+      await expect(screen).toHaveAttribute('data-payment-status', status);
+      await expect(page.getByTestId('payment-return-title')).toHaveText(
+        'Payment received — application submitted',
+      );
+      await expect(page.getByTestId('payment-return-body')).toHaveText(
+        'Thank you. Your payment has been received and your application has been submitted. We’ll email you with the next steps and login instructions when your membership is ready. You can now leave this page.',
+      );
+      await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+      expect(state.calls).toHaveLength(1);
+      await page.reload();
+      await expect(page.getByTestId('payment-return-title')).toHaveText(
+        'Payment received — application submitted',
+      );
+      await expect(page.getByTestId('button-payment-return-recheck')).toHaveCount(0);
+      expect(state.calls).toHaveLength(1);
+    }
+  });
+
   test(`${surface}: setup without collection never claims payment or submission completion`, async ({ page }) => {
     const state = await fixtures(page, [{ success: true, provider: 'stripe', status: 'setup_complete', paymentSucceeded: false }]);
     await openReturn(page);
@@ -111,7 +150,7 @@ for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixt
   test(`${surface}: blocked and accounting failures expose safe rechecking, not checkout`, async ({ page }) => {
     const state = await fixtures(page, [
       { httpStatus: 409, body: { success: false, provider: 'stripe', status: 'blocked', retryable: false, error: 'Membership needs administrator attention.' } },
-      { success: false, provider: 'stripe', status: 'accounting_pending', paymentSucceeded: true, retryable: false, error: 'Invoice posting will be retried.' },
+      { success: false, provider: 'stripe', status: 'accounting_pending', paymentSucceeded: false, retryable: false, error: 'Accounting status is not yet clear.' },
     ]);
     await openReturn(page);
     const screen = page.getByTestId('payment-return-screen');
@@ -120,7 +159,7 @@ for (const surface of ['/FormView?slug=return-fixture', '/embed/form/return-fixt
     await expect(page.getByTestId('button-return-to-form')).toHaveCount(0);
     await page.getByTestId('button-payment-return-recheck').click();
     await expect(screen).toHaveAttribute('data-payment-status', 'accounting_pending');
-    await expect(screen).toContainText('Invoice posting will be retried.');
+    await expect(screen).toContainText('Accounting status is not yet clear.');
     await expect(screen).not.toContainText('Direct Debit');
     expect(state.escapedWrites).toEqual([]);
   });
@@ -224,7 +263,7 @@ test('Stripe finalization crosses the one-minute worker interval, then stops aft
     success: false,
     provider: 'stripe',
     status: 'accounting_pending',
-    paymentSucceeded: true,
+    paymentSucceeded: false,
     retryable: true,
   };
   const state = await fixtures(page, [

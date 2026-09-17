@@ -365,12 +365,23 @@ const mkFetch = (status, body) => async () => ({
   json: async () => body,
 });
 
-test('confirm maps 200 to paid (including alreadyPaid repeats)', async () => {
+test('confirm requires explicit server payment evidence before mapping a paid result', async () => {
   const expected = {
-    status: 'paid', provider: null, paymentSucceeded: true, pending: false, retryable: false,
+    status: 'paid', provider: 'stripe', paymentSucceeded: true, pending: false, retryable: false,
   };
-  assert.deepEqual(await confirmFormPayment({ submissionId: 's', fetchImpl: mkFetch(200, { success: true }) }), expected);
-  assert.deepEqual(await confirmFormPayment({ submissionId: 's', fetchImpl: mkFetch(200, { alreadyPaid: true }) }), expected);
+  const body = { success: true, provider: 'stripe', status: 'paid', paymentSucceeded: true };
+  assert.deepEqual(await confirmFormPayment({ submissionId: 's', fetchImpl: mkFetch(200, body) }), expected);
+});
+
+test('confirm preserves legacy success status without fabricating accepted payment evidence', async () => {
+  const out = await confirmFormPayment({
+    submissionId: 's',
+    provider: 'stripe',
+    fetchImpl: mkFetch(200, { success: true }),
+  });
+  assert.equal(out.status, 'paid');
+  assert.equal(out.provider, null);
+  assert.equal(out.paymentSucceeded, false);
 });
 
 test('confirm fails closed on an empty or malformed successful response', async () => {
@@ -499,7 +510,7 @@ test('hook cleans the URL and sessionStorage key stays stable', () => {
   assert.match(src, /history\.replaceState/);
   assert.match(src, /window\.location\.hash/, 'URL cleaning must preserve the #hash (Stripe return_url carries it)');
   assert.equal(SS_KEY, 'form_payment_pending_submission');
-  assert.match(src, /PAYMENT_RETURN_POLL_DELAYS_MS = \[1500, 3000, 5000\]/);
+   assert.match(src, /PAYMENT_RETURN_STANDARD_POLL_DELAYS_MS = (?:Object\.freeze\()?[\[]1500, 3000, 5000/);
   assert.match(src, /button-payment-return-recheck/);
   assert.match(src, /button-payment-return-continue/);
 });

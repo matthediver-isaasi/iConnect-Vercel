@@ -26,3 +26,9 @@ Chrome-readiness gates must not replace the parent component type around live fo
 **Why:** Switching a hidden wrapper to the public layout remounts descendants even without a changing React key. Request-local guards cannot preserve an iframe document or entered answers across that replacement.
 
 **How to apply:** Keep the layout subtree mounted and change visibility while chrome resolves; verify document mounts and preserved input, not just network request counts.
+
+For a server-verified one-off Stripe payment, applicant acknowledgement must not wait for background membership, invoice, or mapping completion.
+
+**Why:** The user explicitly wants applicants to receive confirmation and leave immediately after payment; member access comes later through emailed login instructions. Internal retry or review states should not make a successfully paid applicant wait or pay again.
+
+**How to apply:** Keep the applicant receipt distinct from backend completion and access. Acknowledge only verified payment, preserve safe return navigation and refresh behaviour, and leave setup/retry status authoritative on the server. Never claim immediate membership access.

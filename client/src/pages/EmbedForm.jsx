@@ -1277,6 +1277,7 @@ export default function EmbedFormPage() {
         embedded
         status={paymentReturn.status}
         provider={paymentReturn.provider}
+        presentationAccepted={paymentReturn.presentationAccepted}
         error={paymentReturn.error}
         successMessage={form ? surveySuccessMessage(form) : null}
         onReturnToForm={paymentReturn.dismiss}
@@ -1515,6 +1516,13 @@ export default function EmbedFormPage() {
                     disabledMessage={submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                    onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptPaymentAcceptance({
+                        submissionId, provider, status, paymentSucceeded,
+                      });
+                      notifyParentResize();
+                    }}
                     onSetupComplete={(submissionId) => {
                       rotateIdempotencyKey();
                       paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
@@ -1734,6 +1742,13 @@ export default function EmbedFormPage() {
                 disabledMessage={submitControl.message}
                 busy={submitFormMutation.isPending}
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                  rotateIdempotencyKey();
+                  paymentReturn.adoptPaymentAcceptance({
+                    submissionId, provider, status, paymentSucceeded,
+                  });
+                  notifyParentResize();
+                }}
                 onSetupComplete={(submissionId) => {
                   rotateIdempotencyKey();
                   paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });

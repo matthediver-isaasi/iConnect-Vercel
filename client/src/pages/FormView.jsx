@@ -2108,6 +2108,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         <FormPaymentReturnScreen
           status={paymentReturn.status}
           provider={paymentReturn.provider}
+          presentationAccepted={paymentReturn.presentationAccepted}
           error={paymentReturn.error}
           successMessage={form ? surveySuccessMessage(form) : null}
           onReturnToForm={paymentReturn.dismiss}
@@ -2790,6 +2791,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       disabledMessage={submitControl.message}
                       busy={submitFormMutation.isPending}
                       onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                      onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                        rotateIdempotencyKey();
+                        paymentReturn.adoptPaymentAcceptance({
+                          submissionId, provider, status, paymentSucceeded,
+                        });
+                      }}
                       onSetupComplete={(submissionId) => {
                         rotateIdempotencyKey();
                         paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
@@ -3293,6 +3300,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     disabledMessage={submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptPaymentAcceptance({
+                        submissionId, provider, status, paymentSucceeded,
+                      });
+                    }}
                     onSetupComplete={(submissionId) => {
                       rotateIdempotencyKey();
                       paymentReturn.adoptCompletion({ submissionId, provider: 'gocardless' });
