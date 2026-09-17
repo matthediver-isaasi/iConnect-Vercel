@@ -1315,8 +1315,8 @@ export function CustomObjectRecordDetail() {
         ) : unplacedRelationships.length > 0 && (
           <section className="mt-8 border-t pt-7">
             <h2 className="mb-4 text-lg font-semibold text-slate-950">Related records</h2>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {unplacedRelationships.map((panel) => <RelatedRecordsPanel key={`${panel.definition.id}-${panel.side}`} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} />)}
+            <div className="grid min-w-0 grid-cols-1 gap-4">
+              {unplacedRelationships.map((panel) => <RelatedRecordsPanel key={`${panel.definition.id}-${panel.side}`} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} fullWidth />)}
             </div>
           </section>
         )}

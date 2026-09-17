@@ -6,6 +6,22 @@ const source = readFileSync(new URL('./CustomObjectRecords.jsx', import.meta.url
 const workspaceStart = source.indexOf('function CustomObjectRecordListWorkspace');
 const workspaceEnd = source.indexOf('function LegacyCustomObjectRecordList');
 const workspace = source.slice(workspaceStart, workspaceEnd);
+const detail = source.slice(source.indexOf('export function CustomObjectRecordDetail'));
+
+test('unplaced Data Object relationships opt into a full-width stack at every breakpoint', () => {
+  const relatedSection = detail.slice(detail.indexOf('unplacedRelationships.length > 0'));
+  assert.match(relatedSection, /className="grid min-w-0 grid-cols-1 gap-4"/);
+  assert.match(relatedSection, /unplacedRelationships\.map[\s\S]*showHeading=\{false\} fullWidth/);
+  assert.doesNotMatch(relatedSection, /(?:sm|md|lg|xl):grid-cols-/);
+  assert.match(detail, /mx-auto max-w-6xl/);
+});
+
+test('configured relationship cards retain their columns and embedded presentation', () => {
+  const configuredCards = detail.slice(detail.indexOf('layout.cards.filter'), detail.indexOf('unplacedRelationships.length > 0'));
+  assert.match(configuredCards, /card\.columns === 3 \? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2"/);
+  assert.match(configuredCards, /showHeading=\{false\} embedded displayMode=\{element.displayMode\}/);
+  assert.doesNotMatch(configuredCards, /fullWidth/);
+});
 
 test('Custom Object list renders the core CRM workspace regions and visual states', () => {
   assert.ok(workspaceStart >= 0 && workspaceEnd > workspaceStart);

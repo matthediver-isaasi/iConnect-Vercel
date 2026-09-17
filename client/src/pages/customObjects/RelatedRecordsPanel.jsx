@@ -458,7 +458,7 @@ function RelationshipPanel({
         {(query.isLoading || (loading && !edges.length)) ? <div aria-hidden="true" className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />)}</div>
           : query.error && !loading ? <div role="alert" className="p-5 text-sm text-rose-700"><CircleAlert className="mr-2 inline h-4 w-4" />{query.error.message} <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
             : !edges.length ? <div className="p-7 text-center text-sm text-slate-500">No {labelForSide(definition, editSide).toLowerCase()} linked yet.</div>
-              : <div className={resolvedDisplayMode === "columns" ? "overflow-x-auto" : ""}>{resolvedDisplayMode === "columns" && <>
+              : <div className={resolvedDisplayMode === "columns" ? "relative min-w-0 max-w-full overflow-x-auto" : ""}>{resolvedDisplayMode === "columns" && <>
                 <div className="flex justify-end border-b px-3 py-2">
                   {preferences.error && <span role="alert" className="mr-auto self-center text-xs text-rose-700">Column settings could not be loaded: {preferences.error.message}</span>}
                   {preferences.canPersist && <Button type="button" size="sm" variant="ghost" disabled={preferences.isSaving} onClick={() => persistColumnState(defaultRelationshipColumnState(descriptors))}>
@@ -552,7 +552,7 @@ function RelationshipPanel({
   );
 }
 
-export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false, displayMode = "columns", loadingOverlay = false }) {
+export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false, fullWidth = false, displayMode = "columns", loadingOverlay = false }) {
   const resolved = normalizeContext({ context, objectId, recordId });
   const includeArchived = resolved.kind === "custom_object"
     && Boolean(record?.archived_at || object?.status === "archived");
@@ -569,5 +569,5 @@ export function RelatedRecordsPanel({ context, objectId, recordId, object, recor
   if (!definition && definitionsQuery.isLoading) return <div className="mt-6 space-y-3"><div className="h-6 w-44 animate-pulse rounded bg-slate-200" /><div className="h-36 animate-pulse rounded-lg bg-slate-100" /></div>;
   if (!definition && definitionsQuery.error) return <Card className="mt-6 border-rose-200"><CardContent className="flex gap-3 p-5 text-sm text-rose-700"><CircleAlert className="h-5 w-5 shrink-0" />Relationship panels could not be loaded. {definitionsQuery.error.message}</CardContent></Card>;
   if (!panels.length) return null;
-  return <section className={`min-w-0 ${showHeading ? "mt-8 border-t pt-7" : ""}`}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid min-w-0 gap-4" : "grid min-w-0 gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${resolved.kind}-${resolved.objectId}-${resolved.recordId}-${includeArchived}-${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} displayMode={displayMode} loadingOverlay={loadingOverlay} />)}</div></section>;
+  return <section className={`min-w-0 ${showHeading ? "mt-8 border-t pt-7" : ""}`}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={fullWidth ? "grid min-w-0 grid-cols-1 gap-4" : embedded ? "grid min-w-0 gap-4" : "grid min-w-0 gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${resolved.kind}-${resolved.objectId}-${resolved.recordId}-${includeArchived}-${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} displayMode={displayMode} loadingOverlay={loadingOverlay} />)}</div></section>;
 }

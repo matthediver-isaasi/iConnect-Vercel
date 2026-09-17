@@ -153,3 +153,4 @@
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
+- [Positioned table overflow](positioned-table-overflow.md) — a bounded table scroller can still expand the document root unless positioned descendants are contained.

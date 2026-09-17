@@ -7,6 +7,22 @@ const source = await readFile(
   "utf8",
 );
 
+test("full width is opt-in and does not change embedded or default consumer grids", () => {
+  assert.match(source, /fullWidth = false/);
+  assert.match(source, /fullWidth \? "grid min-w-0 grid-cols-1 gap-4" : embedded \? "grid min-w-0 gap-4" : "grid min-w-0 gap-4 lg:grid-cols-2"/);
+  assert.match(source, /embedded \? "min-w-0 overflow-hidden border-slate-200 shadow-none" : "min-w-0 overflow-hidden"/);
+});
+
+test("wide relationship tables have a bounded scroll viewport below actions and limit messages", () => {
+  assert.match(source, /resolvedDisplayMode === "columns" \? "relative min-w-0 max-w-full overflow-x-auto" : ""/);
+  assert.match(source, /width: orderedDescriptors\.reduce/);
+  assert.match(source, /minWidth: "100%"/);
+  const viewport = source.indexOf(': <div className={resolvedDisplayMode === "columns"');
+  assert.ok(source.indexOf('This side has reached its configured relationship limit.') < viewport);
+  assert.ok(source.indexOf('{editable && <div') < viewport);
+  assert.match(source.slice(viewport), /Reset columns[\s\S]*<table[\s\S]*Move \$\{descriptor.label\} left[\s\S]*Resize \$\{descriptor.label\} column/);
+});
+
 test("relationship fields render through stable descriptor IDs in columns and shared controls in cards", () => {
   assert.match(
     source,
