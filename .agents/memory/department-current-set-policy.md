@@ -3,11 +3,11 @@ name: Department current-set policy
 description: Current workforce/equipment editing policy and existing missing equipment values.
 ---
 
-Department workforce and equipment forms maintain current sets, not annual returns. Reuse the existing Workforce Survey parent and Equipment Register records; do not introduce annual snapshots or run the separately prepared workforce import as a prerequisite.
+Department workforce and equipment maintain current sets, not annual returns. Workforce rows and Equipment Register records belong directly to a Department; the redundant Workforce Survey parent is retired. Do not introduce annual snapshots or run the separately prepared workforce import as a prerequisite.
 
-**Why:** The user explicitly replaced the annual-return design with current-data maintenance. The prepared import has independent review and approval requirements.
+**Why:** The user explicitly replaced the annual-return design with current-data maintenance, then requested removing the now-unnecessary survey parent. The prepared import has independent review and approval requirements.
 
-**How to apply:** Preserve existing record identity and provenance, reject multiple active workforce parents for one Department, and re-audit the prepared import before any separately approved execution.
+**How to apply:** Preserve existing workforce row identity and provenance; require one Department per row. The prepared form rollout and import still assume survey parents and must be adapted and re-audited before any separately approved execution. Never restore the parent model merely to make their old preflight pass.
 
 Existing equipment may retain previously missing serial numbers and installation years; new equipment must supply both.
 

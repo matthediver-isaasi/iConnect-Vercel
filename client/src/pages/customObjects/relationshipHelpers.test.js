@@ -41,6 +41,15 @@ import {
 } from "./relationshipHelpers.js";
 import { loadRelationshipDefinitions, relationshipRoutes } from "./relationshipApi.js";
 
+test("new relationships have no persisted fields when the definition is null or absent", () => {
+  for (const definition of [null, undefined, {}, { configuration: null }]) {
+    assert.deepEqual(relationshipFields(definition), []);
+    assert.deepEqual(relationshipFieldsForSide(definition, "source"), []);
+    assert.deepEqual(relationshipFieldsForSide(definition, "target"), []);
+    assert.equal(relationshipFieldsAreValid(definition), true);
+  }
+});
+
 test("identifies the configured side without recursive lookups", () => {
   assert.equal(
     displaySide(

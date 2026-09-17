@@ -3,6 +3,12 @@
 `scripts/configure-department-current-set.mjs` is the narrow, destination-pinned
 configuration step for BNMS form `8b6f44d3-83f8-449e-9496-b10b1dc28e5f`.
 
+> **Retirement notice:** This prepared rollout is superseded by the direct
+> Workforce Row → Department parent model. It is not an enablement or migration
+> instruction: a future reviewed rollout must first adapt its relationship
+> contract to that direct parent. Preserve this prepared history; do not rewrite
+> the import artifacts or migrations.
+
 It is dry-run-first. It fully pages the relevant Department, Workforce, Equipment
 records and relationship edges, verifies the saved year-only equipment questions,
 the one-parent workforce invariant, respondent relationship metadata, all six

@@ -9,6 +9,12 @@ The user explicitly approved:
 - Preserve exact canonical dropdown values, including the four trailing spaces.
 - Repeat the read-only destination GET audit.
 
+> **Retirement notice:** This prepared import is superseded by the direct
+> Workforce Row → Department parent model and is not approved for execution.
+> Before any future reviewed rollout, its relationship contract must be adapted
+> to that direct parent. Preserve this package and its history; do not rewrite
+> the import artifacts or migrations.
+
 They have **not approved** installing schema/function changes, invoking an import,
 changing metadata, running SQL, or making test writes. Preparing these files is
 not permission to execute them. No SQL has been executed for this preparation.

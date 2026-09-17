@@ -267,10 +267,10 @@ export const relationshipCreatePayload = ({
 const booleanValue = (value) => value === true || value === "true";
 
 export const relationshipFields = (definition = {}) => {
-  const configuration = definition.configuration || {};
+  const configuration = definition?.configuration || {};
   const configured = configuration.relationship_fields
     || configuration.relationshipFields
-    || definition.relationship_fields
+    || definition?.relationship_fields
     || [];
   if (!Array.isArray(configured)) return [];
   return configured.flatMap((field, index) => {
@@ -303,7 +303,7 @@ export const relationshipFieldsForSide = (definition = {}, side) =>
     ["source", "target"].includes(side) && field[`display_on_${side}`]);
 
 export const relationshipFieldsAreValid = (definition = {}) => {
-  const configured = definition.configuration?.relationship_fields || [];
+  const configured = definition?.configuration?.relationship_fields || [];
   if (!Array.isArray(configured)) return false;
   const keys = configured.map((field) =>
     String(field?.key || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""));
