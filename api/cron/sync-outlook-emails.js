@@ -89,12 +89,14 @@ export default async function handler(req, res) {
     const duration = Date.now() - startTime;
 
     try {
-      await supabase.from('scheduled_task_log').insert({
+      const { error: logError } = await supabase.from('scheduled_task_log').insert({
         task_name: 'outlook_email_sync',
-        status: results.errors > 0 ? (results.processed > 0 ? 'partial' : 'error') : (results.processed > 0 ? 'success' : 'no_action'),
+        task_display_name: 'Outlook Email Sync',
+        status: results.errors > 0 ? (results.processed > 0 ? 'partial' : 'failed') : (results.processed > 0 ? 'success' : 'no_action'),
         details: results,
         duration_ms: duration
       });
+      if (logError) throw logError;
     } catch (logErr) {
       console.error('[cron/sync-outlook-emails] Failed to log task:', logErr);
     }
