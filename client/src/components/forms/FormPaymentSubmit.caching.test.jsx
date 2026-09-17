@@ -39,6 +39,21 @@ const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query
 const FormPaymentSubmit = (await import('./FormPaymentSubmit.jsx')).default;
 const { useMembershipFeeQuote } = await import('../../lib/useMembershipFeeQuote.js');
 const { SS_KEY, paymentContextKey } = await import('../../lib/formPaymentReturn.js');
+const { useFormPaymentReturn, FormPaymentReturnScreen } = await import('./FormPaymentReturn.jsx');
+
+async function bounded(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out: ${label}; DOM: ${document.body.textContent}`)), 1000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const field = () => ({
   id: 'payment-1',
@@ -222,13 +237,13 @@ test('inline Stripe completion stores the verified paid receipt for refresh', as
     assert.ok(providerButton, 'provider discovery should expose the cached Stripe option');
     await act(async () => {
       providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await createDone;
+      await bounded(createDone, 'create request');
     });
     const confirmButton = container.querySelector('[data-testid="button-form-payment-confirm-payment-1"]');
     assert.ok(confirmButton, 'inline Stripe controls should mount after create');
     await act(async () => {
       confirmButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await paidDone;
+      await bounded(paidDone, 'paid callback');
     });
 
     assert.deepEqual(calls, ['create', 'confirm']);
@@ -247,7 +262,8 @@ test('inline Stripe completion stores the verified paid receipt for refresh', as
   }
 });
 
-test('real Drop-in success callback confirms setup_complete and adopts application completion', async () => {
+for (const monthly of [false, true]) {
+test(`real Drop-in success callback confirms ${monthly ? 'verified monthly' : 'legacy'} setup_complete`, async () => {
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/forms/inline-dd');
   const originalDropin = window.GoCardlessDropin;
@@ -280,6 +296,7 @@ test('real Drop-in success callback confirms setup_complete and adopts applicati
         ok: true,
         json: async () => ({
           provider: 'gocardless',
+          ...(monthly ? { paymentProvider: 'gocardless_monthly_dd', setupVerified: true } : {}),
           status: 'setup_complete',
           paymentSucceeded: false,
         }),
@@ -326,10 +343,13 @@ test('real Drop-in success callback confirms setup_complete and adopts applicati
       providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
-    assert.equal(await Promise.race([
-      complete,
-      new Promise((resolve) => setTimeout(() => resolve('timeout'), 50)),
-    ]), 'inline-dd-submission');
+    assert.deepEqual(await bounded(complete, 'Drop-in setup callback'), monthly ? {
+      submissionId: 'inline-dd-submission',
+      provider: 'gocardless',
+      paymentProvider: 'gocardless_monthly_dd',
+      setupVerified: true,
+      paymentCollected: false,
+    } : 'inline-dd-submission');
     assert.deepEqual(calls, ['create', 'confirm']);
   } finally {
     await act(async () => root.unmount());
@@ -340,6 +360,7 @@ test('real Drop-in success callback confirms setup_complete and adopts applicati
     else window.GoCardlessDropin = originalDropin;
   }
 });
+}
 
 test('inline confirm unmount plus SPA navigation cannot write a receipt to the new scope', async () => {
   window.sessionStorage.clear();
@@ -403,13 +424,13 @@ test('inline confirm unmount plus SPA navigation cannot write a receipt to the n
     assert.ok(providerButton);
     await act(async () => {
       providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await createDone;
+      await bounded(createDone, 'create request');
     });
     const confirmButton = container.querySelector('[data-testid="button-form-payment-confirm-payment-1"]');
     assert.ok(confirmButton);
     await act(async () => {
       confirmButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await confirmRequested;
+      await bounded(confirmRequested, 'confirm request');
     });
 
     window.history.pushState({}, '', '/forms/inline-destination?instance=destination');
@@ -508,13 +529,13 @@ test('repeated inline completion clicks serialize the shared confirm request', a
     assert.ok(providerButton);
     await act(async () => {
       providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await createDone;
+      await bounded(createDone, 'create request');
     });
     const confirmButton = container.querySelector('[data-testid="button-form-payment-confirm-payment-1"]');
     assert.ok(confirmButton);
     await act(async () => {
       confirmButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await confirmRequested;
+      await bounded(confirmRequested, 'confirm request');
     });
     // The first server confirm is deliberately still pending. A second click
     // must not issue another shared confirm request.
@@ -528,7 +549,7 @@ test('repeated inline completion clicks serialize the shared confirm request', a
       ok: true,
       json: async () => ({ status: 'paid', provider: 'stripe' }),
     });
-    await act(async () => { await paidDone; });
+    await act(async () => { await bounded(paidDone, 'serialized paid callback'); });
     assert.deepEqual(paid, ['serialized-inline-submission']);
     assert.equal(calls.filter((action) => action === 'confirm').length, 1);
   } finally {
@@ -589,7 +610,7 @@ test('alreadyPaid inline create writes the paid receipt before the completion ca
     assert.ok(providerButton);
     await act(async () => {
       providerButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await alreadyPaidDone;
+      await bounded(alreadyPaidDone, 'already paid callback');
     });
 
     assert.deepEqual(calls, ['create']);
@@ -606,3 +627,166 @@ test('alreadyPaid inline create writes the paid receipt before the completion ca
     globalThis.fetch = originalFetch;
   }
 });
+
+const reportedFinalizing = {
+  success: false, paymentSucceeded: true, provider: 'stripe', status: 'finalizing',
+  pending: true, retryable: true, reconciled: false,
+};
+
+for (const scenario of [
+  { name: 'reported annual finalizing', response: reportedFinalizing, accepted: 'payment' },
+  { name: 'verified annual paid', response: { ...reportedFinalizing, status: 'paid' }, accepted: 'payment' },
+  { name: 'annual receipt write failure', response: reportedFinalizing, accepted: 'payment', storage: 'write' },
+  { name: 'annual receipt read failure', response: reportedFinalizing, accepted: 'payment', storage: 'read' },
+  { name: 'annual unavailable storage', response: reportedFinalizing, accepted: 'payment', storage: 'missing' },
+  ...[false, true].map(collected => ({
+    name: `verified monthly card collected=${collected}`,
+    response: { provider: 'stripe', paymentProvider: 'stripe_monthly_card', setupVerified: true,
+      status: 'setup_complete', paymentSucceeded: collected }, accepted: 'setup',
+  })),
+  { name: 'monthly receipt write failure', response: { provider: 'stripe', paymentProvider: 'stripe_monthly_card',
+    setupVerified: true, status: 'setup_complete', paymentSucceeded: false }, accepted: 'setup', storage: 'write' },
+  { name: 'missing provider identity', response: { status: 'finalizing', paymentSucceeded: true } },
+  { name: 'missing payment verification', response: { provider: 'stripe', status: 'finalizing' } },
+  { name: 'monthly without setup proof even when paid', response: { provider: 'stripe',
+    paymentProvider: 'stripe_monthly_card', status: 'paid', paymentSucceeded: true } },
+  { name: 'monthly mismatched identity', response: { provider: 'stripe',
+    paymentProvider: 'gocardless_monthly_dd', setupVerified: true, status: 'paid', paymentSucceeded: true } },
+]) {
+  test(`real inline confirmation: ${scenario.name}`, { timeout: 5000 }, async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/forms/inline-regression');
+    const originalFetch = globalThis.fetch;
+    const originalStripe = window.Stripe;
+    const originalStorage = globalThis.sessionStorage;
+    const callbacks = [];
+    const calls = [];
+    const errors = [];
+    const onError = event => errors.push(event.error || event.reason || event.message);
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onError);
+    window.Stripe = () => ({
+      elements: () => ({ create: () => ({ mount() {} }), submit: async () => ({}) }),
+      confirmPayment: async () => {
+        calls.push('stripe-confirm');
+        return { paymentIntent: { id: 'pi_mock_only', status: 'succeeded' } };
+      },
+    });
+    globalThis.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.action);
+      if (body.action === 'create') return { ok: true, json: async () => ({
+        submissionId: 'inline-mock-only', publishableKey: 'pk_test_mock', clientSecret: 'cs_mock',
+      }) };
+      assert.equal(body.action, 'confirm');
+      assert.equal(body.acknowledge_setup, true);
+      assert.equal(body.submission_id, 'inline-mock-only');
+      return { ok: true, json: async () => scenario.response };
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
+    });
+    client.setQueryData(['form-payment-providers', 'forms'], [{ id: 'stripe', configured: true }]);
+    function InlinePage() {
+      const result = useFormPaymentReturn();
+      return result.active
+        ? React.createElement(FormPaymentReturnScreen, { ...result, continueHref: '/membership' })
+        : React.createElement(FormPaymentSubmit, {
+          field: field(), formValues: { price: '10' }, continueHref: '/membership',
+          buildPayload: async () => ({ form_id: 'inline-mock-form', submission_data: { price: '10' } }),
+          onPaid: value => callbacks.push(['paid', value]),
+          onPaymentAccepted: value => {
+            callbacks.push(['payment', value]);
+            result.adoptPaymentAcceptance(value);
+          },
+          onSetupComplete: value => {
+            callbacks.push(['setup', value]);
+            result.adoptCompletion(value);
+          },
+        });
+    }
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root = createRoot(container);
+    const render = () => root.render(
+      React.createElement(QueryClientProvider, { client }, React.createElement(InlinePage)),
+    );
+    const click = async testId => {
+      const button = container.querySelector(`[data-testid="${testId}"]`);
+      assert.ok(button, `Missing ${testId}: ${container.textContent}`);
+      await act(async () => {
+        button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 10));
+      });
+    };
+    try {
+      await act(async () => render());
+      await click('button-form-payment-stripe-payment-1');
+      // Fail persistence only after checkout has started, exercising both the
+      // inline receipt and the page-level adoption with the same storage fault.
+      if (scenario.storage === 'missing') globalThis.sessionStorage = null;
+      if (scenario.storage === 'read' || scenario.storage === 'write') {
+        globalThis.sessionStorage = {
+          getItem: key => {
+            if (scenario.storage === 'read') throw new Error('Storage read denied');
+            return originalStorage.getItem(key);
+          },
+          setItem: () => { throw new Error('Storage write denied'); },
+        };
+      }
+      await click('button-form-payment-confirm-payment-1');
+      assert.doesNotMatch(container.textContent, /setupAccepted is not defined|ReferenceError/);
+      assert.deepEqual(errors, []);
+      assert.deepEqual(calls, ['create', 'stripe-confirm', 'confirm']);
+      if (scenario.accepted) {
+        assert.deepEqual(callbacks.map(([kind]) => kind), [scenario.accepted]);
+        const title = scenario.accepted === 'payment'
+          ? 'Payment received — application submitted'
+          : 'Application submitted — monthly payments set up';
+        assert.equal(container.querySelector('[data-testid="payment-return-title"]')?.textContent, title);
+        assert.ok(container.querySelector('[data-testid="button-payment-return-continue"]'));
+        assert.equal(container.querySelector('[data-testid="form-payment-submit-payment-1"]'), null);
+        if (scenario.accepted === 'setup') {
+          assert.equal(callbacks[0][1].setupVerified, true);
+          assert.equal(callbacks[0][1].paymentCollected, scenario.response.paymentSucceeded);
+          assert.match(container.textContent, scenario.response.paymentSucceeded
+            ? /first payment has been received/i : /monthly payments are set up/i);
+          if (!scenario.response.paymentSucceeded) {
+            assert.doesNotMatch(container.textContent, /payment (?:has been )?received/i);
+          }
+        }
+        if (!scenario.storage) {
+          const receipt = JSON.parse(originalStorage.getItem(SS_KEY));
+          assert.doesNotMatch(JSON.stringify(receipt), /clientSecret|paymentIntent|price/);
+          assert.equal(scenario.accepted === 'payment' ? receipt.presentationAccepted : receipt.setupVerified, true);
+          await act(async () => root.unmount());
+          root = createRoot(container);
+          await act(async () => render());
+          assert.equal(container.querySelector('[data-testid="payment-return-title"]')?.textContent, title);
+          assert.equal(container.querySelector('[data-testid="form-payment-submit-payment-1"]'), null);
+          assert.deepEqual(calls, ['create', 'stripe-confirm', 'confirm']);
+          assert.equal(callbacks.length, 1);
+        }
+      } else {
+        assert.deepEqual(callbacks, [], 'Unverified results cannot invoke completion callbacks');
+        const receipt = JSON.parse(originalStorage.getItem(SS_KEY));
+        assert.notEqual(receipt.presentationAccepted, true);
+        assert.notEqual(receipt.setupVerified, true);
+        assert.notEqual(receipt.terminalStatus, 'paid');
+        assert.equal(container.querySelector('[data-testid="button-form-payment-confirm-payment-1"]'), null);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      container.remove();
+      globalThis.sessionStorage = originalStorage;
+      globalThis.fetch = originalFetch;
+      window.Stripe = originalStripe;
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onError);
+      // Let the component's existing delayed element mount finish before the
+      // next test reuses the same element IDs.
+      await new Promise(resolve => setTimeout(resolve, 110));
+    }
+  });
+}

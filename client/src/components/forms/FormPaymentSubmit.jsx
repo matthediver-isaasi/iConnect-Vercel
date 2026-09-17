@@ -190,38 +190,45 @@ export default function FormPaymentSubmit({
         provider: paymentProviderRef.current || selectedProvider,
       });
       if (!isCurrent()) return false;
-      setPaymentStage(out.status);
+      // Classify the authoritative response independently of optional receipt
+      // storage. Monthly setup must never fall through to one-off collection.
+      const monthlyPayment = MONTHLY_PAYMENT_PROVIDERS.has(out.paymentProvider);
+      const setupAccepted = monthlyPayment
+        && out.setupVerified === true
+        && ((out.paymentProvider === 'stripe_monthly_card' && out.provider === 'stripe')
+          || (out.paymentProvider === 'gocardless_monthly_dd' && out.provider === 'gocardless'));
+      const status = monthlyPayment && !setupAccepted ? 'pending' : out.status;
+      const paymentAccepted = !monthlyPayment
+        && out.provider === 'stripe' && out.paymentSucceeded === true;
+      setPaymentStage(status);
       // Inline Stripe and Drop-in completions need the same refresh receipt
       // as hosted returns. Persist only the server-confirmed outcome.
       try {
         const stored = loadPaymentSubmissionContext(scope);
-        const setupAccepted = MONTHLY_PAYMENT_PROVIDERS.has(out.paymentProvider)
-          && out.setupVerified === true
-          && ((out.paymentProvider === 'stripe_monthly_card' && out.provider === 'stripe')
-            || (out.paymentProvider === 'gocardless_monthly_dd' && out.provider === 'gocardless'));
         savePaymentSubmissionContext({
           ...scope,
           submissionId,
           provider: out.provider,
-          paymentProvider: setupAccepted ? out.paymentProvider : null,
+          paymentProvider: out.paymentProvider || null,
           setupVerified: setupAccepted,
           paymentCollected: setupAccepted ? out.paymentSucceeded === true : null,
-          status: out.status,
+          status,
+          presentationAccepted: paymentAccepted,
           returnPath: stored?.submissionId === submissionId ? stored.returnPath : null,
           continuePath: continueHref,
         });
       } catch { /* Storage may be unavailable; keep the in-memory result. */ }
-       if (setupAccepted) {
-         onSetupComplete?.({
-           submissionId,
-           provider: out.provider,
-           paymentProvider: out.paymentProvider,
-           setupVerified: true,
-           paymentCollected: out.paymentSucceeded === true,
-         });
-         return true;
-       }
-       if (out.provider === 'stripe' && out.paymentSucceeded === true) {
+      if (setupAccepted) {
+        onSetupComplete?.({
+          submissionId,
+          provider: out.provider,
+          paymentProvider: out.paymentProvider,
+          setupVerified: true,
+          paymentCollected: out.paymentSucceeded === true,
+        });
+        return true;
+      }
+      if (paymentAccepted) {
         onPaymentAccepted?.({
           submissionId,
           provider: out.provider,
@@ -230,8 +237,8 @@ export default function FormPaymentSubmit({
         });
         return true;
       }
-      if (out.status !== 'paid') {
-        if (out.status === 'setup_complete' && out.provider === 'gocardless') {
+      if (status !== 'paid') {
+        if (status === 'setup_complete' && out.provider === 'gocardless') {
           // GoCardless setup_complete is a server-confirmed, finalized
           // membership application, not a captured one-off payment. Keep the
           // scoped setup receipt, but let the page-level handler adopt the
@@ -241,7 +248,9 @@ export default function FormPaymentSubmit({
         }
         setPaymentCaptured(true);
         setPaymentError(out.error || (
-          out.status === 'setup_complete'
+          monthlyPayment
+            ? 'Your monthly payment setup is still being verified. Please do not set up another payment.'
+            : status === 'setup_complete'
             ? 'Your recurring payment method is set up. Your first collection has not yet been confirmed and will be recorded separately.'
             : out.paymentSucceeded
               ? 'Payment received — we are finishing your submission automatically. Please do not pay again.'
