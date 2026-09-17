@@ -110,7 +110,9 @@ export async function loadDepartmentCurrentSet({
       .eq('id', formId).eq('tenant_id', tenantId).eq('is_active', true).maybeSingle(),
   ]);
   if (configError || !config?.config || formError || !form || !isFormScheduleAvailable(form)) throw new DepartmentCurrentSetError(404, 'CURRENT_SET_NOT_CONFIGURED', 'Current department data is unavailable');
-  const access = await resolveFormAccess({ supabase: db, req, tenantId, policy: form.access_policy, member });
+  const access = await resolveFormAccess({
+    supabase: db, req, tenantId, policy: form.access_policy, member, session,
+  });
   if (!access.allowed || !form.require_authentication) {
     throw new DepartmentCurrentSetError(403, 'CURRENT_SET_AUTHORIZATION', 'You do not have access to this Department');
   }
@@ -140,6 +142,139 @@ export async function loadDepartmentCurrentSet({
 }
 
 /**
+ * Return the Departments that the signed-in member may choose for the
+ * current-set form.  The form URL still accepts an explicit department_id
+ * (links are useful for a member with one Department), but a respondent with
+ * more than one assignment must not be forced to guess or hand-edit a UUID.
+ *
+ * This is intentionally a read-only graph projection.  It does not expose
+ * current-set rows and it applies tenant, respondent-edge, active-record and
+ * organisation checks before returning an option.
+ */
+export async function listDepartmentCurrentSetOptions({
+  db, req, tenantId, formId, getMember, getActiveSession = getSession,
+}) {
+  if (tenantId !== DEPARTMENT_CURRENT_SET_TENANT_ID || formId !== DEPARTMENT_CURRENT_SET_FORM_ID) {
+    throw new DepartmentCurrentSetError(404, 'CURRENT_SET_NOT_CONFIGURED', 'Current department data is unavailable');
+  }
+  if (!uuid(formId)) {
+    throw new DepartmentCurrentSetError(400, 'CURRENT_SET_INVALID', 'A form ID is required');
+  }
+  const member = await trustedMember({ req, tenantId, getMember });
+  const session = await getActiveSession(req);
+  if (!session?.id || session?.data?.memberId !== member.id) {
+    throw new DepartmentCurrentSetError(401, 'CURRENT_SET_AUTHENTICATION_REQUIRED', 'Your signed-in session is no longer valid');
+  }
+  const [{ data: config, error: configError }, { data: form, error: formError }] = await Promise.all([
+    db.from('department_current_set_config').select('config').eq('tenant_id', tenantId).eq('form_id', formId).maybeSingle(),
+    db.from('form').select('id, tenant_id, is_active, require_authentication, access_policy, deactivate_at, deactivate_timezone')
+      .eq('id', formId).eq('tenant_id', tenantId).eq('is_active', true).maybeSingle(),
+  ]);
+  if (configError || !config?.config || formError || !form || !form.require_authentication
+      || !isFormScheduleAvailable(form)) {
+    throw new DepartmentCurrentSetError(404, 'CURRENT_SET_NOT_CONFIGURED', 'Current department data is unavailable');
+  }
+  const access = await resolveFormAccess({
+    supabase: db, req, tenantId, policy: form.access_policy, member, session,
+  });
+  if (!access.allowed) {
+    throw new DepartmentCurrentSetError(403, 'CURRENT_SET_AUTHORIZATION', 'You do not have access to this Department');
+  }
+
+  const configuration = config.config;
+  const respondentRelationshipId = configuration.respondent_relationship_id;
+  const respondentFieldKey = configuration.respondent_field_key;
+  const departmentObjectId = configuration.department_object_id;
+  if (!uuid(respondentRelationshipId) || typeof respondentFieldKey !== 'string'
+      || !respondentFieldKey || !uuid(departmentObjectId)) {
+    throw new DepartmentCurrentSetError(503, 'CURRENT_SET_CONFIGURATION_INVALID',
+      'Current Department respondent configuration is unavailable');
+  }
+
+  const [
+    { data: respondentEdges, error: respondentError },
+    { data: respondentDefinition, error: respondentDefinitionError },
+    { data: departmentDefinition, error: definitionError },
+  ] = await Promise.all([
+    db.from('custom_object_relationship').select('source_record_id, target_record_id, field_values')
+      .eq('tenant_id', tenantId).eq('relationship_definition_id', respondentRelationshipId)
+      .eq('target_record_id', member.id).is('archived_at', null),
+    db.from('custom_object_relationship_definition')
+      .select('id, source_kind, source_custom_object_id, target_kind, target_custom_object_id, status')
+      .eq('tenant_id', tenantId).eq('id', respondentRelationshipId).maybeSingle(),
+    db.from('custom_object_definition').select('id, primary_display_field_id')
+      .eq('tenant_id', tenantId).eq('id', departmentObjectId).eq('status', 'active').maybeSingle(),
+  ]);
+  if (respondentError || respondentDefinitionError || definitionError || !departmentDefinition
+      || !respondentDefinition || respondentDefinition.status !== 'active'
+      || respondentDefinition.source_kind !== 'custom_object'
+      || respondentDefinition.source_custom_object_id !== departmentObjectId
+      || respondentDefinition.target_kind !== 'member'
+      || respondentDefinition.target_custom_object_id !== null) {
+    throw new DepartmentCurrentSetError(503, 'CURRENT_SET_UNAVAILABLE', 'Assigned Departments could not be loaded');
+  }
+  const assignedIds = [...new Set((respondentEdges || [])
+    .filter(edge => edge?.field_values?.[respondentFieldKey] === true)
+    .map(edge => edge.source_record_id)
+    .filter(uuid))];
+  if (!assignedIds.length) return [];
+  if (!uuid(member.organization_id)) return [];
+
+  // Departments are organisation-scoped.  A stale edge from another
+  // organisation must never become a selectable cross-tenant/cross-org link.
+  const { data: parentDefinitions, error: parentDefinitionError } = await db
+    .from('custom_object_relationship_definition')
+    .select('id, cardinality, target_custom_object_id')
+    .eq('tenant_id', tenantId).eq('relationship_key', 'organisation').eq('status', 'active')
+    .eq('source_kind', 'custom_object').eq('source_custom_object_id', departmentObjectId)
+    .eq('target_kind', 'organization').eq('is_required', true);
+  if (parentDefinitionError || (parentDefinitions || []).length !== 1
+      || parentDefinitions[0].cardinality !== 'many_to_one'
+      || parentDefinitions[0].target_custom_object_id !== null) {
+    throw new DepartmentCurrentSetError(503, 'CURRENT_SET_CONFIGURATION_INVALID',
+      'Current Department organisation configuration is unavailable');
+  }
+  const parentDefinitionId = parentDefinitions[0].id;
+  const [
+    { data: parentEdges, error: parentError },
+    { data: records, error: recordError },
+    { data: organisation, error: organisationError },
+  ] = await Promise.all([
+    db.from('custom_object_relationship').select('source_record_id, target_record_id')
+      .eq('tenant_id', tenantId).eq('relationship_definition_id', parentDefinitionId)
+      .is('archived_at', null).in('source_record_id', assignedIds),
+    db.from('custom_object_record').select('id, data')
+      .eq('tenant_id', tenantId).eq('custom_object_id', departmentObjectId)
+      .is('archived_at', null).in('id', assignedIds),
+    db.from('organization').select('id, tenant_id').eq('tenant_id', tenantId)
+      .eq('id', member.organization_id).maybeSingle(),
+  ]);
+  if (parentError || recordError || organisationError || !organisation) {
+    throw new DepartmentCurrentSetError(503, 'CURRENT_SET_UNAVAILABLE', 'Assigned Departments could not be loaded');
+  }
+  const parentsByDepartment = new Map();
+  for (const edge of parentEdges || []) {
+    const parents = parentsByDepartment.get(edge.source_record_id) || [];
+    parents.push(edge.target_record_id);
+    parentsByDepartment.set(edge.source_record_id, parents);
+  }
+  const fieldName = departmentDefinition.primary_display_field_id
+    ? (await db.from('preference_field').select('name').eq('tenant_id', tenantId)
+      .eq('id', departmentDefinition.primary_display_field_id).maybeSingle()).data?.name
+    : null;
+  const recordsById = new Map((records || []).map(record => [record.id, record]));
+  return assignedIds.filter(id => parentsByDepartment.get(id)?.length === 1
+    && parentsByDepartment.get(id)[0] === organisation.id && recordsById.has(id)).map(id => {
+    const data = recordsById.get(id)?.data || {};
+    return {
+      id,
+      label: String(data?.[fieldName] ?? data.department_name ?? data.name ?? id),
+      organization_id: member.organization_id,
+    };
+  }).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+}
+
+/**
  * Lifecycle-only helper. `submissionId` must already be durably persisted;
  * callers must never pass a browser idempotency token to this function.
  */
@@ -165,7 +300,9 @@ export async function reconcileDepartmentCurrentSet({
   if (configError || !config?.config || formError || !form || !form.require_authentication || !isFormScheduleAvailable(form)) {
     throw new DepartmentCurrentSetError(403, 'CURRENT_SET_AUTHORIZATION', 'Current department data is unavailable');
   }
-  const access = await resolveFormAccess({ supabase: db, req, tenantId, policy: form.access_policy, member });
+  const access = await resolveFormAccess({
+    supabase: db, req, tenantId, policy: form.access_policy, member, session,
+  });
   if (!access.allowed) {
     throw new DepartmentCurrentSetError(403, 'CURRENT_SET_AUTHORIZATION', 'You do not have access to this Department');
   }

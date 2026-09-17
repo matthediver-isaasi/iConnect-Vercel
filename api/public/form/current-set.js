@@ -3,6 +3,7 @@ import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import {
   DepartmentCurrentSetError,
   loadDepartmentCurrentSet,
+  listDepartmentCurrentSetOptions,
 } from '../../_lib/departmentCurrentSet.js';
 
 /** Read-only prefill endpoint. Reconciliation is deliberately lifecycle-only. */
@@ -16,6 +17,14 @@ export default async function handler(req, res, dependencies = {}) {
   try {
     const tenant = dependencies.tenant || await resolveTenantFromRequest(req);
     if (!tenant?.id) return res.status(404).json({ error: 'Tenant not found' });
+    if (!req.query.department_id) {
+      const departments = await listDepartmentCurrentSetOptions({
+        db, req, tenantId: tenant.id, formId: req.query.form_id,
+        getMember: dependencies.getSessionMember,
+        getActiveSession: dependencies.getActiveSession,
+      });
+      return res.status(200).json({ departments });
+    }
     const currentSet = await loadDepartmentCurrentSet({
       db, req, tenantId: tenant.id, formId: req.query.form_id,
       departmentId: req.query.department_id, getMember: dependencies.getSessionMember,

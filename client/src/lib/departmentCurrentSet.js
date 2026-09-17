@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { publicClient } from '@/api/publicClient';
 
@@ -87,6 +87,15 @@ export function mergeDepartmentCurrentSetValues({
   return next;
 }
 
+function clearDepartmentCurrentSetValues(formValues, sectionIds) {
+  const next = { ...(formValues || {}) };
+  for (const id of Object.values(sectionIds || {})) {
+    if (id) delete next[id];
+  }
+  delete next.__department_current_set;
+  return next;
+}
+
 export function currentSetSubmissionMetadata({
   form,
   departmentId,
@@ -145,28 +154,45 @@ export function useDepartmentCurrentSet({
   setFormValues,
   enabled = true,
   ready = true,
+  onDepartmentSelect = null,
 }) {
   const active = enabled && isDepartmentCurrentSetForm(form);
   const [acknowledgements, setAcknowledgements] = useState({ workforce: false, equipment: false });
   const [baseline, setBaseline] = useState(null);
   const appliedRef = useRef('');
   const dirtyRef = useRef(false);
+  const principalRef = useRef({ initialized: false, value: principalId });
   const safeDepartmentId = currentSetDepartmentId(departmentId);
+  const principalChanged = principalRef.current.initialized
+    && principalRef.current.value !== principalId;
   const query = useQuery({
     queryKey: ['department-current-set', form?.id, safeDepartmentId, principalId || 'anonymous'],
     queryFn: () => publicClient.getDepartmentCurrentSet(form?.slug, form?.id, safeDepartmentId),
-    enabled: active && !!safeDepartmentId,
+    enabled: active && ready && !!safeDepartmentId && !!principalId,
     retry: false,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
+  const optionsQuery = useQuery({
+    queryKey: ['department-current-set-options', form?.id, principalId || 'anonymous'],
+    queryFn: () => publicClient.getDepartmentCurrentSetOptions(form?.id),
+    enabled: active && ready && !!principalId && !safeDepartmentId,
+    retry: false,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const departmentOptions = useMemo(() => {
+    const options = optionsQuery.data?.departments || optionsQuery.data || [];
+    return Array.isArray(options) ? options.filter(option => currentSetDepartmentId(option?.id)) : [];
+  }, [optionsQuery.data]);
   const queriedCurrentSet = useMemo(() => normalizeDepartmentCurrentSet(query.data), [query.data]);
   const draftMetadata = formValues?.__department_current_set;
   const staleDraft = !!draftMetadata && typeof draftMetadata === 'object'
     && !!queriedCurrentSet.version
     && (draftMetadata.department_id !== safeDepartmentId
       || draftMetadata.version !== queriedCurrentSet.version);
-  const currentSet = baseline || queriedCurrentSet;
+  const currentSet = principalChanged ? queriedCurrentSet : (baseline || queriedCurrentSet);
+  const configuredSectionIds = useMemo(() => currentSetSectionIds(form), [form]);
   const sectionIds = useMemo(() => currentSetSectionIds(form, {
     configuration: currentSet.configuration,
   }), [form, currentSet.configuration]);
@@ -189,6 +215,26 @@ export function useDepartmentCurrentSet({
   }), [currentSet, sectionIds.equipment, sectionIds.workforce]);
   const identity = `${form?.id || ''}:${safeDepartmentId || ''}:${resolvedCurrentSet.version || ''}`;
 
+  const resetScopedState = useCallback(() => {
+    appliedRef.current = '';
+    dirtyRef.current = false;
+    setBaseline(null);
+    setAcknowledgements({ workforce: false, equipment: false });
+  }, []);
+
+  useLayoutEffect(() => {
+    const previous = principalRef.current;
+    const changed = previous.initialized && previous.value !== principalId;
+    principalRef.current = { initialized: true, value: principalId };
+    resetScopedState();
+    if (changed) {
+      setFormValues(previousValues => clearDepartmentCurrentSetValues(
+        previousValues,
+        configuredSectionIds,
+      ));
+    }
+  }, [configuredSectionIds, form?.id, principalId, resetScopedState, safeDepartmentId, setFormValues]);
+
   useEffect(() => {
     appliedRef.current = '';
     dirtyRef.current = false;
@@ -196,8 +242,36 @@ export function useDepartmentCurrentSet({
     setAcknowledgements({ workforce: false, equipment: false });
   }, [form?.id, safeDepartmentId]);
 
+  const selectDepartment = useCallback((nextDepartmentId) => {
+    const nextId = currentSetDepartmentId(nextDepartmentId);
+    if (!nextId || nextId === safeDepartmentId) return;
+    const ids = {
+      workforce: sectionIds.workforce || configuredSectionIds.workforce,
+      equipment: sectionIds.equipment || configuredSectionIds.equipment,
+    };
+    const hasScopedEdits = Object.values(ids).some(id => {
+      if (!id) return false;
+      const currentRows = formValues?.[id];
+      const baselineRows = baseline?.formValues?.[id];
+      return baseline
+        ? JSON.stringify(currentRows) !== JSON.stringify(baselineRows)
+        : Array.isArray(currentRows) && currentRows.length > 0;
+    });
+    if (hasScopedEdits && typeof window !== 'undefined' && typeof window.confirm === 'function'
+        && !window.confirm('Changing Department will discard the current Workforce and Equipment answers. Continue?')) {
+      return;
+    }
+    setFormValues(previousValues => clearDepartmentCurrentSetValues(previousValues, ids));
+    resetScopedState();
+    onDepartmentSelect?.(nextId);
+  }, [
+    baseline, configuredSectionIds.equipment, configuredSectionIds.workforce, formValues,
+    onDepartmentSelect, resetScopedState, safeDepartmentId, sectionIds.equipment,
+    sectionIds.workforce, setFormValues,
+  ]);
+
   useEffect(() => {
-    if (!active || !ready || query.isLoading || query.isError || baseline || staleDraft || !queriedCurrentSet.version
+    if (!active || !ready || !principalId || principalChanged || query.isLoading || query.isError || baseline || staleDraft || !queriedCurrentSet.version
       || appliedRef.current === identity || dirtyRef.current) return;
     const initial = {
       ...queriedCurrentSet,
@@ -224,7 +298,7 @@ export function useDepartmentCurrentSet({
     }));
     setBaseline(queriedCurrentSet);
     appliedRef.current = `${form?.id || ''}:${safeDepartmentId || ''}:${queriedCurrentSet.version || ''}`;
-  }, [active, baseline, form?.id, queriedCurrentSet, query.isError, query.isLoading, ready, safeDepartmentId, sectionIds, setFormValues, staleDraft]);
+  }, [active, baseline, form?.id, principalChanged, principalId, queriedCurrentSet, query.isError, query.isLoading, ready, safeDepartmentId, sectionIds, setFormValues, staleDraft]);
 
   const versionChanged = !!baseline && !!queriedCurrentSet.version
     && baseline.version !== queriedCurrentSet.version;
@@ -246,11 +320,14 @@ export function useDepartmentCurrentSet({
     currentSet: resolvedCurrentSet,
     sectionIds,
     loading: query.isLoading,
+    optionsLoading: optionsQuery.isLoading,
+    departmentOptions,
+    selectDepartment,
     error: staleDraft
       ? new Error('This saved Department draft is stale. Reload and review the current data before saving.')
       : versionChanged
       ? new Error('Current Department data changed. Reload and review before saving.')
-      : query.error,
+      : query.error || optionsQuery.error,
     acknowledgements,
     setAcknowledgements,
     baselineReady: !!baseline,

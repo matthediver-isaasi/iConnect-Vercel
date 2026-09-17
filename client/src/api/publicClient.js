@@ -492,6 +492,17 @@ class PublicClient {
       credentials: 'include',
     });
   }
+
+  // Lists only Departments assigned to the authenticated respondent for the
+  // pinned current-set form.  This is used when a member has more than one
+  // Department and therefore arrives without an explicit link parameter.
+  async getDepartmentCurrentSetOptions(formId) {
+    if (!formId) return null;
+    const params = new URLSearchParams({ form_id: formId });
+    return this._fetch(`/api/public/form/current-set?${params.toString()}`, {
+      credentials: 'include',
+    });
+  }
   
   // Categories
   async listCategories() {

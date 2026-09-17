@@ -15,6 +15,12 @@ Reporting Year has no meaning in the current workforce model. Ignore it when map
 
 **How to apply:** Keep the original CSV bytes for provenance, but omit year from new record payloads and semantic matching. Staff group remains the record display field; exact source-occurrence identity still preserves intentional repeated rows.
 
+Department current-data forms require sign-in and an assigned Department respondent, not anonymous access or invitation-token access.
+
+**Why:** The user explicitly confirmed this access choice when revisiting Workforce and Equipment prefill. Department IDs in URLs must never be treated as authorization.
+
+**How to apply:** Keep the department picker and explicit-link load/save paths consistent about respondent and organisation ownership. Publish the matching client/API before activating a prepared form configuration; schema installation alone is not activation.
+
 Existing equipment may retain previously missing serial numbers and installation years; new equipment must supply both.
 
 **Why:** The user explicitly approved this exception because required form fields conflict with missing values in existing equipment.

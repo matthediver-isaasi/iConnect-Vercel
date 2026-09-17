@@ -59,7 +59,7 @@ const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
 export default function EmbedFormPage() {
   const { slug } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [currentStep, setCurrentStep] = useState(0);
   // Task #3515: never autofocus the first card on initial mount (browsers
@@ -154,6 +154,12 @@ export default function EmbedFormPage() {
   const urlPrefillOrgId = searchParams.get('organization_id');
   const tenantParam = searchParams.get('tenant');
   const currentSetDepartmentParam = searchParams.get('department_id');
+  const selectCurrentSetDepartment = useCallback((departmentId) => {
+    if (!departmentId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('department_id', departmentId);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const fontFamilyParam = searchParams.get('font') || '';
   const fontSizeParam = searchParams.get('fontSize') || '';
   // Canvas supplies its resolved microsite (or tenant) home. It is limited to
@@ -273,7 +279,8 @@ export default function EmbedFormPage() {
     principalId: authMember?.id,
     formValues,
     setFormValues,
-    ready: defaultsInitialized,
+    ready: !authMemberLoading && defaultsInitialized,
+    onDepartmentSelect: selectCurrentSetDepartment,
   });
   const departmentCurrentSetBlocked = currentSetSaveBlocked({
     enabled: departmentCurrentSet.active,

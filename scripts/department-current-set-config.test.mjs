@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   FORM_FIELDS, OBJECT_IDS, RELATIONSHIP_IDS, buildDepartmentCurrentSetConfig,
-  fingerprint, formCurrentSetCandidate, validateCurrentSetConfig,
+  fingerprint, formCurrentSetCandidate, synchronizeWorkforceDropdownOptions, validateCurrentSetConfig,
 } from './department-current-set-config.mjs';
 
 const minimalForm = () => ({
@@ -53,13 +53,15 @@ test('pinned configuration maps exactly the approved objects, form fields, and r
   assert.equal(config.equipment_fields[FORM_FIELDS.equipment.decommissioningYear], 'year_decommissioned');
   assert.deepEqual(config.relationship_ids, {
     workforce_department: RELATIONSHIP_IDS.workforceDepartment,
-    workforce_row: RELATIONSHIP_IDS.workforceRowSurvey,
     equipment_department: RELATIONSHIP_IDS.equipmentDepartment,
     equipment_type: RELATIONSHIP_IDS.equipmentType,
     equipment_model: RELATIONSHIP_IDS.equipmentModel,
     model_type: RELATIONSHIP_IDS.modelType,
   });
   assert.equal(config.relationship_keys.model_type, 'equipment_model_type');
+  assert.equal(config.version, 2);
+  assert.equal(Object.hasOwn(config, 'workforce_object_id'), false);
+  assert.equal(Object.hasOwn(config.relationship_ids, 'workforce_row'), false);
   assert.equal(validateCurrentSetConfig(config, formCurrentSetCandidate(minimalForm())), true);
   const missingPins = structuredClone(config);
   delete missingPins.relationship_ids;
@@ -81,14 +83,24 @@ test('config maps only respondent-editable form answers and preserves unmapped w
   assert.equal(config.equipment_fields[FORM_FIELDS.equipment.decommissioningYear], 'year_decommissioned');
 });
 
-test('candidate raises only the equipment capacity to the supported maximum', () => {
+test('direct config has no workforce survey parent pins', () => {
+  const config = buildDepartmentCurrentSetConfig(formCurrentSetCandidate(minimalForm()));
+  assert.equal(Object.hasOwn(OBJECT_IDS, 'workforceSurvey'), false);
+  assert.equal(Object.hasOwn(config, 'workforce_object_id'), false);
+  assert.equal(Object.hasOwn(config.relationship_keys, 'workforce_row'), false);
+  assert.equal(config.relationship_keys.workforce_department, 'workforce_survey_row_department');
+});
+
+test('candidate raises both current-set capacities to the supported maximum', () => {
   const form = minimalForm();
   form.fields[0].min_rows = 0;
   form.fields[0].first_row_required = false;
   form.fields[1].min_rows = 0;
   form.fields[1].first_row_required = false;
   const candidate = formCurrentSetCandidate(form);
+  assert.equal(candidate.fields[0].max_rows, 100);
   assert.equal(candidate.fields[1].max_rows, 100);
+  assert.equal(form.fields[0].max_rows, 20);
   assert.equal(form.fields[1].max_rows, 30);
   assert.deepEqual(candidate.fields[1].child_fields, form.fields[1].child_fields);
   assert.equal(candidate.fields[0].min_rows, 0);
@@ -101,6 +113,89 @@ test('candidate fails closed if either user-owned date field is not year-only', 
   const form = minimalForm();
   form.fields[1].child_fields[4].date_precision = 'day';
   assert.throws(() => formCurrentSetCandidate(form), /not a year-only date/);
+});
+
+test('candidate refuses to silently reduce an already unsupported repeatable capacity', () => {
+  const form = minimalForm();
+  form.fields[0].max_rows = 101;
+  assert.throws(() => formCurrentSetCandidate(form), /exceeds the supported maximum/);
+});
+
+test('live Workforce form shape syncs only canonical saved values while retaining displayed labels and order', () => {
+  const form = minimalForm();
+  const workforce = form.fields[0];
+  workforce.child_fields[0] = {
+    id: FORM_FIELDS.workforce.staffGroup, type: 'select', label: 'Staff group',
+    options: ['Administrator/Clerical', 'Apprentice Clinical Technologist', 'Assistant Practitioner',
+      'Clinical Practitioner – Radiographer', 'Clinical Practitioner – Technologist', 'Clinical Scientist',
+      'HCA/Imaging Assistant', 'Nurse', 'Physician', 'Radiologist'],
+  };
+  workforce.child_fields[1] = {
+    id: FORM_FIELDS.workforce.grade, type: 'select', label: 'Grade',
+    options: ['Band 1', 'Band 2', 'Band 3', 'Band 4', 'Band 5', 'Band 6', 'Band 7',
+      'Band 8a', 'Band 8b', 'Band 8c', 'Band 8d', 'Band 9', 'Apprentice'],
+  };
+  const canonicalFields = [
+    {
+      name: 'staff_group', field_type: 'dropdown', options: [
+        { label: 'Administrator/Clerical', value: 'Administrator/Clerical' },
+        { label: 'Apprentice Clinical Technologist', value: 'Apprentice Clinical Technologist' },
+        { label: 'Assistant Practitioner ', value: 'Assistant Practitioner ' },
+        { label: 'Clinical Practitioner – Radiographer', value: 'Clinical Practitioner – Radiographer ' },
+        { label: 'Clinical Practitioner – Technologist', value: 'Clinical Practitioner – Technologist ' },
+        { label: 'Clinical Scientist', value: 'Clinical Scientist' },
+        { label: 'HCA/Imaging Assistant', value: 'HCA/Imaging Assistant' },
+        { label: 'Nurse', value: 'Nurse' }, { label: 'Physician', value: 'Physician' },
+        { label: 'Radiologist', value: 'Radiologist' },
+      ],
+    },
+    {
+      name: 'grade', field_type: 'dropdown', options: [
+        ...['Band 1', 'Band 2', 'Band 3', 'Band 4', 'Band 5', 'Band 6', 'Band 7',
+          'Band 8a', 'Band 8b', 'Band 8c', 'Band 9', 'Apprentice', 'Consultant',
+          'Consultant – dual accredited', 'Registrar/Specialty trainee']
+          .map(value => ({ label: value, value })),
+        { label: 'Fellow', value: 'Fellow ' },
+        ...['Other medical grade', 'Not applicable', 'Radionuclide Radiologist', 'Band 8d']
+          .map(value => ({ label: value, value })),
+      ],
+    },
+  ];
+  const candidate = formCurrentSetCandidate(form, { canonicalFields });
+  const [staff, grade] = candidate.fields[0].child_fields;
+  assert.deepEqual(staff.options.slice(0, 5), [
+    'Administrator/Clerical',
+    'Apprentice Clinical Technologist',
+    { label: 'Assistant Practitioner', value: 'Assistant Practitioner ' },
+    { label: 'Clinical Practitioner – Radiographer', value: 'Clinical Practitioner – Radiographer ' },
+    { label: 'Clinical Practitioner – Technologist', value: 'Clinical Practitioner – Technologist ' },
+  ]);
+  assert.deepEqual(grade.options.slice(0, 13), form.fields[0].child_fields[1].options);
+  assert.deepEqual(grade.options.slice(13), [
+    { label: 'Consultant', value: 'Consultant' },
+    { label: 'Consultant – dual accredited', value: 'Consultant – dual accredited' },
+    { label: 'Registrar/Specialty trainee', value: 'Registrar/Specialty trainee' },
+    { label: 'Fellow', value: 'Fellow ' },
+    { label: 'Other medical grade', value: 'Other medical grade' },
+    { label: 'Not applicable', value: 'Not applicable' },
+    { label: 'Radionuclide Radiologist', value: 'Radionuclide Radiologist' },
+  ]);
+  assert.deepEqual(candidate.workforceDropdownChanges.map(change => change.field_name), ['staff_group', 'grade']);
+  assert.equal(candidate.workforceDropdownChanges[0].canonicalized_existing_values.length, 3);
+  assert.deepEqual(candidate.workforceDropdownChanges[0].canonicalized_existing_values.map(change => change.match),
+    ['trailing_whitespace_only', 'exact_display_label', 'exact_display_label']);
+  assert.equal(candidate.workforceDropdownChanges[1].appended_canonical_values.length, 7);
+});
+
+test('workforce form option sync rejects ambiguous canonical values rather than normalizing them', () => {
+  const form = minimalForm();
+  form.fields[0].child_fields[0] = {
+    id: FORM_FIELDS.workforce.staffGroup, type: 'select', options: ['A'],
+  };
+  assert.throws(() => synchronizeWorkforceDropdownOptions(form, [{
+    name: 'staff_group', field_type: 'dropdown',
+    options: [{ label: 'A', value: 'A' }, { label: 'A duplicate', value: 'A' }],
+  }]), /values are ambiguous/);
 });
 
 test('saved compatibility projection rejects mapped type, bounds, and visibility drift', () => {

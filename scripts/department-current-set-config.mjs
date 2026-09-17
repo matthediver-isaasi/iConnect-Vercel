@@ -10,7 +10,6 @@ export const FORM_ID = '8b6f44d3-83f8-449e-9496-b10b1dc28e5f';
 
 export const OBJECT_IDS = Object.freeze({
   department: 'cd1ebfd3-3e16-4091-be5a-99992d926f2f',
-  workforceSurvey: '931df885-c3b7-449a-b206-eef31fb9e883',
   workforceRow: 'bf123bdb-7227-4f45-b5f9-8344d0f65446',
   equipment: 'c1ce08d4-5f28-496e-ac41-cc4d417f2f4a',
   equipmentType: '3dae6022-c7e3-4ca9-b9d8-3676cb0e2173',
@@ -22,8 +21,7 @@ export const RELATIONSHIP_IDS = Object.freeze({
   equipmentType: 'd7d2cecb-d6e3-416d-8a55-04dcc8aff621',
   equipmentModel: '0c7e461e-a518-4bf2-863a-f18d84be00d0',
   modelType: '0d97b25e-8536-469d-982c-8fd2d6908830',
-  workforceDepartment: 'ab296a40-f032-4a3b-8155-108636a2cfc3',
-  workforceRowSurvey: '749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c',
+  workforceDepartment: 'a422da51-6005-4831-a69e-bf284ff6f124',
   departmentRespondent: '0fdede92-efa2-4d84-9b16-df1a88069486',
 });
 
@@ -49,9 +47,7 @@ export const FORM_FIELDS = Object.freeze({
 });
 
 export const OBJECT_FIELD_NAMES = Object.freeze({
-  workforceSurvey: Object.freeze({ surveyName: 'survey_name' }),
   workforceRow: Object.freeze({
-    rowName: 'row_name',
     staffGroup: 'staff_group',
     grade: 'grade',
     occupiedWte: 'occupied_wte',
@@ -65,6 +61,11 @@ export const OBJECT_FIELD_NAMES = Object.freeze({
     stillInService: 'still_in_service',
     additionalInformation: 'additional_information',
   }),
+});
+
+const WORKFORCE_DROPDOWN_FIELDS = Object.freeze({
+  [FORM_FIELDS.workforce.staffGroup]: OBJECT_FIELD_NAMES.workforceRow.staffGroup,
+  [FORM_FIELDS.workforce.grade]: OBJECT_FIELD_NAMES.workforceRow.grade,
 });
 
 export const canonicalJson = value => {
@@ -81,9 +82,8 @@ export const fingerprint = value => createHash('sha256')
 
 export function buildDepartmentCurrentSetConfig(form) {
   const config = {
-    version: 1,
+    version: 2,
     department_object_id: OBJECT_IDS.department,
-    workforce_object_id: OBJECT_IDS.workforceSurvey,
     workforce_row_object_id: OBJECT_IDS.workforceRow,
     equipment_object_id: OBJECT_IDS.equipment,
     equipment_type_object_id: OBJECT_IDS.equipmentType,
@@ -130,8 +130,7 @@ export function buildDepartmentCurrentSetConfig(form) {
       },
     },
     relationship_keys: {
-      workforce_department: 'workforce_survey_department',
-      workforce_row: 'workforce_survey_row_survey',
+      workforce_department: 'workforce_survey_row_department',
       equipment_department: 'equipment_register_department',
       equipment_type: 'equipment_register_type',
       equipment_model: 'equipment_register_model',
@@ -139,7 +138,6 @@ export function buildDepartmentCurrentSetConfig(form) {
     },
     relationship_ids: {
       workforce_department: RELATIONSHIP_IDS.workforceDepartment,
-      workforce_row: RELATIONSHIP_IDS.workforceRowSurvey,
       equipment_department: RELATIONSHIP_IDS.equipmentDepartment,
       equipment_type: RELATIONSHIP_IDS.equipmentType,
       equipment_model: RELATIONSHIP_IDS.equipmentModel,
@@ -167,7 +165,95 @@ export function validateCurrentSetConfig(config, form) {
   }
 }
 
-export function formCurrentSetCandidate(form) {
+function optionValue(option) {
+  return typeof option === 'object' && option !== null ? option.value : option;
+}
+
+function optionLabel(option) {
+  return typeof option === 'object' && option !== null ? option.label : option;
+}
+
+/**
+ * Replace only Workforce select values with the exact active object-dropdown
+ * values. Existing visible labels and ordering stay intact where an unambiguous
+ * match exists. A label match (or a whitespace-only trailing legacy value
+ * match) never alters the display label; it only restores the canonical saved
+ * value required by the current-set server contract.
+ */
+export function synchronizeWorkforceDropdownOptions(form, canonicalFields = []) {
+  const fieldsByName = new Map(canonicalFields.map(field => [field?.name, field]));
+  const changes = [];
+  for (const [formFieldId, fieldName] of Object.entries(WORKFORCE_DROPDOWN_FIELDS)) {
+    const objectField = fieldsByName.get(fieldName);
+    if (!objectField) continue;
+    if (objectField.field_type !== 'dropdown' || !Array.isArray(objectField.options)) {
+      throw new Error(`Canonical workforce ${fieldName} dropdown metadata drifted`);
+    }
+    const canonical = objectField.options.map((option, index) => ({
+      option, value: optionValue(option), label: optionLabel(option), index,
+    }));
+    if (!canonical.length || canonical.some(option => typeof option.value !== 'string' || !option.value)) {
+      throw new Error(`Canonical workforce ${fieldName} options are invalid`);
+    }
+    if (new Set(canonical.map(option => option.value)).size !== canonical.length) {
+      throw new Error(`Canonical workforce ${fieldName} values are ambiguous`);
+    }
+    const container = form.fields.find(field => field?.id === FORM_FIELDS.workforceContainer);
+    const child = container?.child_fields?.find(field => field?.id === formFieldId);
+    if (!child || child.type !== 'select' || !Array.isArray(child.options)) {
+      throw new Error(`Workforce ${fieldName} form dropdown drifted`);
+    }
+    const current = child.options.map((option, index) => ({
+      option, value: optionValue(option), label: optionLabel(option), index,
+    }));
+    if (current.some(option => typeof option.value !== 'string' || !option.value)
+      || new Set(current.map(option => option.value)).size !== current.length) {
+      throw new Error(`Workforce ${fieldName} form options are ambiguous`);
+    }
+    const usedCanonicalValues = new Set();
+    const canonicalFor = existing => {
+      const exact = canonical.filter(option => option.value === existing.value);
+      const displayed = canonical.filter(option => option.label === existing.value);
+      // This is deliberately not normalization: only a missing trailing space
+      // may be recovered, and it must point to one unique canonical value.
+      const trailingWhitespace = canonical.filter(option => option.value.endsWith(' ')
+        && option.value.trimEnd() === existing.value);
+      const candidates = [...exact, ...displayed, ...trailingWhitespace]
+        .filter((option, index, all) => all.findIndex(other => other.value === option.value) === index);
+      if (candidates.length !== 1 || usedCanonicalValues.has(candidates[0]?.value)) {
+        throw new Error(`Workforce ${fieldName} form option ${JSON.stringify(existing.value)} has no unambiguous canonical mapping`);
+      }
+      usedCanonicalValues.add(candidates[0].value);
+      if (exact.length === 1) return { canonical: candidates[0], match: 'exact_value' };
+      if (displayed.length === 1) return { canonical: candidates[0], match: 'exact_display_label' };
+      return { canonical: candidates[0], match: 'trailing_whitespace_only' };
+    };
+    const mappings = current.map(canonicalFor);
+    const next = current.map((existing, index) => {
+      const { canonical: match } = mappings[index];
+      if (match.value === existing.value) return existing.option;
+      return { label: existing.label, value: match.value };
+    });
+    const missing = canonical.filter(option => !usedCanonicalValues.has(option.value));
+    next.push(...missing.map(option => option.option));
+    if (JSON.stringify(next) !== JSON.stringify(child.options)) {
+      changes.push({
+        field_id: formFieldId,
+        field_name: fieldName,
+        before_options: child.options,
+        after_options: next,
+        canonicalized_existing_values: current
+          .map((existing, index) => ({ before_value: existing.value, after_value: mappings[index].canonical.value, match: mappings[index].match }))
+          .filter(change => change.before_value !== change.after_value),
+        appended_canonical_values: missing.map(option => option.value),
+      });
+      child.options = next;
+    }
+  }
+  return changes;
+}
+
+export function formCurrentSetCandidate(form, { canonicalFields = [] } = {}) {
   if (!form || !Array.isArray(form.fields)) throw new Error('Pinned form has no fields');
   const fields = structuredClone(form.fields);
   const workforce = fields.find(field => field?.id === FORM_FIELDS.workforceContainer);
@@ -184,8 +270,15 @@ export function formCurrentSetCandidate(form) {
       throw new Error(`Equipment date field ${id} is not a year-only date`);
     }
   }
-  // The schema supports at most 100 repeatable rows.  Raising only this
-  // container limit preserves all user-authored fields and workflow settings.
+  // The schema supports at most 100 repeatable rows. Raising only the two
+  // current-set container limits preserves user-authored fields and workflow
+  // settings while covering the approved direct workforce import.
+  if (Number(workforce.max_rows) > 100 || Number(equipment.max_rows) > 100) {
+    throw new Error('Current-set repeatable row limit exceeds the supported maximum');
+  }
+  workforce.max_rows = 100;
   equipment.max_rows = 100;
-  return { ...form, fields };
+  const candidate = { ...form, fields };
+  const workforceDropdownChanges = synchronizeWorkforceDropdownOptions(candidate, canonicalFields);
+  return { ...candidate, workforceDropdownChanges };
 }

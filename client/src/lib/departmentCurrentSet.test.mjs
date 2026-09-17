@@ -53,15 +53,27 @@ function payload(version = 'v1', equipment = []) {
   };
 }
 
-function HookHarness({ initialValues, ready = true, onState }) {
+function HookHarness({
+  initialValues,
+  ready = true,
+  departmentId: selectedDepartmentId = departmentId,
+  principalId = 'member-1',
+  onDepartmentSelect,
+  onState,
+}) {
   const [values, setValues] = useState(initialValues);
+  const [activeDepartment, setActiveDepartment] = useState(selectedDepartmentId);
   const state = useDepartmentCurrentSet({
     form,
-    departmentId,
-    principalId: 'member-1',
+    departmentId: activeDepartment,
+    principalId,
     formValues: values,
     setFormValues: setValues,
     ready,
+    onDepartmentSelect: value => {
+      setActiveDepartment(value);
+      onDepartmentSelect?.(value);
+    },
   });
   useEffect(() => onState({ state, values, setValues }), [state, values, onState]);
   return null;
@@ -203,4 +215,98 @@ test('requires both acknowledgements before the complete-array payload can save'
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'committed', version: 'v1' } }), true);
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'replayed', version: 'v1' } }), true);
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'committed' } }), false);
+});
+
+test('switching Department clears only current-set answers and verified metadata', async () => {
+  const originalConfirm = window.confirm;
+  window.confirm = () => true;
+  const original = publicClient.getDepartmentCurrentSet;
+  const nextDepartment = '22222222-2222-4222-8222-222222222222';
+  publicClient.getDepartmentCurrentSet = async (_slug, _formId, id) => {
+    if (id !== nextDepartment) return payload('switch-v1', []);
+    const next = payload('switch-v2', [{ _row_id: 'new-department-equipment' }]);
+    next.form_values.workforce = [{ _row_id: 'new-department-workforce', grade: 'New Department' }];
+    return next;
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const root = createRoot(document.getElementById('root'));
+  let latest;
+  let selected;
+  try {
+    await act(async () => {
+      root.render(React.createElement(QueryClientProvider, { client },
+        React.createElement(HookHarness, {
+          initialValues: {
+            workforce: [{ _row_id: 'existing:workforce-1', grade: 'Edited' }],
+            equipment: [{ _row_id: 'existing:equipment-1', serial: 'SN' }],
+            unrelated: 'keep',
+            __department_current_set: {
+              department_id: departmentId, version: 'switch-v1',
+              complete_sections: ['workforce', 'equipment'],
+            },
+          },
+          onDepartmentSelect: value => { selected = value; },
+          onState: value => { latest = value; },
+        }),
+      ));
+    });
+    await flush();
+    await act(async () => latest.state.selectDepartment(nextDepartment));
+    await flush();
+    assert.equal(selected, nextDepartment);
+    assert.notEqual(latest.values.workforce?.[0]?._row_id, 'existing:workforce-1');
+    assert.equal(latest.values.equipment?.[0]?._row_id, 'new-department-equipment');
+    assert.equal(latest.values.__department_current_set.version, 'switch-v2');
+    assert.equal(latest.values.unrelated, 'keep');
+  } finally {
+    window.confirm = originalConfirm;
+    publicClient.getDepartmentCurrentSet = original;
+    await act(async () => root.unmount());
+    client.clear();
+  }
+});
+
+test('principal changes clear the prior scoped values before rebinding authorized data', async () => {
+  const original = publicClient.getDepartmentCurrentSet;
+  publicClient.getDepartmentCurrentSet = async () => payload('principal-v2', []);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const root = createRoot(document.getElementById('root'));
+  let latest;
+  try {
+    await act(async () => {
+      root.render(React.createElement(QueryClientProvider, { client },
+        React.createElement(HookHarness, {
+          initialValues: {
+            workforce: [{ _row_id: 'prior-user-row', grade: 'Prior user' }],
+            equipment: [{ _row_id: 'prior-user-equipment' }],
+            unrelated: 'keep',
+            __department_current_set: {
+              department_id: departmentId, version: 'prior-v1',
+              complete_sections: ['workforce', 'equipment'],
+            },
+          },
+          onState: value => { latest = value; },
+        }),
+      ));
+    });
+    await flush();
+    await act(async () => {
+      root.render(React.createElement(QueryClientProvider, { client },
+        React.createElement(HookHarness, {
+          principalId: 'member-2',
+          initialValues: latest.values,
+          onState: value => { latest = value; },
+        }),
+      ));
+    });
+    await flush();
+    assert.equal(latest.values.unrelated, 'keep');
+    assert.notEqual(latest.values.workforce?.[0]?._row_id, 'prior-user-row');
+    assert.notEqual(latest.values.equipment?.[0]?._row_id, 'prior-user-equipment');
+    assert.equal(latest.values.__department_current_set.version, 'principal-v2');
+  } finally {
+    publicClient.getDepartmentCurrentSet = original;
+    await act(async () => root.unmount());
+    client.clear();
+  }
 });

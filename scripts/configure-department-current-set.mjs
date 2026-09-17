@@ -22,16 +22,23 @@ import {
   RELATIONSHIP_IDS, TENANT_ID, buildDepartmentCurrentSetConfig, fingerprint,
   formCurrentSetCandidate, validateCurrentSetConfig,
 } from './department-current-set-config.mjs';
+import { FILE as WORKFORCE_SOURCE_FILE, parseSource } from './workforce-csv-source.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
+const APPLICATION_PUBLISHED = args.includes('--application-published');
 const reviewArgument = args.find(argument => argument.startsWith('--review='));
 const reportArgument = args.find(argument => argument.startsWith('--report='));
-if (args.some(argument => argument !== '--apply' && !argument.startsWith('--review=') && !argument.startsWith('--report='))) {
-  throw new Error('Supported arguments are --apply, --review=<review.json>, and --report=<report.json>.');
+if (args.some(argument => argument !== '--apply' && argument !== '--application-published'
+  && !argument.startsWith('--review=') && !argument.startsWith('--report='))) {
+  throw new Error('Supported arguments are --apply, --application-published, --review=<review.json>, and --report=<report.json>.');
 }
 if (APPLY && !reviewArgument) throw new Error('--apply requires an explicit reviewed dry-run report via --review=<path>.');
+if (APPLICATION_PUBLISHED && !APPLY) throw new Error('--application-published is only meaningful with --apply.');
+if (APPLY && !APPLICATION_PUBLISHED) {
+  throw new Error('--apply requires --application-published after the new API/client picker and auth-reset changes are live.');
+}
 
 const fail = message => { throw new Error(message); };
 const check = (condition, message) => { if (!condition) fail(message); };
@@ -40,7 +47,11 @@ const REQUIRED_AUTHENTICATED_RPCS = Object.freeze([
   'public.department_current_set_lock(uuid)',
   'public.department_current_set_load_authenticated(uuid,uuid,uuid,uuid,text)',
   'public.department_current_set_reconcile_authenticated(uuid,uuid,uuid,uuid,uuid,text,text,jsonb)',
+  'public.department_current_set_assert_authorized(uuid,uuid,uuid,jsonb)',
 ]);
+const DESTINATION_CA_URL =
+  'https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt';
+const DESTINATION_PROJECT_SUFFIX = '.lvmzliemqnieeoruhkik';
 const relativePath = input => {
   const result = path.resolve(ROOT, input);
   check(result.startsWith(`${ROOT}${path.sep}`), 'Report paths must remain inside the workspace.');
@@ -82,7 +93,7 @@ async function maybeConfig(db) {
   fail(`Current-set configuration read failed: ${error.message || error}`);
 }
 
-function recordCounts(records, edges) {
+function recordCounts(records, edges, members) {
   const recordById = new Map(records.map(record => [record.id, record]));
   const edgesByDefinition = new Map();
   for (const edge of edges.filter(active)) {
@@ -91,26 +102,18 @@ function recordCounts(records, edges) {
     edgesByDefinition.set(edge.relationship_definition_id, list);
   }
   const edgesFor = id => edgesByDefinition.get(id) || [];
-  const currentSurveys = records.filter(record => active(record) && record.custom_object_id === OBJECT_IDS.workforceSurvey);
   const currentRows = records.filter(record => active(record) && record.custom_object_id === OBJECT_IDS.workforceRow);
   const currentEquipment = records.filter(record => active(record) && record.custom_object_id === OBJECT_IDS.equipment);
   const activeDepartments = new Set(records.filter(record => active(record)
     && record.custom_object_id === OBJECT_IDS.department).map(record => record.id));
-  const parentByDepartment = new Map();
+  const workforceByDepartment = new Map();
+  const workforceDepartmentEdges = new Map();
   for (const edge of edgesFor(RELATIONSHIP_IDS.workforceDepartment)) {
-    if (!activeDepartments.has(edge.target_record_id) || !recordById.get(edge.source_record_id) || !active(recordById.get(edge.source_record_id))) continue;
-    const list = parentByDepartment.get(edge.target_record_id) || [];
-    list.push(edge.source_record_id);
-    parentByDepartment.set(edge.target_record_id, list);
-  }
-  const rowParents = new Map();
-  for (const edge of edgesFor(RELATIONSHIP_IDS.workforceRowSurvey)) {
     const row = recordById.get(edge.source_record_id);
-    const parent = recordById.get(edge.target_record_id);
-    if (!row || !parent || !active(row) || !active(parent)) continue;
-    const list = rowParents.get(row.id) || [];
-    list.push(parent.id);
-    rowParents.set(row.id, list);
+    if (!row || !active(row) || row.custom_object_id !== OBJECT_IDS.workforceRow
+      || !activeDepartments.has(edge.target_record_id)) continue;
+    workforceByDepartment.set(edge.target_record_id, (workforceByDepartment.get(edge.target_record_id) || 0) + 1);
+    workforceDepartmentEdges.set(row.id, (workforceDepartmentEdges.get(row.id) || 0) + 1);
   }
   const equipmentByDepartment = new Map();
   const equipmentDepartmentEdges = new Map();
@@ -143,14 +146,28 @@ function recordCounts(records, edges) {
     types.add(edge.target_record_id);
     modelTypes.set(edge.source_record_id, types);
   }
+  const respondentEdgesByDepartment = new Map();
+  for (const edge of edgesFor(RELATIONSHIP_IDS.departmentRespondent)) {
+    if (!activeDepartments.has(edge.source_record_id)
+      || edge.field_values?.survey_respondent !== true) continue;
+    const list = respondentEdgesByDepartment.get(edge.source_record_id) || [];
+    list.push(edge.target_record_id);
+    respondentEdgesByDepartment.set(edge.source_record_id, list);
+  }
+  const memberById = new Map((members || []).map(member => [member.id, member]));
+  const respondentIds = [...respondentEdgesByDepartment.values()].flat();
+  const unsuitableRespondents = respondentIds.filter(id => {
+    const member = memberById.get(id);
+    return !member || member.login_enabled === false || member.membership_paused === true
+      || (String(member.email || '').startsWith('deleted_') && String(member.email || '').endsWith('@deleted.local'));
+  });
   return {
     activeDepartments: activeDepartments.size,
-    activeWorkforceParents: currentSurveys.length,
     activeWorkforceRows: currentRows.length,
     activeEquipment: currentEquipment.length,
+    maximumWorkforceRowsForOneDepartment: Math.max(0, ...workforceByDepartment.values()),
     maximumEquipmentRowsForOneDepartment: Math.max(0, ...equipmentByDepartment.values()),
-    departmentsWithMultipleWorkforceParents: [...parentByDepartment.values()].filter(parents => parents.length > 1).length,
-    workforceRowsWithoutExactlyOneParent: currentRows.filter(row => (rowParents.get(row.id) || []).length !== 1).length,
+    workforceRowsWithoutExactlyOneDepartment: currentRows.filter(row => (workforceDepartmentEdges.get(row.id) || 0) !== 1).length,
     equipmentWithoutExactlyOneDepartment: currentEquipment.filter(row => (equipmentDepartmentEdges.get(row.id) || 0) !== 1).length,
     equipmentWithoutExactlyOneType: currentEquipment.filter(row => (equipmentTypeEdges.get(row.id) || 0) !== 1).length,
     equipmentWithMultipleModels: currentEquipment.filter(row => (equipmentModelEdges.get(row.id) || 0) > 1).length,
@@ -161,14 +178,89 @@ function recordCounts(records, edges) {
     }).length,
     existingEquipmentBlankSerial: currentEquipment.filter(row => !String(row.data?.serial_number ?? '').trim()).length,
     existingEquipmentMissingInstallationYear: currentEquipment.filter(row => row.data?.year_installed === null || row.data?.year_installed === undefined || row.data?.year_installed === '').length,
+    respondentAssignments: {
+      departmentsWithExactlyOneAssignedRespondent: [...activeDepartments].filter(id =>
+        (respondentEdgesByDepartment.get(id) || []).length === 1).length,
+      departmentsWithoutAssignedRespondent: [...activeDepartments].filter(id =>
+        (respondentEdgesByDepartment.get(id) || []).length === 0).length,
+      departmentsWithMultipleAssignedRespondents: [...activeDepartments].filter(id =>
+        (respondentEdgesByDepartment.get(id) || []).length > 1).length,
+      assignedRespondentEdges: respondentIds.length,
+      assignedRespondentsUnavailableOrLoginIneligible: unsuitableRespondents.length,
+    },
   };
 }
 
-function verifyForm(form) {
+function departmentOrganisationSuitability({
+  records, definitions, parentEdges, respondentEdges, members, organizations,
+}) {
+  const activeDepartmentIds = new Set(records.filter(record => active(record)
+    && record.custom_object_id === OBJECT_IDS.department).map(record => record.id));
+  const strictDefinitions = definitions.filter(definition =>
+    definition.tenant_id === TENANT_ID && active(definition) && definition.status === 'active'
+      && definition.relationship_key === 'organisation' && definition.is_required === true
+      && definition.source_kind === 'custom_object'
+      && definition.source_custom_object_id === OBJECT_IDS.department
+      && definition.target_kind === 'organization'
+      && definition.target_custom_object_id == null
+      && definition.cardinality === 'many_to_one');
+  const strictDefinition = strictDefinitions.length === 1 ? strictDefinitions[0] : null;
+  const parentByDepartment = new Map();
+  if (strictDefinition) {
+    for (const edge of parentEdges.filter(active)) {
+      if (edge.relationship_definition_id !== strictDefinition.id || !activeDepartmentIds.has(edge.source_record_id)) continue;
+      const list = parentByDepartment.get(edge.source_record_id) || [];
+      list.push(edge.target_record_id);
+      parentByDepartment.set(edge.source_record_id, list);
+    }
+  }
+  const organizationsById = new Map(organizations.map(organization => [organization.id, organization]));
+  const membersById = new Map(members.map(member => [member.id, member]));
+  const respondentByDepartment = new Map();
+  // The preflight's selected edge set includes the pinned respondent definition.
+  // Reuse it from the caller rather than reading an unscoped member relationship.
+  for (const edge of respondentEdges.filter(active)) {
+    if (edge.relationship_definition_id !== RELATIONSHIP_IDS.departmentRespondent
+      || edge.field_values?.survey_respondent !== true || !activeDepartmentIds.has(edge.source_record_id)) continue;
+    const list = respondentByDepartment.get(edge.source_record_id) || [];
+    list.push(edge.target_record_id);
+    respondentByDepartment.set(edge.source_record_id, list);
+  }
+  let exactlyOneValidParent = 0;
+  let exactlyOneRespondentSameOrganisation = 0;
+  let respondentUnavailableOrOtherOrganisation = 0;
+  for (const departmentId of activeDepartmentIds) {
+    const parents = parentByDepartment.get(departmentId) || [];
+    const parentOrganizationId = parents[0];
+    const parentValid = parents.length === 1
+      && organizationsById.get(parentOrganizationId)?.tenant_id === TENANT_ID;
+    if (parentValid) exactlyOneValidParent += 1;
+    const respondents = respondentByDepartment.get(departmentId) || [];
+    if (respondents.length !== 1) continue;
+    const member = membersById.get(respondents[0]);
+    if (parentValid && member?.tenant_id === TENANT_ID
+      && member.organization_id === parentOrganizationId) {
+      exactlyOneRespondentSameOrganisation += 1;
+    } else {
+      respondentUnavailableOrOtherOrganisation += 1;
+    }
+  }
+  return {
+    strictOrganisationParentDefinitions: strictDefinitions.length,
+    strictOrganisationParentDefinitionId: strictDefinition?.id || null,
+    departmentsWithExactlyOneValidOrganisationParent: exactlyOneValidParent,
+    departmentsWithoutExactlyOneValidOrganisationParent: activeDepartmentIds.size - exactlyOneValidParent,
+    departmentsWithExactlyOneRespondentInSameOrganisation: exactlyOneRespondentSameOrganisation,
+    departmentsWithOneRespondentUnavailableOrOtherOrganisation: respondentUnavailableOrOtherOrganisation,
+    handling: 'Reported only: rollout does not create, remove, or alter Department organisation or respondent assignments.',
+  };
+}
+
+function verifyForm(form, canonicalFields = []) {
   check(form?.id === FORM_ID && form.tenant_id === TENANT_ID, 'Pinned form identity drifted.');
   check(form.form_type === 'survey', 'Pinned form is no longer a survey.');
   check(form.is_active === true, 'Pinned form is not active.');
-  const candidate = formCurrentSetCandidate(form);
+  const candidate = formCurrentSetCandidate(form, { canonicalFields });
   const equipment = candidate.fields.find(field => field.id === FORM_FIELDS.equipmentContainer);
   const children = new Map(equipment.child_fields.map(field => [field.id, field]));
   check(children.get(FORM_FIELDS.equipment.serialNumber)?.type === 'text'
@@ -178,6 +270,8 @@ function verifyForm(form) {
   check(children.get(FORM_FIELDS.equipment.installationYear)?.required === true,
     'Installation year must remain required on the form.');
   check(equipment.max_rows === 100, 'Candidate equipment row limit did not reach supported maximum.');
+  check(candidate.fields.find(field => field.id === FORM_FIELDS.workforceContainer)?.max_rows === 100,
+    'Candidate workforce row limit did not reach supported maximum.');
   const constraints = [FORM_FIELDS.workforceContainer, FORM_FIELDS.equipmentContainer].map(id => {
     const container = form.fields.find(field => field?.id === id);
     const childFields = Array.isArray(container?.child_fields) ? container.child_fields : [];
@@ -201,8 +295,8 @@ function verifyForm(form) {
 
 function verifyMetadata({ objects, fields, definitions, counts }) {
   const requiredObjects = [
-    [OBJECT_IDS.department, 'org_department'], [OBJECT_IDS.workforceSurvey, 'workforce_survey'],
-    [OBJECT_IDS.workforceRow, 'workforce_survey_row'], [OBJECT_IDS.equipment, 'equipment_register'],
+    [OBJECT_IDS.department, 'org_department'], [OBJECT_IDS.workforceRow, 'workforce_survey_row'],
+    [OBJECT_IDS.equipment, 'equipment_register'],
     [OBJECT_IDS.equipmentType, 'equipment_type'], [OBJECT_IDS.equipmentModel, 'equipment_model'],
   ];
   for (const [id, key] of requiredObjects) {
@@ -215,8 +309,7 @@ function verifyMetadata({ objects, fields, definitions, counts }) {
     [RELATIONSHIP_IDS.equipmentType, OBJECT_IDS.equipment, OBJECT_IDS.equipmentType],
     [RELATIONSHIP_IDS.equipmentModel, OBJECT_IDS.equipment, OBJECT_IDS.equipmentModel],
     [RELATIONSHIP_IDS.modelType, OBJECT_IDS.equipmentModel, OBJECT_IDS.equipmentType],
-    [RELATIONSHIP_IDS.workforceDepartment, OBJECT_IDS.workforceSurvey, OBJECT_IDS.department],
-    [RELATIONSHIP_IDS.workforceRowSurvey, OBJECT_IDS.workforceRow, OBJECT_IDS.workforceSurvey],
+    [RELATIONSHIP_IDS.workforceDepartment, OBJECT_IDS.workforceRow, OBJECT_IDS.department],
   ];
   for (const [id, source, target] of expectedDefinitions) {
     const definition = definitions.find(item => item.id === id);
@@ -224,6 +317,10 @@ function verifyMetadata({ objects, fields, definitions, counts }) {
       && definition.source_custom_object_id === source && definition.target_custom_object_id === target,
     `Pinned relationship ${id} metadata drifted.`);
   }
+  const directWorkforce = definitions.find(item => item.id === RELATIONSHIP_IDS.workforceDepartment);
+  check(directWorkforce.relationship_key === 'workforce_survey_row_department'
+    && directWorkforce.cardinality === 'many_to_one' && directWorkforce.is_required === true,
+  'Pinned direct Workforce Row → Department relationship metadata drifted.');
   const respondent = definitions.find(item => item.id === RELATIONSHIP_IDS.departmentRespondent);
   check(respondent && active(respondent) && respondent.status === 'active'
     && respondent.tenant_id === TENANT_ID && respondent.relationship_key === 'members',
@@ -235,7 +332,6 @@ function verifyMetadata({ objects, fields, definitions, counts }) {
     'Pinned Department respondent boolean field metadata drifted.');
   const all = new Map(fields.map(field => [`${field.custom_object_id}:${field.name}`, field]));
   for (const [object, names] of [
-    [OBJECT_IDS.workforceSurvey, [OBJECT_FIELD_NAMES.workforceSurvey.surveyName]],
     [OBJECT_IDS.workforceRow, Object.values(OBJECT_FIELD_NAMES.workforceRow)],
     [OBJECT_IDS.equipment, Object.values(OBJECT_FIELD_NAMES.equipment)],
   ]) {
@@ -244,10 +340,10 @@ function verifyMetadata({ objects, fields, definitions, counts }) {
       check(field && field.tenant_id === TENANT_ID && field.is_active === true, `Pinned field ${name} metadata drifted.`);
     }
   }
-  check(counts.departmentsWithMultipleWorkforceParents === 0,
-    'Ambiguous Department workforce parentage exists; refusing rollout.');
-  check(counts.workforceRowsWithoutExactlyOneParent === 0,
-    'A current workforce row has ambiguous or missing parentage; refusing rollout.');
+  check(counts.workforceRowsWithoutExactlyOneDepartment === 0,
+    'A current workforce row has ambiguous or missing direct Department ownership; refusing rollout.');
+  check(counts.maximumWorkforceRowsForOneDepartment <= 100,
+    'A Department exceeds the supported 100 workforce-row limit; refusing rollout.');
   // These are pre-existing legacy-record observations, not configuration drift.
   // The rollout does not repair, archive, or infer missing edges. The trusted
   // server operation preserves valid blanks and rejects forged associations.
@@ -283,7 +379,75 @@ function verifyCurrentValues({ records, fields }) {
   }
 }
 
-function reviewedScope({ form, objects, fields, definitions, records, edges, config }) {
+function optionValues(options) {
+  return (options || []).map(option => typeof option === 'object' ? option.value : option);
+}
+
+function verifyFormChoiceCompatibility({ form, fields }) {
+  const canonical = new Map(fields.map(field => [`${field.custom_object_id}:${field.name}`, field]));
+  const workforce = form.fields.find(field => field?.id === FORM_FIELDS.workforceContainer);
+  const equipment = form.fields.find(field => field?.id === FORM_FIELDS.equipmentContainer);
+  const children = new Map([
+    ...(workforce?.child_fields || []),
+    ...(equipment?.child_fields || []),
+  ].map(field => [field.id, field]));
+  const pairs = [
+    [FORM_FIELDS.workforce.staffGroup, OBJECT_IDS.workforceRow, 'staff_group'],
+    [FORM_FIELDS.workforce.grade, OBJECT_IDS.workforceRow, 'grade'],
+    [FORM_FIELDS.equipment.stillInService, OBJECT_IDS.equipment, 'still_in_service'],
+  ];
+  for (const [formFieldId, objectId, fieldName] of pairs) {
+    const formField = children.get(formFieldId);
+    const objectField = canonical.get(`${objectId}:${fieldName}`);
+    check(formField?.type === 'select' && objectField?.field_type === 'dropdown',
+      `Form/object dropdown type drifted for ${fieldName}.`);
+    const saved = optionValues(formField.options);
+    const approved = optionValues(objectField.options);
+    check(saved.length > 0 && new Set(saved).size === saved.length
+      && approved.length > 0 && new Set(approved).size === approved.length
+      && saved.length === approved.length && saved.every(value => approved.includes(value)),
+    `Form dropdown options drifted from canonical ${fieldName} options.`);
+  }
+  return { checked: pairs.map(([, , fieldName]) => fieldName), exactCanonicalOptionSets: true };
+}
+
+async function plannedWorkforceCapacity(records, edges) {
+  const source = parseSource(await readFile(WORKFORCE_SOURCE_FILE));
+  const currentByDepartment = new Map();
+  const recordsById = new Map(records.map(record => [record.id, record]));
+  for (const edge of edges.filter(edge => active(edge)
+    && edge.relationship_definition_id === RELATIONSHIP_IDS.workforceDepartment)) {
+    const row = recordsById.get(edge.source_record_id);
+    if (row?.custom_object_id === OBJECT_IDS.workforceRow && active(row)) {
+      currentByDepartment.set(edge.target_record_id, (currentByDepartment.get(edge.target_record_id) || 0) + 1);
+    }
+  }
+  const plannedByDepartment = new Map();
+  for (const row of source.rows) {
+    plannedByDepartment.set(row.departmentId, (plannedByDepartment.get(row.departmentId) || 0) + 1);
+  }
+  const projected = new Map(currentByDepartment);
+  for (const [departmentId, rows] of plannedByDepartment) {
+    projected.set(departmentId, (projected.get(departmentId) || 0) + rows);
+  }
+  const maximum = values => Math.max(0, ...values.values());
+  const evidence = {
+    sourceSha256: source.fingerprint,
+    sourceRows: source.rows.length,
+    sourceDepartments: plannedByDepartment.size,
+    maximumSourceRowsForOneDepartment: maximum(plannedByDepartment),
+    maximumExistingRowsForOneDepartment: maximum(currentByDepartment),
+    maximumProjectedRowsForOneDepartment: maximum(projected),
+  };
+  check(evidence.maximumProjectedRowsForOneDepartment <= 100,
+    'The approved direct workforce source plus existing rows exceeds the supported 100-row form limit.');
+  return evidence;
+}
+
+function reviewedScope({
+  form, objects, fields, definitions, records, edges, members, config,
+  workforceImportCapacity, organisationDefinitions, organisationParentEdges, organisations,
+}) {
   return {
     form: {
       id: form.id, tenant_id: form.tenant_id, is_active: form.is_active,
@@ -292,39 +456,89 @@ function reviewedScope({ form, objects, fields, definitions, records, edges, con
     },
     objects: objects.map(row => ({ id: row.id, tenant_id: row.tenant_id, object_key: row.object_key, status: row.status, archived_at: row.archived_at })),
     fields: fields.map(row => ({ id: row.id, tenant_id: row.tenant_id, custom_object_id: row.custom_object_id, name: row.name, field_type: row.field_type, is_active: row.is_active, is_required: row.is_required, options: row.options })),
-    definitions: definitions.map(row => ({ id: row.id, tenant_id: row.tenant_id, relationship_key: row.relationship_key, source_kind: row.source_kind, source_custom_object_id: row.source_custom_object_id, target_kind: row.target_kind, target_custom_object_id: row.target_custom_object_id, status: row.status, archived_at: row.archived_at, is_required: row.is_required, configuration: row.configuration })),
+    definitions: definitions.map(row => ({ id: row.id, tenant_id: row.tenant_id, relationship_key: row.relationship_key, source_kind: row.source_kind, source_custom_object_id: row.source_custom_object_id, target_kind: row.target_kind, target_custom_object_id: row.target_custom_object_id, status: row.status, archived_at: row.archived_at, is_required: row.is_required, cardinality: row.cardinality, configuration: row.configuration })),
     records: records.map(row => ({ id: row.id, tenant_id: row.tenant_id, custom_object_id: row.custom_object_id, archived_at: row.archived_at, data: row.data })),
     edges: edges.map(row => ({ id: row.id, tenant_id: row.tenant_id, relationship_definition_id: row.relationship_definition_id, source_record_id: row.source_record_id, target_record_id: row.target_record_id, archived_at: row.archived_at, field_values: row.field_values })),
+    members: members.map(row => ({ id: row.id, tenant_id: row.tenant_id, login_enabled: row.login_enabled, membership_paused: row.membership_paused, email: row.email, organization_id: row.organization_id })),
+    organisationDefinitions: organisationDefinitions.map(row => ({
+      id: row.id, tenant_id: row.tenant_id, relationship_key: row.relationship_key,
+      source_kind: row.source_kind, source_custom_object_id: row.source_custom_object_id,
+      target_kind: row.target_kind, target_custom_object_id: row.target_custom_object_id,
+      status: row.status, archived_at: row.archived_at, is_required: row.is_required,
+      cardinality: row.cardinality,
+    })),
+    organisationParentEdges: organisationParentEdges.map(row => ({
+      id: row.id, tenant_id: row.tenant_id, relationship_definition_id: row.relationship_definition_id,
+      source_record_id: row.source_record_id, target_record_id: row.target_record_id,
+      archived_at: row.archived_at,
+    })),
+    organisations: organisations.map(row => ({ id: row.id, tenant_id: row.tenant_id })),
     currentSetConfig: config?.row?.config || null,
+    workforceImportCapacity,
   };
 }
 
 async function preflight(db) {
-  const [formResult, objects, fields, definitions, records, edges, config] = await Promise.all([
+  const [formResult, objects, fields, definitions, records, edges, config, organisationDefinitions] = await Promise.all([
     db.from('form').select('*').eq('id', FORM_ID).eq('tenant_id', TENANT_ID).maybeSingle(),
     pages(db.from('custom_object_definition').select('id,tenant_id,object_key,status,archived_at', { count: 'exact' }).eq('tenant_id', TENANT_ID)
       .in('id', Object.values(OBJECT_IDS)), 'Object definitions'),
     pages(db.from('preference_field').select('id,tenant_id,custom_object_id,name,label,field_type,is_active,is_required,options', { count: 'exact' }).eq('tenant_id', TENANT_ID)
-      .in('custom_object_id', [OBJECT_IDS.workforceSurvey, OBJECT_IDS.workforceRow, OBJECT_IDS.equipment]), 'Object fields'),
-    pages(db.from('custom_object_relationship_definition').select('id,tenant_id,relationship_key,source_kind,source_custom_object_id,target_kind,target_custom_object_id,status,archived_at,is_required,configuration', { count: 'exact' })
+      .in('custom_object_id', [OBJECT_IDS.workforceRow, OBJECT_IDS.equipment]), 'Object fields'),
+    pages(db.from('custom_object_relationship_definition').select('id,tenant_id,relationship_key,source_kind,source_custom_object_id,target_kind,target_custom_object_id,status,archived_at,is_required,cardinality,configuration', { count: 'exact' })
       .eq('tenant_id', TENANT_ID).in('id', Object.values(RELATIONSHIP_IDS)), 'Relationship definitions'),
     pages(db.from('custom_object_record').select('id,tenant_id,custom_object_id,archived_at,data', { count: 'exact' }).eq('tenant_id', TENANT_ID)
-      .in('custom_object_id', [OBJECT_IDS.department, OBJECT_IDS.workforceSurvey, OBJECT_IDS.workforceRow, OBJECT_IDS.equipment]), 'Current-set records'),
+      .in('custom_object_id', [OBJECT_IDS.department, OBJECT_IDS.workforceRow, OBJECT_IDS.equipment]), 'Current-set records'),
     pages(db.from('custom_object_relationship').select('id,tenant_id,relationship_definition_id,source_record_id,target_record_id,archived_at,field_values', { count: 'exact' }).eq('tenant_id', TENANT_ID)
       .in('relationship_definition_id', Object.values(RELATIONSHIP_IDS)), 'Current-set relationships'),
     maybeConfig(db),
+    pages(db.from('custom_object_relationship_definition').select('id,tenant_id,relationship_key,source_kind,source_custom_object_id,target_kind,target_custom_object_id,status,archived_at,is_required,cardinality', { count: 'exact' })
+      .eq('tenant_id', TENANT_ID).eq('relationship_key', 'organisation')
+      .eq('source_custom_object_id', OBJECT_IDS.department), 'Department organisation relationship definitions'),
   ]);
   if (formResult.error) fail(`Pinned form read failed: ${formResult.error.message || formResult.error}`);
-  const formSafety = verifyForm(formResult.data);
-  const counts = recordCounts(records, edges);
+  const respondentMemberIds = [...new Set(edges.filter(edge => active(edge)
+    && edge.relationship_definition_id === RELATIONSHIP_IDS.departmentRespondent
+    && edge.field_values?.survey_respondent === true).map(edge => edge.target_record_id))];
+  const members = respondentMemberIds.length
+    ? await pages(db.from('member').select('id,tenant_id,login_enabled,membership_paused,email,organization_id', { count: 'exact' })
+      .in('id', respondentMemberIds), 'Assigned respondent members')
+    : [];
+  const organisationDefinitionIds = organisationDefinitions.map(definition => definition.id);
+  const organisationParentEdges = organisationDefinitionIds.length
+    ? await pages(db.from('custom_object_relationship').select('id,tenant_id,relationship_definition_id,source_record_id,target_record_id,archived_at,field_values', { count: 'exact' })
+      .eq('tenant_id', TENANT_ID).in('relationship_definition_id', organisationDefinitionIds),
+    'Department organisation relationships')
+    : [];
+  const organisationIds = [...new Set([
+    ...organisationParentEdges.filter(active).map(edge => edge.target_record_id),
+    ...members.map(member => member.organization_id).filter(Boolean),
+  ])];
+  const organisations = organisationIds.length
+    ? await pages(db.from('organization').select('id,tenant_id', { count: 'exact' })
+      .in('id', organisationIds), 'Department respondent organisations')
+    : [];
+  const formSafety = verifyForm(formResult.data, fields);
+  const counts = recordCounts(records, edges, members);
+  const organisationSuitability = departmentOrganisationSuitability({
+    records, definitions: organisationDefinitions, parentEdges: organisationParentEdges,
+    respondentEdges: edges, members, organizations: organisations,
+  });
   verifyMetadata({ objects, fields, definitions, counts });
   verifyCurrentValues({ records, fields });
+  const formChoiceCompatibility = verifyFormChoiceCompatibility({ form: formSafety.candidate, fields });
+  const workforceImportCapacity = await plannedWorkforceCapacity(records, edges);
   const desiredConfig = buildDepartmentCurrentSetConfig(formSafety.candidate);
   if (config.row) check(validateCurrentSetConfig(config.row.config, formSafety.candidate), 'Existing current-set configuration drifted; refusing replacement.');
-  const scope = reviewedScope({ form: formResult.data, objects, fields, definitions, records, edges, config });
+  const scope = reviewedScope({
+    form: formResult.data, objects, fields, definitions, records, edges, members, config,
+    workforceImportCapacity, organisationDefinitions, organisationParentEdges, organisations,
+  });
   return {
     form: formResult.data, candidate: formSafety.candidate, containerConstraints: formSafety.constraints,
-    objects, fields, definitions, records, edges, config, desiredConfig, counts, scope,
+    objects, fields, definitions, records, edges, members, config, desiredConfig, counts,
+    organisationDefinitions, organisationParentEdges, organisations, organisationSuitability,
+    formChoiceCompatibility, workforceImportCapacity, scope,
     fingerprint: fingerprint(scope),
   };
 }
@@ -349,6 +563,31 @@ async function writeBackup(state) {
   return backup;
 }
 
+async function destinationSqlClient() {
+  const connectionString = process.env.DEST_DATABASE_URL;
+  check(connectionString, 'DEST_DATABASE_URL is required for the guarded atomic apply.');
+  const destination = new URL(connectionString);
+  const allowed = new Set([
+    'aws-1-eu-central-1.pooler.supabase.com',
+    'db.lvmzliemqnieeoruhkik.supabase.co',
+  ]);
+  check(allowed.has(destination.hostname) && (!destination.port || destination.port === '5432'),
+    'Destination SQL host pin mismatch; use the BNMS direct database or IPv4 pooler.');
+  if (destination.hostname.endsWith('.pooler.supabase.com')) {
+    check(decodeURIComponent(destination.username).endsWith(DESTINATION_PROJECT_SUFFIX),
+      'Shared pool username is not pinned to the BNMS Supabase project.');
+  }
+  for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) destination.searchParams.delete(key);
+  const caResponse = await fetch(DESTINATION_CA_URL);
+  check(caResponse.ok, `Destination CA download failed with HTTP ${caResponse.status}.`);
+  const ca = await caResponse.text();
+  check(ca.includes('BEGIN CERTIFICATE'), 'Destination CA download was not a PEM certificate.');
+  return new pg.Client({
+    connectionString: destination.toString(),
+    ssl: { rejectUnauthorized: true, ca, servername: destination.hostname },
+  });
+}
+
 async function applyAtomically(state) {
   // Config and form changes commit together. The database function's trigger
   // takes this same scoped advisory lock for later Data Studio changes; direct
@@ -357,15 +596,7 @@ async function applyAtomically(state) {
   check(!state.config.row || validateCurrentSetConfig(state.config.row.config, state.candidate),
     'Existing current-set configuration drifted; refusing replacement.');
   const backupPath = await writeBackup(state);
-  const connectionString = process.env.DEST_DATABASE_URL;
-  check(connectionString, 'DEST_DATABASE_URL is required for the guarded atomic apply.');
-  const destination = new URL(connectionString);
-  check(destination.hostname === 'aws-1-eu-central-1.pooler.supabase.com' && destination.port === '5432',
-    'Destination SQL pooler pin mismatch; no alternate database is allowed.');
-  const client = new pg.Client({
-    connectionString,
-    ssl: { rejectUnauthorized: true, servername: destination.hostname },
-  });
+  const client = await destinationSqlClient();
   await client.connect();
   try {
     await client.query('BEGIN');
@@ -436,14 +667,24 @@ function reportFor(state) {
     configTable: CURRENT_SET_CONFIG_TABLE,
     schemaReady: state.config.schemaReady,
     rolloutReadiness: state.config.schemaReady
-      ? 'ready-for-reviewed-apply'
-      : `blocked: ${CURRENT_SET_CONFIG_TABLE} migration is not installed`,
+      ? 'staged: publish and verify the new API/client Department picker and authentication-reset changes before reviewed configuration apply'
+      : `blocked: ${CURRENT_SET_CONFIG_TABLE} migration is not installed; application publish remains required before configuration apply`,
     preflightFingerprint: state.fingerprint,
     desiredConfigFingerprint: fingerprint(state.desiredConfig),
     rowCounts: state.counts,
     form: {
       wasAuthenticationRequired: state.form.require_authentication === true,
       authenticationWillBeRequired: true,
+      authenticationChange: {
+        approved: true,
+        from: state.form.require_authentication === true,
+        to: true,
+        disclosure: 'This currently public form will require sign-in; only an assigned Department Survey respondent can use current-set operations.',
+      },
+      workforceMaximumRowsBefore: state.form.fields.find(field => field.id === FORM_FIELDS.workforceContainer)?.max_rows,
+      workforceMaximumRowsAfter: 100,
+      workforceDropdownOptionChanges: state.candidate.workforceDropdownChanges,
+      workforceDropdownOptionsSynchronizedToCanonicalValues: true,
       equipmentMaximumRowsBefore: state.form.fields.find(field => field.id === FORM_FIELDS.equipmentContainer)?.max_rows,
       equipmentMaximumRowsAfter: 100,
       datesVerifiedYearOnly: true,
@@ -451,6 +692,20 @@ function reportFor(state) {
       repeatableContainerConstraints: state.containerConstraints,
       deliberateEmptyWorkforceAndEquipmentAllowed: true,
     },
+    directWorkforce: {
+      relationshipId: RELATIONSHIP_IDS.workforceDepartment,
+      relationshipKey: 'workforce_survey_row_department',
+      rowNameFieldRequired: false,
+      importCapacity: state.workforceImportCapacity,
+    },
+    respondentAssignmentSuitability: {
+      relationshipId: RELATIONSHIP_IDS.departmentRespondent,
+      relationshipFieldKey: 'survey_respondent',
+      ...state.counts.respondentAssignments,
+      handling: 'Captured for reviewer action; rollout does not create, remove, or alter Department respondent assignments.',
+    },
+    departmentOrganisationSuitability: state.organisationSuitability,
+    dropdownCanonicalCompatibility: state.formChoiceCompatibility,
     existingConfig: state.config.row ? 'already-configured' : 'absent',
     legacyGraphObservations: {
       equipmentWithoutExactlyOneDepartment: state.counts.equipmentWithoutExactlyOneDepartment,
@@ -468,11 +723,15 @@ function reportFor(state) {
       guardedFormAndConfigTransaction: true,
       authenticatedWrappersRequiredBeforeConfig: true,
       stagedAfterApplicationDeployment: true,
+      applicationPublishedAcknowledgementRequired: true,
+      applicationPublishedAcknowledged: APPLICATION_PUBLISHED,
+      applicationPublishScope: 'New API/client Department picker and authentication-reset changes must be published and verified before config activation.',
       preservesDraftAndPublicationState: true,
       automaticPublish: false,
       postcheckRequired: true,
     },
     outstanding: [
+      'Schema-only migration installation is separate from form/configuration activation. Publish and verify the new API/client Department picker and authentication-reset changes before any --apply --application-published configuration command.',
       'The separately prepared BNMS workforce CSV import was not read, changed, or executed.',
       'Because this rollout changes related form/configuration metadata, repeat that import package’s required full destination re-audit and final approval review before any separate import execution.',
       'Run a signed-in live verification for a respondent flagged true for one Department and false/absent for another after code, migration, and this configuration rollout are deployed.',

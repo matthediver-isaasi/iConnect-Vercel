@@ -21,6 +21,14 @@ const authMigration = fileURLToPath(new URL(
   '../../supabase/migrations/20261102_department_current_set_auth.sql',
   import.meta.url,
 ));
+const directWorkforceMigration = fileURLToPath(new URL(
+  '../../supabase/migrations/20261103_department_current_set_direct_workforce.sql',
+  import.meta.url,
+));
+const departmentOrganisationAuthMigration = fileURLToPath(new URL(
+  '../../supabase/migrations/20261104_department_current_set_department_organisation_auth.sql',
+  import.meta.url,
+));
 
 const executable = name => spawnSync('sh', ['-c', `command -v ${name}`], {
   encoding: 'utf8',
@@ -62,6 +70,7 @@ const ID = Object.freeze({
   member: '10000000-0000-4000-8000-000000000005',
   otherMember: '10000000-0000-4000-8000-000000000006',
   organization: '10000000-0000-4000-8000-000000000007',
+  otherOrganization: '10000000-0000-4000-8000-000000000050',
   role: '10000000-0000-4000-8000-000000000008',
   group: '10000000-0000-4000-8000-000000000009',
   session: 'current-set-session',
@@ -94,6 +103,10 @@ const ID = Object.freeze({
   equipmentType: '10000000-0000-4000-8000-000000000044',
   equipmentModel: '10000000-0000-4000-8000-000000000045',
   modelType: '10000000-0000-4000-8000-000000000046',
+  staffGroupField: '10000000-0000-4000-8000-000000000047',
+  gradeField: '10000000-0000-4000-8000-000000000048',
+  rowNameField: '10000000-0000-4000-8000-000000000049',
+  departmentOrganization: '10000000-0000-4000-8000-000000000051',
 });
 
 const q = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -156,12 +169,13 @@ function fixtureSql() {
   const obj = (id, key) => `INSERT INTO custom_object_definition
     (id,tenant_id,object_key,singular_label,plural_label,status)
     VALUES (${q(id)},${q(ID.tenant)},${q(key)},${q(key)},${q(`${key}s`)},'active');`;
-  const definition = (id, key, sourceKind, sourceObject, targetKind, targetObject, configuration = "'{}'::jsonb") => `
+  const definition = (id, key, sourceKind, sourceObject, targetKind, targetObject,
+    configuration = "'{}'::jsonb", cardinality = 'many_to_many', required = false) => `
     INSERT INTO custom_object_relationship_definition
       (id,tenant_id,relationship_key,source_kind,source_custom_object_id,target_kind,target_custom_object_id,
-       cardinality,source_label,target_label,status,configuration)
+       cardinality,source_label,target_label,is_required,status,configuration)
     VALUES (${q(id)},${q(ID.tenant)},${q(key)},${q(sourceKind)},${sourceObject ? q(sourceObject) : 'NULL'},
-      ${q(targetKind)},${targetObject ? q(targetObject) : 'NULL'},'many_to_many','source','target','active',${configuration});`;
+      ${q(targetKind)},${targetObject ? q(targetObject) : 'NULL'},${q(cardinality)},'source','target',${required},'active',${configuration});`;
   return `
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
@@ -241,7 +255,9 @@ function fixtureSql() {
       CHECK (jsonb_typeof(field_values) = 'object')
     );
     INSERT INTO tenant VALUES (${q(ID.tenant)});
-    INSERT INTO organization (id,tenant_id) VALUES (${q(ID.organization)},${q(ID.tenant)});
+    INSERT INTO organization (id,tenant_id) VALUES
+      (${q(ID.organization)},${q(ID.tenant)}),
+      (${q(ID.otherOrganization)},${q(ID.tenant)});
     INSERT INTO role (id,tenant_id) VALUES (${q(ID.role)},${q(ID.tenant)});
     INSERT INTO member (id,tenant_id,organization_id,role_id) VALUES (${q(ID.member)},${q(ID.tenant)},${q(ID.organization)},${q(ID.role)});
     INSERT INTO member (id,tenant_id,organization_id,role_id) VALUES (${q(ID.otherMember)},${q(ID.tenant)},${q(ID.organization)},${q(ID.role)});
@@ -250,10 +266,19 @@ function fixtureSql() {
     INSERT INTO form (id,tenant_id,fields) VALUES (${q(ID.form)},${q(ID.tenant)},'[{"id":"wf"},{"id":"eq"}]');
     ${obj(ID.departmentObject, 'department')} ${obj(ID.surveyObject, 'survey')} ${obj(ID.rowObject, 'workforce_row')}
     ${obj(ID.equipmentObject, 'equipment')} ${obj(ID.typeObject, 'equipment_type')} ${obj(ID.modelObject, 'equipment_model')}
+    INSERT INTO preference_field (id,tenant_id,custom_object_id,name,field_type,is_active,is_required,options) VALUES
+      (${q(ID.staffGroupField)},${q(ID.tenant)},${q(ID.rowObject)},'staff_group','dropdown',true,true,
+        '["Clinical Practitioner – Technologist ","Nurse","Radiographer"]'),
+      (${q(ID.gradeField)},${q(ID.tenant)},${q(ID.rowObject)},'grade','dropdown',true,true,
+        '["Band 5","Band 6","Band 7","Band 8a"]'),
+      (${q(ID.rowNameField)},${q(ID.tenant)},${q(ID.rowObject)},'row_name','text',false,true,'[]');
+    UPDATE custom_object_definition SET primary_display_field_id=${q(ID.staffGroupField)}::uuid
+      WHERE id=${q(ID.rowObject)}::uuid;
     ${definition(ID.respondent, 'members', 'custom_object', ID.departmentObject, 'member', null,
       `'{"relationship_fields":[{"key":"survey_respondent","type":"boolean","default_value":false}]}'::jsonb`)}
-    ${definition(ID.surveyDepartment, 'workforce_survey_department', 'custom_object', ID.surveyObject, 'custom_object', ID.departmentObject)}
-    ${definition(ID.rowSurvey, 'workforce_survey_row_survey', 'custom_object', ID.rowObject, 'custom_object', ID.surveyObject)}
+    ${definition(ID.departmentOrganization, 'organisation', 'custom_object', ID.departmentObject, 'organization', null, "'{}'::jsonb", 'many_to_one', true)}
+    ${definition(ID.surveyDepartment, 'retired_workforce_survey_department', 'custom_object', ID.surveyObject, 'custom_object', ID.departmentObject)}
+    ${definition(ID.rowSurvey, 'workforce_survey_row_department', 'custom_object', ID.rowObject, 'custom_object', ID.departmentObject, "'{}'::jsonb", 'many_to_one', true)}
     ${definition(ID.equipmentDepartment, 'equipment_register_department', 'custom_object', ID.equipmentObject, 'custom_object', ID.departmentObject)}
     ${definition(ID.equipmentType, 'equipment_register_type', 'custom_object', ID.equipmentObject, 'custom_object', ID.typeObject)}
     ${definition(ID.equipmentModel, 'equipment_register_model', 'custom_object', ID.equipmentObject, 'custom_object', ID.modelObject)}
@@ -272,16 +297,18 @@ function fixtureSql() {
     INSERT INTO custom_object_relationship (tenant_id,relationship_definition_id,source_record_id,target_record_id,field_values) VALUES
       (${q(ID.tenant)},${q(ID.respondent)},${q(ID.department)},${q(ID.member)},'{"survey_respondent":true}'),
       (${q(ID.tenant)},${q(ID.respondent)},${q(ID.department)},${q(ID.otherMember)},'{"survey_respondent":true}'),
+      (${q(ID.tenant)},${q(ID.departmentOrganization)},${q(ID.department)},${q(ID.organization)},'{}'),
       (${q(ID.tenant)},${q(ID.surveyDepartment)},${q(ID.survey)},${q(ID.department)},'{}'),
-      (${q(ID.tenant)},${q(ID.rowSurvey)},${q(ID.workforceRow)},${q(ID.survey)},'{}'),
+      (${q(ID.tenant)},${q(ID.rowSurvey)},${q(ID.workforceRow)},${q(ID.department)},'{}'),
       (${q(ID.tenant)},${q(ID.equipmentDepartment)},${q(ID.equipment)},${q(ID.department)},'{}'),
       (${q(ID.tenant)},${q(ID.equipmentDepartment)},${q(ID.foreignEquipment)},${q(ID.otherDepartment)},'{}'),
       (${q(ID.tenant)},${q(ID.equipmentType)},${q(ID.equipment)},${q(ID.type)},'{}'),
       (${q(ID.tenant)},${q(ID.modelType)},${q(ID.model)},${q(ID.type)},'{}');
     \\i ${migration}
+    \\i ${directWorkforceMigration}
+    \\i ${departmentOrganisationAuthMigration}
     INSERT INTO department_current_set_config (tenant_id,form_id,config) VALUES (${q(ID.tenant)},${q(ID.form)}, $cfg$
-      {"version":1,"department_object_id":"${ID.departmentObject}","workforce_object_id":"${ID.surveyObject}",
-       "workforce_row_object_id":"${ID.rowObject}","equipment_object_id":"${ID.equipmentObject}",
+      {"version":2,"department_object_id":"${ID.departmentObject}","workforce_row_object_id":"${ID.rowObject}","equipment_object_id":"${ID.equipmentObject}",
        "equipment_type_object_id":"${ID.typeObject}","equipment_model_object_id":"${ID.modelObject}",
        "respondent_relationship_id":"${ID.respondent}","respondent_field_key":"survey_respondent",
        "workforce_container_field_id":"wf","equipment_container_field_id":"eq",
@@ -290,8 +317,8 @@ function fixtureSql() {
          "equipment_hidden_preserve":{"decommissioned":{"mode":"show_when","source_field_id":"service","value":"No"}},
        "workforce_fields":{"staff":"staff_group","grade":"grade","occupied":"occupied_wte","vacant":"vacant_wte"},
        "equipment_fields":{"type":"equipment_type_id","manufacturer":"manufacturer","model":"model_id","serial":"serial_number","installed":"year_installed","decommissioned":"year_decommissioned","service":"still_in_service","notes":"additional_information"},
-       "relationship_keys":{"workforce_department":"workforce_survey_department","workforce_row":"workforce_survey_row_survey","equipment_department":"equipment_register_department","equipment_type":"equipment_register_type","equipment_model":"equipment_register_model","model_type":"model_type"},
-       "relationship_ids":{"workforce_department":"${ID.surveyDepartment}","workforce_row":"${ID.rowSurvey}","equipment_department":"${ID.equipmentDepartment}","equipment_type":"${ID.equipmentType}","equipment_model":"${ID.equipmentModel}","model_type":"${ID.modelType}"}}$cfg$::jsonb);
+        "relationship_keys":{"workforce_department":"workforce_survey_row_department","equipment_department":"equipment_register_department","equipment_type":"equipment_register_type","equipment_model":"equipment_register_model","model_type":"model_type"},
+        "relationship_ids":{"workforce_department":"${ID.rowSurvey}","equipment_department":"${ID.equipmentDepartment}","equipment_type":"${ID.equipmentType}","equipment_model":"${ID.equipmentModel}","model_type":"${ID.modelType}"}}$cfg$::jsonb);
     INSERT INTO form_submission (id,tenant_id,form_id,created_member_id) VALUES
       (${q(ID.subOne)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
       (${q(ID.subTwo)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
@@ -348,6 +375,31 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.equal(loaded.form_values.eq[0].serial, null);
     assert.equal(loaded.form_values.eq[0].installed, null);
 
+    // A URL contains only an untrusted Department UUID. A respondent edge is
+    // insufficient when that Department belongs to another organisation, or
+    // when its ownership is ambiguous.
+    run(psql, args, `UPDATE custom_object_relationship SET target_record_id=${q(ID.otherOrganization)}::uuid
+      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
+        AND source_record_id=${q(ID.department)}::uuid AND archived_at IS NULL;`);
+    assert.match(fails(psql, args, `SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
+    run(psql, args, `UPDATE custom_object_relationship SET target_record_id=${q(ID.organization)}::uuid
+      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
+        AND source_record_id=${q(ID.department)}::uuid AND archived_at IS NULL;
+      INSERT INTO custom_object_relationship (tenant_id,relationship_definition_id,source_record_id,target_record_id)
+        VALUES (${q(ID.tenant)},${q(ID.departmentOrganization)},${q(ID.department)},${q(ID.otherOrganization)});`);
+    assert.match(fails(psql, args, `SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
+    run(psql, args, `UPDATE custom_object_relationship SET archived_at=now(),archived_by='test'
+      WHERE relationship_definition_id=${q(ID.departmentOrganization)}::uuid
+        AND source_record_id=${q(ID.department)}::uuid
+        AND target_record_id=${q(ID.otherOrganization)}::uuid AND archived_at IS NULL;`);
+    assert.equal(JSON.parse(scalar(`SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)})::text;`)).department.id, ID.department);
+
     // The public functions are wrapper-only: an otherwise valid signed member
     // cannot load or mutate with an absent/expired/wrong session or revoked
     // audience. Relationship field defaults also enforce a real JSON boolean,
@@ -383,7 +435,7 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)});`), /CURRENT_SET_AUTHORIZATION/);
     run(psql, args, `UPDATE form SET access_policy=NULL WHERE id=${q(ID.form)}::uuid;`);
     run(psql, args, `UPDATE member SET organization_id=NULL WHERE id=${q(ID.otherMember)}::uuid;`);
-    assert.equal(JSON.parse(scalar(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)})::text;`)).department.id, ID.department);
+    assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
     run(psql, args, `UPDATE member SET tenant_id=NULL WHERE id=${q(ID.otherMember)}::uuid;`);
     assert.match(failSql(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.otherMember)}::uuid,${q(ID.otherSession)});`), /CURRENT_SET_AUTHORIZATION/);
     // Revoking then restoring login state cannot revive a session with the old
@@ -404,6 +456,14 @@ test('Department current-set migration executes its reconciliation behavior only
     // clearing valid workforce data.
     assert.match(failSql(sqlCall(ID.subBad, completePayload("'[]'::jsonb", `jsonb_build_array(jsonb_build_object('_row_id','existing:${ID.foreignEquipment}'))`))), /does not belong to this Department/);
     assert.equal(scalar(`SELECT archived_at IS NULL FROM custom_object_record WHERE id=${q(ID.workforceRow)}::uuid;`), 't');
+    assert.match(failSql(sqlCall(ID.subBad, completePayload(
+      `jsonb_build_array(jsonb_build_object('grade','Band 5','occupied',0,'vacant',0))`,
+      "'[]'::jsonb",
+    ))), /missing an active required field/);
+    assert.match(failSql(sqlCall(ID.subBad, completePayload(
+      `jsonb_build_array(jsonb_build_object('staff','Nurse ','grade','Band 5','occupied',0,'vacant',0))`,
+      "'[]'::jsonb",
+    ))), /exact canonical option/);
     assert.match(failSql(sqlCall(ID.subBad, completePayload("'[]'::jsonb", `jsonb_build_array(jsonb_build_object('type',${q(ID.type)},'serial','','installed','2024'))`))), /new equipment requires serial number/);
     assert.match(failSql(sqlCall(ID.subBad, completePayload("'[]'::jsonb", `jsonb_build_array(jsonb_build_object('type',${q(ID.foreignType)},'manufacturer','Acme','model',${q(ID.model)},'serial','attack','installed','2024'))`))), /Model does not match Type and Manufacturer/);
     assert.equal(scalar(`SELECT data->>'grade' FROM custom_object_record WHERE id=${q(ID.workforceRow)}::uuid;`), 'Band 7');
@@ -519,8 +579,8 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.equal(scalar(`SELECT count(*) FROM custom_object_record WHERE id IN (${q(ID.workforceRow)}::uuid,${q(ID.equipment)}::uuid) AND archived_at IS NOT NULL;`), '2');
     assert.equal(scalar(`SELECT count(*) FROM custom_object_record WHERE id=${q(ID.foreignEquipment)}::uuid AND archived_at IS NULL;`), '1');
 
-    // If historical data had no workforce parent, the first nonempty current
-    // set creates exactly one parent; a replay cannot create another.
+    // A nonempty direct set creates a Row-to-Department edge only. Retiring an
+    // unrelated historical survey must never cause an implicit survey creation.
     run(psql, args, `
       UPDATE custom_object_relationship SET archived_at=now(), archived_by='test'
         WHERE relationship_definition_id=${q(ID.surveyDepartment)}::uuid AND archived_at IS NULL;
@@ -532,7 +592,12 @@ test('Department current-set migration executes its reconciliation behavior only
       "'[]'::jsonb",
     )));
     assert.match(recreated, /committed/);
-    assert.equal(scalar(`SELECT count(*) FROM custom_object_record WHERE custom_object_id=${q(ID.surveyObject)}::uuid AND archived_at IS NULL;`), '1');
+    assert.equal(scalar(`SELECT count(*) FROM custom_object_record WHERE custom_object_id=${q(ID.surveyObject)}::uuid AND archived_at IS NULL;`), '0');
+    assert.equal(scalar(`SELECT count(*) FROM custom_object_relationship edge
+      JOIN custom_object_record row ON row.id=edge.source_record_id
+      WHERE row.custom_object_id=${q(ID.rowObject)}::uuid AND row.data->>'staff_group'='Radiographer'
+        AND edge.relationship_definition_id=${q(ID.rowSurvey)}::uuid
+        AND edge.target_record_id=${q(ID.department)}::uuid AND edge.archived_at IS NULL;`), '1');
     assert.match(scalar(`SELECT department_current_set_reconcile_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.subFour)}::uuid,'stale',${q(ID.session)},(SELECT submission_data FROM form_submission WHERE id=${q(ID.subFour)}::uuid))::text;`), /replayed/);
 
     // Exact respondent truth is required throughout the request. Missing is

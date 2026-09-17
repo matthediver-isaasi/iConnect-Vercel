@@ -202,6 +202,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const briefId = urlParams.get('brief_id');
   const vacancyId = urlParams.get('vacancy_id');
   const currentSetDepartmentParam = urlParams.get('department_id');
+  const [selectedCurrentSetDepartment, setSelectedCurrentSetDepartment] = useState(currentSetDepartmentParam);
+  const selectCurrentSetDepartment = useCallback((departmentId) => {
+    if (!departmentId) return;
+    setSelectedCurrentSetDepartment(departmentId);
+    const next = new URLSearchParams(window.location.search);
+    next.set('department_id', departmentId);
+    window.history.replaceState({}, '', `${window.location.pathname}?${next.toString()}${window.location.hash}`);
+  }, []);
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -1048,11 +1056,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
   const departmentCurrentSet = useDepartmentCurrentSet({
     form,
-    departmentId: currentSetDepartmentParam,
+    departmentId: selectedCurrentSetDepartment,
     principalId: memberInfo?.id,
     formValues,
     setFormValues,
-    ready: defaultsInitialized && (!draftToken || draftLoaded),
+    ready: authResolved && defaultsInitialized && (!draftToken || draftLoaded),
+    onDepartmentSelect: selectCurrentSetDepartment,
   });
   const departmentCurrentSetBlocked = currentSetSaveBlocked({
     enabled: departmentCurrentSet.active,
