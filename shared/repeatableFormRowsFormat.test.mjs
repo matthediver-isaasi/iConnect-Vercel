@@ -44,6 +44,24 @@ test('repeatable text output is readable and permits context-specific relationsh
   assert.equal(text.includes('_row_id'), false);
 });
 
+test('repeatable date values retain month/year precision in text exports', () => {
+  const dateField = {
+    id: 'periods',
+    type: 'repeatable_rows',
+    children: [
+      { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+      { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+    ],
+  };
+  assert.equal(
+    formatRepeatableRowsText(dateField, [{
+      month: '2026-03',
+      year: '2026',
+    }]),
+    'Row 1\nMonth: 2026-03\nYear: 2026',
+  );
+});
+
 test('collects only relationship IDs from configured repeatable children', () => {
   assert.deepEqual(
     collectRepeatableRelationshipRecordIds([field], { employment: value }),

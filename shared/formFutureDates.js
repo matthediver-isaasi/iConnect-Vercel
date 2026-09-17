@@ -2,6 +2,7 @@ import {
   isRepeatableRowField,
   repeatableRowChildren,
 } from './formRepeatableRows.js';
+import { repeatableDateError } from './formRepeatableDates.js';
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -141,13 +142,13 @@ function futureDateRowHash(value) {
 function hasFutureOnlyRepeatableDate(field) {
   return isRepeatableRowField(field)
     && repeatableRowChildren(field).some((child) => (
-      child?.type === 'date' && child.future_only === true
+      child?.type === 'date'
     ));
 }
 
 /**
- * Assign deterministic IDs to legacy repeatable rows only when the container
- * has future-only dates. The content hash plus occurrence is stable across
+ * Assign deterministic IDs to legacy repeatable rows when the container has
+ * date children. The content hash plus occurrence is stable across
  * renderer reloads and reorder operations, while rows already carrying an ID
  * (including newly-created random IDs) remain untouched.
  */
@@ -244,17 +245,17 @@ export function validateFutureDateFields(
           ? previousRepeatableRow(previousRows, row, matchedPreviousRows)
           : null;
         for (const child of children) {
-          if (!child?.id || child.type !== 'date' || child.future_only !== true
+          if (!child?.id || child.type !== 'date'
               || hidden.has(child.id)) continue;
           const value = row[child.id];
           if (hasPrevious && oldRow && isSameValue(value, oldRow[child.id])) continue;
-          const result = errorForValue(child, value, { now });
-          if (result) {
+          const message = repeatableDateError(child, value, { now });
+          if (message) {
             errors.push({
               field_id: field.id,
               child_id: child.id,
               row: rowIndex,
-              message: result.message,
+              message,
             });
           }
         }

@@ -355,6 +355,35 @@ test('validates bounds, required children, duplicate IDs and tampered keys', () 
     new Set(['max_rows', 'unknown_child', 'required_child', 'invalid_row_id']));
 });
 
+test('validates repeatable date settings without checking the current clock', () => {
+  const invalidConfiguration = validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'date',
+      type: 'date',
+      date_precision: 'week',
+      date_restriction: 'future',
+    }],
+  }, [{ date: '2024-01-01' }]);
+  assert.equal(invalidConfiguration.valid, false);
+  assert.ok(invalidConfiguration.errors.some(error => (
+    error.code === 'invalid_date_configuration'
+  )));
+
+  const validHistoricalShape = validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'date',
+      type: 'date',
+      date_precision: 'year',
+      date_restriction: 'future',
+    }],
+  }, [{ date: '0001' }]);
+  assert.equal(validHistoricalShape.errors.some(error => (
+    error.code === 'invalid_date_configuration'
+  )), false);
+});
+
 test('optional untouched rows are empty and do not trigger required-child errors', () => {
   const optional = {
     ...field,

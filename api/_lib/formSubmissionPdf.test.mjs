@@ -157,6 +157,24 @@ test('PDF formatter renders repeatable rows with child labels and relationship d
   assert.equal(output.includes('org-1'), false);
 });
 
+test('PDF formatter preserves partial repeatable dates without inventing a day or timezone', () => {
+  const field = {
+    id: 'periods',
+    type: 'repeatable_rows',
+    children: [
+      { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+      { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+    ],
+  };
+  const output = formatFormSubmissionFieldValue(field, [{
+    month: '2026-03',
+    year: '2026',
+  }]);
+  assert.equal(output, 'Row 1\nMonth: 2026-03\nYear: 2026');
+  assert.equal(output.includes('2026-03-01'), false);
+  assert.equal(output.includes('T00:00:00'), false);
+});
+
 test('PDF formatter retains the submitted repeatable not-listed label', () => {
   const field = {
     id: 'rows',

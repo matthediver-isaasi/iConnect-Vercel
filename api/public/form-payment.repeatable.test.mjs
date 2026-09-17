@@ -325,6 +325,116 @@ test('paid validation skips hidden future-only repeatable dates while validating
   assert.equal(response.statusCode, null);
 });
 
+test('payment submission validation accepts every repeatable date precision and restriction', async () => {
+  const cases = [
+    [{ date_precision: 'day', date_restriction: 'any' }, '2024-02-29'],
+    [{ date_precision: 'month', date_restriction: 'any' }, '2024-02'],
+    [{ date_precision: 'year', date_restriction: 'any' }, '2024'],
+    [{ date_precision: 'day', date_restriction: 'future' }, '2099-02-01'],
+    [{ date_precision: 'month', date_restriction: 'future' }, '2099-02'],
+    [{ date_precision: 'year', date_restriction: 'future' }, '2099'],
+    [{ date_precision: 'day', date_restriction: 'past' }, '2001-02-01'],
+    [{ date_precision: 'month', date_restriction: 'past' }, '2001-02'],
+    [{ date_precision: 'year', date_restriction: 'past' }, '2001'],
+  ];
+  for (const [settings, answer] of cases) {
+    const response = {
+      statusCode: null,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.payload = payload; return this; },
+    };
+    const valid = await validatePaymentRelationships(
+      response,
+      selectionDb({}),
+      { id: 'tenant-1' },
+      {
+        id: 'paid-form',
+        fields: [{
+          id: 'dates',
+          type: 'repeatable_rows',
+          children: [{ id: 'answer', type: 'date', ...settings }],
+        }],
+      },
+      { dates: [{ _row_id: 'row-1', answer }] },
+    );
+    assert.equal(valid, true, `${settings.date_precision}/${settings.date_restriction}`);
+    assert.equal(response.statusCode, null);
+  }
+});
+
+test('payment validation rejects malformed repeatable partial dates before provider work', async () => {
+  for (const [settings, answer] of [
+    [{ date_precision: 'day', date_restriction: 'any' }, '2024-02'],
+    [{ date_precision: 'month', date_restriction: 'any' }, '2024-02-29'],
+    [{ date_precision: 'year', date_restriction: 'any' }, '2024-01'],
+    [{ date_precision: 'month', date_restriction: 'any' }, '2024-13'],
+  ]) {
+    const response = {
+      statusCode: null,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.payload = payload; return this; },
+    };
+    const valid = await validatePaymentRelationships(
+      response,
+      { from() { throw new Error('malformed date must fail before provider/database work'); } },
+      { id: 'tenant-1' },
+      {
+        id: 'paid-form',
+        fields: [{
+          id: 'dates',
+          type: 'repeatable_rows',
+          children: [{ id: 'answer', type: 'date', ...settings }],
+        }],
+      },
+      { dates: [{ _row_id: 'row-1', answer }] },
+    );
+    assert.equal(valid, false);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.payload.code, 'FUTURE_DATE_INVALID');
+    assert.equal(response.payload.details[0].child_id, 'answer');
+  }
+});
+
+test('payment confirmation retry skips date revalidation for an already accepted submission', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    selectionDb({}),
+    { id: 'tenant-1' },
+    {
+      id: 'paid-form',
+      fields: [{
+        id: 'dates',
+        type: 'repeatable_rows',
+        children: [{
+          id: 'answer',
+          type: 'date',
+          date_precision: 'month',
+          date_restriction: 'future',
+        }],
+      }],
+    },
+    { dates: [{ _row_id: 'row-1', answer: '2001-01' }] },
+    {},
+    { skipFutureDateValidation: true },
+  );
+  assert.equal(valid, true);
+  assert.equal(response.statusCode, null);
+});
+
+test('payment confirm callback does not re-run form answer validation after provider confirmation', async () => {
+  const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
+  const start = source.indexOf('async function handleConfirm');
+  const end = source.indexOf('\nasync function ', start + 1);
+  const confirmSection = source.slice(start, end < 0 ? source.length : end);
+  assert.doesNotMatch(confirmSection, /validatePaymentRelationships\(/);
+  assert.match(source, /skipFutureDateValidation: !!existingIdempotentPayment/);
+});
+
 test('provider discovery validates payment purpose and selects matching Stripe credentials', async () => {
   const source = await readFile(new URL('./form-payment-providers.js', import.meta.url), 'utf8');
   assert.match(source, /const purpose = req\.query\?\.purpose \|\| 'forms'/);

@@ -4,6 +4,7 @@ import {
   isDistinctRowSource,
   validateRowSourceConfiguration,
 } from './formCustomObjectRowSources.js';
+import { repeatableDateSettings } from './formRepeatableDates.js';
 
 export const REPEATABLE_ROW_SCHEMA_VERSION = 1;
 export const REPEATABLE_ROW_FIELD_TYPE = 'repeatable_row';
@@ -436,6 +437,16 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
     ids.add(child.id);
     if (!CHILD_TYPES.has(child.type)) {
       errors.push({ code: 'unsupported_child_type', child_id: child.id, message: `Unsupported repeatable row child type: ${child.type || 'unknown'}` });
+    }
+    if (child.type === 'date') {
+      const dateSettings = repeatableDateSettings(child);
+      if (dateSettings.error) {
+        errors.push({
+          code: 'invalid_date_configuration',
+          child_id: child.id,
+          message: dateSettings.error,
+        });
+      }
     }
     const rowSourceValidation = validateRowSourceConfiguration(child, config.children);
     errors.push(...rowSourceValidation.errors);

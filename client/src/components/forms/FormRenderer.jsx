@@ -102,9 +102,278 @@ import {
   futureDateError,
   tomorrowUtcDate,
 } from "../../../../shared/formFutureDates.js";
+import {
+  repeatableDateError,
+  repeatableDateHelp,
+  repeatableDateLimits,
+  repeatableDateSettings,
+} from "../../../../shared/formRepeatableDates.js";
 
 let organizationQueryInstanceSequence = 0;
 let relationshipQueryInstanceSequence = 0;
+
+const DATE_MONTHS = [
+  ['01', 'January'], ['02', 'February'], ['03', 'March'], ['04', 'April'],
+  ['05', 'May'], ['06', 'June'], ['07', 'July'], ['08', 'August'],
+  ['09', 'September'], ['10', 'October'], ['11', 'November'], ['12', 'December'],
+];
+
+function splitRepeatableDateValue(value) {
+  const raw = typeof value === 'string' ? value : '';
+  // Keep incomplete answers as answers. In particular, choosing a month
+  // before entering its year must not collapse "-02" back to an empty value.
+  // This is also deliberately not a forgiving prefix parser: pasted text such
+  // as "20xx26" must remain visible and be rejected by the shared validator.
+  const match = /^([^-]*)(?:-([^-]*)(?:-([^-]*))?)?$/.exec(raw);
+  const part = (candidate) => /^\d{1,2}$/.test(candidate || '')
+    ? candidate.padStart(2, '0')
+    : (candidate || '');
+  return {
+    year: match?.[1] || '',
+    month: part(match?.[2]),
+    day: part(match?.[3]),
+  };
+}
+
+function composeRepeatableDateValue(precision, year, month, day) {
+  if (precision === 'year') return year || '';
+  if (!year) return month ? `-${month}` : '';
+  if (!month) return year;
+  if (precision === 'month') return `${year}-${month}`;
+  if (!day) return `${year}-${month}`;
+  return `${year}-${month}-${day}`;
+}
+
+function repeatableDateValueMatchesPrecision(value, precision) {
+  if (typeof value !== 'string' || value === '') return true;
+  if (precision === 'year') return /^\d{4}$/.test(value);
+  if (precision === 'month') return /^\d{4}-\d{2}$/.test(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+/**
+ * Repeatable date answers deliberately use explicit controls for month/year.
+ * Native month inputs are inconsistently exposed by screen readers and cannot
+ * represent a partially-entered year, which is useful while correcting an
+ * answer. Existing values are projected into the controls without being
+ * rewritten until the respondent changes one of them.
+ */
+function RepeatableDateInput({
+  field,
+  value,
+  onChange,
+  disabled,
+  dateElementId,
+  validationError,
+  now,
+}) {
+  const settings = repeatableDateSettings(field);
+  const parts = splitRepeatableDateValue(value);
+  const [yearDraft, setYearDraft] = useState(parts.year);
+  const [monthDraft, setMonthDraft] = useState(parts.month);
+  const lastValue = useRef(value);
+  const [editingStoredValue, setEditingStoredValue] = useState(false);
+  const [hasUserEdited, setHasUserEdited] = useState(false);
+  const limits = repeatableDateLimits(field, { now });
+  const help = repeatableDateHelp(field);
+  const precision = settings.precision;
+
+  useEffect(() => {
+    if (value === lastValue.current) return;
+    lastValue.current = value;
+    const next = splitRepeatableDateValue(value);
+    setYearDraft(next.year);
+    setMonthDraft(next.month);
+  }, [value]);
+
+  const updateDate = (nextYear, nextMonth) => {
+    const nextValue = composeRepeatableDateValue(
+      precision,
+      nextYear,
+      nextMonth,
+      parts.day,
+    );
+    onChange(nextValue);
+  };
+
+  const handleYearChange = (event) => {
+    // Keep invalid pasted text visible. Sanitising it here can silently turn
+    // an invalid answer into a different valid date.
+    const nextYear = event.target.value;
+    setYearDraft(nextYear);
+    setHasUserEdited(true);
+    setEditingStoredValue(true);
+    lastValue.current = undefined;
+    updateDate(nextYear, monthDraft);
+  };
+
+  const handleMonthChange = (event) => {
+    const nextMonth = event.target.value;
+    setMonthDraft(nextMonth);
+    setHasUserEdited(true);
+    setEditingStoredValue(true);
+    lastValue.current = undefined;
+    updateDate(yearDraft, nextMonth);
+  };
+
+  const handleDayChange = (event) => {
+    setHasUserEdited(true);
+    setEditingStoredValue(true);
+    onChange(event.target.value);
+  };
+
+  const describedBy = [
+    help ? `help-date-${dateElementId}` : null,
+    validationError ? `error-date-${dateElementId}` : null,
+  ].filter(Boolean).join(' ') || undefined;
+  const yearLabel = `${field.label || 'Date'} Year`;
+  const monthLabel = `${field.label || 'Date'} Month`;
+  const monthOptionIsDisabled = (month) => {
+    if (!/^\d{4}$/.test(yearDraft)) return false;
+    const candidate = `${yearDraft}-${month}`;
+    return Boolean(
+      (limits.min && candidate < limits.min)
+      || (limits.max && candidate > limits.max),
+    );
+  };
+  const hasPrecisionMismatch = !hasUserEdited
+    && !editingStoredValue
+    && !repeatableDateValueMatchesPrecision(value, precision);
+
+  if (hasPrecisionMismatch) {
+    return (
+      <div className="space-y-2" data-testid={`saved-date-${dateElementId}`}>
+        <p className="text-sm text-slate-600">
+          Saved answer: <code className="rounded bg-slate-100 px-1 py-0.5">{String(value)}</code>
+        </p>
+        {!disabled && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setEditingStoredValue(true)}
+            aria-label={`Change saved ${field.label || 'date'}`}
+            data-testid={`button-change-date-${dateElementId}`}
+          >
+            Change answer
+          </Button>
+        )}
+        {validationError && (
+          <p
+            id={`error-date-${dateElementId}`}
+            className="text-sm text-red-600"
+            role="status"
+            aria-live="polite"
+            data-testid={`error-date-${dateElementId}`}
+          >
+            {validationError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (precision === 'day') {
+    return (
+      <div className="space-y-1">
+        <Input
+          id={`input-date-${dateElementId}`}
+          type="date"
+          value={value || ''}
+          min={limits.min || undefined}
+          max={limits.max || undefined}
+           onChange={handleDayChange}
+          required={field.required}
+          disabled={disabled}
+          aria-label={field.label || 'Date'}
+          aria-invalid={validationError ? 'true' : undefined}
+          aria-describedby={describedBy}
+          className={`${disabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${validationError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+          data-testid={`input-date-${dateElementId}`}
+        />
+        {help && <p id={`help-date-${dateElementId}`} className="text-xs text-slate-500">{help}</p>}
+        {validationError && (
+          <p
+            id={`error-date-${dateElementId}`}
+            className="text-sm text-red-600"
+            role="status"
+            aria-live="polite"
+            data-testid={`error-date-${dateElementId}`}
+          >
+            {validationError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-end gap-2">
+        {precision !== 'year' && (
+          <div className="min-w-[9rem] flex-1 space-y-1">
+            <Label htmlFor={`input-date-month-${dateElementId}`} className="sr-only">{monthLabel}</Label>
+            <select
+              id={`input-date-month-${dateElementId}`}
+              value={monthDraft}
+              onChange={handleMonthChange}
+              disabled={disabled}
+              required={field.required}
+              aria-label={monthLabel}
+              aria-invalid={validationError ? 'true' : undefined}
+              aria-describedby={describedBy}
+              className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ${disabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}`}
+              data-testid={`input-date-month-${dateElementId}`}
+            >
+              <option value="">Month</option>
+               {DATE_MONTHS.map(([month, label]) => (
+                 <option
+                   key={month}
+                   value={month}
+                   disabled={monthOptionIsDisabled(month)}
+                 >
+                   {label}
+                 </option>
+               ))}
+            </select>
+          </div>
+        )}
+        <div className="w-28 space-y-1">
+          <Label htmlFor={`input-date-year-${dateElementId}`} className="sr-only">{yearLabel}</Label>
+          <Input
+            id={`input-date-year-${dateElementId}`}
+            type="text"
+            inputMode="numeric"
+            value={yearDraft}
+            onChange={handleYearChange}
+            placeholder="YYYY"
+            required={field.required}
+            disabled={disabled}
+            min={limits.min?.slice(0, 4) || undefined}
+            max={limits.max?.slice(0, 4) || undefined}
+            aria-label={yearLabel}
+            aria-invalid={validationError ? 'true' : undefined}
+            aria-describedby={describedBy}
+            className={`${disabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${validationError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+            data-testid={`input-date-year-${dateElementId}`}
+          />
+        </div>
+      </div>
+      {help && <p id={`help-date-${dateElementId}`} className="text-xs text-slate-500">{help}</p>}
+      {validationError && (
+        <p
+          id={`error-date-${dateElementId}`}
+          className="text-sm text-red-600"
+          role="status"
+          aria-live="polite"
+          data-testid={`error-date-${dateElementId}`}
+        >
+          {validationError}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function SpreadsheetCell({ headingId, contextId, testId, children }) {
   const cellRef = useRef(null);
@@ -908,14 +1177,21 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   // Submission viewers render completed answers with disabled=true. Keep
   // those historical values readable without presenting a new-entry error;
   // locked fields in an editable form still validate because disabled is false.
-  const isFutureOnlyDate = !disabled && field.type === 'date' && field.future_only === true;
+  const isRepeatableDate = field.type === 'date' && Boolean(field.repeatable_container_field_id);
+  const repeatableDateConfig = isRepeatableDate ? repeatableDateSettings(field) : null;
+  const isRestrictedRepeatableDate = !disabled
+    && isRepeatableDate
+    && repeatableDateConfig?.restriction !== 'any';
+  const isFutureOnlyDate = !disabled && field.type === 'date' && field.future_only === true && !isRepeatableDate;
+  const isDateValidationActive = isRepeatableDate || isFutureOnlyDate;
   const dateElementId = field.repeatable_row_id
     ? `${field.id}-${field.repeatable_row_id}`
     : field.id;
   const futureDateMinimum = isFutureOnlyDate ? tomorrowUtcDate(futureDateNow) : undefined;
-  const futureDateValidationError = isFutureOnlyDate
-    ? futureDateError(field, value, { now: futureDateNow })
-    : null;
+  const dateValidationError = isRepeatableDate
+    ? (!disabled ? repeatableDateError(field, value, { now: futureDateNow }) : null)
+    : (isFutureOnlyDate ? futureDateError(field, value, { now: futureDateNow }) : null);
+  const futureDateValidationError = dateValidationError;
   const conditionalResolution = useMemo(
     () => resolveConditionalFilters({ field, fields: allFields, values: allFormValues }),
     [field, allFields, allFormValues],
@@ -925,7 +1201,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   // refresh at the next boundary itself (rather than polling), and also
   // refresh whenever a suspended tab becomes active again.
   useEffect(() => {
-    if (!isFutureOnlyDate) return undefined;
+    if (!isFutureOnlyDate && !isRestrictedRepeatableDate) return undefined;
     const refreshBoundary = () => setFutureDateNow(new Date());
     let boundaryTimer;
     const scheduleBoundaryRefresh = () => {
@@ -961,7 +1237,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [isFutureOnlyDate]);
+  }, [isFutureOnlyDate, isRestrictedRepeatableDate]);
 
   useEffect(() => {
     const fieldIdChanged = futureDateValidityFieldId.current !== field.id;
@@ -969,7 +1245,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       futureDateValidityFieldId.current = field.id;
       lastFutureDateValidity.current = undefined;
     }
-    if (!isFutureOnlyDate) {
+    if (!isDateValidationActive) {
       if (fieldIdChanged || lastFutureDateValidity.current !== undefined) {
         lastFutureDateValidity.current = true;
         onValidityChange?.(field.id, true);
@@ -980,7 +1256,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     if (lastFutureDateValidity.current === valid) return;
     lastFutureDateValidity.current = valid;
     onValidityChange?.(field.id, valid);
-  }, [field.id, futureDateValidationError, isFutureOnlyDate, onValidityChange]);
+  }, [field.id, futureDateValidationError, isDateValidationActive, onValidityChange]);
 
   useEffect(() => {
     if (resolvedFieldValue.needsCanonicalValue) {
@@ -2088,6 +2364,19 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       }
 
       case 'date':
+        if (isRepeatableDate) {
+          return (
+            <RepeatableDateInput
+              field={field}
+              value={value}
+              onChange={onChange}
+              disabled={isFieldDisabled}
+              dateElementId={dateElementId}
+              validationError={dateValidationError}
+              now={futureDateNow}
+            />
+          );
+        }
         return (
           <div className="space-y-1">
             <Input
@@ -2098,12 +2387,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               onChange={(e) => onChange(e.target.value)}
               required={field.required}
               disabled={isFieldDisabled}
-              aria-invalid={futureDateValidationError ? 'true' : undefined}
+              aria-invalid={dateValidationError ? 'true' : undefined}
               aria-describedby={[
                 isFutureOnlyDate ? `help-date-${dateElementId}` : null,
-                futureDateValidationError ? `error-date-${dateElementId}` : null,
+                dateValidationError ? `error-date-${dateElementId}` : null,
               ].filter(Boolean).join(' ') || undefined}
-              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${futureDateValidationError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${dateValidationError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
               data-testid={`input-date-${dateElementId}`}
             />
             {isFutureOnlyDate && (
@@ -2111,7 +2400,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                 Choose a date from tomorrow onwards (UTC).
               </p>
             )}
-            {futureDateValidationError && (
+            {dateValidationError && (
               <p
                 id={`error-date-${dateElementId}`}
                 className="text-sm text-red-600"
@@ -2119,7 +2408,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                 aria-live="polite"
                 data-testid={`error-date-${dateElementId}`}
               >
-                {futureDateValidationError}
+                {dateValidationError}
               </p>
             )}
           </div>

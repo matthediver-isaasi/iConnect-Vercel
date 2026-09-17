@@ -43,6 +43,40 @@ test('generic FormSubmission POST validation reports active top-level and repeat
   assert.equal(result.hiddenFieldIds.has('hidden_date'), true);
 });
 
+test('generic FormSubmission validation preserves repeatable date precision and restrictions', () => {
+  const form = {
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'month_future', type: 'date', date_precision: 'month', date_restriction: 'future' },
+        { id: 'year_past', type: 'date', date_precision: 'year', date_restriction: 'past' },
+        { id: 'month_any', type: 'date', date_precision: 'month', date_restriction: 'any' },
+      ],
+    }],
+  };
+  const result = validateGenericFormSubmissionFutureDates({
+    form,
+    submissionData: {
+      rows: [{
+        _row_id: 'row-1',
+        month_future: '2020-01',
+        year_past: '2999',
+        month_any: '2020-13',
+      }],
+    },
+  });
+
+  assert.deepEqual(result.errors.map(error => ({
+    child_id: error.child_id,
+    message: error.message,
+  })), [
+    { child_id: 'month_future', message: 'Date must be in the future.' },
+    { child_id: 'year_past', message: 'Date must be in the past.' },
+    { child_id: 'month_any', message: 'Enter a valid month in YYYY-MM format.' },
+  ]);
+});
+
 test('generic FormSubmission validation receives the published snapshot rather than mutable live fields', () => {
   const liveForm = {
     fields: [{ id: 'date', type: 'date', future_only: false }],

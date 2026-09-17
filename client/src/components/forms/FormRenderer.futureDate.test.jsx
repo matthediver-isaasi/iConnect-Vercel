@@ -220,3 +220,261 @@ test('legacy future-date repeatable rows keep deterministic IDs through sibling 
     container.remove();
   }
 });
+
+test('repeatable month dates preserve the original historical value and require an explicit change', async () => {
+  const changes = [];
+  const queryClient = new QueryClient();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const field = {
+    id: 'periods',
+    type: 'repeatable_rows',
+    layout: 'spreadsheet',
+    children: [{
+      id: 'period',
+      type: 'date',
+      label: 'Reporting period',
+      date_precision: 'month',
+      date_restriction: 'any',
+    }],
+  };
+  const historicValue = [{ _row_id: 'historic', period: '2020-04-17' }];
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: historicValue,
+            disabled: true,
+            onChange: next => changes.push(next),
+          }),
+        ),
+      );
+    });
+
+    assert.match(container.textContent, /Saved answer: 2020-04-17/);
+    assert.ok(container.querySelector('[data-testid="saved-date-period-historic"]'));
+    assert.equal(container.querySelector('[data-testid="button-change-date-period-historic"]'), null);
+    assert.deepEqual(changes, []);
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field: { ...field, layout: 'cards' },
+            value: historicValue,
+            disabled: true,
+            onChange: next => changes.push(next),
+          }),
+        ),
+      );
+    });
+    assert.match(container.textContent, /Saved answer: 2020-04-17/);
+    assert.equal(container.querySelector('[data-testid="button-change-date-period-historic"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    queryClient.clear();
+    container.remove();
+  }
+});
+
+test('repeatable month entry preserves a month selected before its year and rejects the incomplete optional answer', async () => {
+  const changes = [];
+  const validity = [];
+  const queryClient = new QueryClient();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const field = {
+    id: 'period',
+    type: 'date',
+    label: 'Reporting period',
+    date_precision: 'month',
+    date_restriction: 'any',
+    repeatable_container_field_id: 'rows',
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: '',
+            onChange: value => changes.push(value),
+            onValidityChange: (_id, valid) => validity.push(valid),
+          }),
+        ),
+      );
+    });
+
+    const month = container.querySelector('[aria-label="Reporting period Month"]');
+    const year = container.querySelector('[aria-label="Reporting period Year"]');
+    assert.ok(month);
+    assert.ok(year);
+    await act(async () => {
+      month.value = '02';
+      month.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    assert.equal(changes.at(-1), '-02');
+    assert.equal(year.value, '');
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: '-02',
+            onChange: value => changes.push(value),
+            onValidityChange: (_id, valid) => validity.push(valid),
+          }),
+        ),
+      );
+    });
+    assert.match(container.textContent, /month/i);
+    assert.equal(validity.at(-1), false);
+
+    // A controlled remount still displays the incomplete answer instead of
+    // treating it as an empty optional value.
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: '-02',
+            onChange: value => changes.push(value),
+            onValidityChange: (_id, valid) => validity.push(valid),
+          }),
+        ),
+      );
+    });
+    assert.ok(container.querySelector('[aria-label="Reporting period Month"]'));
+    assert.equal(container.querySelector('[aria-label="Reporting period Month"]').value, '02');
+    assert.equal(container.querySelector('[aria-label="Reporting period Year"]').value, '');
+  } finally {
+    await act(async () => root.unmount());
+    queryClient.clear();
+    container.remove();
+  }
+});
+
+test('repeatable year input keeps invalid pasted text visible instead of sanitizing it', async () => {
+  const changes = [];
+  const queryClient = new QueryClient();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const field = {
+    id: 'period',
+    type: 'date',
+    label: 'Reporting period',
+    date_precision: 'year',
+    date_restriction: 'any',
+    repeatable_container_field_id: 'rows',
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: '',
+            onChange: value => changes.push(value),
+          }),
+        ),
+      );
+    });
+    const year = container.querySelector('[aria-label="Reporting period Year"]');
+    const setInputValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value',
+    ).set;
+    await act(async () => {
+      setInputValue.call(year, '20xx26');
+      year.dispatchEvent(new window.Event('input', { bubbles: true }));
+      year.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    assert.equal(changes.at(-1), '20xx26');
+    assert.equal(year.value, '20xx26');
+    assert.match(container.textContent, /year/i);
+  } finally {
+    await act(async () => root.unmount());
+    queryClient.clear();
+    container.remove();
+  }
+});
+
+test('repeatable future month choices disable months outside the selected year boundary', async () => {
+  const queryClient = new QueryClient();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const field = {
+    id: 'period',
+    type: 'date',
+    label: 'Reporting period',
+    date_precision: 'month',
+    date_restriction: 'future',
+    repeatable_container_field_id: 'rows',
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(FormRenderer, {
+            field,
+            value: '',
+            onChange: () => {},
+          }),
+        ),
+      );
+    });
+    const now = new Date();
+    const currentYear = String(now.getUTCFullYear());
+    const currentMonth = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const month = container.querySelector('[aria-label="Reporting period Month"]');
+    const year = container.querySelector('[aria-label="Reporting period Year"]');
+    const setInputValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value',
+    ).set;
+    await act(async () => {
+      setInputValue.call(year, currentYear);
+      year.dispatchEvent(new window.Event('input', { bubbles: true }));
+      year.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    const previousMonth = String(Number(currentMonth) - 1).padStart(2, '0');
+    if (previousMonth === '00') {
+      assert.equal(month.querySelector('option[value="12"]').disabled, true);
+    } else {
+      assert.equal(month.querySelector(`option[value="${previousMonth}"]`).disabled, true);
+    }
+    assert.equal(month.querySelector(`option[value="${currentMonth}"]`).disabled, true);
+    const nextMonth = String(Number(currentMonth) + 1).padStart(2, '0');
+    if (nextMonth !== '13') {
+      assert.equal(month.querySelector(`option[value="${nextMonth}"]`).disabled, false);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    queryClient.clear();
+    container.remove();
+  }
+});

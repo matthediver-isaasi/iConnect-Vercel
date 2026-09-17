@@ -113,6 +113,26 @@ test('configured form-email placeholders render repeatable rows and nested relat
   assert.equal(output.includes('org-1'), false);
 });
 
+test('configured form-email placeholders preserve partial repeatable dates verbatim', () => {
+  const repeatable = {
+    id: 'periods',
+    type: 'repeatable_row',
+    children: [
+      { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+      { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+    ],
+  };
+  assert.equal(resolveSubmissionEmailFieldDisplayValue({
+    fields: [repeatable],
+    fieldKey: 'periods',
+    rawValue: [],
+    persistedSubmissionData: {
+      periods: [{ month: '2026-03', year: '2026' }],
+    },
+    relationshipLabelsByRecordId: {},
+  }), 'Row 1\nMonth: 2026-03\nYear: 2026');
+});
+
 test('configured form-email placeholders retain repeatable not-listed labels', () => {
   const repeatable = {
     id: 'contacts',

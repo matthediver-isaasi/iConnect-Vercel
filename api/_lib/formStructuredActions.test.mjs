@@ -2822,6 +2822,93 @@ test('custom-object fallback uniqueness matches by target id while querying by f
   ), /fallback uniqueness field has no visible, non-empty value/);
 });
 
+test('partial repeatable dates cannot map into full-date custom fields', () => {
+  const action = {
+    id: 'date-map',
+    target: { kind: 'custom_object', custom_object_id: 'event-object' },
+    operation: 'create',
+    mappings: [{
+      id: 'month-map',
+      source_field_id: 'month-answer',
+      target_type: 'custom',
+      target_field_id: 'date-field',
+    }],
+  };
+  const invocation = {
+    action,
+    formFields: [{ id: 'month-answer', type: 'date', date_precision: 'month' }],
+    values: { 'month-answer': '2024-02' },
+  };
+  const fields = new Map([['date-field', {
+    id: 'date-field',
+    field_key: 'event_date',
+    field_type: 'date',
+  }]]);
+  assert.throws(
+    () => mappedPayload(invocation, 'custom_object', fields),
+    /Partial month date answer cannot be mapped to full-date destination/,
+  );
+  invocation.formFields[0].date_precision = 'day';
+  assert.throws(
+    () => mappedPayload(invocation, 'custom_object', fields),
+    /Partial month date answer cannot be mapped to full-date destination/,
+    'historical partial values must not be coerced after author settings change',
+  );
+});
+
+test('partial repeatable dates remain verbatim for text custom fields', () => {
+  const action = {
+    id: 'date-text-map',
+    target: { kind: 'custom_object', custom_object_id: 'event-object' },
+    operation: 'create',
+    mappings: [{
+      id: 'year-map',
+      source_field_id: 'year-answer',
+      target_type: 'custom',
+      target_field_id: 'text-field',
+    }],
+  };
+  const invocation = {
+    action,
+    formFields: [{ id: 'year-answer', type: 'date', date_precision: 'year' }],
+    values: { 'year-answer': '2024' },
+  };
+  const fields = new Map([['text-field', {
+    id: 'text-field',
+    field_key: 'event_period',
+    field_type: 'text',
+  }]]);
+  assert.deepEqual(mappedPayload(invocation, 'custom_object', fields).custom, {
+    event_period: '2024',
+  });
+});
+
+test('repeatable-row mappings resolve child date metadata before rejecting a partial date target', () => {
+  const action = {
+    id: 'row-date-map',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    target: { kind: 'custom_object', custom_object_id: 'event-object' },
+    operation: 'create',
+    mappings: [{
+      id: 'row-month-map',
+      source_field_id: 'month-answer',
+      target_type: 'custom',
+      target_field_id: 'date-field',
+    }],
+  };
+  assert.throws(() => mappedPayload({
+    action,
+    formFields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [{ id: 'month-answer', type: 'date', date_precision: 'month' }],
+    }],
+    values: { 'month-answer': '2024-02' },
+  }, 'custom_object', new Map([['date-field', {
+    id: 'date-field', field_key: 'event_date', field_type: 'date',
+  }]])), /Partial month date answer cannot be mapped to full-date destination/);
+});
+
 test('fallback upsert uniqueness rejects an explicit clear winner', () => {
   const baseAction = {
     id: 'member-upsert',

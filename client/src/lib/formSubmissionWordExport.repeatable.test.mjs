@@ -42,6 +42,34 @@ test('Word export prepares repeatable rows as labelled lines with resolved relat
   assert.equal(JSON.stringify(prepared).includes('org-1'), false);
 });
 
+test('Word export preserves partial repeatable dates without full-date coercion', () => {
+  const form = {
+    fields: [{
+      id: 'periods',
+      label: 'Periods',
+      type: 'repeatable_row',
+      children: [
+        { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+        { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+      ],
+    }],
+  };
+  const prepared = resolveSubmissionToPrepared({
+    submission: {
+      submission_data: {
+        periods: [{ month: '2026-03', year: '2026' }],
+      },
+    },
+    form,
+    selectedOptions: [{ key: 'periods', label: 'Periods' }],
+    resolvers: {},
+  });
+  assert.deepEqual(
+    prepared.rows[0].lines.map(line => line.text),
+    ['Row 1', 'Month: 2026-03', 'Year: 2026'],
+  );
+});
+
 test('Word export retains the submitted repeatable not-listed label', () => {
   const form = {
     fields: [{

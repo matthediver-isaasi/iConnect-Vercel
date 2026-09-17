@@ -1511,6 +1511,27 @@ function validateRuntimeMappingCompatibility(contract, formFields, preferenceFie
   }
 }
 
+/**
+ * PostgreSQL date columns accept full YYYY-MM-DD values only. Do not let a
+ * repeatable month/year answer reach a custom date field: depending on the
+ * destination adapter, it would either be rejected with an opaque database
+ * error or be interpreted as a different calendar value. Text destinations
+ * intentionally retain the submitted partial answer verbatim.
+ */
+function assertDateMappingPreservesPrecision({ source, target, value }) {
+  if (source?.type !== 'date' || String(target?.field_type || target?.type || '').toLowerCase() !== 'date') {
+    return;
+  }
+  if (typeof value !== 'string' || value.trim() === '') return;
+  // Detect the persisted value's precision, not today's author setting.
+  const precision = /^\d{4}-\d{2}$/.test(value) ? 'month' : /^\d{4}$/.test(value) ? 'year' : null;
+  if (precision) {
+    throw new StructuredActionContractError(
+      `Partial ${precision} date answer cannot be mapped to full-date destination ${target.id || target.field_key || 'field'}`,
+    );
+  }
+}
+
 async function validateDirectSelectors(
   db,
   tenantId,
@@ -1665,6 +1686,13 @@ export function mappedPayload(invocation, entity, preferenceFields) {
     if (targetType === 'custom') {
       const mappedTarget = targetField(mapping);
       const field = preferenceFields.get(String(mappedTarget));
+      const source = sourceFieldsFor(invocation.action, invocation.formFields || []).find(candidate =>
+        String(candidate?.id) === String(mapping.source_field_id));
+      assertDateMappingPreservesPrecision({
+        source,
+        target: field,
+        value,
+      });
       const key = entity === 'custom_object'
         ? (field?.field_key || field?.name || mappedTarget)
         : mappedTarget;

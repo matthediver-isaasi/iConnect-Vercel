@@ -203,6 +203,12 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
   if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
   const fieldType = fieldDef?.type;
   const r = resolvers || {};
+  // Month/year repeatable date answers are deliberately partial values. Keep
+  // date strings as submitted; a Word export must not invent a day or parse
+  // them through a timezone-aware Date.
+  if (fieldType === 'date' && typeof value === 'string') {
+    return { lines: makeLinesFromText(value), files: [] };
+  }
   if (fieldType === 'relationship_dropdown') {
     const resolveRecordLabel = typeof r.resolveRelationshipLabel === 'function'
       ? r.resolveRelationshipLabel

@@ -43,6 +43,10 @@ function optionLabel(child, value) {
 
 export function formatRepeatableCellValue(value, child) {
   if (value == null || value === '') return '';
+  // Repeatable date answers may intentionally use month (YYYY-MM) or year
+  // (YYYY) precision. Keep the persisted answer verbatim rather than routing
+  // it through option/date coercion, which can invent a day or timezone.
+  if (child?.type === 'date' && typeof value === 'string') return value;
   if (Array.isArray(value)) {
     return value.map((entry) => formatRepeatableCellValue(entry, child)).filter(Boolean).join(', ');
   }

@@ -415,6 +415,65 @@ test('future-only amendment validation skips hidden dates and uses authoritative
   );
 });
 
+test('amendment validation applies month/year restrictions while preserving unchanged historical answers', async () => {
+  const amendForm = {
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        {
+          id: 'historical_month',
+          type: 'date',
+          date_precision: 'month',
+          date_restriction: 'future',
+        },
+        {
+          id: 'historical_year',
+          type: 'date',
+          date_precision: 'year',
+          date_restriction: 'past',
+        },
+      ],
+    }],
+  };
+  const oldAnswers = {
+    rows: [{
+      _row_id: 'row-1',
+      historical_month: '2020-01',
+      historical_year: '2999',
+    }],
+  };
+  const relationshipService = { async validateSubmission() {} };
+
+  await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: amendForm,
+    submissionData: oldAnswers,
+    originalFormValues: oldAnswers,
+    hasDueDiligenceRecord: true,
+    fieldId: 'notes',
+    value: 'edited',
+  });
+
+  await assert.rejects(
+    () => validateSubmissionFieldEditCandidates({
+      relationshipService,
+      form: amendForm,
+      submissionData: oldAnswers,
+      originalFormValues: oldAnswers,
+      hasDueDiligenceRecord: false,
+      fieldId: 'rows',
+      value: [{
+        _row_id: 'row-1',
+        historical_month: '2020-01',
+        historical_year: '2026',
+      }],
+    }),
+    (error) => error.code === 'FUTURE_DATE_INVALID'
+      && error.details?.some(detail => detail.child_id === 'historical_year'),
+  );
+});
+
 test('update endpoint fetches DD and validates both candidates before any write', () => {
   const source = readFileSync(path.join(here, 'update-submission-field.js'), 'utf8');
   const accessCheck = source.indexOf("isResourceExcluded(exclusions, 'page_FormSubmissions')");

@@ -342,6 +342,139 @@ test('public submission rejects future-only dates before inserting and uses the 
   assert.equal(db.insertedSubmissions.length, 0);
 });
 
+function repeatableDateForm(children, overrides = {}) {
+  return {
+    ...affectedFormFixture(),
+    id: 'repeatable-date-form',
+    name: 'Repeatable date form',
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+    fields: [{
+      id: 'dates',
+      type: 'repeatable_rows',
+      min_rows: 1,
+      max_rows: 3,
+      children,
+    }],
+    ...overrides,
+  };
+}
+
+async function postRepeatableDate(form, submissionData, options = {}) {
+  const db = makePublicSubmissionBoundaryDb(form, options);
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      ...options.body,
+      submission_data: submissionData,
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, emails: [] }),
+  });
+  return { response, db };
+}
+
+test('public submission accepts each repeatable date precision and unrestricted/future/past policy', async () => {
+  const cases = [
+    ['day-any', { id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'any' }, '2024-02-29'],
+    ['month-any', { id: 'answer', type: 'date', date_precision: 'month', date_restriction: 'any' }, '2024-02'],
+    ['year-any', { id: 'answer', type: 'date', date_precision: 'year', date_restriction: 'any' }, '2024'],
+    ['day-future', { id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'future' }, '2099-02-01'],
+    ['month-future', { id: 'answer', type: 'date', date_precision: 'month', date_restriction: 'future' }, '2099-02'],
+    ['year-future', { id: 'answer', type: 'date', date_precision: 'year', date_restriction: 'future' }, '2099'],
+    ['day-past', { id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'past' }, '2001-02-01'],
+    ['month-past', { id: 'answer', type: 'date', date_precision: 'month', date_restriction: 'past' }, '2001-02'],
+    ['year-past', { id: 'answer', type: 'date', date_precision: 'year', date_restriction: 'past' }, '2001'],
+  ];
+  for (const [name, child, value] of cases) {
+    const form = repeatableDateForm([child]);
+    const { response, db } = await postRepeatableDate(form, {
+      dates: [{ _row_id: 'row-1', answer: value }],
+    });
+    assert.equal(response.statusCode, 201, name);
+    assert.equal(db.insertedSubmissions.length, 1, name);
+    assert.equal(db.insertedSubmissions[0].submission_data.dates[0].answer, value, name);
+  }
+});
+
+test('public submission rejects malformed repeatable partial dates before persistence', async () => {
+  const cases = [
+    [{ id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'any' }, '2024-02'],
+    [{ id: 'answer', type: 'date', date_precision: 'month', date_restriction: 'any' }, '2024-02-29'],
+    [{ id: 'answer', type: 'date', date_precision: 'year', date_restriction: 'any' }, '2024-01'],
+    [{ id: 'answer', type: 'date', date_precision: 'month', date_restriction: 'any' }, '2024-13'],
+  ];
+  for (const [child, value] of cases) {
+    const form = repeatableDateForm([child]);
+    const { response, db } = await postRepeatableDate(form, {
+      dates: [{ _row_id: 'row-1', answer: value }],
+    });
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.code, 'FUTURE_DATE_INVALID');
+    assert.equal(response.body.details[0].child_id, 'answer');
+    assert.equal(db.insertedSubmissions.length, 0);
+  }
+});
+
+test('public submission ignores invalid repeatable dates in hidden containers', async () => {
+  const form = repeatableDateForm([{
+    id: 'answer',
+    type: 'date',
+    date_precision: 'day',
+    date_restriction: 'future',
+  }]);
+  form.fields[0].starts_hidden = true;
+  const { response, db } = await postRepeatableDate(form, {
+    dates: [{ _row_id: 'row-1', answer: '2001-01-01' }],
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(db.insertedSubmissions.length, 1);
+});
+
+test('public idempotent retry returns an accepted repeatable future answer after UTC boundary without revalidation', async () => {
+  const form = repeatableDateForm([{
+    id: 'answer',
+    type: 'date',
+    date_precision: 'month',
+    date_restriction: 'future',
+  }]);
+  const values = { dates: [{ _row_id: 'row-1', answer: '2001-01' }] };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    existingSubmission: {
+      id: 'accepted-repeatable-date',
+      idempotency_key: 'accepted-repeatable-date-key',
+      submission_data: values,
+      submission_email_state: { status: 'sent' },
+      communication_finalization_state: { status: 'completed' },
+      processing_notes: [],
+    },
+  });
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'accepted-repeatable-date-key',
+      submission_data: values,
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.duplicate, true);
+  assert.equal(response.body.id, 'accepted-repeatable-date');
+  assert.equal(db.insertedSubmissions.length, 0);
+});
+
 test('anonymous survey retries after republish use the original redaction snapshot', async () => {
   const form = {
     ...affectedFormFixture(),

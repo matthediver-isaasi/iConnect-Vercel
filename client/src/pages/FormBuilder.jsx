@@ -149,6 +149,7 @@ import {
   repeatableEmptyAvailabilitySupport,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
+import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
   areFormTransitionFieldsCompatible,
@@ -473,6 +474,16 @@ const SCORE_STYLE_OPTIONS = [
 ];
 
 const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES, ...SURVEY_FIELD_TYPES];
+const REPEATABLE_DATE_PRECISION_OPTIONS = [
+  { value: 'day', label: 'Day, month and year' },
+  { value: 'month', label: 'Month and year' },
+  { value: 'year', label: 'Year only' },
+];
+const REPEATABLE_DATE_RESTRICTION_OPTIONS = [
+  { value: 'any', label: 'Any date' },
+  { value: 'future', label: 'Future dates only' },
+  { value: 'past', label: 'Past dates only' },
+];
 const ADDRESS_LOOKUP_COMPONENTS = [
   { value: 'line_1', label: 'Address line 1' },
   { value: 'line_2', label: 'Address line 2' },
@@ -6635,6 +6646,14 @@ function RepeatableRowsSettings({
         const relationshipDependents = getRelationshipDependentFields(allFields, child.id, {
           containerFieldId: field.id,
         });
+        const updateRepeatableDateRestriction = date_restriction => {
+          const nextChild = { ...child, date_restriction };
+          delete nextChild.future_only;
+          delete nextChild.past_only;
+          updateChildren(children.map((candidate, index) => (
+            index === childIndex ? nextChild : candidate
+          )));
+        };
         return (
           <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
             <div className="flex items-center justify-between">
@@ -6660,7 +6679,12 @@ function RepeatableRowsSettings({
                 <Label className="text-xs">Type</Label>
                 <Select value={child.type} onValueChange={type => updateChild(childIndex, {
                   type,
-                  ...(type === 'date' ? { future_only: child.future_only === true } : {}),
+                  ...(type === 'date' ? {
+                    date_precision: child.date_precision || 'day',
+                    date_restriction: child.date_restriction || (child.future_only === true ? 'future' : 'any'),
+                    future_only: child.future_only === true ? true : undefined,
+                    past_only: child.past_only === true ? true : undefined,
+                  } : {}),
                   parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
                   parent_field_scope: type === 'relationship_dropdown' ? child.parent_field_scope : undefined,
                   option_source: type === 'relationship_dropdown' ? child.option_source : undefined,
@@ -6711,16 +6735,43 @@ function RepeatableRowsSettings({
                 </Label>
               </div>
               {child.type === 'date' && (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id={`repeatable-child-future-only-${child.id}`}
-                    checked={child.future_only === true}
-                    onCheckedChange={future_only => updateChild(childIndex, { future_only })}
-                    data-testid={`switch-repeatable-child-future-only-${child.id}`}
-                  />
-                  <Label htmlFor={`repeatable-child-future-only-${child.id}`} className="text-xs">
-                    Future dates only (UTC)
-                  </Label>
+                <div className="col-span-full grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2" data-testid={`repeatable-date-settings-${field.id}-${child.id}`}>
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-date-precision-${child.id}`} className="text-xs">Date precision</Label>
+                    <Select
+                      value={REPEATABLE_DATE_PRECISION_OPTIONS.some(option => option.value === child.date_precision)
+                        ? child.date_precision : 'day'}
+                      onValueChange={date_precision => updateChild(childIndex, { date_precision })}
+                    >
+                      <SelectTrigger id={`repeatable-date-precision-${child.id}`} className="h-9" data-testid={`select-repeatable-date-precision-${child.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPEATABLE_DATE_PRECISION_OPTIONS.map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-date-restriction-${child.id}`} className="text-xs">Allowed dates</Label>
+                    <Select
+                      value={REPEATABLE_DATE_RESTRICTION_OPTIONS.some(option => option.value === child.date_restriction)
+                        ? child.date_restriction
+                        : (child.future_only === true ? 'future' : (child.past_only === true ? 'past' : 'any'))}
+                      onValueChange={updateRepeatableDateRestriction}
+                    >
+                      <SelectTrigger id={`repeatable-date-restriction-${child.id}`} className="h-9" data-testid={`select-repeatable-date-restriction-${child.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPEATABLE_DATE_RESTRICTION_OPTIONS.map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-slate-500 md:col-span-2">{repeatableDateHelp(child)}</p>
                 </div>
               )}
             </div>

@@ -22,3 +22,17 @@ test('CSV field formatting regression: ordinary field and repeatable field execu
   const source = readFileSync(new URL('./FormSubmissions.jsx', import.meta.url), 'utf8');
   assert.match(source, /const fieldType = fieldDef\?\.type;\s*if \(val == null\)/);
 });
+
+test('CSV repeatable date formatting keeps month/year answers partial', () => {
+  const field = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+      { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+    ],
+  };
+  assert.equal(
+    formatRepeatableRowsText(field, [{ month: '2026-03', year: '2026' }]),
+    'Row 1\nMonth: 2026-03\nYear: 2026',
+  );
+});

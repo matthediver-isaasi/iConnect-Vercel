@@ -464,3 +464,76 @@ test("future-only native date refreshes its UTC minimum when focused after midni
   expect(state.unexpectedWrites).toEqual([]);
   expect(state.supabaseWrites).toEqual([]);
 });
+
+test("repeatable precision and restriction save, reload, and submit partial dates in both layouts", async ({ page }) => {
+  const state = await installFixtures(page);
+  await page.goto(`/FormBuilder?formId=${FORM_ID}`);
+  await page.getByTestId(`button-configure-field-${ROWS_ID}`).click();
+  await page.getByTestId(`select-repeatable-date-precision-${CHILD_DATE_ID}`).click();
+  await page.getByRole("option", { name: "Month and year", exact: true }).click();
+  await page.getByTestId(`select-repeatable-date-restriction-${CHILD_DATE_ID}`).click();
+  await page.getByRole("option", { name: "Past dates only", exact: true }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Save Form", exact: true }).click();
+  await expect.poll(() => state.saves.length).toBeGreaterThan(0);
+  const savedRows = state.form.fields.find(field => field.id === ROWS_ID);
+  const savedChild = savedRows.children.find(child => child.id === CHILD_DATE_ID);
+  expect(savedChild.date_precision).toBe("month");
+  expect(savedChild.date_restriction).toBe("past");
+  expect(savedChild.future_only).not.toBe(true);
+  await page.reload();
+  await page.getByTestId(`button-configure-field-${ROWS_ID}`).click();
+  await expect(page.getByTestId(`select-repeatable-date-precision-${CHILD_DATE_ID}`)).toContainText("Month and year");
+  await expect(page.getByTestId(`select-repeatable-date-restriction-${CHILD_DATE_ID}`)).toContainText("Past dates only");
+
+  for (const layout of ["cards", "spreadsheet"]) {
+    savedRows.layout = layout;
+    await page.goto(`/FormView?slug=${FORM_SLUG}`);
+    await page.getByTestId(`button-add-repeatable-row-${ROWS_ID}`).click();
+    const row = page.getByTestId(`repeatable-row-${ROWS_ID}-0`);
+    await expect(row).toBeVisible();
+    const month = row.locator('select[id^="input-date-month-"]');
+    const year = row.locator('input[id^="input-date-year-"]');
+    await expect(row.locator('input[type="date"], input[type="month"]')).toHaveCount(0);
+    await month.selectOption("01");
+    await expect(month).toHaveValue("01");
+    await year.fill("2040");
+    await expect(month).toHaveValue("01");
+    await expect(month.locator('option[value="02"]')).toBeDisabled();
+    await dateInput(page, TOP_DATE_ID).fill(CLOCK.tomorrow);
+    const baseline = state.submissions.length;
+    await page.getByTestId("button-submit-form").click();
+    await expect.poll(() => state.submissions.length).toBe(baseline + 1);
+    expect(state.submissions.at(-1).submission_data[ROWS_ID][0][CHILD_DATE_ID]).toBe("2040-01");
+  }
+  expect(state.pageErrors).toEqual([]);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("year-only current UTC year rejects and future year submits in public and embedded forms", async ({ page }) => {
+  const state = await installFixtures(page);
+  const rows = state.form.fields.find(field => field.id === ROWS_ID);
+  rows.children[0] = {
+    ...rows.children[0], future_only: false, date_precision: "year", date_restriction: "future",
+  };
+  for (const path of [`/FormView?slug=${FORM_SLUG}`, `/embed/form/${FORM_SLUG}`]) {
+    await page.goto(path);
+    await page.getByTestId(`button-add-repeatable-row-${ROWS_ID}`).click();
+    const row = page.getByTestId(`repeatable-row-${ROWS_ID}-0`);
+    const year = row.locator('input[id^="input-date-year-"]');
+    await expect(year).toBeVisible();
+    await expect(row.locator("select")).toHaveCount(0);
+    await dateInput(page, TOP_DATE_ID).fill(CLOCK.tomorrow);
+    await year.fill("2040");
+    await expect(year).toHaveAttribute("aria-invalid", "true");
+    const baseline = state.submissions.length;
+    await page.getByTestId("button-submit-form").click();
+    expect(state.submissions.length).toBe(baseline);
+    await year.fill("2041");
+    await expect(year).not.toHaveAttribute("aria-invalid", "true");
+    await page.getByTestId("button-submit-form").click();
+    await expect.poll(() => state.submissions.length).toBe(baseline + 1);
+    expect(state.submissions.at(-1).submission_data[ROWS_ID][0][CHILD_DATE_ID]).toBe("2041");
+  }
+  expect(state.pageErrors).toEqual([]);
+});
