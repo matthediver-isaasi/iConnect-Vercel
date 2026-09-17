@@ -1455,6 +1455,7 @@ export default function EmbedFormPage() {
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}
@@ -1479,6 +1480,7 @@ export default function EmbedFormPage() {
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             )}
@@ -1644,6 +1646,7 @@ export default function EmbedFormPage() {
               allFields={form?.fields || []}
               rootAllFields={form?.fields || []}
               rootAllFormValues={formValues}
+              hiddenFieldIds={effectiveHiddenFieldIds}
               membershipFeeQuote={membershipFeeQuote}
             />
           ))}
@@ -1666,6 +1669,7 @@ export default function EmbedFormPage() {
                 allFields={form?.fields || []}
                 rootAllFields={form?.fields || []}
                 rootAllFormValues={formValues}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}

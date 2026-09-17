@@ -2637,6 +2637,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 allFormValues={formValues}
                 prefillData={prefillData}
                 allFields={form?.fields || []}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}
@@ -2666,6 +2667,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 allFormValues={formValues}
                 prefillData={prefillData}
                 allFields={form?.fields || []}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             )}
@@ -2958,6 +2960,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 allFormValues={formValues}
                 prefillData={prefillData}
                 allFields={form?.fields || []}
+                hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}
@@ -2998,6 +3001,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   allFormValues={formValues}
                   prefillData={prefillData}
                   allFields={form?.fields || []}
+                  hiddenFieldIds={effectiveHiddenFieldIds}
                   membershipFeeQuote={membershipFeeQuote}
                 />
               );

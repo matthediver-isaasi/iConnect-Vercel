@@ -41,7 +41,10 @@ import {
   validateFormOrganisationGroupAnswers,
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
-import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import {
+  effectiveRepeatableRowSubmissionData,
+  validateRepeatableRowSubmission,
+} from '../_lib/formRepeatableRowValidation.js';
 import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
 import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
 import { getInternalApiBaseUrl, getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
@@ -942,16 +945,24 @@ export default async function handler(req, res, dependencies = {}) {
     // pipelines and browser-backstop drift.
     const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
+    // The raw payload remains the persisted answer. Rule evaluation above is
+    // complete, so subscription snapshots may safely consume the row-effective
+    // view and cannot retain a hidden same-row source.
+    const sideEffectSubmissionData = effectiveRepeatableRowSubmissionData(
+      relationshipForm,
+      submission_data || {},
+      { hiddenFieldIds: hiddenRelationshipFieldIds },
+    );
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
       form.entity_pipelines,
-      submission_data || {},
+      sideEffectSubmissionData,
       { hiddenFieldIds: hiddenRelationshipFieldIds },
     );
     let initialCommunicationSnapshot = surveyIsAnonymous
       ? null
       : createFormCommunicationSnapshot({
           form,
-          submissionData: submission_data || {},
+          submissionData: sideEffectSubmissionData,
           mappedSelections: pipelineCommunicationSelections,
           fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',
         });
@@ -1466,7 +1477,7 @@ export default async function handler(req, res, dependencies = {}) {
               }
               communicationSnapshot = createFormCommunicationSnapshot({
                 form,
-                submissionData: submission_data || {},
+                submissionData: sideEffectSubmissionData,
                 mappedSelections: pipelineCommunicationSelections,
                 resolvedMemberId: pipelineCreatedMemberId,
                 fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',

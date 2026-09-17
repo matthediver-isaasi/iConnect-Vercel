@@ -380,6 +380,100 @@ async function postRepeatableDate(form, submissionData, options = {}) {
   return { response, db };
 }
 
+test('normal endpoint validates row visibility from raw rows but persists hidden cells unchanged', async () => {
+  const form = repeatableDateForm([
+    { id: 'mode', type: 'select', options: ['show', 'hide'], required: true },
+    {
+      id: 'organisation',
+      type: 'organisation_dropdown',
+      required: true,
+      unique_across_rows: true,
+      row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+    },
+    {
+      id: 'date',
+      type: 'date',
+      required: true,
+      future_only: true,
+      row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+    },
+  ]);
+  const hiddenRows = [
+    { _row_id: 'row-1', mode: 'hide', organisation: 'forged-duplicate', date: '2000-01-01' },
+    { _row_id: 'row-2', mode: 'hide', organisation: 'forged-duplicate', date: '2000-01-01' },
+  ];
+  const accepted = await postRepeatableDate(form, { dates: hiddenRows });
+  assert.equal(accepted.response.statusCode, 201);
+  // The endpoint stores the raw response for later show/hide restoration; the
+  // effective view is reserved for validation and downstream side effects.
+  assert.deepEqual(accepted.db.insertedSubmissions[0].submission_data.dates, hiddenRows);
+
+  const rejected = await postRepeatableDate(form, {
+    dates: [{ _row_id: 'visible', mode: 'show', date: '2999-01-01' }],
+  });
+  assert.equal(rejected.response.statusCode, 400);
+  assert.equal(rejected.response.body.code, 'required_child');
+  assert.equal(rejected.db.insertedSubmissions.length, 0);
+});
+
+test('normal endpoint skips row-hidden forged group and group-dependent organisation values', async () => {
+  const form = repeatableDateForm([{
+    id: 'mode',
+    type: 'select',
+    options: ['show', 'hide'],
+  }, {
+    id: 'group',
+    type: 'organisation_group_dropdown',
+    row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+  }, {
+    id: 'organisation',
+    type: 'organisation_dropdown',
+    organisation_group_parent_field_id: 'group',
+    row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+  }]);
+  const { response, db } = await postRepeatableDate(form, {
+    dates: [{
+      _row_id: 'hidden-group-row',
+      mode: 'hide',
+      group: 'forged-hidden-group',
+      organisation: 'forged-hidden-organisation',
+    }],
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(db.insertedSubmissions.length, 1);
+});
+
+test('normal endpoint preserves hidden repeatable Not-listed country answers but rejects visible missing text', async () => {
+  const form = repeatableDateForm([
+    { id: 'mode', type: 'select', options: ['show', 'hide'] },
+    {
+      id: 'country',
+      type: 'countries',
+      not_listed_choice: { enabled: true, label: 'Country not listed' },
+      row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+    },
+  ]);
+  const acceptedRows = [
+    { _row_id: 'absent-companion', mode: 'hide', country: FORM_NOT_LISTED_VALUE },
+    {
+      _row_id: 'stale-companion',
+      mode: 'hide',
+      country: FORM_NOT_LISTED_VALUE,
+      __not_listed_choice_text: { country: 'Stale hidden country text' },
+      __not_listed_choice_labels: { country: 'Stale hidden country label' },
+    },
+  ];
+  const accepted = await postRepeatableDate(form, { dates: acceptedRows });
+  assert.equal(accepted.response.statusCode, 201);
+  assert.deepEqual(accepted.db.insertedSubmissions[0].submission_data.dates, acceptedRows);
+
+  const rejected = await postRepeatableDate(form, {
+    dates: [{ _row_id: 'visible-missing-text', mode: 'show', country: FORM_NOT_LISTED_VALUE }],
+  });
+  assert.equal(rejected.response.statusCode, 400);
+  assert.match(rejected.response.body.error, /Invalid relationship selection/);
+});
+
 test('public submission accepts each repeatable date precision and unrestricted/future/past policy', async () => {
   const cases = [
     ['day-any', { id: 'answer', type: 'date', date_precision: 'day', date_restriction: 'any' }, '2024-02-29'],

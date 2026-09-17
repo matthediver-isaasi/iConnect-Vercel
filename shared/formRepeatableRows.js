@@ -70,6 +70,257 @@ export function repeatableRowChildren(field) {
   return Array.isArray(children) ? children.filter((child) => child && typeof child === 'object') : [];
 }
 
+const REPEATABLE_NOT_LISTED_TEXT_KEY = '__not_listed_choice_text';
+const REPEATABLE_NOT_LISTED_LABELS_KEY = '__not_listed_choice_labels';
+const ROW_VISIBILITY_MODES = new Set(['always', 'show_when', 'hide_when']);
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isLegacyTrue(value) {
+  return value === true || value === 'true';
+}
+
+function rowVisibilityRule(child) {
+  return child?.row_visibility == null ? null : child.row_visibility;
+}
+
+function isMultiValueRepeatableSource(source) {
+  return source?.selection_mode === 'multiple'
+    || ['multi', 'multiselect', 'multi_select'].includes(source?.selection_mode)
+    || source?.multiple === true;
+}
+
+/**
+ * Return the same-row static scalar choice children which may drive a
+ * visibility rule. Dynamic option sources and multi-value controls are not
+ * deterministic enough for a row rule and are deliberately excluded.
+ */
+export function repeatableRowVisibilitySources(field, child) {
+  const children = normalizeRepeatableRowField(field).children;
+  const childId = child?.id == null ? null : String(child.id);
+  return children.filter((source) => (
+    source
+    && String(source.id) !== childId
+    && ['dropdown', 'select'].includes(source.type)
+    && source.option_source === undefined
+    && !isMultiValueRepeatableSource(source)
+  ));
+}
+
+export function repeatableRowVisibilityOptions(source) {
+  if (!source || source.option_source !== undefined
+      || !['dropdown', 'select'].includes(source.type)
+      || isMultiValueRepeatableSource(source)) {
+    return [];
+  }
+  const configured = Array.isArray(source.options) ? source.options : [];
+  return configured.flatMap((option) => {
+    const value = optionValue(option);
+    if (value === undefined || value === null) return [];
+    const label = option && typeof option === 'object'
+      ? option.label ?? option.name ?? option.title ?? String(value)
+      : String(value);
+    return [{ value, label: String(label) }];
+  });
+}
+
+function rowVisibilityError(field, child) {
+  const rule = rowVisibilityRule(child);
+  if (rule === null) return null;
+  if (!isPlainObject(rule) || !ROW_VISIBILITY_MODES.has(rule.mode)) {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A row visibility rule must use always, show_when, or hide_when',
+    };
+  }
+  if (Object.prototype.hasOwnProperty.call(rule, 'operator')
+      && rule.operator !== 'equals') {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A row visibility rule only supports the equals operator',
+    };
+  }
+  if (Object.prototype.hasOwnProperty.call(rule, 'scope')
+      && rule.scope !== 'row') {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A row visibility rule only supports same-row scope',
+    };
+  }
+  const hasSource = Object.prototype.hasOwnProperty.call(rule, 'source_field_id');
+  const hasValue = Object.prototype.hasOwnProperty.call(rule, 'value');
+  if (rule.mode === 'always') {
+    if (hasSource || hasValue) {
+      return {
+        code: 'invalid_row_visibility',
+        child_id: child?.id,
+        message: 'An always-visible child cannot specify a visibility source or value',
+      };
+    }
+    return null;
+  }
+  if (!hasSource || typeof rule.source_field_id !== 'string' || !rule.source_field_id.trim()
+      || !hasValue || rule.value === undefined || rule.value === null) {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A conditional row visibility rule must specify a source field and value',
+    };
+  }
+  const source = repeatableRowVisibilitySources(field, child)
+    .find(candidate => String(candidate.id) === rule.source_field_id);
+  if (!source) {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A row visibility source must be a same-row static single-select child',
+    };
+  }
+  if (!repeatableRowVisibilityOptions(source).some(option => (
+    repeatableRowValuesMatch(option.value, rule.value)
+  ))) {
+    return {
+      code: 'invalid_row_visibility',
+      child_id: child?.id,
+      message: 'A row visibility value must be one of the source options',
+    };
+  }
+  return null;
+}
+
+/**
+ * Validate visibility independently so editors and submission validators can
+ * report a bad rule rather than silently treating it as a hidden child.
+ */
+export function validateRepeatableRowVisibilityConfiguration(field) {
+  const children = normalizeRepeatableRowField(field).children;
+  const errors = children
+    .map(child => rowVisibilityError(field, child))
+    .filter(Boolean);
+  const validRules = new Map(
+    children
+      .filter(child => rowVisibilityRule(child)
+        && rowVisibilityRule(child).mode !== 'always'
+        && !rowVisibilityError(field, child))
+      .map(child => [String(child.id), String(rowVisibilityRule(child).source_field_id)]),
+  );
+  const cycleChildren = new Set();
+  for (const start of validRules.keys()) {
+    const path = [];
+    const pathIndexes = new Map();
+    let current = start;
+    while (validRules.has(current) && !cycleChildren.has(current)) {
+      if (pathIndexes.has(current)) {
+        for (const childId of path.slice(pathIndexes.get(current))) {
+          cycleChildren.add(childId);
+        }
+        break;
+      }
+      pathIndexes.set(current, path.length);
+      path.push(current);
+      current = validRules.get(current);
+    }
+  }
+  for (const childId of cycleChildren) {
+    errors.push({
+      code: 'invalid_row_visibility_cycle',
+      child_id: childId,
+      message: 'Row visibility rules cannot contain a cycle',
+    });
+  }
+  return errors;
+}
+
+function repeatableRowValuesMatch(answer, expected) {
+  if (answer === undefined || answer === null) return false;
+  if (Array.isArray(answer) || Array.isArray(expected)
+      || (answer && typeof answer === 'object')
+      || (expected && typeof expected === 'object')) return false;
+  return Object.is(answer, expected) || String(answer) === String(expected);
+}
+
+function asIdSet(value) {
+  if (value instanceof Set) return new Set([...value].map(String));
+  if (Array.isArray(value)) return new Set(value.map(String));
+  return new Set();
+}
+
+/**
+ * Resolve children hidden in one row. Conditions intentionally read rawRow;
+ * callers must not feed a previously projected row back into this function.
+ */
+export function getRepeatableRowHiddenChildIds(
+  field,
+  rawRow,
+  { hiddenFieldIds = new Set(), parentHidden = false } = {},
+) {
+  const children = normalizeRepeatableRowField(field).children;
+  const hidden = asIdSet(hiddenFieldIds);
+  const parentIsHidden = parentHidden === true
+    || (field?.id != null && hidden.has(String(field.id)));
+  if (field?.id != null) hidden.delete(String(field.id));
+  children.forEach((child) => {
+    if (isLegacyTrue(child.hidden) || isLegacyTrue(child.starts_hidden)) {
+      hidden.add(String(child.id));
+    }
+    if (parentIsHidden) hidden.add(String(child.id));
+  });
+  if (!rawRow || typeof rawRow !== 'object' || Array.isArray(rawRow)) return hidden;
+  children.forEach((child) => {
+    const rule = rowVisibilityRule(child);
+    if (!rule || rowVisibilityError(field, child)) return;
+    if (rule.mode === 'always') return;
+    const matches = repeatableRowValuesMatch(rawRow[rule.source_field_id], rule.value);
+    if ((rule.mode === 'show_when' && !matches)
+        || (rule.mode === 'hide_when' && matches)) {
+      hidden.add(String(child.id));
+    }
+  });
+  return hidden;
+}
+
+function omitRepeatableRowMetadata(row, hidden) {
+  const result = { ...row };
+  for (const key of [REPEATABLE_NOT_LISTED_TEXT_KEY, REPEATABLE_NOT_LISTED_LABELS_KEY]) {
+    const metadata = result[key];
+    if (!isPlainObject(metadata)) continue;
+    const projected = Object.fromEntries(
+      Object.entries(metadata).filter(([childId]) => !hidden.has(String(childId))),
+    );
+    if (Object.keys(projected).length) result[key] = projected;
+    else delete result[key];
+  }
+  return result;
+}
+
+/**
+ * Project raw repeatable answers for mappings, emails and other side effects.
+ * Raw rows are never mutated; storage and validation retain the original
+ * answers so dependency and visibility evaluation cannot lose hidden sources.
+ */
+export function effectiveRepeatableRowAnswers(
+  field,
+  rawRows,
+  { hiddenFieldIds = new Set(), parentHidden = false } = {},
+) {
+  if (!Array.isArray(rawRows)) return rawRows;
+  return rawRows.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+    const hidden = getRepeatableRowHiddenChildIds(field, row, { hiddenFieldIds, parentHidden });
+    return omitRepeatableRowMetadata(
+      Object.fromEntries(Object.entries(row).filter(([key]) => (
+        key === '_row_id' || !hidden.has(String(key))
+      ))),
+      hidden,
+    );
+  });
+}
+
 export function repeatableRowAddLabelEditorValue(field) {
   const source = field?.repeatable_row && typeof field.repeatable_row === 'object'
     ? field.repeatable_row : field;
@@ -345,6 +596,15 @@ function selectedValues(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+function repeatableRowVisibilitySourceIds(field) {
+  return new Set(normalizeRepeatableRowField(field).children
+    .filter((child) => {
+      const rule = rowVisibilityRule(child);
+      return rule && rule.mode !== 'always' && !rowVisibilityError(field, child);
+    })
+    .map(child => String(child.row_visibility.source_field_id)));
+}
+
 export function repeatableUniqueValueKey(value, child) {
   if (Array.isArray(value)) {
     return `array:${JSON.stringify(value
@@ -380,11 +640,15 @@ export function repeatableUniqueValueKey(value, child) {
   return `${typeof value}:${String(value)}`;
 }
 
-export function repeatableSiblingUniqueValueKeys(rows, child, currentRowId) {
+export function repeatableSiblingUniqueValueKeys(rows, child, currentRowId, options = {}) {
   const keys = new Set();
-  if (!child?.unique_across_rows || !Array.isArray(rows)) return keys;
+  if (!child?.unique_across_rows || isLegacyTrue(child.hidden) || isLegacyTrue(child.starts_hidden)
+      || !Array.isArray(rows)) return keys;
   rows.forEach((row) => {
     if (!row || row._row_id === currentRowId) return;
+    if (options.field && getRepeatableRowHiddenChildIds(options.field, row, options).has(child.id)) {
+      return;
+    }
     const selected = row[child.id];
     if (!isRepeatableValueEmpty(selected)) {
       keys.add(repeatableUniqueValueKey(selected, child));
@@ -393,10 +657,13 @@ export function repeatableSiblingUniqueValueKeys(rows, child, currentRowId) {
   return keys;
 }
 
-export function repeatableSiblingUniqueValues(rows, child, currentRowId) {
-  if (!child?.unique_across_rows || !Array.isArray(rows)) return [];
+export function repeatableSiblingUniqueValues(rows, child, currentRowId, options = {}) {
+  if (!child?.unique_across_rows || isLegacyTrue(child.hidden) || isLegacyTrue(child.starts_hidden)
+      || !Array.isArray(rows)) return [];
   const values = rows
     .filter(row => row && row._row_id !== currentRowId)
+    .filter(row => !options.field
+      || !getRepeatableRowHiddenChildIds(options.field, row, options).has(child.id))
     .map(row => row[child.id])
     .filter(selected => !isRepeatableValueEmpty(selected));
   return child?.type === 'relationship_dropdown' && child?.selection_mode === 'multiple'
@@ -430,6 +697,7 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
   if (config.children.length === 0) {
     errors.push({ code: 'missing_children', message: 'A repeatable row must contain at least one child field' });
   }
+  errors.push(...validateRepeatableRowVisibilityConfiguration(field));
   config.children.forEach((child, index) => {
     if (!child.id || child.id === '_row_id' || child.id.length > 200 || ids.has(child.id)) {
       errors.push({ code: 'invalid_child_key', child_id: child.id, message: 'Child keys must be non-empty and unique' });
@@ -571,13 +839,17 @@ export function validateRepeatableRows(field, value, options = {}) {
   if (value.length > config.max_rows) errors.push({ code: 'max_rows', message: `No more than ${config.max_rows} row(s) are allowed` });
   const childIds = new Set(config.children.map((child) => child.id));
   const rowIds = new Set();
+  const visibilitySourceIds = repeatableRowVisibilitySourceIds(field);
   value.forEach((row, rowIndex) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) {
       errors.push({ code: 'invalid_row', row: rowIndex, message: `Row ${rowIndex + 1} is invalid` });
       return;
     }
     for (const key of Object.keys(row)) {
-      if (key !== '_row_id' && !childIds.has(key)) {
+      if (key !== '_row_id'
+          && key !== REPEATABLE_NOT_LISTED_TEXT_KEY
+          && key !== REPEATABLE_NOT_LISTED_LABELS_KEY
+          && !childIds.has(key)) {
         errors.push({ code: 'unknown_child', row: rowIndex, child_id: key, message: `Row ${rowIndex + 1} contains an unsupported field` });
       }
     }
@@ -587,10 +859,30 @@ export function validateRepeatableRows(field, value, options = {}) {
         errors.push({ code: 'invalid_row_id', row: rowIndex, message: `Row ${rowIndex + 1} has an invalid row ID` });
       } else rowIds.add(row._row_id);
     }
-    const active = !isRepeatableRowEmpty(row, config.children)
+    const hiddenChildIds = getRepeatableRowHiddenChildIds(field, row, {
+      hiddenFieldIds: options.hiddenFieldIds,
+      parentHidden: options.parentHidden,
+    });
+    for (const sourceId of visibilitySourceIds) {
+      if (hiddenChildIds.has(sourceId)) continue;
+      const source = config.children.find(child => child.id === sourceId);
+      const sourceValue = row[sourceId];
+      if (source && (Array.isArray(sourceValue)
+          || (sourceValue !== null && typeof sourceValue === 'object'))) {
+        errors.push({
+          code: 'invalid_selection',
+          row: rowIndex,
+          child_id: sourceId,
+          message: `${source.label || source.id} must contain one scalar selection`,
+        });
+      }
+    }
+    const visibleChildren = config.children.filter(child => !hiddenChildIds.has(child.id));
+    const active = !isRepeatableRowEmpty(row, visibleChildren)
       || rowIndex < config.min_rows || (rowIndex === 0 && config.first_row_required);
     if (!active) return;
     for (const child of config.children) {
+      if (hiddenChildIds.has(child.id)) continue;
       const selected = row[child.id];
       if (child.required && isRepeatableValueEmpty(selected)) {
         errors.push({ code: 'required_child', row: rowIndex, child_id: child.id, message: `${child.label || child.id} is required in row ${rowIndex + 1}` });
@@ -643,6 +935,11 @@ export function validateRepeatableRows(field, value, options = {}) {
     if (!child.unique_across_rows) continue;
     const rowsByValue = new Map();
     value.forEach((row, rowIndex) => {
+       const hiddenChildIds = getRepeatableRowHiddenChildIds(field, row, {
+         hiddenFieldIds: options.hiddenFieldIds,
+         parentHidden: options.parentHidden,
+       });
+       if (hiddenChildIds.has(child.id)) return;
       const selected = row?.[child.id];
       if (isRepeatableValueEmpty(selected)) return;
       const selections = child.type === 'relationship_dropdown'
@@ -681,10 +978,16 @@ export async function validateRepeatableRowsAsync(field, value, options = {}) {
   const errors = [];
   for (let rowIndex = 0; rowIndex < basic.rows.length; rowIndex += 1) {
     const row = basic.rows[rowIndex];
-    const active = !isRepeatableRowEmpty(row, basic.config.children)
+    const hiddenChildIds = getRepeatableRowHiddenChildIds(field, row, {
+      hiddenFieldIds: options.hiddenFieldIds,
+      parentHidden: options.parentHidden,
+    });
+    const visibleChildren = basic.config.children.filter(child => !hiddenChildIds.has(child.id));
+    const active = !isRepeatableRowEmpty(row, visibleChildren)
       || rowIndex < basic.config.min_rows || (rowIndex === 0 && basic.config.first_row_required);
     if (!active) continue;
     for (const child of basic.config.children) {
+      if (hiddenChildIds.has(child.id)) continue;
       const valueAtChild = row[child.id];
       if (isRepeatableValueEmpty(valueAtChild)) continue;
       const result = await options.validateChildAsync({ child, value: valueAtChild, row, rowIndex, field });

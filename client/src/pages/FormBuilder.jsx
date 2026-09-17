@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import RepeatableRowOptionsEditor from "@/components/forms/RepeatableRowOptionsEditor";
+import RepeatableRowVisibilityEditor from "@/components/forms/RepeatableRowVisibilityEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -147,6 +148,7 @@ import {
   repeatableRowFieldConfigUpdate,
   repeatableExclusionSourceFields,
   repeatableEmptyAvailabilitySupport,
+  validateRepeatableRowVisibilityConfiguration,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
 import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
@@ -6775,6 +6777,11 @@ function RepeatableRowsSettings({
                 </div>
               )}
             </div>
+            <RepeatableRowVisibilityEditor
+              field={field}
+              child={child}
+              onChange={row_visibility => updateChild(childIndex, { row_visibility })}
+            />
             {supportsFormNotListedChoice(child) && child.type !== 'relationship_dropdown' && (
               <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
                 <div className="flex items-center gap-2">
@@ -11827,6 +11834,15 @@ export default function FormBuilderPage() {
           `Row field "${child.label || 'Untitled field'}" has an invalid option source: ${detail} `
           + 'Complete its source configuration before saving.',
         );
+        return;
+      }
+      const visibilityErrors = validateRepeatableRowVisibilityConfiguration(container);
+      if (visibilityErrors.length > 0) {
+        const firstError = visibilityErrors[0];
+        const child = children.find(item => String(item.id) === String(firstError?.child_id));
+        const childLabel = child?.label || 'Untitled field';
+        const detail = firstError?.message || 'Choose a valid same-row source and option.';
+        toast.error(`Row field "${childLabel}" has invalid visibility: ${detail}`);
         return;
       }
     }

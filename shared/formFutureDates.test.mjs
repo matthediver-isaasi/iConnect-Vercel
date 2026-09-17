@@ -71,6 +71,37 @@ test('repeatable children include stable container, child, and row metadata', ()
   );
 });
 
+test('repeatable row visibility is applied to shared future-date validation using raw conditions', () => {
+  const fields = [{
+    id: 'attendees',
+    type: 'repeatable_rows',
+    children: [
+      { id: 'kind', type: 'select', options: ['with-date', 'without-date'] },
+      {
+        id: 'arrival',
+        type: 'date',
+        future_only: true,
+        row_visibility: {
+          mode: 'show_when',
+          source_field_id: 'kind',
+          value: 'with-date',
+        },
+      },
+    ],
+  }];
+  assert.deepEqual(validateFutureDateFields(fields, {
+    attendees: [
+      { kind: 'without-date', arrival: '2026-03-01' },
+      { kind: 'with-date', arrival: '2026-03-10' },
+    ],
+  }, { now }), [{
+    field_id: 'attendees',
+    child_id: 'arrival',
+    row: 1,
+    message: 'Date must be in the future.',
+  }]);
+});
+
 test('future-date row IDs are deterministic for legacy rows and preserve new IDs', () => {
   const repeatableField = {
     id: 'people',

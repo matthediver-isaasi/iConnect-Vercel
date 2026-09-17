@@ -89,6 +89,7 @@ import {
   resolveRepeatableExcludedValues,
   repeatableSiblingUniqueValues,
   repeatableUniqueValueKey,
+  getRepeatableRowHiddenChildIds,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from "../../../../shared/formRepeatableRows.js";
@@ -423,6 +424,8 @@ function RepeatableRowsField({
   rootAllFields,
   rootAllFormValues,
   onVisibilityChange,
+  hiddenFieldIds = new Set(),
+  parentHidden = false,
   availabilityProbe = false,
 }) {
   const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
@@ -458,6 +461,31 @@ function RepeatableRowsField({
   const rows = reconciledRows.currentRows;
   latestRows.current = reconciledRows.currentRows;
   pendingRows.current = reconciledRows.pendingRows;
+  // Visibility is a projection only. Keep `rows` as the raw, controlled
+  // answer so a later source change can restore hidden answers verbatim.
+  const rowHiddenChildIds = useMemo(() => rows.map(row => getRepeatableRowHiddenChildIds(
+    field,
+    row,
+    {
+      hiddenFieldIds,
+      parentHidden: parentHidden || (
+        hiddenFieldIds instanceof Set
+          ? hiddenFieldIds.has(field.id)
+          : Array.isArray(hiddenFieldIds) && hiddenFieldIds.includes(field.id)
+      ),
+    },
+  )), [field, hiddenFieldIds, parentHidden, rows]);
+  const repeatableParentHidden = parentHidden || (
+    hiddenFieldIds instanceof Set
+      ? hiddenFieldIds.has(field.id)
+      : Array.isArray(hiddenFieldIds) && hiddenFieldIds.includes(field.id)
+  );
+  const uniquenessRows = useMemo(() => rows.map((row, rowIndex) => {
+    const hidden = rowHiddenChildIds[rowIndex] || new Set();
+    return Object.fromEntries(Object.entries(row).filter(([key]) => (
+      key === '_row_id' || !hidden.has(String(key))
+    )));
+  }), [rowHiddenChildIds, rows]);
   const activeFirstColumnAvailability = useMemo(() => {
     const currentRowIds = new Set(rows.map(row => row?._row_id).filter(Boolean));
     return Object.fromEntries(
@@ -503,11 +531,13 @@ function RepeatableRowsField({
 
   const validation = useMemo(() => validateRepeatableRows(field, rows, {
       rootFields: rootAllFields || [],
+      hiddenFieldIds,
+      parentHidden: repeatableParentHidden,
       validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
       isAllowedSpecialSelection: ({ child, value: selected }) => (
         isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child)
       ),
-    }), [field, rows, childValidity, rootAllFields]);
+    }), [field, hiddenFieldIds, repeatableParentHidden, rows, childValidity, rootAllFields]);
   const duplicateErrors = useMemo(() => {
     const byCell = new Map();
     validation.errors
@@ -589,6 +619,27 @@ function RepeatableRowsField({
       return next;
     });
   }, [rows]);
+  useEffect(() => {
+    // A child may have reported an error immediately before becoming hidden.
+    // Do not let that stale report keep the repeatable container invalid.
+    setChildValidity(previous => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(previous).map(([rowId, cells]) => {
+        const rowIndex = rows.findIndex(row => row?._row_id === rowId);
+        if (rowIndex < 0) {
+          changed = true;
+          return null;
+        }
+        const hidden = rowHiddenChildIds[rowIndex] || new Set();
+        const visibleCells = Object.fromEntries(Object.entries(cells || {}).filter(
+          ([childId]) => !hidden.has(childId),
+        ));
+        if (Object.keys(visibleCells).length !== Object.keys(cells || {}).length) changed = true;
+        return [rowId, visibleCells];
+      }).filter(Boolean));
+      return changed ? next : previous;
+    });
+  }, [rowHiddenChildIds, rows]);
   const addRow = () => {
     if (latestRows.current.length >= config.max_rows) return;
     commitRows(currentRows => [...currentRows, createRow()]);
@@ -618,14 +669,25 @@ function RepeatableRowsField({
   }
 
   const renderChild = (child, row, rowId, rowIndex, spreadsheet = false) => {
-    const siblingUniqueValues = repeatableSiblingUniqueValues(rows, child, rowId);
+    const hiddenChildIds = rowHiddenChildIds[rowIndex] || new Set();
+    const childHidden = hiddenChildIds.has(child.id);
+    // Availability probes are mounted outside the visible form projection.
+    // Keep the first-column resolver alive there even when the container (or
+    // that child) is hidden, otherwise an empty-domain result cannot resolve
+    // and the parent field can never be restored.
+    const keepAvailabilityResolver = availabilityProbe
+      && hideWhenFirstColumnEmpty
+      && child.id === firstChild?.id;
+    const childReportsValidity = !childHidden || !keepAvailabilityResolver;
+    const siblingUniqueValues = repeatableSiblingUniqueValues(uniquenessRows, child, rowId);
     const formExcludedValues = resolveRepeatableExcludedValues(
       child,
       rootAllFields || [],
       rootAllFormValues || {},
       field,
     );
-    const content = (
+    if (childHidden && !spreadsheet && !keepAvailabilityResolver) return null;
+    const content = childHidden && !keepAvailabilityResolver ? null : (
       <>
       {spreadsheet
         ? <span className="sr-only">{child.label || 'Untitled field'}{child.required ? ' (required)' : ''}</span>
@@ -647,11 +709,11 @@ function RepeatableRowsField({
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
         onFormNotListedTextChange={text => updateRowNotListedText(rowId, child.id, text)}
-        onValidityChange={(childId, valid) => setChildValidity(current => (
+        onValidityChange={childReportsValidity ? ((childId, valid) => setChildValidity(current => (
           current[rowId]?.[childId] === valid
             ? current
             : { ...current, [rowId]: { ...(current[rowId] || {}), [childId]: valid } }
-        ))}
+        ))) : undefined}
         memberInfo={memberInfo}
         organizationInfo={organizationInfo}
         selectedOrgGuestAccess={selectedOrgGuestAccess}
@@ -708,6 +770,60 @@ function RepeatableRowsField({
     );
   };
 
+  const renderHiddenFirstColumnAvailabilityResolver = (row, rowId, rowIndex) => {
+    if (
+      availabilityProbe
+      || !hideWhenFirstColumnEmpty
+      || !firstChild
+      || !(rowHiddenChildIds[rowIndex] || new Set()).has(firstChild.id)
+    ) return null;
+    const formExcludedValues = resolveRepeatableExcludedValues(
+      firstChild,
+      rootAllFields || [],
+      rootAllFormValues || {},
+      field,
+    );
+    return (
+      <div
+        key={`availability-resolver-${rowId}-${firstChild.id}`}
+        hidden
+        aria-hidden="true"
+        data-testid={`repeatable-availability-resolver-${field.id}-${rowIndex}`}
+      >
+        <FormRenderer
+          field={{
+            ...firstChild,
+            repeatable_container_field_id: field.id,
+            repeatable_row_id: rowId,
+          }}
+          value={row[firstChild.id]}
+          onChange={() => {}}
+          onValidityChange={() => {}}
+          memberInfo={memberInfo}
+          organizationInfo={organizationInfo}
+          selectedOrgGuestAccess={selectedOrgGuestAccess}
+          disabled
+          hideLabel
+          formId={formId}
+          formSlug={formSlug}
+          formMemberRoleId={formMemberRoleId}
+          allFormValues={row}
+          allFields={config.children}
+          rootAllFields={rootAllFields}
+          rootAllFormValues={rootAllFormValues}
+          prefillData={prefillData}
+          membershipFeeQuote={membershipFeeQuote}
+          notListedDisplayLabel={notListedDisplayLabel}
+          repeatableSiblingUniqueValues={repeatableSiblingUniqueValues(uniquenessRows, firstChild, rowId)}
+          repeatableFormExcludedValues={formExcludedValues}
+          preserveValueWhenUnavailable
+          onRepeatableAvailabilityChange={state => reportFirstColumnAvailability(rowId, state)}
+          repeatableAvailabilitySupport={firstColumnSupport}
+        />
+      </div>
+    );
+  };
+
   const spreadsheet = config.layout === REPEATABLE_ROW_LAYOUT_SPREADSHEET;
   const spreadsheetGridStyle = {
     gridTemplateColumns: `repeat(${config.children.length}, minmax(12rem, 1fr)) 2.75rem`,
@@ -716,6 +832,11 @@ function RepeatableRowsField({
 
   return (
     <div className="space-y-3" data-testid={`repeatable-rows-${field.id}`}>
+      {rows.map((row, rowIndex) => renderHiddenFirstColumnAvailabilityResolver(
+        row,
+        row._row_id,
+        rowIndex,
+      ))}
       {spreadsheet ? (
         <div
           className="overflow-x-auto rounded-lg border border-slate-200"
@@ -1151,7 +1272,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], availabilityProbe = false }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2096,6 +2217,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       notListedDisplayLabel={notListedDisplayLabel}
       rootAllFields={allFields}
       rootAllFormValues={allFormValues}
+      hiddenFieldIds={hiddenFieldIds}
+      parentHidden={parentHidden || (
+        hiddenFieldIds instanceof Set
+          ? hiddenFieldIds.has(field.id)
+          : Array.isArray(hiddenFieldIds) && hiddenFieldIds.includes(field.id)
+      )}
       availabilityProbe={availabilityProbe}
       onVisibilityChange={(hidden, status) => {
         setRepeatableContainerHidden(previous => previous === hidden ? previous : hidden);

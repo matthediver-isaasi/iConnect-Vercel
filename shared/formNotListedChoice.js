@@ -1,4 +1,5 @@
 import {
+  getRepeatableRowHiddenChildIds,
   isRepeatableRowField,
   normalizeRepeatableRowField,
 } from './formRepeatableRows.js';
@@ -256,6 +257,12 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
     for (const fieldId of ignoredFieldIds) allowedChildIds.add(String(fieldId));
     for (const row of rows) {
       if (!isPlainObject(row)) continue;
+      // The root relationship pass also traverses repeatable rows. Evaluate
+      // their rules here against raw answers, just as the dedicated row
+      // validator does, without erasing sources used by visible targets.
+      const hiddenChildIds = getRepeatableRowHiddenChildIds(field, row, {
+        hiddenFieldIds: ignoredFieldIds,
+      });
       const rowText = row[FORM_NOT_LISTED_TEXT_KEY];
       if (rowText !== undefined && !isPlainObject(rowText)) {
         return { valid: false, error: 'Invalid not-listed text' };
@@ -266,7 +273,7 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
         }
       }
       for (const child of children) {
-        if (!child?.id || ignoredFieldIds.has(child.id)
+        if (!child?.id || hiddenChildIds.has(String(child.id))
             || !supportsFormNotListedChoice(child)) continue;
         const result = validateEntry(child, fieldValue(row, child), rowText, {
           containerField: field,

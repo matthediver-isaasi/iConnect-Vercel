@@ -2788,6 +2788,43 @@ test('forged hidden top-level and repeatable child answers are excluded before m
   }).length, 0);
 });
 
+test('structured row mappings omit a forged value hidden by its same-row rule', () => {
+  const rowField = {
+    ...repeatable,
+    repeatable_row: {
+      ...repeatable.repeatable_row,
+      child_fields: [
+        { id: 'mode', type: 'select', options: ['show', 'hide'] },
+        {
+          id: 'email',
+          type: 'email',
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+      ],
+    },
+  };
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'rows',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [{ id: 'row-email', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  }, [rowField]);
+  const hidden = expandStructuredActionInvocations(contract, { fields: [rowField] }, {
+    people: [{ _row_id: 'hidden-row', mode: 'hide', email: 'forged@example.test' }],
+  });
+  assert.equal(hidden.length, 1);
+  assert.equal(Object.hasOwn(hidden[0].values, 'email'), false);
+  const visible = expandStructuredActionInvocations(contract, { fields: [rowField] }, {
+    people: [{ _row_id: 'visible-row', mode: 'show', email: 'real@example.test' }],
+  });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].values.email, 'real@example.test');
+});
+
 test('custom-object fallback uniqueness matches by target id while querying by field key', () => {
   const action = {
     id: 'company-upsert',

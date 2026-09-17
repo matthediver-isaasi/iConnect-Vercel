@@ -3,6 +3,7 @@ import {
   resolveConditionalFilter,
 } from './formConditionalFilters.js';
 import {
+  getRepeatableRowHiddenChildIds,
   isRepeatableRowField,
   repeatableRowChildren,
 } from '../../shared/formRepeatableRows.js';
@@ -12,6 +13,10 @@ import {
 } from '../../shared/formNotListedChoice.js';
 
 export const ORGANISATION_GROUP_DROPDOWN_TYPE = 'organisation_group_dropdown';
+
+function isHidden(hiddenFieldIds, fieldId) {
+  return hiddenFieldIds?.has(fieldId) || hiddenFieldIds?.has(String(fieldId));
+}
 
 export async function loadTenantOrganisationGroups(db, tenantId, ids = null) {
   if (!db || !tenantId) return [];
@@ -103,20 +108,28 @@ export async function validateFormOrganisationGroupAnswers({
   hiddenFieldIds = new Set(),
 }) {
   const rootFields = Array.isArray(fields) ? fields : [];
-  const scopes = [{ fields: rootFields, data: submissionData }];
+  const scopes = [{ fields: rootFields, data: submissionData, hiddenFieldIds }];
   for (const container of rootFields.filter(field => (
-    isRepeatableRowField(field) && !hiddenFieldIds.has(field?.id)
+    isRepeatableRowField(field) && !isHidden(hiddenFieldIds, field?.id)
   ))) {
     const rows = submittedValue(submissionData, container);
     if (!Array.isArray(rows)) continue;
     const children = repeatableRowChildren(container);
-    for (const row of rows) scopes.push({ fields: children, data: row });
+    for (const row of rows) {
+      // Evaluate visibility from the unmodified row. A cell hidden in this
+      // row must not be conditionally validated as a group selector, while a
+      // hidden source value remains available for another visible child rule.
+      const rowHiddenFieldIds = getRepeatableRowHiddenChildIds(container, row, {
+        hiddenFieldIds,
+      });
+      scopes.push({ fields: children, data: row, hiddenFieldIds: rowHiddenFieldIds });
+    }
   }
   const values = [];
   for (const scope of scopes) {
     const groupFields = scope.fields
       .filter(field => field?.type === ORGANISATION_GROUP_DROPDOWN_TYPE
-        && field.id && !hiddenFieldIds.has(field.id));
+          && field.id && !isHidden(scope.hiddenFieldIds, field.id));
     for (const field of groupFields) {
       const selected = submittedValue(scope.data, field);
       const resolution = resolveConditionalFilter(field, scope.data, scope.fields);
@@ -156,7 +169,7 @@ async function validateDependentSet({
 }) {
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index];
-    if (hiddenFieldIds.has(field?.id)) continue;
+    if (isHidden(hiddenFieldIds, field?.id)) continue;
     if (field?.type !== 'organisation_dropdown' || !field.organisation_group_parent_field_id) continue;
     const scope = field.organisation_group_parent_scope
       ?? field.organisation_group_parent_field_scope ?? 'row';
@@ -210,15 +223,21 @@ export async function validateOrganisationGroupDependentOrganizationAnswers({
   });
   for (let containerIndex = 0; containerIndex < list.length; containerIndex += 1) {
     const container = list[containerIndex];
-    if (!isRepeatableRowField(container) || hiddenFieldIds.has(container?.id)) continue;
+    if (!isRepeatableRowField(container) || isHidden(hiddenFieldIds, container?.id)) continue;
     const children = repeatableRowChildren(container);
     const rows = submittedValue(submissionData, container);
     if (!Array.isArray(rows)) continue;
     for (const row of rows) {
+      // Do not project `row`: dependent children can be revealed by a source
+      // which is itself hidden. The effective hidden set merely decides which
+      // target validators run.
+      const rowHiddenFieldIds = getRepeatableRowHiddenChildIds(container, row, {
+        hiddenFieldIds,
+      });
       await validateDependentSet({
         db, tenantId, fields: children, submissionData: row,
         rootFields: list, rootSubmissionData: submissionData, containerIndex,
-        hiddenFieldIds,
+        hiddenFieldIds: rowHiddenFieldIds,
       });
     }
   }

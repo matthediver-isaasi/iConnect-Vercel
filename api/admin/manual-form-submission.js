@@ -150,12 +150,14 @@ export default async function handler(req, res) {
         tenantId,
         fields: form.fields || [],
         submissionData: submission_data || {},
+        hiddenFieldIds,
       });
       await validateOrganisationGroupDependentOrganizationAnswers({
         db: supabase,
         tenantId,
         fields: form.fields || [],
         submissionData: submission_data || {},
+        hiddenFieldIds,
       });
     } catch (error) {
       if (error?.code === 'INVALID_ORGANISATION_GROUP') {

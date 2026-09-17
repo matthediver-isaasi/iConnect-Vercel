@@ -42,6 +42,7 @@ import {
   computeHiddenFieldIds,
   resolveRepeatableFirstColumnAvailability,
 } from './formFieldVisibility.js';
+import { effectiveRepeatableRowSubmissionData } from './formRepeatableRowValidation.js';
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
@@ -619,11 +620,19 @@ export async function sendSubmissionEmails({
     // intact rather than turning a failed lookup into a hidden answer.
     console.warn('[SubmissionEmails] Could not resolve repeatable email visibility:', error?.message || error);
   }
-  const sideEffectSubmissionData = filterAutoHiddenRepeatableSubmissionData({
+  const availabilityFilteredSubmissionData = filterAutoHiddenRepeatableSubmissionData({
     form,
     formValues: rawSubmissionData,
     containerIds: autoHiddenRepeatableContainerIds,
   });
+  // Conditions were resolved from rawSubmissionData above. Project once after
+  // that evaluation so recipients, placeholders and row formatting cannot
+  // expose or act on a row-local hidden cell.
+  const sideEffectSubmissionData = effectiveRepeatableRowSubmissionData(
+    form,
+    availabilityFilteredSubmissionData,
+    { hiddenFieldIds: computeHiddenFieldIds(form, rawSubmissionData) },
+  );
   form_values = sideEffectSubmissionData;
   if (persistedSubmissionData) persistedSubmissionData = sideEffectSubmissionData;
 

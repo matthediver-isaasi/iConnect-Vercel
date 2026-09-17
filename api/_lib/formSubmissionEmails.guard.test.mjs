@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
+import {
+  sendSubmissionEmails,
+  sendSubmissionEmailsGuarded,
+} from './formSubmissionEmails.js';
 
 function makeEmailStateDb(initialState = null, {
   verificationError = null,
@@ -121,6 +124,72 @@ const diagnostics = {
   deployment_id: 'deployment-1',
   git_commit_sha: 'abc123',
 };
+
+test('configured email projects hidden row cells and metadata after raw chained visibility evaluation', async () => {
+  const form = {
+    id: 'row-email-form',
+    tenant_id: 'tenant-1',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'mode', type: 'select', options: ['hide', 'show'] },
+        {
+          id: 'hidden-source',
+          type: 'select',
+          options: ['reveal', 'other'],
+          row_visibility: { mode: 'hide_when', source_field_id: 'mode', value: 'hide' },
+        },
+        {
+          id: 'visible-target',
+          type: 'text',
+          row_visibility: { mode: 'show_when', source_field_id: 'hidden-source', value: 'reveal' },
+        },
+      ],
+    }],
+    submission_emails: [{
+      id: 'configured-row-email',
+      template_id: 'template-1',
+      // Capturing the repeatable placeholder as the recipient lets this
+      // regression assert the exact email-side effective view without any
+      // delivery credentials or network activity.
+      recipient: '{{rows}}',
+    }],
+  };
+  const db = {
+    from(table) {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async single() {
+          return table === 'email_template'
+            ? { data: { subject: 'Row values', body: '{{rows}}' }, error: null }
+            : { data: null, error: null };
+        },
+      };
+    },
+  };
+  const result = await sendSubmissionEmails({
+    supabase: db,
+    form,
+    formValues: {
+      rows: [{
+        _row_id: 'row-1',
+        mode: 'hide',
+        'hidden-source': 'reveal',
+        'visible-target': 'safe target value',
+        __not_listed_choice_text: { 'hidden-source': 'forged hidden metadata' },
+        __not_listed_choice_labels: { 'hidden-source': 'Forged hidden label' },
+      }],
+    },
+  });
+  assert.equal(result.emails.length, 1);
+  assert.deepEqual(result.emails[0].to, [{
+    _row_id: 'row-1',
+    mode: 'hide',
+    'visible-target': 'safe target value',
+  }]);
+});
 
 test('guard records a terminal skipped state with embed request diagnostics exactly once', async () => {
   const db = makeEmailStateDb();

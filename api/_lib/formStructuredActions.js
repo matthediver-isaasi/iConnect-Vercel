@@ -5,9 +5,14 @@ import {
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { createFormRelationshipService } from './formRelationshipOptions.js';
-import { validateRepeatableRowSubmission } from './formRepeatableRowValidation.js';
+import {
+  effectiveRepeatableRowSubmissionData,
+  validateRepeatableRowSubmission,
+} from './formRepeatableRowValidation.js';
 import { coercePreferenceValueForStorage } from './preferenceValueStorage.js';
 import {
+  effectiveRepeatableRowAnswers,
+  getRepeatableRowHiddenChildIds,
   isRepeatableRowField,
   repeatableRowChildren,
   isRepeatableRowEmpty,
@@ -817,20 +822,32 @@ export function expandStructuredActionInvocations(contract, form, submissionData
     }
     if (hidden.has(containerId)) continue;
     const container = fields.get(String(containerId));
-    const rows = submissionData?.[containerId];
-    if (!container || !Array.isArray(rows)) continue;
-    const visibleChildren = repeatableRowChildren(container).filter(child => !hidden.has(String(child?.id)));
+    const rawRows = submissionData?.[containerId];
+    if (!container || !Array.isArray(rawRows)) continue;
+    // The source answers must remain raw until every row condition has been
+    // evaluated. Each projected row is then the only row value an action can
+    // map, resolve, or otherwise use for a side effect.
+    const rows = effectiveRepeatableRowAnswers(container, rawRows, {
+      hiddenFieldIds: hidden,
+    });
     rows.forEach((row, rowIndex) => {
-      if (!row || typeof row !== 'object' || row._deleted === true || row.deleted === true || row.active === false) return;
-      const values = visibleSubmissionValues(row, hidden);
+      const rawRow = rawRows[rowIndex];
+      if (!rawRow || typeof rawRow !== 'object' || rawRow._deleted === true
+          || rawRow.deleted === true || rawRow.active === false) return;
+      const rowHidden = getRepeatableRowHiddenChildIds(container, rawRow, {
+        hiddenFieldIds: hidden,
+      });
+      const visibleChildren = repeatableRowChildren(container)
+        .filter(child => !rowHidden.has(String(child?.id)));
+      const values = visibleSubmissionValues(row, rowHidden);
       if (isRepeatableRowEmpty(values, visibleChildren)) return;
-      if (!row._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
+      if (!rawRow._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
       const selectedRecordId = selectedRelationshipRecordId(action, visibleChildren, values);
       const sourceHidden = isRecordReferenceAction(action)
-        && hidden.has(String(recordReferenceFieldId(action)));
+        && rowHidden.has(String(recordReferenceFieldId(action)));
       const base = {
-        action, rowIndex, rowId: String(row._row_id), values, rootValues, selectedRecordId,
-        invocationKey: `${action.id}:row:${row._row_id}`,
+        action, rowIndex, rowId: String(rawRow._row_id), values, rootValues, selectedRecordId,
+        invocationKey: `${action.id}:row:${rawRow._row_id}`,
         ...(sourceHidden ? { hiddenRecordReferenceSource: true } : {}),
       };
       if (sourceHidden && isMultiRecordReferenceAction(action)) {
@@ -1242,7 +1259,10 @@ export async function processPrimaryPipelineRelatedRecords({
       failed_count: 1,
     };
   }
-  const resolverAnswers = visibleSubmissionValues(answers, hidden);
+  const resolverAnswers = visibleSubmissionValues(
+    effectiveRepeatableRowSubmissionData(form, answers, { hiddenFieldIds: hidden }),
+    hidden,
+  );
   const resolverSubmission = {
     ...submission,
     submission_data: resolverAnswers,
@@ -1580,6 +1600,11 @@ async function validateDirectSelectors(
     visibilityOptions,
     hiddenFieldIds: hidden,
   });
+  const effectiveSubmissionData = effectiveRepeatableRowSubmissionData(
+    form,
+    submissionData || {},
+    { hiddenFieldIds: hidden },
+  );
   const checks = [];
   const inspect = (field, value, context) => {
     if (!field || hidden.has(field.id) || value == null || value === '') return;
@@ -1588,10 +1613,18 @@ async function validateDirectSelectors(
   for (const field of form.fields || []) {
     if (['repeatable_row', 'repeatable_rows'].includes(field?.type)) {
       if (hidden.has(field.id)) continue;
-      for (const [rowIndex, row] of (submissionData?.[field.id] || []).entries()) {
-        for (const child of repeatableRowChildren(field)) inspect(child, row?.[child.id], `${field.id}[${rowIndex}].${child.id}`);
+      const rawRows = submissionData?.[field.id] || [];
+      const effectiveRows = effectiveSubmissionData?.[field.id] || [];
+      for (const [rowIndex, rawRow] of rawRows.entries()) {
+        const rowHidden = getRepeatableRowHiddenChildIds(field, rawRow, { hiddenFieldIds: hidden });
+        const row = effectiveRows[rowIndex];
+        for (const child of repeatableRowChildren(field)) {
+          if (!rowHidden.has(String(child?.id))) {
+            inspect(child, row?.[child.id], `${field.id}[${rowIndex}].${child.id}`);
+          }
+        }
       }
-    } else inspect(field, submissionData?.[field.id], field.id);
+    } else inspect(field, effectiveSubmissionData?.[field.id], field.id);
   }
   const tableFor = field => {
     if (field.type === 'member_dropdown') return ['member', null];
@@ -1615,7 +1648,7 @@ async function validateDirectSelectors(
   }
   await relationshipService.validateSubmission({
     form,
-    submissionData: submissionData || {},
+    submissionData: effectiveSubmissionData,
     hiddenFieldIds: hidden,
     visibilityOptions,
   });
@@ -1623,18 +1656,27 @@ async function validateDirectSelectors(
     if (!['repeatable_row', 'repeatable_rows'].includes(container?.type)
       || hidden.has(String(container.id))) continue;
     const children = repeatableRowChildren(container);
-    const visibleChildren = children.filter(child => !hidden.has(String(child?.id)));
-    for (const row of submissionData?.[container.id] || []) {
-      if (!row || typeof row !== 'object' || row._deleted === true
-        || row.deleted === true || row.active === false
+    const rawRows = submissionData?.[container.id] || [];
+    const effectiveRows = effectiveSubmissionData?.[container.id] || [];
+    for (const [rowIndex, rawRow] of rawRows.entries()) {
+      const row = effectiveRows[rowIndex];
+      const rowHidden = getRepeatableRowHiddenChildIds(container, rawRow, {
+        hiddenFieldIds: hidden,
+      });
+      const visibleChildren = children.filter(child => !rowHidden.has(String(child?.id)));
+      if (!rawRow || typeof rawRow !== 'object' || rawRow._deleted === true
+        || rawRow.deleted === true || rawRow.active === false
         || isRepeatableRowEmpty(row, visibleChildren)) continue;
       await relationshipService.validateSubmission({
+        // Rule resolution needs the full raw row and all child definitions:
+        // a hidden source can reveal this visible target. The row-local hidden
+        // set prevents the service from validating/acting on hidden targets.
         form: { ...form, fields: children },
-        submissionData: row,
+        submissionData: rawRow,
         rootForm: form,
-        rootSubmissionData: submissionData || {},
+        rootSubmissionData: submissionData,
         containerFieldId: container.id,
-        hiddenFieldIds: hidden,
+        hiddenFieldIds: rowHidden,
         visibilityOptions,
       });
     }

@@ -14,6 +14,11 @@ import {
   repeatableRowFieldConfigUpdate,
   repeatableSiblingUniqueValueKeys,
   repeatableSiblingUniqueValues,
+  repeatableRowVisibilitySources,
+  repeatableRowVisibilityOptions,
+  validateRepeatableRowVisibilityConfiguration,
+  getRepeatableRowHiddenChildIds,
+  effectiveRepeatableRowAnswers,
   isRepeatableExclusionSourceCompatible,
   repeatableExclusionSourceFields,
   repeatableSelectionContainsExcludedValue,
@@ -145,6 +150,324 @@ test('static option editing covers renderer choice types without including dynam
     'organisation_dropdown', 'relationship_dropdown']) {
     assert.equal(supportsRepeatableRowStaticOptions({ type }), false, type);
   }
+});
+
+test('row visibility exposes only static single-select dropdown sources and their options', () => {
+  const visibilityField = {
+    type: 'repeatable_rows',
+    children: [
+      {
+        id: 'kind',
+        type: 'dropdown',
+        options: [{ value: 'member', label: 'Member' }, { value: 'guest', label: 'Guest' }],
+      },
+      { id: 'details', type: 'text' },
+      { id: 'dynamic', type: 'select', option_source: { kind: 'records' } },
+      { id: 'multi', type: 'dropdown', selection_mode: 'multiple', options: ['x'] },
+    ],
+  };
+  assert.deepEqual(
+    repeatableRowVisibilitySources(visibilityField, visibilityField.children[1])
+      .map(source => source.id),
+    ['kind'],
+  );
+  assert.deepEqual(repeatableRowVisibilityOptions(visibilityField.children[0]), [
+    { value: 'member', label: 'Member' },
+    { value: 'guest', label: 'Guest' },
+  ]);
+  assert.deepEqual(repeatableRowVisibilityOptions(visibilityField.children[2]), []);
+});
+
+test('row visibility evaluates raw answers, preserves static hidden state, and projects metadata', () => {
+  const visibilityField = {
+    type: 'repeatable_rows',
+    children: [
+      {
+        id: 'kind',
+        type: 'select',
+        options: ['member', 'guest'],
+      },
+      {
+        id: 'member_only',
+        type: 'text',
+        required: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'member' },
+      },
+      {
+        id: 'guest_only',
+        type: 'text',
+        starts_hidden: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'guest' },
+      },
+    ],
+  };
+  const rawRow = {
+    kind: 'member',
+    member_only: 'kept',
+    guest_only: 'retained raw answer',
+    __not_listed_choice_text: { member_only: 'Member', guest_only: 'Guest' },
+  };
+  assert.deepEqual([...getRepeatableRowHiddenChildIds(visibilityField, rawRow)], ['guest_only']);
+  const projected = effectiveRepeatableRowAnswers(visibilityField, [rawRow]);
+  assert.deepEqual(projected, [{
+    kind: 'member',
+    member_only: 'kept',
+    __not_listed_choice_text: { member_only: 'Member' },
+  }]);
+  assert.deepEqual(rawRow.__not_listed_choice_text, {
+    member_only: 'Member',
+    guest_only: 'Guest',
+  });
+  assert.equal(validateRepeatableRows(visibilityField, [rawRow]).valid, true);
+  assert.equal(validateRepeatableRows(visibilityField, [{
+    kind: 'guest',
+    member_only: 'invalid hidden answer',
+  }]).valid, true);
+});
+
+test('legacy string hidden flags match boolean hidden flags', () => {
+  const fieldWithLegacyFlags = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'boolean_hidden', type: 'text', hidden: true },
+      { id: 'string_hidden', type: 'text', hidden: 'true' },
+      { id: 'string_starts_hidden', type: 'text', starts_hidden: 'true' },
+      { id: 'visible', type: 'text' },
+    ],
+  };
+  assert.deepEqual(
+    [...getRepeatableRowHiddenChildIds(fieldWithLegacyFlags, { visible: 'ok' })],
+    ['boolean_hidden', 'string_hidden', 'string_starts_hidden'],
+  );
+  assert.deepEqual(
+    [...getRepeatableRowHiddenChildIds(
+      { id: 'container', ...fieldWithLegacyFlags },
+      { visible: 'ok' },
+      { hiddenFieldIds: new Set(['container']) },
+    )],
+    ['boolean_hidden', 'string_hidden', 'string_starts_hidden', 'visible'],
+  );
+});
+
+test('chained visibility conditions use retained raw sources after projection', () => {
+  const chained = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'gate', type: 'dropdown', options: ['off', 'on'] },
+      {
+        id: 'kind',
+        type: 'dropdown',
+        options: ['yes', 'no'],
+        row_visibility: { mode: 'show_when', source_field_id: 'gate', value: 'on' },
+      },
+      {
+        id: 'details',
+        type: 'text',
+        required: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'yes' },
+      },
+    ],
+  };
+  const rawRows = [{ gate: 'off', kind: 'yes' }];
+  assert.deepEqual([...getRepeatableRowHiddenChildIds(chained, rawRows[0])], ['kind']);
+  assert.deepEqual(effectiveRepeatableRowAnswers(chained, rawRows), [{ gate: 'off' }]);
+  const validation = validateRepeatableRows(chained, rawRows);
+  assert.ok(validation.errors.some(error => (
+    error.code === 'required_child' && error.child_id === 'details'
+  )));
+});
+
+test('row visibility configuration rejects invalid sources and values instead of hiding them', () => {
+  const fieldWithInvalidRules = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'source', type: 'dropdown', options: ['yes'] },
+      { id: 'dynamic', type: 'select', option_source: { kind: 'records' } },
+      { id: 'bad_source', type: 'text', row_visibility: {
+        mode: 'show_when', source_field_id: 'dynamic', value: 'x',
+      } },
+      { id: 'bad_value', type: 'text', row_visibility: {
+        mode: 'hide_when', source_field_id: 'source', value: 'no',
+      } },
+      { id: 'malformed', type: 'text', row_visibility: { mode: 'later' } },
+    ],
+  };
+  const errors = validateRepeatableRowVisibilityConfiguration(fieldWithInvalidRules);
+  assert.equal(errors.length, 3);
+  assert.deepEqual(new Set(errors.map(error => error.child_id)), new Set([
+    'bad_source', 'bad_value', 'malformed',
+  ]));
+  assert.deepEqual([...getRepeatableRowHiddenChildIds(fieldWithInvalidRules, {
+    source: 'yes',
+  })], []);
+});
+
+test('row visibility rejects two-field and three-field cycles but allows acyclic forward references', () => {
+  const cycle = (ids) => ({
+    type: 'repeatable_rows',
+    children: ids.map((id, index) => ({
+      id,
+      type: 'dropdown',
+      options: ['yes'],
+      row_visibility: {
+        mode: 'show_when',
+        source_field_id: ids[(index + 1) % ids.length],
+        value: 'yes',
+      },
+    })),
+  });
+  for (const ids of [['first', 'second'], ['one', 'two', 'three']]) {
+    const errors = validateRepeatableRowVisibilityConfiguration(cycle(ids));
+    assert.deepEqual(
+      new Set(errors.filter(error => error.code === 'invalid_row_visibility_cycle')
+        .map(error => error.child_id)),
+      new Set(ids),
+    );
+    assert.equal(
+      validateRepeatableRows(cycle(ids), []).errors
+        .some(error => error.code === 'invalid_row_visibility_cycle'),
+      true,
+    );
+  }
+  const forward = {
+    type: 'repeatable_rows',
+    children: [
+      {
+        id: 'details',
+        type: 'text',
+        row_visibility: {
+          mode: 'show_when',
+          source_field_id: 'kind',
+          value: 'yes',
+        },
+      },
+      { id: 'kind', type: 'dropdown', options: ['yes', 'no'] },
+    ],
+  };
+  assert.deepEqual(validateRepeatableRowVisibilityConfiguration(forward), []);
+});
+
+test('row visibility rejects unsupported operators and scopes instead of ignoring them', () => {
+  const base = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'source', type: 'dropdown', options: ['yes'] },
+      { id: 'target', type: 'text' },
+    ],
+  };
+  for (const extra of [{ operator: 'not_equals' }, { scope: 'form' }]) {
+    const fieldWithUnsupportedRule = {
+      ...base,
+      children: [
+        base.children[0],
+        {
+          ...base.children[1],
+          row_visibility: {
+            mode: 'show_when',
+            source_field_id: 'source',
+            value: 'yes',
+            ...extra,
+          },
+        },
+      ],
+    };
+    assert.equal(validateRepeatableRowVisibilityConfiguration(fieldWithUnsupportedRule).length, 1);
+  }
+  assert.deepEqual(validateRepeatableRowVisibilityConfiguration({
+    ...base,
+    children: [
+      base.children[0],
+      {
+        ...base.children[1],
+        row_visibility: {
+          mode: 'show_when',
+          source_field_id: 'source',
+          value: 'yes',
+          operator: 'equals',
+          scope: 'row',
+        },
+      },
+    ],
+  }), []);
+});
+
+test('referenced visibility sources must be scalar while unreferenced legacy choices retain array behavior', () => {
+  const conditional = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'source', type: 'dropdown', options: ['Yes'] },
+      {
+        id: 'details',
+        type: 'text',
+        required: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'source', value: 'Yes' },
+      },
+    ],
+  };
+  const forged = validateRepeatableRows(conditional, [{
+    source: ['Yes'],
+    details: 'present',
+  }]);
+  assert.equal(forged.valid, false);
+  assert.ok(forged.errors.some(error => (
+    error.code === 'invalid_selection' && error.child_id === 'source'
+  )));
+
+  const scalarTypes = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'number_source', type: 'dropdown', options: [1] },
+      { id: 'boolean_source', type: 'select', options: [true] },
+      {
+        id: 'details',
+        type: 'text',
+        row_visibility: { mode: 'show_when', source_field_id: 'number_source', value: 1 },
+      },
+    ],
+  };
+  assert.equal(validateRepeatableRows(scalarTypes, [{
+    number_source: 1,
+    boolean_source: true,
+    details: 'present',
+  }]).valid, true);
+
+  assert.equal(validateRepeatableRows({
+    type: 'repeatable_rows',
+    children: [{ id: 'legacy', type: 'dropdown', options: ['Yes'] }],
+  }, [{ legacy: ['Yes'] }]).valid, true);
+});
+
+test('hidden children are excluded from required, options, date, and uniqueness checks', () => {
+  const fieldWithHiddenChildren = {
+    type: 'repeatable_rows',
+    children: [
+      { id: 'kind', type: 'dropdown', options: ['show', 'hide'] },
+      {
+        id: 'required_value',
+        type: 'text',
+        required: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'show' },
+      },
+      {
+        id: 'choice',
+        type: 'dropdown',
+        options: ['allowed'],
+        unique_across_rows: true,
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'show' },
+      },
+      {
+        id: 'date',
+        type: 'date',
+        date_restriction: 'future',
+        row_visibility: { mode: 'show_when', source_field_id: 'kind', value: 'show' },
+      },
+    ],
+  };
+  const result = validateRepeatableRows(fieldWithHiddenChildren, [
+    { kind: 'hide', required_value: '', choice: 'forged', date: '2000-01-01' },
+    { kind: 'hide', required_value: '', choice: 'forged', date: '2000-01-01' },
+  ], { now: new Date('2026-01-01T00:00:00Z') });
+  assert.equal(result.valid, true);
 });
 
 test('option text commits trimmed non-empty choices for typed, pasted, and cleared input', () => {

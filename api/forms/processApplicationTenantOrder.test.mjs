@@ -130,8 +130,10 @@ test('legacy existing-record mutations are ownership-gated while organization re
 });
 
 test('answer-driven roles use authoritative answers and remain create-only', () => {
-  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: primaryMemberPipeline,\s*answers: form_values,/);
-  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: memberConfig,\s*answers: form_values,/);
+  // Mapping values are now projected to exclude row-hidden cells. Role rules
+  // still evaluate the original authoritative answer universe.
+  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: primaryMemberPipeline,\s*(?:\/\/[^\n]*\n\s*)*answers: authoritativeAnswers,/);
+  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: memberConfig,\s*(?:\/\/[^\n]*\n\s*)*answers: authoritativeAnswers,/);
 
   const primaryUpdateAt = idx('const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured');
   const primaryCreateAt = idx("roleSource = primaryMemberRoleAssignment.source;");

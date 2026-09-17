@@ -7,6 +7,7 @@ import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
 import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
 
 const source = await readFile(new URL('./process-application.js', import.meta.url), 'utf8');
+const structuredActionsSource = await readFile(new URL('../_lib/formStructuredActions.js', import.meta.url), 'utf8');
 
 test('Stripe address mappings run after normal and related-record mappings', () => {
   const related = source.lastIndexOf('const relatedRecords = await processPrimaryPipelineRelatedRecords');
@@ -18,6 +19,25 @@ test('Stripe address mappings run after normal and related-record mappings', () 
 test('entity creation provenance is persisted immediately for both primary targets', () => {
   assert.match(source, /persistEntityCreationProvenance\('organization', orgInsertData\.id\)[\s\S]{0,400}\.from\('organization'\)\s*\.insert\(orgInsertData\)/);
   assert.match(source, /persistEntityCreationProvenance\('member', memberInsertData\.id\)[\s\S]{0,400}\.from\('member'\)\s*\.insert\(memberInsertData\)/);
+});
+
+test('row-effective mappings do not replace raw answers for role or structured-rule evaluation', () => {
+  // A row-hidden source may itself control a visible target. The mapping view
+  // omits that source, so sending form_values back through either evaluator
+  // would evaluate the target a second time against incomplete answers.
+  assert.match(source, /form_values = effectiveRepeatableRowSubmissionData\(\s*persistedForm,\s*authoritativeAnswers,/);
+  assert.match(source, /derivePersistedFormRole\(\{[\s\S]*?answers: authoritativeAnswers,/);
+  assert.match(source, /resolveMemberRoleAssignment\(\{[\s\S]*?answers: authoritativeAnswers,/);
+
+  const structuredCall = source.slice(
+    source.indexOf('const structuredResult = await processPersistedStructuredActions({'),
+    source.indexOf('if (structuredResult?.success === false)'),
+  );
+  assert.match(structuredCall, /submissionId: submission_id/);
+  assert.doesNotMatch(structuredCall, /form_values/);
+  // The persisted-action executor reloads submission_data itself; this keeps
+  // the raw chained visibility source available to its row projection.
+  assert.match(structuredActionsSource, /const answers = submission\?\.submission_data \|\| \{\};/);
 });
 
 test('failed post-insert retries adopt verified provenance before email/name resolution', () => {

@@ -48,6 +48,7 @@ import {
 import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { resolveMemberRoleAssignment } from '../_lib/formMemberRoleAssignment.js';
 import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { effectiveRepeatableRowSubmissionData } from '../_lib/formRepeatableRowValidation.js';
 import {
   assertValidExplicitFallbackGroups,
   coalesceExplicitFallbackMappings,
@@ -1134,6 +1135,15 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       formValues: authoritativeAnswers,
       visibilityOptions: submitControlOptions,
     });
+    // Visibility and submission-control rules above intentionally consume the
+    // raw persisted answer object. From this point onward only mappings and
+    // writes use the projected row view, while submission_data in storage
+    // remains untouched.
+    form_values = effectiveRepeatableRowSubmissionData(
+      persistedForm,
+      authoritativeAnswers,
+      { hiddenFieldIds: hiddenSubmissionFieldIds },
+    );
     const ignoredHiddenMappingNoteKeys = new Set();
     const selectMappingsForSubmission = (mappings, {
       targetEntity = null,
@@ -2800,7 +2810,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       
       primaryMemberRoleAssignment = resolveMemberRoleAssignment({
         pipeline: primaryMemberPipeline,
-        answers: form_values,
+        // Role conditions are rules, not mappings. They must retain the raw
+        // persisted source so a row-hidden source can still reveal a target.
+        answers: authoritativeAnswers,
       });
       if (primaryMemberRoleAssignment.invalid) {
         return res.status(400).json({
@@ -4324,7 +4336,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         
         const additionalMemberRoleAssignment = resolveMemberRoleAssignment({
           pipeline: memberConfig,
-          answers: form_values,
+          // Keep answer-driven role conditions on the raw authoritative view;
+          // only mapping writes consume the projected form_values view.
+          answers: authoritativeAnswers,
         });
         if (additionalMemberRoleAssignment.invalid) {
           return res.status(400).json({

@@ -126,7 +126,8 @@ test('ignores hidden relationship children inside a visible repeatable container
     },
   });
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].form.fields.map(child => child.id), ['org']);
+  assert.deepEqual(calls[0].form.fields.map(child => child.id), ['org', 'unit']);
+  assert.equal(calls[0].hiddenFieldIds.has('unit'), true);
 
   await assert.rejects(
     validateRepeatableRowSubmission({
@@ -137,6 +138,69 @@ test('ignores hidden relationship children inside a visible repeatable container
     }),
     error => error.status === 400 && error.code === 'required_child',
   );
+});
+
+test('real relationship validation retains a hidden row source for a visible conditional dropdown target', async () => {
+  const rowForm = {
+    id: 'raw-row-dependency-form',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      min_rows: 1,
+      children: [
+        { id: 'gate', type: 'select', options: ['hide', 'show'] },
+        {
+          id: 'hidden-source',
+          type: 'select',
+          options: ['allow'],
+          row_visibility: { mode: 'hide_when', source_field_id: 'gate', value: 'hide' },
+        },
+        {
+          id: 'organisation',
+          type: 'organisation_dropdown',
+          required: true,
+          row_visibility: { mode: 'show_when', source_field_id: 'hidden-source', value: 'allow' },
+          conditional_filters: {
+            version: 1,
+            rules: [{
+              id: 'allow-target',
+              source_field_id: 'hidden-source',
+              source_field_type: null,
+              operator: 'equals',
+              value: 'allow',
+              allowed_values: ['target-org'],
+              is_fallback: false,
+              org_filter: null,
+            }],
+          },
+        },
+      ],
+    }],
+  };
+  const db = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async maybeSingle() {
+          return { data: { id: 'target-org', tenant_id: 'tenant-1' }, error: null };
+        },
+      };
+    },
+  };
+  await assert.doesNotReject(validateRepeatableRowSubmission({
+    db,
+    tenantId: 'tenant-1',
+    form: rowForm,
+    submissionData: {
+      rows: [{
+        gate: 'hide',
+        'hidden-source': 'allow',
+        organisation: 'target-org',
+      }],
+    },
+    relationshipService: createFormRelationshipService({ db, tenantId: 'tenant-1' }),
+  }));
 });
 
 test('ignores required row constraints when every relationship child is hidden', async () => {
@@ -155,7 +219,7 @@ test('ignores required row constraints when every relationship child is hidden',
           { id: 'group', type: 'organisation_group_dropdown', required: true },
           {
             id: 'unit',
-            type: 'relationship_dropdown',
+            type: 'organisation_dropdown',
             required: true,
             parent_field_id: 'org',
             relationship_definition_id: 'rel-1',
@@ -937,5 +1001,99 @@ test('hidden row-source children are ignored, but become authoritative when effe
   await assert.rejects(
     validateRepeatableRowSubmission(input('show')),
     error => error.status === 400 && /Invalid Custom Object row source selection/.test(error.message),
+  );
+});
+
+test('row visibility projects hidden relationship, unique, exclusion, and date cells only after raw rule evaluation', async () => {
+  const calls = [];
+  const rowVisibilityForm = {
+    id: 'row-visibility-form',
+    fields: [
+      { id: 'primary', type: 'select', options: ['taken', 'free'] },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        children: [
+          { id: 'mode', type: 'select', options: ['show', 'hide'], required: true },
+          {
+            id: 'relationship',
+            type: 'organisation_dropdown',
+            required: true,
+            unique_across_rows: true,
+            row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+          },
+          {
+            id: 'excluded',
+            type: 'select',
+            options: ['taken', 'free'],
+            exclude_values_from: { scope: 'form', source_field_id: 'primary' },
+            row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+          },
+          {
+            id: 'date',
+            type: 'date',
+            future_only: true,
+            row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+          },
+        ],
+      },
+    ],
+  };
+  const hiddenRows = [
+    { _row_id: 'hidden-1', mode: 'hide', relationship: 'forged-duplicate', excluded: 'taken', date: '2000-01-01' },
+    { _row_id: 'hidden-2', mode: 'hide', relationship: 'forged-duplicate', excluded: 'taken', date: '2000-01-01' },
+  ];
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: rowVisibilityForm,
+    submissionData: { primary: 'taken', rows: hiddenRows },
+    relationshipService: {
+      async validateSubmission(input) { calls.push(input); },
+    },
+  });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].form.fields.map(field => field.id), ['mode', 'relationship', 'excluded', 'date']);
+  assert.deepEqual(calls[0].submissionData, hiddenRows[0]);
+  assert.equal(calls[0].hiddenFieldIds.has('relationship'), true);
+  assert.equal(calls[0].hiddenFieldIds.has('excluded'), true);
+  assert.equal(calls[0].hiddenFieldIds.has('date'), true);
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: rowVisibilityForm,
+      submissionData: {
+        primary: 'taken',
+        rows: [{ _row_id: 'visible', mode: 'show', relationship: 'valid', excluded: 'taken', date: '2999-01-01' }],
+      },
+      relationshipService: { async validateSubmission() {} },
+    }),
+    error => error.status === 400 && error.code === 'excluded_repeatable_value',
+  );
+});
+
+test('invalid persisted row visibility configuration fails even when its container is hidden', async () => {
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: {
+        fields: [{
+          id: 'rows',
+          type: 'repeatable_rows',
+          starts_hidden: true,
+          children: [
+            { id: 'dynamic', type: 'select', option_source: { kind: 'records' } },
+            {
+              id: 'target',
+              type: 'text',
+              row_visibility: { mode: 'show_when', source_field_id: 'dynamic', value: 'x' },
+            },
+          ],
+        }],
+      },
+      submissionData: { rows: [] },
+      relationshipService: { async validateSubmission() {} },
+    }),
+    error => error.status === 400 && error.code === 'invalid_row_visibility',
   );
 });

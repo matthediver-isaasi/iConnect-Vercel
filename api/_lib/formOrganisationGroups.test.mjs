@@ -293,6 +293,76 @@ test('hidden repeatable containers are not re-entered by group validators', asyn
   await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers(input));
 });
 
+test('repeatable group validators skip row-hidden forged targets but retain raw hidden sources for visible dependencies', async () => {
+  const hiddenTargetFields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'mode', type: 'select', options: ['hide', 'show'] },
+      {
+        id: 'group',
+        type: 'organisation_group_dropdown',
+        row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+      },
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        organisation_group_parent_field_id: 'group',
+        row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+      },
+    ],
+  }];
+  const hiddenForged = {
+    db: fakeDb({}),
+    tenantId: 'tenant-a',
+    fields: hiddenTargetFields,
+    submissionData: { rows: [{
+      mode: 'hide',
+      group: 'forged-hidden-group',
+      org: 'forged-hidden-organization',
+    }] },
+  };
+  await assert.doesNotReject(validateFormOrganisationGroupAnswers(hiddenForged));
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers(hiddenForged));
+
+  const chainedFields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'gate', type: 'select', options: ['hide'] },
+      {
+        id: 'hidden-source',
+        type: 'select',
+        options: ['allow'],
+        row_visibility: { mode: 'hide_when', source_field_id: 'gate', value: 'hide' },
+      },
+      { id: 'group', type: 'organisation_group_dropdown' },
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        organisation_group_parent_field_id: 'group',
+        row_visibility: { mode: 'show_when', source_field_id: 'hidden-source', value: 'allow' },
+      },
+    ],
+  }];
+  // `hidden-source` is hidden in this row, but its original answer makes
+  // `org` visible. The dependent target must still be scoped against that raw
+  // source rather than being evaluated after a sequential projection.
+  const chained = {
+    db: fakeDb({
+      organizations: [{ id: 'org-1', tenant_id: 'tenant-a', organization_group_id: 'group-1' }],
+    }),
+    tenantId: 'tenant-a',
+    fields: chainedFields,
+    submissionData: { rows: [{ gate: 'hide', 'hidden-source': 'allow', group: 'group-1', org: 'org-1' }] },
+  };
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers(chained));
+  await assert.rejects(validateOrganisationGroupDependentOrganizationAnswers({
+    ...chained,
+    submissionData: { rows: [{ gate: 'hide', 'hidden-source': 'allow', group: 'group-1', org: 'forged-org' }] },
+  }), error => error.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION');
+});
+
 test('repeatable Organisation Group values are tenant validated even without an organisation answer', async () => {
   const fields = [{
     id: 'rows',

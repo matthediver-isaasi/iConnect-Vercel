@@ -235,6 +235,154 @@ test('paid validation ignores an initialized invalid repeatable row hidden by pe
   assert.equal(response.statusCode, null);
 });
 
+test('paid endpoint validation ignores forged row-hidden required, unique, and date values', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-row-visibility-form',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'mode', type: 'select', options: ['show', 'hide'], required: true },
+        {
+          id: 'organisation',
+          type: 'organisation_dropdown',
+          required: true,
+          unique_across_rows: true,
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+        {
+          id: 'date',
+          type: 'date',
+          required: true,
+          future_only: true,
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+      ],
+    }],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('hidden forged values must not be resolved'); } },
+    { id: 'tenant-1' },
+    form,
+    {
+      rows: [
+        { _row_id: 'hidden-1', mode: 'hide', organisation: 'forged-duplicate', date: '2000-01-01' },
+        { _row_id: 'hidden-2', mode: 'hide', organisation: 'forged-duplicate', date: '2000-01-01' },
+      ],
+    },
+  );
+  assert.equal(valid, true);
+  assert.equal(response.statusCode, null);
+});
+
+test('paid endpoint validation skips row-hidden forged group and group-dependent organisation values', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-row-group-visibility-form',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'mode', type: 'select', options: ['show', 'hide'] },
+        {
+          id: 'group',
+          type: 'organisation_group_dropdown',
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+        {
+          id: 'organisation',
+          type: 'organisation_dropdown',
+          organisation_group_parent_field_id: 'group',
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+      ],
+    }],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('row-hidden group values must not query'); } },
+    { id: 'tenant-1' },
+    form,
+    {
+      rows: [{
+        _row_id: 'hidden-group-row',
+        mode: 'hide',
+        group: 'forged-hidden-group',
+        organisation: 'forged-hidden-organisation',
+      }],
+    },
+  );
+  assert.equal(valid, true);
+  assert.equal(response.statusCode, null);
+});
+
+test('paid endpoint preserves hidden repeatable Not-listed country companions but rejects visible missing text', async () => {
+  const form = {
+    id: 'paid-row-country-visibility-form',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'mode', type: 'select', options: ['show', 'hide'] },
+        {
+          id: 'country',
+          type: 'countries',
+          not_listed_choice: { enabled: true, label: 'Country not listed' },
+          row_visibility: { mode: 'show_when', source_field_id: 'mode', value: 'show' },
+        },
+      ],
+    }],
+  };
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const hiddenRows = [
+    { _row_id: 'absent-companion', mode: 'hide', country: '__form_not_listed__' },
+    {
+      _row_id: 'stale-companion',
+      mode: 'hide',
+      country: '__form_not_listed__',
+      __not_listed_choice_text: { country: 'Stale hidden country text' },
+      __not_listed_choice_labels: { country: 'Stale hidden country label' },
+    },
+  ];
+  assert.equal(await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('hidden Not-listed country must not query'); } },
+    { id: 'tenant-1' },
+    form,
+    { rows: hiddenRows },
+  ), true);
+  assert.equal(response.statusCode, null);
+
+  const rejectedResponse = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  assert.equal(await validatePaymentRelationships(
+    rejectedResponse,
+    { from() { throw new Error('missing text must fail before lookup'); } },
+    { id: 'tenant-1' },
+    form,
+    { rows: [{ _row_id: 'visible-missing-text', mode: 'show', country: '__form_not_listed__' }] },
+  ), false);
+  assert.equal(rejectedResponse.statusCode, 400);
+  assert.match(rejectedResponse.payload.error, /Invalid relationship selection/);
+});
+
 test('paid validation rejects an incomplete required address before provider work', async () => {
   const response = {
     statusCode: null,

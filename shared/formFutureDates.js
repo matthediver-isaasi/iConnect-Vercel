@@ -1,4 +1,5 @@
 import {
+  getRepeatableRowHiddenChildIds,
   isRepeatableRowField,
   repeatableRowChildren,
 } from './formRepeatableRows.js';
@@ -241,6 +242,9 @@ export function validateFutureDateFields(
 
       rows.forEach((row, rowIndex) => {
         if (!row || typeof row !== 'object' || Array.isArray(row)) return;
+        const hiddenChildIds = getRepeatableRowHiddenChildIds(field, row, {
+          hiddenFieldIds: hidden,
+        });
         const oldRow = hasPrevious
           ? previousRepeatableRow(previousRows, row, matchedPreviousRows)
           : null;
@@ -248,7 +252,8 @@ export function validateFutureDateFields(
           if (!child?.id || child.type !== 'date'
               || hidden.has(child.id)) continue;
           const value = row[child.id];
-          if (hasPrevious && oldRow && isSameValue(value, oldRow[child.id])) continue;
+          if (hiddenChildIds.has(String(child.id))
+              || (hasPrevious && oldRow && isSameValue(value, oldRow[child.id]))) continue;
           const message = repeatableDateError(child, value, { now });
           if (message) {
             errors.push({

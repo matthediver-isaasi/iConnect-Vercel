@@ -304,6 +304,75 @@ test('validates required and non-orphaned normal and repeatable text', () => {
   }).valid, false);
 });
 
+test('row-local visibility skips retained not-listed text errors without weakening visible rows or metadata shape', () => {
+  for (const mode of ['show_when', 'hide_when']) {
+    const container = {
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'driver', type: 'select', options: ['Yes', 'No'] },
+        {
+          id: 'country', type: 'country',
+          not_listed_choice: { enabled: true, label: 'Other country' },
+          row_visibility: { mode, source_field_id: 'driver', value: 'Yes' },
+        },
+      ],
+    };
+    const hiddenDriver = mode === 'show_when' ? 'No' : 'Yes';
+    const visibleDriver = mode === 'show_when' ? 'Yes' : 'No';
+    for (const text of [undefined, '', 42, 'x'.repeat(501)]) {
+      const hidden = {
+        _row_id: 'hidden', driver: hiddenDriver, country: FORM_NOT_LISTED_VALUE,
+        ...(text === undefined ? {} : { [FORM_NOT_LISTED_TEXT_KEY]: { country: text } }),
+      };
+      const values = { rows: [hidden] };
+      const snapshot = structuredClone(values);
+      assert.equal(validateFormNotListedText([container], values).valid, true);
+      assert.deepEqual(values, snapshot, 'raw hidden answers and metadata are retained');
+      assert.equal(validateFormNotListedText([container], {
+        rows: [hidden, { ...hidden, _row_id: 'visible', driver: visibleDriver }],
+      }).valid, false, 'a different visible row still validates its text');
+    }
+    assert.equal(validateFormNotListedText([container], {
+      rows: [{
+        driver: hiddenDriver, country: 'GB',
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Stale companion text' },
+      }],
+    }).valid, true);
+    for (const invalidMap of ['not-an-object', { unknown_child: 'forged' }]) {
+      assert.equal(validateFormNotListedText([container], {
+        rows: [{ driver: hiddenDriver, [FORM_NOT_LISTED_TEXT_KEY]: invalidMap }],
+      }).valid, false, 'metadata shape and unknown-key guards still run');
+    }
+    assert.equal(validateFormNotListedText([container], {
+      rows: [{ driver: visibleDriver, country: FORM_NOT_LISTED_VALUE }],
+    }, { ignoredFieldIds: new Set(['rows']) }).valid, true);
+  }
+});
+
+test('nested not-listed validation uses a hidden raw source to reveal a visible target', () => {
+  const container = {
+    id: 'rows', type: 'repeatable_rows',
+    children: [
+      { id: 'gate', type: 'select', options: ['Yes', 'No'] },
+      {
+        id: 'source', type: 'select', options: ['Yes', 'No'],
+        row_visibility: { mode: 'hide_when', source_field_id: 'gate', value: 'Yes' },
+      },
+      {
+        id: 'country', type: 'country',
+        not_listed_choice: { enabled: true, label: 'Other country' },
+        row_visibility: { mode: 'show_when', source_field_id: 'source', value: 'Yes' },
+      },
+    ],
+  };
+  const row = { gate: 'Yes', source: 'Yes', country: FORM_NOT_LISTED_VALUE };
+  assert.equal(validateFormNotListedText([container], { rows: [row] }).valid, false);
+  assert.equal(validateFormNotListedText([container], {
+    rows: [{ ...row, [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' } }],
+  }).valid, true);
+});
+
 test('prunes orphaned root and row text without disturbing selected sentinel text', () => {
   const repeatable = {
     id: 'rows',
