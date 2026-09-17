@@ -7,3 +7,4 @@ description: Answer types, temporal validation, derived labels, and hidden-answe
 - [Temporal form validation](temporal-form-validation.md) — date changes must not invalidate accepted retries or unchanged historical answers.
 - [Form derived label lifecycle](form-derived-label-lifecycle.md) — picker unmount is navigation, not revocation.
 - [Hidden form answer boundary](form-hidden-answer-boundary.md) — retain the raw answer universe for authoritative server evaluation.
+- [Stale field type metadata](form-stale-type-metadata.md) — old option lists can survive type changes; scalar fields must not inherit choice validation.

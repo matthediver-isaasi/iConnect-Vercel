@@ -25,6 +25,33 @@ const form = {
   }],
 };
 
+test('saved date fields with stale choice options accept years but retain scalar and select checks', async () => {
+  const equipmentForm = {
+    id: 'form-equipment',
+    fields: [{
+      id: 'equipment', type: 'repeatable_rows',
+      child_fields: [
+        { id: 'inService', type: 'select', options: ['Yes', 'No'] },
+        {
+          id: 'decommissioned', type: 'date', date_precision: 'year', options: ['YesNo'],
+          row_visibility: { mode: 'show_when', source_field_id: 'inService', value: 'No' },
+        },
+      ],
+    }],
+  };
+  const validate = row => validateRepeatableRowSubmission({
+    tenantId: 'tenant-1', form: equipmentForm,
+    submissionData: { equipment: [{ _row_id: 'existing-equipment', ...row }] },
+    relationshipService: { async validateSubmission() {} },
+  });
+  await validate({ inService: 'No', decommissioned: '2025' });
+  await validate({ inService: 'Yes', decommissioned: '2025' });
+  await assert.rejects(validate({ inService: 'Maybe', decommissioned: '2025' }),
+    error => error.code === 'invalid_selection');
+  await assert.rejects(validate({ inService: 'No', decommissioned: ['2025'] }),
+    error => error.code === 'invalid_value');
+});
+
 test('passes each row to tenant-scoped saved-field validation with row-local values', async () => {
   const calls = [];
   const relationshipService = {

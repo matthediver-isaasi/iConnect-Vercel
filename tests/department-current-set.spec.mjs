@@ -70,7 +70,11 @@ function formFixture(layout = 'standard', multiColumn = false) {
         { id: F.model, type: 'select', label: 'Model', options: [{ value: IDS.model, label: 'Acme PET 1' }] },
         text(F.serial, 'Serial number', true),
         { id: F.installed, type: 'date', label: 'Installation year', required: true, date_precision: 'year' },
-        { id: F.decommissioned, type: 'date', label: 'Decommissioning year', date_precision: 'year' },
+        // This mirrors the live BNMS form's historical metadata.  The date
+        // child accidentally retained a stale options array ("YesNo"), even
+        // though options are not meaningful for date fields.  A visible,
+        // valid year must not be rejected as an invalid selection.
+        { id: F.decommissioned, type: 'date', label: 'Decommissioning year', date_precision: 'year', options: ['YesNo'] },
         { id: F.inService, type: 'select', label: 'Still in service', required: true, options: ['Yes', 'No'] },
         text(F.notes, 'Additional information'),
       ],
@@ -87,7 +91,11 @@ function formFixture(layout = 'standard', multiColumn = false) {
   return fixture;
 }
 
-function currentSet(version = 'version-1', { incomplete = false } = {}) {
+function currentSet(version = 'version-1', {
+  incomplete = false,
+  decommissionedVisible = false,
+  invalidInService = false,
+} = {}) {
   const equipment = Array.from({ length: 36 }, (_, index) => ({
     _row_id: `existing:equipment-${index}`,
     [F.type]: IDS.type,
@@ -96,7 +104,9 @@ function currentSet(version = 'version-1', { incomplete = false } = {}) {
     [F.serial]: index === 0 ? '' : `SN-${index}`,
     [F.installed]: index === 0 ? '' : '2020',
     [F.decommissioned]: index === 0 ? '' : '2025',
-    [F.inService]: 'Yes',
+    [F.inService]: invalidInService && index === 2
+      ? 'Maybe'
+      : (decommissionedVisible && index === 2 ? 'No' : 'Yes'),
     [F.notes]: index === 0 ? 'Legacy blank serial and year are permitted.' : '',
   }));
   return {
@@ -318,6 +328,36 @@ test('standalone current-set prefill retains all rows, legacy values, and submit
   expect(state.currentRequests).toBe(1);
   expect(state.unexpectedWrites).toEqual([]);
   expect(state.pageErrors).toEqual([]);
+});
+
+test('live date metadata does not reject a visible decommissioning year, while invalid select values remain blocked', async ({ page }) => {
+  const state = await install(page, {
+    current: currentSet('version-1', { decommissionedVisible: true }),
+  });
+  await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+  await assertLoaded(page);
+
+  // Row 2 is the live-shaped case: the decommissioning date is visible and
+  // valid while the date field still carries stale ["YesNo"] options.
+  await expect(row(page, EQ, 2).locator('input').nth(2)).toHaveValue('2025');
+  await acknowledge(page);
+  await page.getByRole('button', { name: 'Save current Department data', exact: true }).click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].submission_data[EQ][2][F.decommissioned]).toBe('2025');
+  expect(state.unexpectedWrites).toEqual([]);
+
+  // A genuinely invalid select value must still fail closed; this guards
+  // against fixing date metadata by weakening selection validation globally.
+  const invalidState = await install(page, {
+    current: currentSet('version-1', { invalidInService: true }),
+  });
+  await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+  await assertLoaded(page);
+  await acknowledge(page);
+  await page.getByRole('button', { name: 'Save current Department data', exact: true }).click();
+  await expect(page.getByText('Please fix validation errors: Equipment')).toBeVisible();
+  expect(invalidState.submissions).toEqual([]);
+  expect(invalidState.unexpectedWrites).toEqual([]);
 });
 
 test('both acknowledgements permit a deliberate empty Equipment set', async ({ page }) => {

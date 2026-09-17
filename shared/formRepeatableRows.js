@@ -43,6 +43,13 @@ export const REPEATABLE_ROW_EXCLUSION_TYPES = Object.freeze([
 const CHILD_TYPES = new Set(REPEATABLE_ROW_CHILD_TYPES);
 const DEPENDENCY_TYPES = new Set(REPEATABLE_ROW_DEPENDENCY_TYPES);
 const EXCLUSION_TYPES = new Set(REPEATABLE_ROW_EXCLUSION_TYPES);
+// Saved fields can retain options after changing type. Only choice controls
+// interpret that metadata as an allowlist; it must not constrain dates/text.
+const OPTION_SELECTION_TYPES = new Set([
+  'dropdown', 'select', 'radio', 'checkbox', 'checkboxes', 'list', 'multiselect',
+  'country', 'countries', 'category_dropdown', 'category_multiselect', 'custom_field',
+  'organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown',
+]);
 const DEFAULT_MAX_ROWS = 10;
 const HARD_MAX_ROWS = 100;
 
@@ -900,7 +907,7 @@ export function validateRepeatableRows(field, value, options = {}) {
         });
         continue;
       }
-      if (Array.isArray(child.options) && child.options.length) {
+      if (OPTION_SELECTION_TYPES.has(child.type) && Array.isArray(child.options) && child.options.length) {
         const allowed = new Set(child.options.map(optionValue).filter((item) => item != null).map(String));
         if (selectedValues(selected).some((item) => (
           !allowed.has(String(item))

@@ -53,6 +53,52 @@ const field = {
   },
 };
 
+test('stale choice metadata never constrains scalar repeatable fields', () => {
+  const values = {
+    text: 'Equipment', textarea: 'Notes', email: 'member@example.com',
+    phone: '0123456789', tel: '0123456789', url: 'https://example.com',
+    number: 3, percentage: 50, currency: 10, date: '2025', time: '12:00', boolean: true,
+  };
+  for (const [type, value] of Object.entries(values)) {
+    const result = validateRepeatableRows({
+      id: 'equipment', type: 'repeatable_rows',
+      child_fields: [{ id: 'value', type, options: ['YesNo'], ...(type === 'date' ? { date_precision: 'year' } : {}) }],
+    }, [{ _row_id: 'existing-row', value }]);
+    assert.equal(result.valid, true, `${type}: ${JSON.stringify(result.errors)}`);
+  }
+});
+
+test('stale date options do not block visible or retained hidden decommissioning years', () => {
+  const equipment = {
+    id: 'equipment', type: 'repeatable_rows',
+    child_fields: [
+      { id: 'inService', type: 'select', options: ['Yes', 'No'] },
+      {
+        id: 'decommissioned', type: 'date', date_precision: 'year', options: ['YesNo'],
+        row_visibility: { mode: 'show_when', source_field_id: 'inService', value: 'No' },
+      },
+    ],
+  };
+  for (const inService of ['Yes', 'No']) {
+    const result = validateRepeatableRows(equipment, [{ inService, decommissioned: '2025' }]);
+    assert.deepEqual(result.errors, []);
+  }
+  const invalid = validateRepeatableRows(equipment, [{ inService: 'Maybe', decommissioned: '2025' }]);
+  assert.ok(invalid.errors.some(error => error.code === 'invalid_selection' && error.child_id === 'inService'));
+});
+
+test('choice allowlists still reject invalid selections for single and multiple values', () => {
+  for (const type of ['select', 'dropdown', 'radio', 'checkbox', 'checkboxes', 'list', 'multiselect']) {
+    for (const value of ['forged', ['allowed', 'forged']]) {
+      const result = validateRepeatableRows({
+        id: 'rows', type: 'repeatable_rows',
+        child_fields: [{ id: 'choice', type, options: ['allowed'] }],
+      }, [{ choice: value }]);
+      assert.ok(result.errors.some(error => error.code === 'invalid_selection'), type);
+    }
+  }
+});
+
 test('normalizes the versioned schema while retaining legacy top-level properties', () => {
   assert.deepEqual(normalizeRepeatableRowField(field).children.map((child) => child.id), ['org', 'department', 'title']);
   assert.equal(normalizeRepeatableRowField({
