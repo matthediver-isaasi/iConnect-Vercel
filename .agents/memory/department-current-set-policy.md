@@ -44,3 +44,9 @@ Treat conditional child values separately from whole-section completeness.
 **Why:** The existing form legitimately hides the optional decommissioning year while equipment is in service. Rejecting every conditional child breaks that form, but trusting a hidden submitted value can erase existing data.
 
 **How to apply:** Review and pin supported child-visibility rules, then preserve authoritative existing hidden values inside the transaction (and omit new hidden values). Never infer section removal from hidden or missing answers.
+
+Submission acceptance and Department-save confirmation are distinct outcomes, including on retries.
+
+**Why:** Generic success responses once dropped an already-verified reconciliation result. Records were committed, but the browser correctly refused to infer that from submission success alone. Browser fixtures with assumed success payloads did not expose the endpoint mismatch.
+
+**How to apply:** Carry only the authenticated processor's verified commit status and version through fresh, duplicate, and concurrent-winner responses. Test the actual endpoint response contract as well as the browser; submission presence and processing notes are not substitutes for commit verification.

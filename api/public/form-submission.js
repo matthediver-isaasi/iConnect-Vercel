@@ -785,13 +785,24 @@ export default async function handler(req, res, dependencies = {}) {
     // Builds the success payload for an already-existing submission row so a
     // duplicate attempt gets the ORIGINAL submission's success response
     // instead of creating a second row or surfacing an error.
-    const originalSuccessResponse = (row) => res.status(200).json({
+    const committedCurrentSetMarker = result => (
+      hasCurrentSetCommit(result)
+        ? {
+          current_set: {
+            status: result.current_set.status,
+            version: result.current_set.version,
+          },
+        }
+        : {}
+    );
+    const originalSuccessResponse = (row, processingResult = null) => res.status(200).json({
       success: true,
       id: row.id,
       message: 'Form submitted successfully',
       created_member_id: row.created_member_id || null,
       created_organization_id: row.organization_id || null,
       duplicate: true,
+      ...committedCurrentSetMarker(processingResult),
     });
     const hasIncompleteStructuredActions = (row) => {
       const latestByInvocation = new Map();
@@ -860,6 +871,7 @@ export default async function handler(req, res, dependencies = {}) {
       // processor reply reached the browser. Retry its idempotent lifecycle
       // operation before reporting success; the database RPC replays a
       // committed outcome instead of applying an older answer set again.
+      let currentSetProcessingResult = null;
       if (hasCurrentSetProcessing) {
         const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
         if (!internalApiBaseUrl) {
@@ -916,6 +928,7 @@ export default async function handler(req, res, dependencies = {}) {
               retryable: true,
             });
           }
+          currentSetProcessingResult = result;
         } catch (error) {
           console.error('[Public Form Submission] Current-set retry processing failed:', error?.message);
           return res.status(503).json({
@@ -959,7 +972,7 @@ export default async function handler(req, res, dependencies = {}) {
           retryable: true,
         });
       }
-      return originalSuccessResponse(row);
+      return originalSuccessResponse(row, currentSetProcessingResult);
     };
 
     const resumeDuplicateFinalization = async (row) => {
@@ -2076,6 +2089,7 @@ export default async function handler(req, res, dependencies = {}) {
         structured_actions: pipelineProcessingResult.structured_actions,
         processing_partial: pipelineProcessingResult.structured_actions.success === false,
       } : {}),
+      ...committedCurrentSetMarker(pipelineProcessingResult),
     });
   } catch (error) {
     console.error('[Public Form Submission] Error:', error);

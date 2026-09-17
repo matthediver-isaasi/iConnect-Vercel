@@ -118,6 +118,7 @@ function makePublicSubmissionBoundaryDb(
     existingSubmission = null,
     currentSetConfig = null,
     currentSetLoad = null,
+    concurrentWinner = null,
     failReadyOnce = false,
     failCheckpointOnce = false,
   } = {},
@@ -165,6 +166,16 @@ function makePublicSubmissionBoundaryDb(
     async single() {
       if (this.table === 'form') return { data: form, error: null };
       if (this.table === 'form_submission' && this.insertPayload) {
+        if (concurrentWinner) {
+          submissionRow = structuredClone(concurrentWinner);
+          return {
+            data: null,
+            error: {
+              code: '23505',
+              message: 'duplicate key value violates unique constraint form_submission_idempotency_key_idx',
+            },
+          };
+        }
         submissionRow = {
           id: 'submission-student-join',
           ...structuredClone(this.insertPayload),
@@ -424,6 +435,10 @@ test('current-set form reports success only after the processor returns a durabl
   });
   assert.equal(response.statusCode, 201);
   assert.equal(response.body.success, true);
+  assert.deepEqual(response.body.current_set, {
+    status: 'committed',
+    version: 'department-version-1',
+  });
   assert.equal(processingBodies.length, 1);
   assert.equal(processingBodies[0].submission_id, 'submission-student-join');
   assert.equal(db.insertedSubmissions[0].created_member_id, CURRENT_SET_MEMBER_ID);
@@ -434,6 +449,35 @@ test('current-set form reports success only after the processor returns a durabl
   assert.equal(hasCurrentSetCommit({
     current_set: { status: 'committed', version: 'department-version-1' },
   }), true);
+});
+
+test('current-set processing without a verified commit marker remains retryable and never reports success', async () => {
+  const form = currentSetFormFixture();
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+  });
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: 'current-set-missing-marker-key',
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => jsonProcessingResponse(200, { success: true }),
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.code, 'CURRENT_SET_PROCESSING_PENDING');
+  assert.equal(response.body.current_set, undefined);
 });
 
 test('failed current-set processing preserves its durable submission rather than rolling it back', async () => {
@@ -510,8 +554,109 @@ test('a committed current-set submission replays before an idempotent duplicate 
   });
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.duplicate, true);
+  assert.deepEqual(response.body.current_set, {
+    status: 'replayed',
+    version: 'department-version-1',
+  });
   assert.equal(calls, 1);
   assert.equal(db.insertedSubmissions.length, 0);
+});
+
+test('a current-set idempotency key cannot replay a saved row for altered answers', async () => {
+  const form = currentSetFormFixture();
+  const existingSubmission = {
+    id: 'current-set-existing-submission',
+    idempotency_key: 'current-set-altered-key',
+    submission_data: currentSetAnswers(),
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+    existingSubmission,
+  });
+  const altered = currentSetAnswers();
+  altered.equipment = [{ _row_id: 'forged-row', serial: 'changed', installed: '2025' }];
+  const { response, res } = makeResponseRecorder();
+  let processingCalls = 0;
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: existingSubmission.idempotency_key,
+      submission_data: altered,
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => {
+      processingCalls += 1;
+      return jsonProcessingResponse(200, {
+        current_set: { status: 'replayed', version: 'department-version-1' },
+      });
+    },
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.body.code, 'IDEMPOTENCY_KEY_REUSED');
+  assert.equal(processingCalls, 0);
+  assert.equal(db.insertedSubmissions.length, 0);
+});
+
+test('a concurrent current-set idempotency winner is authenticated, replayed, and returns only its verified commit marker', async () => {
+  const form = currentSetFormFixture();
+  const winner = {
+    id: 'current-set-race-winner',
+    idempotency_key: 'current-set-race-key',
+    submission_data: currentSetAnswers(),
+    communication_finalization_state: null,
+    processing_notes: [{
+      // Processing notes are deliberately not response authority.
+      kind: 'department_current_set_commit',
+      status: 'committed',
+      version: 'untrusted-note-version',
+    }],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    currentSetConfig: currentSetConfigFixture(),
+    currentSetLoad: currentSetLoadFixture(),
+    concurrentWinner: winner,
+  });
+  const { response, res } = makeResponseRecorder();
+  let processingCalls = 0;
+  await handler({
+    method: 'POST',
+    headers: { host: 'bnms.test' },
+    body: {
+      form_id: form.id,
+      idempotency_key: winner.idempotency_key,
+      submission_data: currentSetAnswers(),
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: CURRENT_SET_TENANT_ID, slug: 'bnms', domain: 'bnms.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
+    getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
+    fetchImpl: async () => {
+      processingCalls += 1;
+      return jsonProcessingResponse(200, {
+        current_set: { status: 'replayed', version: 'verified-race-version' },
+      });
+    },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.duplicate, true);
+  assert.deepEqual(response.body.current_set, {
+    status: 'replayed',
+    version: 'verified-race-version',
+  });
+  assert.equal(JSON.stringify(response.body).includes('untrusted-note-version'), false);
+  assert.equal(processingCalls, 1);
 });
 
 test('a revoked respondent cannot replay a pending current-set submission', async () => {
