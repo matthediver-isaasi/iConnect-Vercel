@@ -14,3 +14,9 @@ Background schedules and their target deployments must be verified separately fr
 **Why:** Paid form receipts were queued without any worker attempts while the return UI expected background completion. The source configured minute-by-minute processing, but Vercel's active cron definition still pointed at an older deployment on an hourly schedule.
 
 **How to apply:** Inspect the provider's active cron schedule and target deployment, not just the repository config. Queue attempt counts distinguish work not being picked up from processing failures. Do not replay payments merely to diagnose a stalled worker.
+
+Custom development domains can serve the latest preview while scheduled jobs still target an older production deployment against the same database.
+
+**Why:** The development-domain aliases served updated payment acknowledgements, but all queued completion receipts remained unattempted because the registered cron target had not changed.
+
+**How to apply:** Verify alias-to-deployment routing alongside the cron target. A successful browser test on a development domain does not verify background execution. Do not promote an entire preview or run production recovery without accounting for its wider effects.
