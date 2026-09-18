@@ -607,3 +607,17 @@ mtime_ms = 1789725565539
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d8665c19-f126-4e6c-8471-aad73d6d5bb1/4c6d5e52-4256-462d-91b8-2931c124d1c2"
 storage_version_token = "1789725570176756"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Txn5-oNt2neN4ABPlrMjp"
+uri = "file://.agents/outputs/BNMS-Full-members-CORRECTED.zip"
+type = "unspecified"
+title = "Download corrected Excel workbook (ZIP)"
+description = "Rebuilt with a standard Excel writer, replacing the malformed dropdown structure. Preserves all 167 members, both sheets and eight dropdowns per sheet. Independently read back without warnings and checked for correct worksheet structure. Extract and open BNMS-Full-members-CORRECTED.xlsx."
+logical_id = "64fd3183-8d58-4c36-9f46-86ac93d7bc2a"
+content_hash = "sha256:5077cd07ac52e3116629a292abb0e5e84d1886f0edd8f0327d79196de82899cd"
+size = 38268
+mtime_ms = 1789725703086
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/64fd3183-8d58-4c36-9f46-86ac93d7bc2a/f5bdb470-b051-4d3d-af0b-24f6290d4f11"
+storage_version_token = "1789725733893339"
+content_type = "application/octet-stream"
