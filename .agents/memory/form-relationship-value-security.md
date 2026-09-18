@@ -9,4 +9,10 @@ Relationship validation must use one authoritative hidden-field set derived from
 
 **Why:** A correctly constrained options endpoint still permits forged UUIDs when even one submission or amendment path writes browser values directly. Conversely, stale browser values in fields hidden by saved logic can block a respondent who cannot correct them. Review amendments need validation against the merged effective values, because unchanged parent fields may live only in the original submission.
 
+Trusted processing may add a relationship between two existing records when the exact action and definition were saved by an administrator and both endpoints pass authoritative selector validation. Neither endpoint must have been created by this submission merely to permit an additive link.
+
+**Why:** Paid public forms legitimately link selected Departments and Organisations. Treating reference linking as record-edit authority rejects these forms; restricting existing-to-existing links to pre-existing edges would also defeat explicitly configured link actions.
+
+**How to apply:** Keep this authority server-derived and limited to saved relationship actions. It must not grant record updates, deletion, edge replacement, reparenting, or a cardinality bypass. Preserve tenant, lifecycle, endpoint-kind, visibility, and option-filter checks before insertion.
+
 **How to apply:** Route all form surfaces through validated server handlers. Compute visibility once per request (using the published snapshot for surveys and the same LMIC context used by submit/payment rules), then pass that set through every relationship, organisation-group, dependent-organisation, and repeatable validator. For human-readable output, never expose a generic tenant-wide ID-to-label endpoint; derive allowed IDs from persisted submissions the caller may access, then intersect requested IDs and resolve active labels.

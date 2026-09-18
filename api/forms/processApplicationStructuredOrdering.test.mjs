@@ -291,6 +291,8 @@ async function invokeOrderingProcessor(payload, {
   notifyGuestSignup = async () => {},
   autoApproveMemberFees = async () => {},
   autoApproveOrgFees = async () => {},
+  verifiedAdminAccess = true,
+  signed = true,
 } = {}) {
   const form = {
     id: 'form-structured-ordering',
@@ -322,7 +324,7 @@ async function invokeOrderingProcessor(payload, {
     payment_status: paymentStatus,
     payment_meta: {
       verified_submitter_member_id: null,
-      verified_admin_access: true,
+      verified_admin_access: verifiedAdminAccess,
       ...paymentMeta,
     },
     processing_notes: [],
@@ -356,13 +358,13 @@ async function invokeOrderingProcessor(payload, {
   process.env.SESSION_SECRET = 'structured-ordering-test-secret';
   const req = {
     method: 'POST',
-    headers: buildFormProcessingHeaders({
+    headers: signed ? buildFormProcessingHeaders({
       tenantId: TENANT_ID,
       formId: form.id,
       submissionId: submission.id,
       verifiedSubmitterMemberId: null,
-      verifiedAdminAccess: true,
-    }),
+      verifiedAdminAccess,
+    }) : {},
     body: {
       form_id: form.id,
       submission_id: submission.id,
@@ -371,7 +373,8 @@ async function invokeOrderingProcessor(payload, {
       fields: payload.fields,
       entity_pipelines: payload.entity_pipelines,
       verified_submitter_member_id: null,
-      verified_admin_access: true,
+      verified_admin_access: verifiedAdminAccess,
+      allowPersistedRelationshipLinks: true,
       ...(completionOperationId ? {
         completion_operation_id: completionOperationId,
         completion_operation_kind: completionOperationKind,
@@ -460,6 +463,19 @@ test('paid handler runs a primary pipeline before its primary-output relationshi
     retry.inserts.some(entry => entry.table === 'member'),
     false,
   );
+});
+
+test('paid anonymous signed processing links configured references without admin authority; unsigned flags cannot', async () => {
+  const payload = relationshipPayload({ structuredActions: primaryOutputRelationshipAction() });
+  invokeOrderingProcessor.ledger = new Map();
+  const signed = await invokeOrderingProcessor(payload, { verifiedAdminAccess: false, existingMember: null });
+  assert.equal(signed.response.statusCode, 200, JSON.stringify(signed.response.body));
+  assert.equal(signed.response.body.structured_actions?.success, true);
+  assert.equal(signed.inserts.some(entry => entry.table === 'custom_object_relationship'), true);
+  invokeOrderingProcessor.ledger = new Map();
+  const unsigned = await invokeOrderingProcessor(payload, { verifiedAdminAccess: false, signed: false });
+  assert.ok(unsigned.response.statusCode >= 400, JSON.stringify(unsigned.response.body));
+  assert.equal(unsigned.inserts.some(entry => entry.table === 'custom_object_relationship'), false);
 });
 
 test('paid finalizer keeps one-off DD readiness for optional group blanks and creates configured groups', async () => {

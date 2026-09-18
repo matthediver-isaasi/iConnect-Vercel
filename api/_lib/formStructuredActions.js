@@ -277,6 +277,12 @@ export function assertStructuredRelationshipParentAuthorized({
   parentId,
   authorization = {},
 }) {
+  // Reference authority is deliberately separate from record write authority.
+  // Only the signed processor grants this capability, and its persisted-action
+  // executor validates selectors/options, tenant and definition compatibility
+  // before reaching either relationship insertion path. Never pass this
+  // exception through assertStructuredMutationAuthorized.
+  if (authorization.allowPersistedRelationshipLinks === true) return true;
   return assertStructuredMutationAuthorized({
     action: { target: { kind: parentDescriptor?.kind } },
     recordId: parentId,
@@ -2613,9 +2619,9 @@ function assertRelationshipFieldEndpointsAuthorized(invocation, authorization) {
     if (input.type !== 'field') continue;
     const recordId = relationshipEndpointRecordId(endpoint, invocation, new Map());
     if (isFormNotListedValue(recordId)) continue;
-    assertStructuredMutationAuthorized({
-      action: { target: { kind: endpointDescriptor(endpoint).kind } },
-      recordId,
+    assertStructuredRelationshipParentAuthorized({
+      parentDescriptor: endpointDescriptor(endpoint),
+      parentId: recordId,
       authorization,
     });
   }

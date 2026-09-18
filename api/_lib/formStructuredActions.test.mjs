@@ -2478,8 +2478,9 @@ test('persists one canonical relationship edge and makes retries idempotent', as
   assert.deepEqual(rows.custom_object_relationship, []);
   assert.equal(ledger.size, 0);
 
-  // Admin-configured processing can link arbitrary tenant-owned endpoint records.
-  const authorization = { isAdmin: true };
+  // Signed persisted processing may reference the saved picker endpoints,
+  // but must still propagate cardinality conflicts rather than reparenting.
+  const authorization = { allowPersistedRelationshipLinks: true };
   const first = await processPersistedStructuredActions({
     db, formId: form.id, submissionId: submission.id, tenantId, authorization,
   });
@@ -3594,6 +3595,71 @@ test('resolves existing and Not-listed organization references per persisted row
     authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
   }), /specify the not-listed value/);
   assert.equal(ledger.size, 0);
+});
+
+test('trusted persisted relationship authority is reference-only, never record mutation authority', () => {
+  const authorization = { allowPersistedRelationshipLinks: true };
+  for (const kind of ['member', 'organization', 'organization_group', 'custom_object']) {
+    assert.equal(assertStructuredRelationshipParentAuthorized({
+      parentDescriptor: { kind }, parentId: 'selected-record', authorization,
+    }), true);
+    for (const operation of ['update_selected', 'upsert', 'delete']) {
+      assert.throws(() => assertStructuredMutationAuthorized({
+        action: { target: { kind }, operation }, recordId: 'selected-record', authorization,
+      }), StructuredActionAuthorizationError);
+    }
+  }
+  assert.throws(() => assertStructuredMutationAuthorized({
+    action: { target: { kind: 'custom_object' }, operation: 'create' }, authorization,
+  }), StructuredActionAuthorizationError);
+});
+
+test('anonymous trusted saved links validate Department options and configuration before linking', async () => {
+  for (const scenario of [
+    'allowed', 'unsigned', 'outside-options', 'cross-tenant', 'archived',
+    'wrong-definition-kind', 'cross-tenant-definition', 'unconfigured-field',
+  ]) {
+    const fixture = customResolverFixture({ includeLink: true });
+    const { form, submission, store, definition, tenantId, db } = fixture;
+    submission.submission_data.rows = [submission.submission_data.rows[0]];
+    const link = form.structured_actions.actions[1];
+    link.source_endpoint.source = { type: 'field', scope: 'row', field_id: 'department' };
+    // Use a second compatible saved definition so the positive case inserts a
+    // new edge, rather than merely accepting the picker eligibility edge.
+    const linkDefinition = { ...definition, id: 'configured-new-link' };
+    store.custom_object_relationship_definition.push(linkDefinition);
+    link.relationship_definition_id = linkDefinition.id;
+    form.structured_actions.actions = [link];
+    if (scenario === 'outside-options') store.custom_object_relationship = [];
+    if (scenario === 'cross-tenant') store.custom_object_record[0].tenant_id = 'other-tenant';
+    if (scenario === 'archived') store.custom_object_record[0].archived_at = '2027-01-01';
+    if (scenario === 'wrong-definition-kind') linkDefinition.source_kind = 'member';
+    if (scenario === 'cross-tenant-definition') linkDefinition.tenant_id = 'other-tenant';
+    if (scenario === 'unconfigured-field') link.source_endpoint.source.field_id = 'browser-field';
+    // Request/submission flags must not confer server authorization.
+    submission.allowPersistedRelationshipLinks = true;
+    submission.submission_data.allowPersistedRelationshipLinks = true;
+    const beforeRecords = JSON.stringify(store.custom_object_record);
+    const beforeEdges = JSON.stringify(store.custom_object_relationship);
+    const run = () => processPersistedStructuredActions({
+      db, formId: form.id, submissionId: submission.id, tenantId,
+      authorization: scenario === 'unsigned' ? {} : { allowPersistedRelationshipLinks: true },
+    });
+    if (scenario === 'allowed') {
+      const result = await run();
+      assert.equal(result.success, true, JSON.stringify(result.outcomes));
+      assert.equal(store.custom_object_relationship.length, 2);
+      assert.equal(store.custom_object_relationship[1].source_record_id, 'department-existing');
+      assert.equal(store.custom_object_relationship[1].target_record_id, 'org-a');
+    } else {
+      await assert.rejects(run, scenario === 'unsigned'
+        ? StructuredActionAuthorizationError
+        : /relationship|selector|endpoint|field|tenant|archived|contract/i, scenario);
+      assert.equal(JSON.stringify(store.custom_object_relationship), beforeEdges, scenario);
+      assert.equal(fixture.ledger.size, 0, scenario);
+    }
+    assert.equal(JSON.stringify(store.custom_object_record), beforeRecords, scenario);
+  }
 });
 
 function customResolverFixture({

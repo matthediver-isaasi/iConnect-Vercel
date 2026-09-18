@@ -1288,6 +1288,9 @@ export default async function handler(req, res, {
       // Object create action. The browser cannot grant this capability and the
       // executor still reloads the form contract and submitted answers.
       allowPersistedCustomObjectCreates: trustedInternal,
+      // Reference-only authority for saved relationship actions, never record
+      // updates. The executor revalidates saved selectors and endpoint kinds.
+      allowPersistedRelationshipLinks: trustedInternal,
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
     let currentSetResult = null;
