@@ -565,3 +565,17 @@ mtime_ms = 1789724513099
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cf614161-495c-4891-b349-380eccc2f062/1a62c0e7-c86f-4313-9040-a64eb9f950f0"
 storage_version_token = "1789724557009682"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "k9SL_QVpF6_t1UCh1JOEi"
+uri = "file://.agents/outputs/BNMS-Full-members-to-complete.xlsx"
+type = "table"
+title = "BNMS Full members — simplified completion workbook"
+description = "Exactly two sheets with identical columns: Ready to set up and Needs completion. Yellow cells are editable; each member has a short completion checklist. Member IDs and technical references are preserved for a later validated import. Read-only: no member changes or migrations applied."
+logical_id = "3bd17727-06f6-4fd3-9421-69d10f00cf3c"
+content_hash = "sha256:cbff87253cec4b205da9e7e911a1d85e882419b624d5e3e250a7ad6ce581d8b2"
+size = 43513
+mtime_ms = 1789724931012
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3bd17727-06f6-4fd3-9421-69d10f00cf3c/3319d7cb-fc4f-40ad-9bd7-a30e5cdbbad3"
+storage_version_token = "1789724942211040"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
