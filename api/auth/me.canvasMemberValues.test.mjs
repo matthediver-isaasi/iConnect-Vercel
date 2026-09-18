@@ -58,6 +58,9 @@ test('auth/me provides private host-scoped Canvas values without using preview/q
   await handler(request, res, dependencies());
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.id, 'member-a');
+  assert.deepEqual(res.body.sessionRole, {
+    status: 'missing', member_id: 'member-a', tenant_id: 'tenant-a', role_id: null, role: null,
+  });
   assert.equal(res.body.canvasMemberSnapshot.values['member.first_name'], 'Ada');
   assert.equal(res.body.canvasMemberSnapshot.values['member.organization.name'], 'Verified society');
   assert.match(res.headers['Cache-Control'], /private, no-store/);

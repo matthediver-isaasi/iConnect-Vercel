@@ -154,3 +154,4 @@
 - [BNMS renewal reconciliation](bnms-renewal-reconciliation.md) — review one exact class and twelve-month invoice window per Excel workbook; nominal-code evidence must be explicit.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
+- [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.

@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
 import { RouteLayoutContext } from './RouteLayoutContext';
 import { canvasSnapshotMatchesMember, EMPTY_CANVAS_MEMBER_VALUES, getCanvasMemberValues } from '../lib/canvasViewerValues';
+import { memberRoleIdentityKey } from '../lib/memberSessionRole';
 export { usePageLayoutDecision } from './RouteLayoutContext';
 
 const LayoutContext = createContext({
@@ -39,6 +40,10 @@ const LayoutContext = createContext({
   setAuthResolved: () => {},
   canvasMemberValues: EMPTY_CANVAS_MEMBER_VALUES,
   setCanvasMemberSnapshot: () => {},
+  sessionRoleSnapshot: null,
+  setSessionRoleSnapshot: () => {},
+  retrySessionRole: () => {},
+  setRetrySessionRole: () => {},
 });
 
 export function LayoutProvider({ children }) {
@@ -53,6 +58,7 @@ export function LayoutProvider({ children }) {
   const [memberInfo, setMemberInfoState] = useState(null);
   const [organizationInfo, setOrganizationInfoState] = useState(null);
   const [memberRole, setMemberRoleState] = useState(null);
+  const memberIdentityRef = useRef('');
   // isAdmin state removed - access control now uses isFeatureExcluded() exclusively
   const [isFeatureExcludedFn, setIsFeatureExcludedFn] = useState(() => () => false);
   const [refreshOrganizationInfoFn, setRefreshOrganizationInfoFn] = useState(() => () => {});
@@ -64,6 +70,8 @@ export function LayoutProvider({ children }) {
   // Deliberately separate from memberInfo/organizationInfo: those can be
   // hydrated from localStorage. Only the successful /auth/me request sets this.
   const [canvasMemberSnapshot, setCanvasMemberSnapshot] = useState(null);
+  const [sessionRoleSnapshot, setSessionRoleSnapshotState] = useState(null);
+  const [retrySessionRoleFn, setRetrySessionRoleFn] = useState(() => () => {});
   const canvasMemberValues = useMemo(() => getCanvasMemberValues({
     snapshot: canvasMemberSnapshot, member: memberInfo, sessionValidated, authResolved,
   }), [canvasMemberSnapshot, memberInfo, sessionValidated, authResolved]);
@@ -81,7 +89,21 @@ export function LayoutProvider({ children }) {
   }, []);
 
   const setMemberInfo = useCallback((value) => {
+    const nextIdentity = value
+      ? [value.tenant_id || '', value.id || '', value.role_id || ''].join(':')
+      : '';
+    const identityChanged = memberIdentityRef.current !== nextIdentity;
+    memberIdentityRef.current = nextIdentity;
     setCanvasMemberSnapshot(current => canvasSnapshotMatchesMember(current, value) ? current : null);
+    setSessionRoleSnapshotState(current => {
+      if (!current || !value) return null;
+      const nextKey = [value.tenant_id || '', value.id || '', value.role_id || ''].join(':');
+      return memberRoleIdentityKey(current) === nextKey ? current : null;
+    });
+    // Clear synchronously on an identity/role boundary, but do not erase a
+    // freshly published role when Layout commits the same validated member a
+    // second time after a delayed auth response.
+    if (identityChanged) setMemberRoleState(null);
     setMemberInfoState(value);
   }, []);
 
@@ -108,13 +130,30 @@ export function LayoutProvider({ children }) {
   }, []);
 
   const setSessionValidated = useCallback((value) => {
-    if (!value) setCanvasMemberSnapshot(null);
+    if (!value) {
+      setCanvasMemberSnapshot(null);
+      setSessionRoleSnapshotState(null);
+      setMemberRoleState(null);
+    }
     setSessionValidatedState(value);
   }, []);
 
   const setAuthResolved = useCallback((value) => {
-    if (!value) setCanvasMemberSnapshot(null);
+    if (!value) {
+      setCanvasMemberSnapshot(null);
+      setSessionRoleSnapshotState(null);
+      setMemberRoleState(null);
+    }
     setAuthResolvedState(value);
+  }, []);
+
+  const setSessionRoleSnapshot = useCallback((value) => {
+    if (!value) setMemberRoleState(null);
+    setSessionRoleSnapshotState(value);
+  }, []);
+
+  const setRetrySessionRole = useCallback((fn) => {
+    setRetrySessionRoleFn(() => typeof fn === 'function' ? fn : () => {});
   }, []);
 
   const setForceBlankLayout = useCallback((value) => {
@@ -164,6 +203,10 @@ export function LayoutProvider({ children }) {
       setAuthResolved,
         canvasMemberValues,
         setCanvasMemberSnapshot,
+        sessionRoleSnapshot,
+        setSessionRoleSnapshot,
+        retrySessionRole: retrySessionRoleFn,
+        setRetrySessionRole,
     }}>
       {children}
     </LayoutContext.Provider>

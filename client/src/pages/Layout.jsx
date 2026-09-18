@@ -65,6 +65,7 @@ import NewsTickerBar from "@/components/news/NewsTickerBar";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import NextEventCountdown from "@/components/navigation/NextEventCountdown";
+import NavigationRoleState from "@/components/navigation/NavigationRoleState";
 import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
@@ -78,6 +79,12 @@ import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
+import { useSessionMemberRole } from "@/hooks/useSessionMemberRole";
+import {
+  createSessionRoleKey,
+  normalizeSessionRoleSnapshot,
+  stripTrustedMemberProjections,
+} from "@/lib/memberSessionRole";
 
 
 
@@ -1035,11 +1042,35 @@ export default function Layout({ children, currentPageName }) {
   const portalFontImportName = basePortalFont && !/poppins|degular/i.test(basePortalFont)
     ? basePortalFont.split(',')[0].trim().replace(/['"]/g, '')
     : '';
+
+  const {
+    setHasBanner,
+    setPortalBanner,
+    setMemberInfo: setContextMemberInfo,
+    setOrganizationInfo: setContextOrganizationInfo,
+    setMemberRole: setContextMemberRole,
+    setIsFeatureExcluded: setContextIsFeatureExcluded,
+    setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
+    setReloadMemberInfo: setContextReloadMemberInfo,
+    setSessionValidated,
+    setAuthResolved,
+    setCanvasMemberSnapshot,
+    setSessionRoleSnapshot,
+    setRetrySessionRole: setContextRetrySessionRole,
+  } = useLayoutContext();
   
   // Initialize from sessionStorage immediately to prevent flicker
   const [memberInfo, setMemberInfo] = useState(() => {
     const stored = localStorage.getItem('agcas_member');
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+    try {
+      const parsed = stripTrustedMemberProjections(JSON.parse(stored));
+      localStorage.setItem('agcas_member', JSON.stringify(parsed));
+      return parsed;
+    } catch {
+      localStorage.removeItem('agcas_member');
+      return null;
+    }
   });
   const [organizationInfo, setOrganizationInfo] = useState(() => {
     const stored = localStorage.getItem('agcas_organization');
@@ -1054,6 +1085,20 @@ export default function Layout({ children, currentPageName }) {
     authRevision,
   });
   useViewerSessionPreload(viewerSessionScope);
+  const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
+
+  const retrySessionRoleValidation = React.useCallback(() => {
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setSessionValidated(false);
+    setAuthResolved(false);
+    setAuthRevision(value => value + 1);
+  }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
+
+  useEffect(() => {
+    setContextRetrySessionRole(() => retrySessionRoleValidation());
+    return () => setContextRetrySessionRole(null);
+  }, [retrySessionRoleValidation, setContextRetrySessionRole]);
 
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
 
@@ -1186,23 +1231,6 @@ const { data: aiPersona, isFetched: aiPersonaFetched } = useQuery({
 const aiPersonaName = (aiPersona?.name || "Dougal").trim() || "Dougal";
 const aiPersonaAvatarUrl = aiPersona?.avatarUrl || dougalAvatar;
 const aiPersonaInitial = aiPersonaName.charAt(0).toUpperCase();
-
-// Fetch member role
-const { data: memberRole } = useQuery({
-  queryKey: ['memberRole', memberInfo && memberInfo.role_id],
-  enabled: !!(memberInfo && memberInfo.role_id),
-  refetchOnMount: false,
-  queryFn: async () => {
-    if (!memberInfo || !memberInfo.role_id) return null;
-    try {
-      const data = await base44.entities.Role.get(memberInfo.role_id);
-      return data || null;
-    } catch (error) {
-      console.error('Error loading memberRole:', error);
-      return null;
-    }
-  },
-});
 
 // Task #3349: fetch the role_access_item DB tree so exclusion matching can
 // resolve an item's parent page/module as the Role Management UI displays it
@@ -1442,20 +1470,6 @@ const portalBanner = topBanners[0] || null;
 
 // Get the layout context to update banner status and share member/org info
 // Note: isAdmin removed - access control now uses isFeatureExcluded() exclusively
-const { 
-  setHasBanner, 
-  setPortalBanner,
-  setMemberInfo: setContextMemberInfo,
-  setOrganizationInfo: setContextOrganizationInfo,
-  setMemberRole: setContextMemberRole,
-  setIsFeatureExcluded: setContextIsFeatureExcluded,
-  setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
-  setReloadMemberInfo: setContextReloadMemberInfo,
-  setSessionValidated,
-  setAuthResolved,
-  setCanvasMemberSnapshot,
-} = useLayoutContext();
-
 // Update the context whenever the portal banner changes
 useEffect(() => {
   setHasBanner(!!portalBanner);
@@ -1497,6 +1511,7 @@ useEffect(() => {
   // Uses the new hierarchical role visibility system
   const isFeatureExcluded = (featureId) => {
     if (!memberInfo || !featureId) return false;
+    if (roleStatus !== 'ready') return true;
     const customObjectId = getCustomObjectIdFromPortalRoleAccessId(featureId);
     if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
 
@@ -1681,7 +1696,7 @@ useEffect(() => {
     setAuthRevision(value => value + 1);
     const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
-      const member = JSON.parse(storedMember);
+      const member = stripTrustedMemberProjections(JSON.parse(storedMember));
       setMemberInfo(member);
       
 
@@ -1741,6 +1756,7 @@ useEffect(() => {
   useEffect(() => {
     const isFeatureExcludedFn = (featureId) => {
       if (!memberInfo || !featureId) return false;
+      if (roleStatus !== 'ready') return true;
       // Group admins always get Support access (see local isFeatureExcluded).
       if (isCurrentMemberGroupAdmin && migrateLegacyFeatureId(featureId) === 'support.help') {
         return false;
@@ -1751,7 +1767,7 @@ useEffect(() => {
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
-  }, [memberInfo, memberRole, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
+  }, [memberInfo, memberRole, roleStatus, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
 
   // Update context with reloadMemberInfo function
   useEffect(() => {
@@ -1763,7 +1779,7 @@ useEffect(() => {
       setAuthRevision(value => value + 1);
       const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
-        const member = JSON.parse(storedMember);
+        const member = stripTrustedMemberProjections(JSON.parse(storedMember));
         setMemberInfo(member);
         console.log('[Layout] memberInfo reloaded from sessionStorage via context');
       }
@@ -1897,15 +1913,22 @@ useEffect(() => {
             console.log('[Layout] Server session found:', member.email);
             // Sync server session to sessionStorage for backwards compatibility
             const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-            const { canvasMemberSnapshot, ...publicMemberData } = member;
-            const memberData = { ...publicMemberData, sessionExpiry };
+            const memberData = {
+              ...stripTrustedMemberProjections(member),
+              sessionExpiry,
+            };
             localStorage.setItem('agcas_member', JSON.stringify(memberData));
             setMemberInfo(memberData);
             // Commit member identity and the server-only projection together.
             // Do not persist the projection to localStorage or derive it from
             // the independently cached organizationInfo fetch.
             setContextMemberInfo(memberData);
-            setCanvasMemberSnapshot(canvasMemberSnapshot || null);
+            setCanvasMemberSnapshot(member.canvasMemberSnapshot || null);
+            setSessionRoleSnapshot(normalizeSessionRoleSnapshot(
+              member.sessionRole,
+              memberData,
+              createSessionRoleKey(viewerSessionScope),
+            ));
             // SECURITY: Mark session as validated - this enables authenticated API access
             setSessionValidated(true);
             
@@ -2017,7 +2040,7 @@ useEffect(() => {
 
         let member;
         try {
-          member = JSON.parse(storedMember);
+          member = stripTrustedMemberProjections(JSON.parse(storedMember));
         } catch {
           localStorage.removeItem('agcas_member');
           setMemberInfo(null);
@@ -2774,10 +2797,8 @@ useEffect(() => {
               )}
               
               {/* Only render navigation once role data is loaded */}
-              {!memberRole ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-                </div>
+              {roleStatus !== 'ready' ? (
+                <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
               ) : (
                 <>
               {/* Only show organization info for regular members - hidden when sidebar is collapsed */}
@@ -3059,6 +3080,10 @@ useEffect(() => {
                     </div>
                   )}
 
+                  {roleStatus !== 'ready' ? (
+                    <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
+                  ) : (
+                    <>
                   {/* Navigation Section */}
                   <div className="mb-4">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
@@ -3197,6 +3222,8 @@ useEffect(() => {
                         })}
                       </nav>
                     </div>
+                  )}
+                    </>
                   )}
                 </ScrollArea>
 

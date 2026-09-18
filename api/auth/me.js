@@ -4,6 +4,44 @@ import { supabase } from '../_lib/database.js';
 import { resolveTenantFromHost, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { loadCanvasMemberSnapshot } from '../_lib/canvasMemberValues.js';
 
+async function loadSessionRole(db, member) {
+  const snapshot = {
+    status: 'missing',
+    member_id: member.id,
+    tenant_id: member.tenant_id ?? null,
+    role_id: member.role_id ?? null,
+    role: null,
+  };
+
+  if (!member.role_id) return snapshot;
+  if (!db) return { ...snapshot, status: 'error' };
+
+  try {
+    const { data: role, error } = await db
+      .from('role')
+      .select('*')
+      .eq('id', member.role_id)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') return snapshot;
+      return { ...snapshot, status: 'error' };
+    }
+    if (!role) return snapshot;
+
+    // Roles are tenant-owned. A null tenant is only valid for a tenantless
+    // member; it is not a global fallback for a tenant member.
+    if (role.id !== member.role_id || (role.tenant_id ?? null) !== (member.tenant_id ?? null)) {
+      return { ...snapshot, status: 'error' };
+    }
+
+    return { ...snapshot, status: 'ready', role };
+  } catch (error) {
+    console.warn('[Auth Me] Session role unavailable:', error?.message || error);
+    return { ...snapshot, status: 'error' };
+  }
+}
+
 export default async function handler(req, res, {
   db = supabase,
   readMember = getSessionMember,
@@ -32,35 +70,6 @@ export default async function handler(req, res, {
       return res.status(200).json(null);
     }
 
-    // Fetch role to determine permissions
-    let isAdmin = false;
-    let canEditMembers = false;
-    let canManageCommunications = false;
-    
-    if (member.role_id && db) {
-      const { data: role } = await db
-        .from('role')
-        .select('excluded_features')
-        .eq('id', member.role_id)
-        .single();
-      
-      const excludedFeatures = role?.excluded_features || [];
-      
-      // Derive admin status from whether admin.role-management is NOT excluded
-      // This replaces the deprecated is_admin flag
-      isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
-      
-      // Admin role has all permissions
-      if (isAdmin) {
-        canEditMembers = true;
-        canManageCommunications = true;
-      } else {
-        // Check if permissions are NOT excluded (hierarchical check)
-        canEditMembers = !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
-        canManageCommunications = !isResourceExcluded(excludedFeatures, 'admin_can_manage_communications');
-      }
-    }
-
     // Check if member has a linked tenant_user account (for SaaS admin access)
     // This can be either via the tenant_user_member_link table OR if the session
     // has preserved admin context (meaning they came from the admin area via SSO)
@@ -76,14 +85,64 @@ export default async function handler(req, res, {
       });
     }
     
-    // Fallback to database lookup
-    if (!hasTenantUserLink && db) {
-      const { data: link } = await db
+    // Start independent enrichment reads together. Canvas awaits only session
+    // and host tenancy, while role/link/tenant reads continue in parallel.
+    const sessionRolePromise = loadSessionRole(db, member);
+    const tenantUserLinkPromise = !hasTenantUserLink && db
+      ? db
         .from('tenant_user_member_link')
         .select('id')
         .eq('member_id', member.id)
-        .maybeSingle();
-      
+        .maybeSingle()
+      : Promise.resolve({ data: null });
+    const tenantPromise = member.tenant_id && db
+      ? db
+        .from('tenant')
+        .select('slug, domain')
+        .eq('id', member.tenant_id)
+        .maybeSingle()
+      : Promise.resolve({ data: null });
+    const sessionPromise = readSession(req);
+    const hostTenantPromise = Promise.resolve().then(
+      () => resolveHostTenant(getHostFromRequest(req))
+    );
+    const canvasMemberSnapshotPromise = Promise.all([sessionPromise, hostTenantPromise])
+      .then(([session, tenant]) => loadCanvasMemberSnapshot({ member, session, tenant, db }))
+      .catch((error) => {
+        // Personalisation is optional. A lookup failure must hide Canvas values,
+        // not turn an otherwise valid session into a failed login.
+        console.warn('[Auth Me] Canvas member projection unavailable; personalisation disabled:', error?.message || error);
+        return null;
+      });
+
+    const [
+      sessionRole,
+      { data: link },
+      { data: tenantRow },
+      session,
+      canvasMemberSnapshot,
+    ] = await Promise.all([
+      sessionRolePromise,
+      tenantUserLinkPromise,
+      tenantPromise,
+      sessionPromise,
+      canvasMemberSnapshotPromise,
+    ]);
+
+    // A role grants capabilities only after a successful tenant-bound read.
+    let isAdmin = false;
+    let canEditMembers = false;
+    let canManageCommunications = false;
+    if (sessionRole.status === 'ready') {
+      const excludedFeatures = Array.isArray(sessionRole.role.excluded_features)
+        ? sessionRole.role.excluded_features
+        : [];
+      isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+      canEditMembers = isAdmin || !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
+      canManageCommunications = isAdmin || !isResourceExcluded(excludedFeatures, 'admin_can_manage_communications');
+    }
+
+    if (!hasTenantUserLink) {
       hasTenantUserLink = !!link;
       if (hasTenantUserLink) {
         console.log('[Auth Me] hasTenantUserLink=true via database lookup for member:', member.id);
@@ -94,34 +153,12 @@ export default async function handler(req, res, {
 
     // Tenant slug/domain so the client can canonicalize a typo'd wildcard
     // subdomain (Task #3387: fgi.dev.iconn.app serving the gfi tenant).
-    let tenantSlug = null;
-    let tenantDomain = null;
-    if (member.tenant_id && db) {
-      const { data: tenantRow } = await db
-        .from('tenant')
-        .select('slug, domain')
-        .eq('id', member.tenant_id)
-        .maybeSingle();
-      tenantSlug = tenantRow?.slug || null;
-      tenantDomain = tenantRow?.domain || null;
-    }
-
-    const session = await readSession(req);
-    // Resolve from the request host only: preview/query parameters must never
-    // choose the identity or tenant used for Canvas personalisation.
-    let canvasMemberSnapshot = null;
-    try {
-      const tenant = await resolveHostTenant(getHostFromRequest(req));
-      canvasMemberSnapshot = await loadCanvasMemberSnapshot({ member, session, tenant, db });
-    } catch (error) {
-      // Personalisation is optional. A lookup failure must hide Canvas values,
-      // not turn an otherwise valid session into a failed login.
-      console.warn('[Auth Me] Canvas member projection unavailable; personalisation disabled:', error?.message || error);
-    }
+    const tenantSlug = tenantRow?.slug || null;
+    const tenantDomain = tenantRow?.domain || null;
     const isMasquerading = session?.data?.isMasquerading === true;
     const masqueradeAdminName = isMasquerading ? session.data.masqueradeAdminName : null;
 
-    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain, canvasMemberSnapshot });
+    return res.json({ ...member, sessionRole, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain, canvasMemberSnapshot });
   } catch (error) {
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });
