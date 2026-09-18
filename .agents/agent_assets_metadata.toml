@@ -621,3 +621,31 @@ mtime_ms = 1789725703086
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/64fd3183-8d58-4c36-9f46-86ac93d7bc2a/f5bdb470-b051-4d3d-af0b-24f6290d4f11"
 storage_version_token = "1789725733893339"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "y_s6ual5DlG-STUqWx_75"
+uri = "file://test-results/task-4517-gocardless-embed/task-4517-gocardless-embed-6860a-isturbing-sibling-ownership/mobile-live-gocardless-reservation.png"
+type = "image"
+title = "Mobile payment layout — isolated test"
+description = "Provider-shaped mock in the real Canvas embed. The lower control remains reachable and the second form stays separate. No bank details or mandates."
+logical_id = "e3c0da45-8817-40b8-b875-1f323b418881"
+content_hash = "sha256:831aa460ffde5ed74e21c5dfcaac1682ceb093b29f27dd5066f6c1e93cb22265"
+size = 67935
+mtime_ms = 1789739328734
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e3c0da45-8817-40b8-b875-1f323b418881/67f6881d-f38c-4227-8743-28aa776dc383"
+storage_version_token = "1789739500313125"
+content_type = "image/png"
+
+[[outputs]]
+id = "wiIUDuLgpJQtBZShjmTjO"
+uri = "file://test-results/task-4517-gocardless-embed/task-4517-gocardless-embed-eea57-on-restore-intrinsic-sizing/desktop-success-cleanup.png"
+type = "image"
+title = "Desktop confirmation — isolated test"
+description = "The provider overlay is removed after successful setup and the embedded confirmation returns to its natural height."
+logical_id = "cb440365-4d8e-43bc-94e5-ae31e6c82099"
+content_hash = "sha256:dc6cd9073fd87322ecd265fa36fd8833c7bb8ca52ca87a6c4369ffe3137dc63e"
+size = 103485
+mtime_ms = 1789739365677
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cb440365-4d8e-43bc-94e5-ae31e6c82099/57572144-cfb5-462f-8d28-b0bbd9874d93"
+storage_version_token = "1789739501269066"
+content_type = "image/png"

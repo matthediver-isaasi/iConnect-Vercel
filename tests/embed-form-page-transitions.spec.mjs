@@ -291,8 +291,8 @@ async function installFixtures(page, { legacyMeasurement = false } = {}) {
       const response = await route.fetch();
       const original = await response.text();
       const transformed = original.replace(
-        "const height = measureFormContent(root);",
-        "const height = Math.ceil(document.documentElement.scrollHeight);",
+        "const naturalHeight = measureFormContent(root);",
+        "const naturalHeight = Math.ceil(document.documentElement.scrollHeight);",
       );
       if (transformed === original) {
         throw new Error("Legacy measurement transform did not match runtime source");

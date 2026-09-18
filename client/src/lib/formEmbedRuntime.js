@@ -2,6 +2,15 @@
 // separate signal: a height change alone must never move the containing page.
 export const FORM_PAGE_NAVIGATED_MESSAGE = 'iconn-form-page-navigated';
 
+// Drop-in is a body-level, fixed, 100%-height iframe, outside our flow-root.
+// Its rectangle (and this window's innerHeight) just echoes the height assigned
+// by the host. Reserve a usable viewport independently of either value. Narrow
+// layouts need extra vertical room for wrapped bank/receipt content; the
+// provider's own scrolling is deliberately left untouched.
+export function formEmbedPaymentViewportHeight(width) {
+  return width < 600 ? 820 : 720;
+}
+
 export function measureFormContent(root) {
   // This flow-root wraps every runtime state and has no viewport-sized minimum.
   // documentElement.scrollHeight cannot shrink below the assigned iframe height.
@@ -13,10 +22,27 @@ export function observeFormEmbedContent(root, windowObj = window) {
   let disposed = false;
   let lastHeight = null;
   let navigationPending = false;
+  let paymentNaturalHeight = 0;
+  let activePayment = null;
+  const body = root.ownerDocument?.body;
+  const paymentOverlay = () => windowObj.parent !== windowObj
+    ? body?.querySelector(':scope > iframe[id^="gocardless-dropin-iframe-"]')
+    : null;
   const report = () => {
     frame = null;
     if (disposed) return;
-    const height = measureFormContent(root);
+    const naturalHeight = measureFormContent(root);
+    const payment = paymentOverlay();
+    // Preserve the natural-content high water mark only for this overlay's
+    // lifetime. A confirmation render must not shrink a still-visible receipt.
+    // Never feed a reported/assigned viewport height back into this value.
+    paymentNaturalHeight = payment
+      ? Math.max(payment === activePayment ? paymentNaturalHeight : 0, naturalHeight)
+      : 0;
+    activePayment = payment;
+    const height = payment
+      ? Math.max(paymentNaturalHeight, formEmbedPaymentViewportHeight(windowObj.innerWidth))
+      : naturalHeight;
     if (height > 0 && (height !== lastHeight || navigationPending)) {
       windowObj.parent.postMessage({ type: 'iconn-form-resize', height }, '*');
       lastHeight = height;
@@ -41,6 +67,11 @@ export function observeFormEmbedContent(root, windowObj = window) {
   };
   const observer = new windowObj.ResizeObserver(schedule);
   observer.observe(root);
+  // Vendor open/return/exit mutate body children, not the natural form wrapper.
+  // Observe only our own document: sibling embeds cannot reserve our height.
+  const overlays = body ? new windowObj.MutationObserver(schedule) : null;
+  overlays?.observe(body, { childList: true });
+  windowObj.addEventListener('resize', schedule);
   schedule();
   return {
     schedule,
@@ -51,6 +82,8 @@ export function observeFormEmbedContent(root, windowObj = window) {
     dispose() {
       disposed = true;
       observer.disconnect();
+      overlays?.disconnect();
+      windowObj.removeEventListener('resize', schedule);
       if (frame != null) windowObj.cancelAnimationFrame(frame);
     },
   };

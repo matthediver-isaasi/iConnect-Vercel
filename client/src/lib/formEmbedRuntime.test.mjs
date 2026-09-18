@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FORM_PAGE_NAVIGATED_MESSAGE,
+  formEmbedPaymentViewportHeight,
   isFormEmbedMessage,
   measureFormContent,
   observeFormEmbedContent,
@@ -12,14 +13,27 @@ function fixture() {
   let height = 1200;
   let resize;
   let disconnected = false;
+  let overlaysDisconnected = false;
+  let mutated;
+  let paymentVisible = false;
+  let payment = {};
+  const listeners = new Map();
+  const body = { querySelector: () => paymentVisible ? payment : null };
   const messages = [];
   const frames = new Map();
   let id = 0;
   const root = {
+    ownerDocument: { body },
     getBoundingClientRect: () => ({ height }),
     get scrollHeight() { return height; },
   };
   const win = {
+    innerWidth: 900,
+    innerHeight: 2000,
+    addEventListener: (name, callback) => listeners.set(name, callback),
+    removeEventListener: (name, callback) => {
+      if (listeners.get(name) === callback) listeners.delete(name);
+    },
     location: { origin: 'https://example.test', href: 'https://example.test/page' },
     parent: { postMessage: (...args) => messages.push(args) },
     document: { documentElement: { scrollHeight: 2000 } },
@@ -30,6 +44,14 @@ function fixture() {
       observe(element) { assert.equal(element, root); }
       disconnect() { disconnected = true; }
     },
+    MutationObserver: class {
+      constructor(callback) { mutated = callback; }
+      observe(element, options) {
+        assert.equal(element, body);
+        assert.deepEqual(options, { childList: true });
+      }
+      disconnect() { overlaysDisconnected = true; }
+    },
   };
   const flush = () => {
     const pending = [...frames.values()];
@@ -39,6 +61,15 @@ function fixture() {
   return {
     root, win, messages, flush, frames,
     setHeight(value) { height = value; resize(); },
+    setPaymentVisible(value) { paymentVisible = value; mutated(); },
+    replacePayment() { payment = {}; paymentVisible = true; mutated(); },
+    resizeViewport(width, assignedHeight) {
+      win.innerWidth = width;
+      win.innerHeight = assignedHeight;
+      listeners.get('resize')?.();
+    },
+    get listeners() { return listeners; },
+    get overlaysDisconnected() { return overlaysDisconnected; },
     get disconnected() { return disconnected; },
   };
 }
@@ -88,6 +119,88 @@ test('cleanup cancels pending measurements and navigation', () => {
   assert.deepEqual(f.messages, []);
   assert.equal(f.frames.size, 0);
   assert.equal(f.disconnected, true);
+  assert.equal(f.overlaysDisconnected, true);
+  assert.equal(f.listeners.size, 0);
+});
+
+test('delayed body overlay reserves an independent viewport, stays stable, then releases on actual removal', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.setHeight(240);
+  f.flush();
+  f.setPaymentVisible(true);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720);
+  // A viewport-sized provider iframe cannot discover its own required height.
+  for (const assigned of [720, 720, 5000, 120]) {
+    f.resizeViewport(900, assigned);
+    f.flush();
+    assert.equal(f.messages.at(-1)[0].height, 720);
+  }
+  assert.equal(f.messages.length, 2, 'assigned height echoes do not repeatedly grow or report');
+  f.setHeight(140); // underlying form changed to confirmation before vendor return
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720);
+  f.resizeViewport(375, 720);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 820);
+  f.resizeViewport(900, 820);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720);
+  f.setPaymentVisible(false);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 140);
+  for (const height of [1500, 240, 1500]) {
+    f.setHeight(height);
+    f.flush();
+    assert.equal(f.messages.at(-1)[0].height, height);
+  }
+  assert.ok(f.messages.every(([message]) => message.type === 'iconn-form-resize'));
+  runtime.dispose();
+});
+
+test('visible overlay preserves tall natural content but retry does not retain the old reservation', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.setPaymentVisible(true);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 1200);
+  f.setHeight(180);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 1200);
+  f.replacePayment();
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720, 'replacement in the same animation frame has its own reservation');
+  f.setPaymentVisible(false);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 180);
+  f.setPaymentVisible(true);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720);
+  runtime.dispose();
+  f.setPaymentVisible(false);
+  f.resizeViewport(375, 820);
+  f.flush();
+  assert.equal(f.messages.at(-1)[0].height, 720, 'disposed observer cannot send stale reports');
+});
+
+test('payment reservation is document-local and disabled on standalone embed routes', () => {
+  const first = fixture();
+  const second = fixture();
+  const runtimes = [first, second].map(f => observeFormEmbedContent(f.root, f.win));
+  for (const f of [first, second]) { f.setHeight(200); f.flush(); }
+  first.setPaymentVisible(true);
+  first.flush();
+  assert.equal(first.messages.at(-1)[0].height, 720);
+  assert.equal(second.messages.at(-1)[0].height, 200);
+  first.win.parent = first.win;
+  first.win.postMessage = (...args) => first.messages.push(args);
+  first.resizeViewport(375, 640);
+  first.flush();
+  assert.equal(first.messages.at(-1)[0].height, 200);
+  runtimes.forEach(runtime => runtime.dispose());
+  assert.equal(formEmbedPaymentViewportHeight(599), 820);
+  assert.equal(formEmbedPaymentViewportHeight(600), 720);
 });
 
 test('direct embed route retains standalone navigation scrolling', () => {

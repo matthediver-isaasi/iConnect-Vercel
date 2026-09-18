@@ -1,6 +1,11 @@
 # Membership Management Platform
 A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
+## Embedded GoCardless regression checks
+- `node --test client/src/lib/formEmbedRuntime.test.mjs client/src/components/canvas/blocks/formEmbedResize.test.mjs client/src/components/gocardless/goCardlessDropin*.test.mjs` checks intrinsic sizing, payment reservations, Canvas reflow, and handler/script cleanup.
+- `npx tsx --test client/src/components/gocardless/GoCardlessDropinFlow.test.jsx` checks the mounted wrapper, including StrictMode, failure/retry, delayed load cancellation, and flow replacement.
+- `npx playwright test --config=playwright.task-4517.config.mjs` exercises the real Canvas renderer and embedded form using provider-shaped browser fixtures. Provider requests and all unexpected writes are blocked; it does not verify a live or sandbox mandate. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if the configured browser is unavailable.
+
 ## Run & Operate
 -   **Run Dev Server:** `npm run dev`
 -   **Startup is application-only:** Run / the default `Project` workflow starts only `Start application`. Regression suites are deliberate separate workflows. The production relationship check is never an automatic validation.

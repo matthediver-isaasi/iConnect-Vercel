@@ -1,5 +1,10 @@
-import { useEffect, useRef } from "react";
-import { useGoCardlessDropin } from "@gocardless/react-dropin";
+import React, { useEffect, useRef } from "react";
+import {
+  createGoCardlessDropinLifecycle,
+  GOCARDLESS_DROPIN_LOAD_TIMEOUT_MS,
+  scheduleGoCardlessDropinLoadTimeout,
+} from "./goCardlessDropinLifecycle";
+import { subscribeGoCardlessDropin } from "./goCardlessDropinLoader";
 
 // Shared wrapper around the official GoCardless Drop-in widget.
 //
@@ -23,61 +28,81 @@ import { useGoCardlessDropin } from "@gocardless/react-dropin";
 // Usage: render <GoCardlessDropinFlow .../> conditionally; unmount it (clear
 // the flowId state) after any callback fires so a retry can remount cleanly.
 
-const LOAD_TIMEOUT_MS = 15000;
+function DropinInner({
+  flowId,
+  environment,
+  onSuccess,
+  onExit,
+  onLoadFailure,
+  loadTimeoutMs = GOCARDLESS_DROPIN_LOAD_TIMEOUT_MS,
+}) {
+  const lifecycleRef = useRef(null);
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = createGoCardlessDropinLifecycle();
+  }
+  const lifecycle = lifecycleRef.current;
+  lifecycle.updateCallbacks({ onSuccess, onExit, onLoadFailure });
 
-function DropinInner({ flowId, environment, onSuccess, onExit, onLoadFailure }) {
-  const openedRef = useRef(false);
-  const failedRef = useRef(false);
-
-  const { open, ready, error } = useGoCardlessDropin({
-    billingRequestFlowID: flowId,
-    environment: environment === "live" ? "live" : "sandbox",
-    onSuccess: (billingRequest, billingRequestFlow) => {
-      onSuccess?.(billingRequest, billingRequestFlow);
-    },
-    onExit: (err, metadata) => {
-      onExit?.(err || null, metadata || {});
-    },
-  });
-
-  // Auto-open once the script is ready.
+  // Keep creation and cleanup in one effect. The official React hook stores
+  // handlers in state; StrictMode can replay its creation effect twice before
+  // that state commits, leaving the first handler unreachable for cleanup.
   useEffect(() => {
-    if (ready && !openedRef.current && !failedRef.current) {
-      openedRef.current = true;
-      try {
-        open();
-      } catch (e) {
-        failedRef.current = true;
-        onLoadFailure?.(e);
-      }
-    }
-  }, [ready, open, onLoadFailure]);
+    let cancelled = false;
+    let handler = null;
+    let cancelLoad = () => {};
+    lifecycle.activate();
+    const clearLoadTimeout = scheduleGoCardlessDropinLoadTimeout(
+      lifecycle,
+      () => handler?.exit,
+      setTimeout,
+      clearTimeout,
+      () => cancelLoad(),
+      loadTimeoutMs,
+    );
 
-  // Script load failure (blocked, offline, unsupported environment).
-  useEffect(() => {
-    if (error && !openedRef.current && !failedRef.current) {
-      failedRef.current = true;
-      onLoadFailure?.(error);
-    }
-  }, [error, onLoadFailure]);
+    cancelLoad = subscribeGoCardlessDropin({
+      onLoad: (dropin) => {
+        if (cancelled) return;
+        try {
+          handler = dropin.create({
+            billingRequestFlowID: flowId,
+            environment: environment === "live" ? "live" : "sandbox",
+            onSuccess: (billingRequest, billingRequestFlow) => {
+              lifecycle.succeed(billingRequest, billingRequestFlow);
+            },
+            onExit: (err, metadata) => {
+              lifecycle.userExit(err, metadata);
+            },
+          });
+        } catch (error) {
+          lifecycle.fail(error, handler?.exit);
+          return;
+        }
+        if (cancelled) {
+          lifecycle.dispose(handler.exit);
+          return;
+        }
+        lifecycle.open(handler.open, handler.exit);
+      },
+      onError: (error) => {
+        if (!cancelled) lifecycle.fail(error, handler?.exit);
+      },
+    });
 
-  // Never-ready backstop: if the script hangs without erroring, fall back.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (!openedRef.current && !failedRef.current) {
-        failedRef.current = true;
-        onLoadFailure?.(new Error("GoCardless Drop-in did not load in time"));
-      }
-    }, LOAD_TIMEOUT_MS);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      cancelled = true;
+      clearLoadTimeout();
+      cancelLoad();
+      lifecycle.dispose(handler?.exit);
+    };
+  }, [environment, flowId, lifecycle, loadTimeoutMs]);
 
   return null;
 }
 
 export default function GoCardlessDropinFlow(props) {
   if (!props.flowId) return null;
-  // Key on the flow ID so a retry with a fresh flow remounts cleanly.
-  return <DropinInner key={props.flowId} {...props} />;
+  const environment = props.environment === "live" ? "live" : "sandbox";
+  // Flow and environment replacements get a fresh terminal-state lifecycle.
+  return <DropinInner key={`${props.flowId}:${environment}`} {...props} environment={environment} />;
 }
