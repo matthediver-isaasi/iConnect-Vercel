@@ -5,6 +5,7 @@ import {
   detachDomainFromProject,
   findProjectHoldingDomain,
   reclaimDomainFromOtherProject,
+  registerDomainSafely,
   friendlyVercelError,
   isPlatformOwnedDomain,
 } from './vercelDomains.js';
@@ -71,6 +72,198 @@ test('platform-owned domains include the apex, wildcard, and every subdomain', (
   assert.equal(isPlatformOwnedDomain('ICONN.APP.'), true);
   assert.equal(isPlatformOwnedDomain('noticonn.app'), false);
   assert.equal(isPlatformOwnedDomain('bnms.org.uk'), false);
+});
+
+test('safe registration recognizes an existing redirect attachment without writes', async () => {
+  const calls = [];
+  const fetchImpl = mockFetch([
+    {
+      match: (u, o) => !o.method && u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => jsonResponse(200, { name: DOMAIN, redirect: `www.${DOMAIN}`, redirectStatusCode: 308 }),
+    },
+    {
+      match: (u, o) => !o.method && u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'already_attached');
+  assert.equal(result.attachment.redirectStatusCode, 308);
+  assert.equal(calls.filter((call) => call.method !== 'GET').length, 0);
+});
+
+test('safe registration rejects an attachment that reports a different projectId', async () => {
+  const calls = [];
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => jsonResponse(200, { name: DOMAIN, projectId: OTHER }),
+    },
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'target_domain_mismatch');
+  assert.equal(calls.filter((call) => call.method !== 'GET').length, 0);
+});
+
+test('safe registration fails closed when target-domain access is denied without a team parameter', async () => {
+  const calls = [];
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => jsonResponse(403, { error: { code: 'forbidden' } }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl, { teamId: undefined }), DOMAIN);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'target_domain_access_failed');
+  assert.ok(calls.every((call) => !call.url.includes('teamId=')));
+  assert.equal(calls.filter((call) => call.method !== 'GET').length, 0);
+});
+
+test('safe registration rejects an incorrectly resolved target project without writes', async () => {
+  const calls = [];
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => jsonResponse(404, { error: { code: 'not_found' } }),
+    },
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: OTHER, accountId: 'team_1', name: 'wrong' }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'target_project_mismatch');
+  assert.equal(calls.filter((call) => call.method !== 'GET').length, 0);
+});
+
+test('safe registration reports a genuine cross-project conflict and never deletes', async () => {
+  const calls = [];
+  let domainReads = 0;
+  const fetchImpl = mockFetch([
+    {
+      match: (u, o) => (o.method || 'GET') === 'GET' && u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => {
+        domainReads += 1;
+        return jsonResponse(404, { error: { code: 'not_found' } });
+      },
+    },
+    {
+      match: (u, o) => (o.method || 'GET') === 'GET' && u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+    {
+      match: (u, o) => o.method === 'POST' && u.includes(`/v10/projects/${CURRENT}/domains`),
+      respond: () => jsonResponse(409, { error: { code: 'domain_already_in_use_by_project' } }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'cross_project_conflict');
+  assert.equal(domainReads, 2);
+  assert.equal(calls.filter((call) => call.method === 'DELETE').length, 0);
+});
+
+test('safe registration fails closed on provider exceptions', async () => {
+  const calls = [];
+  const result = await registerDomainSafely(config(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    throw new Error('provider unavailable');
+  }), DOMAIN);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'exception');
+  assert.equal(calls.length, 1);
+});
+
+test('safe registration attaches a genuinely missing domain after verifying the project', async () => {
+  const calls = [];
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => jsonResponse(404, { error: { code: 'not_found' } }),
+    },
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+    {
+      match: (u, o) => o.method === 'POST' && u.includes(`/v10/projects/${CURRENT}/domains`),
+      respond: () => jsonResponse(200, { name: DOMAIN }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'attached');
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 1);
+});
+
+test('safe registration accepts an attach race only after re-reading target attachment', async () => {
+  const calls = [];
+  let domainReads = 0;
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => {
+        domainReads += 1;
+        return domainReads === 1
+          ? jsonResponse(404, { error: { code: 'not_found' } })
+          : jsonResponse(200, { name: DOMAIN, redirect: `www.${DOMAIN}` });
+      },
+    },
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+    {
+      match: (u, o) => o.method === 'POST',
+      respond: () => jsonResponse(409, { error: { code: 'domain_already_exists' } }),
+    },
+  ], calls);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'already_attached');
+  assert.equal(domainReads, 2);
+});
+
+test('domain_already_exists is not success without a verified target attachment', async () => {
+  let domainReads = 0;
+  const fetchImpl = mockFetch([
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}/domains/${DOMAIN}`),
+      respond: () => {
+        domainReads += 1;
+        return jsonResponse(404, { error: { code: 'not_found' } });
+      },
+    },
+    {
+      match: (u) => u.includes(`/v9/projects/${CURRENT}?`),
+      respond: () => jsonResponse(200, { id: CURRENT, accountId: 'team_1', name: 'current' }),
+    },
+    {
+      match: (u, o) => o.method === 'POST',
+      respond: () => jsonResponse(409, { error: { code: 'domain_already_exists' } }),
+    },
+  ]);
+
+  const result = await registerDomainSafely(config(fetchImpl), DOMAIN);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'unverified_existing_domain');
+  assert.equal(domainReads, 2);
 });
 
 test('reclaim refuses platform-owned domains before making a Vercel request', async () => {

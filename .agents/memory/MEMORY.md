@@ -153,3 +153,4 @@
 - [Deleted-member relationships](deleted-member-relationship-visibility.md) — intentional identity suppression is not a missing endpoint; retain history and apply eligibility before paging.
 - [BNMS renewal reconciliation](bnms-renewal-reconciliation.md) — review one exact class and twelve-month invoice window per Excel workbook; nominal-code evidence must be explicit.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
+- [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.

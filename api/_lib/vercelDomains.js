@@ -40,6 +40,135 @@ export async function attachDomainToProject(config, domain, projectId = config.p
   });
 }
 
+async function readTargetProjectDomain(config, domain) {
+  return vercelFetch(
+    config,
+    `/v9/projects/${config.projectId}/domains/${encodeURIComponent(domain)}`,
+  );
+}
+
+async function verifyTargetProject(config) {
+  const projectRes = await vercelFetch(config, `/v9/projects/${config.projectId}`);
+  if (!projectRes.ok) {
+    const accessFailure = projectRes.status === 401
+      || projectRes.status === 403
+      || projectRes.status === 404;
+    return {
+      ok: false,
+      reason: accessFailure ? 'target_project_access_failed' : 'target_project_discovery_failed',
+      response: projectRes,
+    };
+  }
+
+  const project = projectRes.json;
+  if (
+    !project
+    || project.id !== config.projectId
+    || (config.teamId && project.accountId !== config.teamId)
+  ) {
+    return { ok: false, reason: 'target_project_mismatch', response: projectRes };
+  }
+
+  return { ok: true, project };
+}
+
+function isMatchingTargetAttachment(response, domain, targetProjectId) {
+  return response.ok
+    && String(response.json?.name || '').toLowerCase() === String(domain).toLowerCase()
+    && (
+      response.json?.projectId == null
+      || response.json.projectId === targetProjectId
+    );
+}
+
+// Register a domain without ever moving an existing attachment. The target
+// project's domain endpoint is authoritative for both normal and redirecting
+// domains, so it is always read before a write. A conflict response is only
+// treated as success if a second read proves that a concurrent request attached
+// the domain to this exact, verified project.
+export async function registerDomainSafely(config, domain) {
+  if (!config?.token || !config?.projectId) {
+    return { ok: false, reason: 'invalid_config' };
+  }
+
+  try {
+    const initialDomain = await readTargetProjectDomain(config, domain);
+    if (!initialDomain.ok && initialDomain.status !== 404) {
+      const accessFailure = initialDomain.status === 401 || initialDomain.status === 403;
+      return {
+        ok: false,
+        reason: accessFailure ? 'target_domain_access_failed' : 'target_domain_discovery_failed',
+        response: initialDomain,
+      };
+    }
+
+    const target = await verifyTargetProject(config);
+    if (!target.ok) return target;
+
+    if (isMatchingTargetAttachment(initialDomain, domain, target.project.id)) {
+      return {
+        ok: true,
+        status: 'already_attached',
+        attachment: initialDomain.json,
+        project: target.project,
+      };
+    }
+    if (initialDomain.ok) {
+      return { ok: false, reason: 'target_domain_mismatch', response: initialDomain };
+    }
+
+    const attachResult = await attachDomainToProject(config, domain);
+    if (attachResult.ok) {
+      if (String(attachResult.json?.name || '').toLowerCase() !== String(domain).toLowerCase()) {
+        return { ok: false, reason: 'attach_response_mismatch', response: attachResult };
+      }
+      return {
+        ok: true,
+        status: 'attached',
+        attachment: attachResult.json,
+        project: target.project,
+      };
+    }
+
+    const errorCode = attachResult.json?.error?.code;
+    const conflict = errorCode === 'domain_already_exists'
+      || errorCode === 'domain_already_in_use'
+      || errorCode === 'domain_already_in_use_by_project';
+    if (!conflict) {
+      return { ok: false, reason: 'attach_failed', response: attachResult };
+    }
+
+    const racedDomain = await readTargetProjectDomain(config, domain);
+    if (isMatchingTargetAttachment(racedDomain, domain, target.project.id)) {
+      return {
+        ok: true,
+        status: 'already_attached',
+        attachment: racedDomain.json,
+        project: target.project,
+      };
+    }
+    if (!racedDomain.ok && racedDomain.status !== 404) {
+      const accessFailure = racedDomain.status === 401 || racedDomain.status === 403;
+      return {
+        ok: false,
+        reason: accessFailure ? 'target_domain_access_failed' : 'target_domain_discovery_failed',
+        response: racedDomain,
+      };
+    }
+    if (racedDomain.ok) {
+      return { ok: false, reason: 'target_domain_mismatch', response: racedDomain };
+    }
+
+    return {
+      ok: false,
+      reason: errorCode === 'domain_already_exists' ? 'unverified_existing_domain' : 'cross_project_conflict',
+      response: attachResult,
+    };
+  } catch (error) {
+    return { ok: false, reason: 'exception', error };
+  }
+}
+
 export async function detachDomainFromProject(config, domain, projectId = config.projectId) {
   return vercelFetch(config, `/v9/projects/${projectId}/domains/${encodeURIComponent(domain)}`, {
     method: 'DELETE',
@@ -145,15 +274,35 @@ export async function reclaimDomainFromOtherProject(config, domain) {
 }
 
 // Map Vercel error codes to clear, actionable messages for the settings UI.
-export function friendlyVercelError(errorObj, reclaimReason) {
+export function friendlyVercelError(errorObj, reason) {
+  switch (reason) {
+    case 'invalid_config':
+    case 'target_project_mismatch':
+    case 'target_domain_mismatch':
+    case 'attach_response_mismatch':
+      return 'The hosting project configuration could not be verified. Please contact support before adding this domain.';
+    case 'target_project_access_failed':
+    case 'target_domain_access_failed':
+      return 'Access to the configured hosting project could not be verified. Please contact support to check the project, team, and token permissions.';
+    case 'target_project_discovery_failed':
+    case 'target_domain_discovery_failed':
+    case 'attach_failed':
+    case 'exception':
+      return 'The hosting provider could not verify this domain right now. Please try again later, or contact support if the problem persists.';
+    case 'unverified_existing_domain':
+      return 'The hosting provider reported that this domain already exists, but its attachment to this site could not be verified. No existing attachment was changed. Please contact support.';
+    case 'cross_project_conflict':
+      return 'This domain is attached to another site on our hosting platform. To protect the existing site, its attachment was preserved. Please contact support.';
+  }
+
   const code = errorObj?.code;
   switch (code) {
     case 'domain_already_in_use':
     case 'domain_already_in_use_by_project':
-      if (reclaimReason === 'detach_failed' || reclaimReason === 'reattach_failed') {
+      if (reason === 'detach_failed' || reason === 'reattach_failed') {
         return 'This domain is attached to another site on our hosting platform and could not be transferred automatically. Please contact support to have it moved.';
       }
-      return 'This domain is currently attached to another site on our hosting platform. We could not transfer it automatically — please contact support to have it moved.';
+      return 'This domain is currently attached to another site on our hosting platform. To protect that site, it was not moved automatically — please contact support to have it moved.';
     case 'domain_taken':
     case 'not_authorized':
     case 'forbidden':
