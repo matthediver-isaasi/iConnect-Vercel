@@ -70,6 +70,7 @@ export async function runFormEntityPipelines({
   // Only a persisted structured/related-record pending marker may authorize a
   // `followup`; ordinary completion retries always reuse their known result.
   completionOperationKind = 'primary',
+  observeLateSuccess = false,
   deadlineAt = null,
 }) {
   const result = {
@@ -84,7 +85,10 @@ export async function runFormEntityPipelines({
     stripeAddressMappings: null,
   };
   const hasEntityPipelines = hasPersistedFormEntityActions(form);
-  if (!hasEntityPipelines) return result;
+  // Removing the form's actions while its last request is running must not
+  // bypass the same-operation fence for the remaining payment effects.
+  if (!hasEntityPipelines && !(observeLateSuccess
+      && submission.payment_meta?.completion?.awaiting_pipeline)) return result;
   // Security boundary: callers also use baseUrl for user-facing links, and
   // some derive it from request headers/custom domains. Internal auth proofs
   // must only ever be sent to the configured deployment itself.
@@ -106,7 +110,8 @@ export async function runFormEntityPipelines({
   const verifiedAdminAccess = meta.verified_admin_access === true;
   if (completionOperationId) {
     try {
-      const { data: operation, error } = await supabase.rpc('begin_form_paid_pipeline_operation', {
+      const { data: operation, error } = await supabase.rpc(
+        observeLateSuccess ? 'observe_or_begin_form_paid_pipeline_operation' : 'begin_form_paid_pipeline_operation', {
         p_tenant_id: submission.tenant_id,
         p_submission_id: submission.id,
         p_operation_id: completionOperationId,
@@ -117,12 +122,15 @@ export async function runFormEntityPipelines({
         // The processor stored entity linkage before it marked this operation
         // done. Reload only these durable checkpoints; never replay it just to
         // recover a response body.
-        const { data: current, error: currentError } = await supabase
+        const { data: current, error: currentError } = operation.checkpoints
+          ? { data: operation.checkpoints }
+          : await supabase
           .from('form_submission')
           .select('created_member_id, created_organization_id, organization_id, payment_meta')
           .eq('id', submission.id).eq('tenant_id', submission.tenant_id)
           .maybeSingle();
         if (currentError) throw currentError;
+        if (!current) throw new Error('durable processor checkpoints are unavailable');
         result.ran = true;
         result.memberId = current?.created_member_id || null;
         result.organizationId = current?.organization_id || current?.created_organization_id || null;
@@ -133,6 +141,12 @@ export async function runFormEntityPipelines({
           || current?.payment_meta?.related_records_pending === true
           || current?.payment_meta?.stripe_address_mappings_pending === true;
         if (result.partial) result.detail = 'application processing has pending or failed actions';
+        return result;
+      }
+      if (operation?.status === 'waiting') {
+        result.failed = true;
+        result.awaitingOperation = true;
+        result.detail = operation.reason;
         return result;
       }
       if (operation?.status !== 'claimed') {
@@ -172,9 +186,9 @@ export async function runFormEntityPipelines({
   };
   if (deadlineAt) {
     // Abort the *transport*, rather than racing the Promise.  Fetch honours
-    // this signal and closes the internal HTTP request; the durable operation
-    // below is then deliberately left attention-required because the remote
-    // handler could have accepted it before the connection closed.
+    // this signal and closes the internal HTTP request. New completion owners
+    // observe the exact durable reservation for a bounded time; legacy callers
+    // retain attention-required semantics. Neither path replays a lost request.
     // Reserve a few seconds for the caller to persist an owner-fenced outcome
     // after the transport closes.
     const remaining = deadlineAt - Date.now() - 5_000;
@@ -317,7 +331,14 @@ export async function runFormEntityPipelines({
   } catch (err) {
     console.error('[formEntityPipelines] Pipeline processing error for paid submission', submission.id, err);
     result.failed = true;
-    await markAmbiguousOperation();
+    if (observeLateSuccess && completionOperationId && signal?.aborted) {
+      // Only our local transport deadline is eligible for bounded observation.
+      // The reservation and exact identity were saved before dispatch. Never
+      // change the remote processor's status or resend this operation.
+      result.awaitingOperation = true;
+    } else {
+      await markAmbiguousOperation();
+    }
     result.detail = `application processing errored${err?.message ? `: ${err.message}` : ''}`;
     await recordFailure(supabase, submission, processingFailureNote(completionDescription, 'errored'));
   } finally {

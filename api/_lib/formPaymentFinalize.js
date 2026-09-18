@@ -334,6 +334,7 @@ export async function finalizeFormSubmission({
     baseUrl,
     deadlineAt,
     ...(claimedCompletion ? {
+      observeLateSuccess: true,
       completionOperationId: claimedCompletion.owner_token,
       // A durable address-mapping partial is the sole non-structured
       // follow-up permitted to supersede a completed processor operation.

@@ -286,7 +286,7 @@ test('HTTP and invalid-JSON responses have an explicit failed contract without e
   }
 });
 
-test('a paid completion pipeline attempt is durably reserved and an aborted transport becomes attention-required', async () => {
+test('a new paid completion transport timeout waits without marking the remote operation attention', async () => {
   const previousAppUrl = process.env.APP_URL;
   const previousSessionSecret = process.env.SESSION_SECRET;
   const previousFetch = globalThis.fetch;
@@ -296,7 +296,7 @@ test('a paid completion pipeline attempt is durably reserved and an aborted tran
   const supabase = {
     rpc: async (name, args) => {
       rpcCalls.push({ name, args });
-      if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
+      if (name === 'observe_or_begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
       if (name === 'finish_form_paid_pipeline_operation') return { data: true, error: null };
       throw new Error(`unexpected RPC ${name}`);
     },
@@ -320,15 +320,16 @@ test('a paid completion pipeline attempt is durably reserved and an aborted tran
       submission: { id: 'sub-op', tenant_id: 'tenant-1', submission_data: {}, payment_meta: {} },
       form: FORM_WITH_PIPELINES,
       completionOperationId: '00000000-0000-4000-8000-000000000001',
+      observeLateSuccess: true,
       // The runner reserves five seconds for outcome persistence, so this
       // reaches its transport deadline immediately without a slow test.
-      deadlineAt: Date.now() + 5_001,
+      deadlineAt: Date.now() + 5_025,
     });
     assert.equal(result.failed, true);
-    assert.equal(result.ambiguous, true);
+    assert.equal(result.ambiguous, undefined);
+    assert.equal(result.awaitingOperation, true);
     assert.deepEqual(rpcCalls.map(call => call.name), [
-      'begin_form_paid_pipeline_operation',
-      'finish_form_paid_pipeline_operation',
+      'observe_or_begin_form_paid_pipeline_operation',
     ]);
   } finally {
     if (previousAppUrl === undefined) delete process.env.APP_URL;

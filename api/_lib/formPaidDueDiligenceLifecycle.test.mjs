@@ -31,7 +31,7 @@ function oneOffFinalizationDb({
     fromCalls,
     async rpc(name, args) {
       rpcNames.push(name);
-      if (name === 'begin_form_paid_pipeline_operation' && pipelineOperation) {
+      if (name === 'observe_or_begin_form_paid_pipeline_operation' && pipelineOperation) {
         return { data: pipelineOperation, error: null };
       }
       if (name === 'claim_form_due_diligence_initialization') {
@@ -242,6 +242,32 @@ test('a different active pipeline owner fences completion before membership, DD,
   }
 });
 
+test('a bounded operation wait stays on the retry queue and fences all downstream effects', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const db = oneOffFinalizationDb({ pipelineOperation: { status: 'waiting' } });
+  db.row.payment_meta = {
+    completion: { version: 1, status: 'retryable', attempts: 1 },
+    membership: { quote: { target: 'member' } },
+  };
+  process.env.APP_URL = 'https://internal.example.test';
+  try {
+    const result = await finalizeFormSubmission({
+      supabase: db, submission: structuredClone(db.row),
+      form: { id: 'f', fields: [], entity_pipelines: { members: [{ id: 'p' }] }, submission_emails: [] },
+      deadlineAt: Date.now() + 60_000,
+    });
+    assert.equal(result.retryable, true);
+    assert.equal(result.requiresAttention, undefined);
+    assert.equal(db.row.payment_meta.completion.status, 'retryable');
+    assert.equal(db.rpcNames.includes('finish_form_payment_completion_retry'), true);
+    assert.equal(db.rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
+    assert.equal(db.fromCalls.length, 1, 'no membership or email writes during observation');
+  } finally {
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+  }
+});
+
 test('a known partial entity result stops downstream effects and remains retryable', async () => {
   const previousAppUrl = process.env.APP_URL;
   const previousFetch = globalThis.fetch;
@@ -356,7 +382,7 @@ test('a later completion attempt reuses the successful pipeline checkpoint', asy
   let pipelineCalls = 0;
   let clock = 4_000_000;
   db.rpc = async (name, args) => {
-    if (name === 'begin_form_paid_pipeline_operation') {
+    if (name === 'observe_or_begin_form_paid_pipeline_operation') {
       return { data: { status: operationDone ? 'done' : 'claimed' }, error: null };
     }
     return originalRpc(name, args);

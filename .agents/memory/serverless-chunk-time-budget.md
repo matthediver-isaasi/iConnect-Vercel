@@ -43,3 +43,9 @@ An unstarted stage deferred by its minimum-time reserve is pending work, not a w
 **Why:** Renewal timeout investigation found a payment SDK's default request timeout exceeded the entire serverless invocation limit, with retries extending it further. A promise race would return while side effects continued.
 
 **How to apply:** Validate transport timeout and retry defaults when claiming a hard runtime bound. Abort and await read-only requests; financial writes need provider idempotency and explicit ambiguous-outcome recovery before adding cancellation.
+
+**Rule:** A paid form's caller deadline is not the entity processor's outcome. Future attempts may observe a pre-recorded, exact operation identity for a bounded period; only its durable success permits downstream finalisation without replaying the entity request.
+
+**Why:** The caller timed out just before the processor recorded success, leaving a paid member without a membership. Increasing the transport timeout alone does not close that race.
+
+**How to apply:** Persist observation identity before dispatch and preserve it across owner-fenced completion retries. While the operation is running, wait without re-sending it; stop on identity loss, explicit ambiguity, or expiry. Leave historical attention receipts closed even if their operations later report success. Keep known partial-action followups distinct from transport retries.

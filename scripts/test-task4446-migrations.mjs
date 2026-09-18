@@ -22,6 +22,7 @@ const migrationPaths = [
   'supabase/migrations/20261027_form_stripe_membership_address_retry.sql',
   'supabase/migrations/20261028_form_payment_completion_retry_and_pipeline_operation.sql',
   'supabase/migrations/20261029_form_stripe_address_mapping_retry_completion.sql',
+  'supabase/migrations/20261110_paid_pipeline_late_success.sql',
 ].map(file => path.resolve(process.cwd(), file));
 
 const rpcSignatures = [
@@ -33,6 +34,7 @@ const rpcSignatures = [
   'public.claim_form_payment_completion_retries(integer)',
   'public.finish_form_payment_completion_retry(uuid,uuid,text,text)',
   'public.begin_form_paid_pipeline_operation(uuid,uuid,uuid,text)',
+  'public.observe_or_begin_form_paid_pipeline_operation(uuid,uuid,uuid,text)',
   'public.finish_form_paid_pipeline_operation(uuid,uuid,uuid,text,text)',
   'public.mark_stale_submission_email_attention(uuid,uuid)',
   'public.claim_missing_one_off_form_due_diligence_ready(integer)',
@@ -153,6 +155,9 @@ CREATE TABLE public.form_submission (
   payment_paid_at TIMESTAMPTZ,
   payment_meta JSONB NOT NULL DEFAULT '{}'::JSONB,
   submission_email_state JSONB
+  ,created_member_id UUID
+  ,created_organization_id UUID
+  ,organization_id UUID
 );
 
 CREATE TABLE public.form_stripe_address_mapping_retry (
@@ -451,6 +456,7 @@ try {
 
   run(psqlBin, [...conn, '-f', migrationPaths[2]]);
   run(psqlBin, [...conn, '-f', migrationPaths[3]]);
+  run(psqlBin, [...conn, '-f', migrationPaths[4]]);
   console.log('full migration chain applied in isolated PostgreSQL');
 
   const aclSql = `
@@ -570,6 +576,63 @@ try {
     'completion owner race did not produce done state',
   );
   console.log('SKIP LOCKED and owner races: PASS');
+  const tenant = '00000000-0000-4000-8000-000000000001';
+  const submission = '10000000-0000-4000-8000-000000000088';
+  const firstOwner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const nextOwner = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const observe = (owner, kind = 'primary') =>
+    `SELECT observe_or_begin_form_paid_pipeline_operation('${tenant}', '${submission}', '${owner}', '${kind}')->>'status'`;
+  psql(`INSERT INTO form_submission(id,tenant_id,payment_status,payment_meta)
+    VALUES('${submission}','${tenant}','paid',
+    '{"completion":{"version":1,"status":"processing","owner_token":"${firstOwner}"}}');`);
+  assert.equal(scalar(observe(firstOwner)), 'claimed');
+  const marker = scalar(`SELECT payment_meta->'completion'->'awaiting_pipeline' FROM form_submission WHERE id='${submission}'`);
+  assert.equal(JSON.parse(marker).operation_id, firstOwner);
+  assert.equal(scalar(`SELECT finish_form_payment_completion('${tenant}','${submission}','${firstOwner}','retryable')`), 't');
+  // Same JSON merge as the application's optimistic completion claim.
+  psql(`UPDATE form_submission SET payment_meta=jsonb_set(payment_meta,'{completion}',
+    (payment_meta->'completion') || '{"status":"processing","owner_token":"${nextOwner}"}')
+    WHERE id='${submission}';`);
+  assert.equal(scalar(`SELECT payment_meta->'completion'->'awaiting_pipeline' FROM form_submission WHERE id='${submission}'`), marker);
+  assert.equal(scalar(observe(firstOwner)), 'attention', 'stale receipt owner fenced');
+  assert.equal(scalar(observe(nextOwner)), 'waiting', 'new owner observes rather than replays');
+  assert.equal(scalar(`SELECT finish_form_paid_pipeline_operation('${tenant}','${submission}','${nextOwner}','done')`), 'f');
+  assert.equal(scalar(`SELECT finish_form_paid_pipeline_operation('${tenant}','${submission}','${firstOwner}','done')`), 't');
+  assert.equal(scalar(observe(nextOwner)), 'done', 'late same-operation success resumes');
+  assert.equal(scalar(`SELECT payment_meta->'completion' ? 'awaiting_pipeline' FROM form_submission WHERE id='${submission}'`), 'f');
+  assert.equal(scalar(observe(nextOwner)), 'done', 'duplicate resume does not replay');
+  // Known partial done may authorize exactly one NEW follow-up, and its marker
+  // is consumed on completion instead of trapping subsequent work in a loop.
+  psql(`UPDATE form_submission SET payment_meta=payment_meta || '{"stripe_address_mappings_pending":true}' WHERE id='${submission}';`);
+  assert.equal(scalar(observe(nextOwner, 'followup')), 'claimed');
+  assert.equal(scalar(observe(nextOwner, 'followup')), 'waiting');
+  assert.equal(scalar(`SELECT finish_form_paid_pipeline_operation('${tenant}','${submission}','${nextOwner}','done')`), 't');
+  assert.equal(scalar(observe(nextOwner, 'followup')), 'done');
+  assert.equal(scalar(observe(nextOwner, 'followup')), 'done');
+  // Terminal failed operation is not revived merely because a member exists.
+  psql(`UPDATE form_paid_pipeline_operation SET status='attention' WHERE form_submission_id='${submission}';
+    UPDATE form_submission SET created_member_id=gen_random_uuid(),
+    payment_meta=jsonb_set(payment_meta,'{completion,awaiting_pipeline}',
+      '{"operation_id":"${nextOwner}","expires_at":"2099-01-01T00:00:00Z"}') WHERE id='${submission}';`);
+  assert.equal(scalar(observe(nextOwner)), 'attention');
+  psql(`UPDATE form_paid_pipeline_operation SET status='processing' WHERE form_submission_id='${submission}';
+    UPDATE form_submission SET payment_meta=jsonb_set(payment_meta,'{completion,awaiting_pipeline,expires_at}',
+      '"2000-01-01T00:00:00Z"') WHERE id='${submission}';`);
+  assert.equal(scalar(observe(nextOwner)), 'attention', 'observation is bounded');
+  psql(`UPDATE form_submission SET payment_meta=jsonb_set(payment_meta,'{completion,status}','"attention"') WHERE id='${submission}';
+    UPDATE form_paid_pipeline_operation SET status='done' WHERE form_submission_id='${submission}';`);
+  assert.equal(scalar(observe(nextOwner)), 'attention', 'historical receipt is never recovered');
+  // Competing sessions block on the receipt row; they cannot reserve another
+  // operation while a completion owner is in its atomic observation section.
+  const locked = spawnResult(psqlBin, [...conn, '-At'], {
+    input: `BEGIN; SELECT id FROM form_submission WHERE id='${submission}' FOR UPDATE; SELECT pg_sleep(1); COMMIT;`,
+  });
+  await sleep(150);
+  const blocked = psqlResult(`SET lock_timeout='100ms'; ${observe(nextOwner)};`);
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, /lock timeout/);
+  assert.equal((await locked).status, 0);
+  console.log('late-success identity, bounded wait, partial, marker persistence, history and locking: PASS');
 } catch (error) {
   failures.push(error?.stack || String(error));
 } finally {
