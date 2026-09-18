@@ -21,6 +21,12 @@ Department current-data forms require sign-in and an assigned Department respond
 
 **How to apply:** Keep the department picker and explicit-link load/save paths consistent: require sign-in, the same tenant, and an active explicit survey-respondent assignment, but never require matching organisations. Do not change organisation membership to make an assigned respondent pass. Publish the matching client/API before activating a prepared form configuration; schema installation alone is not activation.
 
+Organisation ownership shown on the survey is display context, not a new access or save prerequisite.
+
+**Why:** Cross-organisation assignments are intentional. Missing ownership must be disclosed as unavailable rather than guessed from the respondent, but a display-only lookup failure must not change the current-set save contract.
+
+**How to apply:** Keep ownership presentation separate from editable answers and submission metadata. Do not restore the earlier member/Department organisation-equality authorization rule when extending identity display.
+
 Persisted compatibility contracts must compare semantic values, not JSON object key order or mapping-derived child order.
 
 **Why:** JSONB reorders mapping keys, and historical contracts derived their child arrays from mapping insertion order rather than display order. A valid first activation can otherwise fail its own postcheck and block prefill.

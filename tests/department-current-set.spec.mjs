@@ -9,6 +9,8 @@ const IDS = Object.freeze({
   form: '8b6f44d3-83f8-449e-9496-b10b1dc28e5f',
   department: 'cd1ebfd3-3e16-4091-be5a-99992d926f2f',
   member: '11111111-1111-4111-8111-111111111111',
+  memberOrganization: '77777777-7777-4777-8777-777777777777',
+  departmentOrganization: '88888888-8888-4888-8888-888888888888',
   type: '22222222-2222-4222-8222-222222222222',
   model: '33333333-3333-4333-8333-333333333333',
 });
@@ -111,6 +113,13 @@ function currentSet(version = 'version-1', {
   }));
   return {
     department: { id: IDS.department, label: 'Radiology — North' },
+    // Deliberately differs from the member's organisation. The identity must
+    // come from the authorised Department load, never from auth-member data.
+    organization: {
+      status: 'available',
+      id: IDS.departmentOrganization,
+      name: 'North Coast Imaging Trust',
+    },
     department_id: IDS.department,
     version,
     complete_sections: incomplete ? [WF] : [WF, EQ],
@@ -173,6 +182,7 @@ function canvasPageFixture() {
 async function install(page, {
   current = currentSet(),
   currentStatus = 200,
+  departments = [{ id: IDS.department, label: 'Radiology — North' }],
   delayed = false,
   submitStatus = 200,
   layout = 'standard',
@@ -180,7 +190,8 @@ async function install(page, {
   committed = true,
 } = {}) {
   const state = {
-    submissions: [], submissionPaths: [], postSubmissionEffects: [], unexpectedWrites: [], pageErrors: [], currentRequests: 0,
+    submissions: [], drafts: [], submissionPaths: [], postSubmissionEffects: [], unexpectedWrites: [], pageErrors: [],
+    currentRequests: 0, optionRequests: 0,
   };
   page.on('pageerror', error => state.pageErrors.push(error.message));
   const appOrigin = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5000';
@@ -206,17 +217,28 @@ async function install(page, {
     if (path === '/api/auth/me' && method === 'GET') {
       return json(route, {
         id: IDS.member, tenant_id: IDS.tenant, email: 'respondent@example.test',
-        first_name: 'Current', last_name: 'Respondent', member_excluded_features: [],
+        first_name: 'Current', last_name: 'Respondent',
+        organization_id: IDS.memberOrganization, organization_name: 'Respondent Home Organisation',
+        member_excluded_features: [],
       });
     }
     if (path === '/api/auth/tenant-user-me' && method === 'GET') return json(route, { user: null }, 401);
     if (path === `/api/public/form/${SLUG}` && method === 'GET') return json(route, formFixture(layout, multiColumn));
     if (path === '/api/public/form/current-set' && method === 'GET') {
-      state.currentRequests++;
       expect(url.searchParams.get('form_id')).toBe(IDS.form);
+      if (!url.searchParams.has('department_id')) {
+        state.optionRequests++;
+        return json(route, { departments });
+      }
+      state.currentRequests++;
       expect(url.searchParams.get('department_id')).toBe(IDS.department);
       if (delayed) await new Promise(resolve => setTimeout(resolve, 300));
       return json(route, current, currentStatus);
+    }
+    if (path === '/api/public/form-draft' && method === 'POST') {
+      const body = request.postDataJSON();
+      state.drafts.push(body);
+      return json(route, { success: true, resume_token: 'fixture-resume-token' });
     }
     if (path === '/api/public/form-submission' && method === 'POST') {
       const body = request.postDataJSON();
@@ -276,6 +298,7 @@ async function dismissCookie(page) {
 }
 
 async function assertLoaded(surface) {
+  await assertIdentity(surface);
   await expect(surface.getByTestId('department-current-set-review')).toContainText('Radiology — North');
   await expect(row(surface, WF, 0).locator('input').first()).toHaveValue('Clinical Practitioner – Technologist ');
   await expect(surface.getByTestId(`repeatable-row-${EQ}-35`)).toBeVisible();
@@ -286,17 +309,37 @@ async function assertLoaded(surface) {
 }
 
 async function assertCardLoaded(surface) {
+  await assertIdentity(surface);
   await expect(surface.getByTestId('department-current-set-review')).toContainText('Radiology — North');
   await expect(row(surface, WF, 0).locator('input').first()).toHaveValue('Clinical Practitioner – Technologist ');
   await surface.getByRole('button', { name: 'Next', exact: true }).click();
+  // Identity remains visible while respondents navigate between answer pages.
+  await assertIdentity(surface);
   await expect(surface.getByTestId(`repeatable-row-${EQ}-35`)).toBeVisible();
   await expect(surface.getByText('36 of 100 rows')).toBeVisible();
   await expect(row(surface, EQ, 0).getByRole('combobox').nth(0)).toContainText(/PET\/CT/);
 }
 
+async function assertIdentity(surface) {
+  const identity = surface.getByTestId('department-current-set-identity');
+  await expect(identity).toBeVisible();
+  await expect(identity.getByText('Organisation', { exact: true })).toBeVisible();
+  await expect(identity.getByText('North Coast Imaging Trust', { exact: true })).toBeVisible();
+  await expect(identity.getByText('Department', { exact: true })).toBeVisible();
+  await expect(identity.getByText('Radiology — North', { exact: true })).toBeVisible();
+  await expect(identity).not.toContainText('Respondent Home Organisation');
+  await expect(surface.locator('[data-testid^="repeatable-row-"]').first()).toBeVisible();
+  expect(await identity.evaluate(element => {
+    const firstAnswer = element.ownerDocument.querySelector('[data-testid^="repeatable-row-"]');
+    return !!firstAnswer && !!(element.compareDocumentPosition(firstAnswer) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
+}
+
 test('standalone current-set prefill retains all rows, legacy values, and submits complete reconciliation', async ({ page }, testInfo) => {
   const state = await install(page, { delayed: true });
   await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+  await expect(page.getByTestId('department-current-set-loading')).toBeVisible();
+  await expect(page.getByTestId('department-current-set-identity')).toHaveCount(0);
   // A standard-layout FormView must expose both the current-set review and
   // acknowledgements; without them it can never safely submit this form.
   await assertLoaded(page);
@@ -323,11 +366,134 @@ test('standalone current-set prefill retains all rows, legacy values, and submit
   expect(submitted[EQ]).toHaveLength(35);
   expect(submitted[EQ][0]._row_id).toBe('existing:equipment-0');
   expect(submitted[EQ][0][F.serial]).toBe('');
+  expect(submitted).not.toHaveProperty('organization');
+  expect(submitted).not.toHaveProperty('department');
   await mkdir('screenshots/department-current-set', { recursive: true });
   await page.screenshot({ path: 'screenshots/department-current-set/standalone-committed.png', fullPage: true });
   expect(state.currentRequests).toBe(1);
   expect(state.unexpectedWrites).toEqual([]);
   expect(state.pageErrors).toEqual([]);
+});
+
+const pickerSurfaces = [
+  {
+    name: 'standalone desktop',
+    href: `/FormView?slug=${SLUG}&tenant=bnms-fixture`,
+    surface: page => page,
+  },
+  {
+    name: 'embedded mobile',
+    href: `/embed/form/${SLUG}?tenant=bnms-fixture`,
+    mobile: true,
+    surface: page => page,
+  },
+  {
+    name: 'iEdit desktop',
+    href: '/department-current-set-iedit?tenant=bnms-fixture',
+    surface: page => page,
+  },
+  {
+    name: 'Canvas mobile',
+    href: '/department-current-set-canvas?tenant=bnms-fixture',
+    mobile: true,
+    surface: page => page.frameLocator('[data-testid="iframe-form-embed"]'),
+  },
+];
+
+for (const pickerCase of pickerSurfaces) {
+  test(`${pickerCase.name} picker shows authorised Workforce Survey identity before answers`, async ({ page }) => {
+    if (pickerCase.mobile) await page.setViewportSize({ width: 390, height: 844 });
+    const state = await install(page);
+    await page.goto(pickerCase.href);
+    await dismissCookie(page);
+    const surface = pickerCase.surface(page);
+    const picker = surface.getByTestId('department-current-set-picker');
+    await expect(picker).toBeVisible();
+    await picker.getByRole('combobox').selectOption(IDS.department);
+
+    // Assert identity before inspecting any prefilled answer. This catches
+    // surfaces that render the identity too late or only on an answer page.
+    await assertIdentity(surface);
+    await expect(row(surface, WF, 0).locator('input').first())
+      .toHaveValue('Clinical Practitioner – Technologist ');
+    expect(state.optionRequests).toBe(1);
+    expect(state.currentRequests).toBe(1);
+    expect(state.unexpectedWrites).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+  });
+}
+
+test('successful load with missing Organisation identity is explicit and never guesses from the member', async ({ page }) => {
+  const withoutOrganization = currentSet();
+  withoutOrganization.organization = { status: 'unavailable' };
+  const state = await install(page, { current: withoutOrganization });
+  await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+  await dismissCookie(page);
+
+  const identity = page.getByTestId('department-current-set-identity');
+  await expect(identity).toBeVisible();
+  await expect(identity.getByText('Organisation unavailable', { exact: true })).toBeVisible();
+  await expect(identity.getByText('Department', { exact: true })).toBeVisible();
+  await expect(identity.getByText('Radiology — North', { exact: true })).toBeVisible();
+  await expect(identity).not.toContainText('Respondent Home Organisation');
+  await expect(identity).not.toContainText('North Coast Imaging Trust');
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+for (const deniedCase of [
+  { name: 'failed', status: 503, error: 'Fixture current set unavailable' },
+  { name: 'denied', status: 403, error: 'You do not have access to this Department' },
+]) {
+  test(`${deniedCase.name} current-set load exposes no Workforce Survey identity names`, async ({ page }) => {
+    const state = await install(page, {
+      currentStatus: deniedCase.status,
+      current: {
+        error: deniedCase.error,
+        department: { id: IDS.department, label: 'Secret Department Name' },
+        organization: {
+          status: 'available',
+          id: IDS.departmentOrganization,
+          name: 'Secret Organisation Name',
+        },
+      },
+    });
+    await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+    await dismissCookie(page);
+    await expect(page.getByTestId('department-current-set-error')).toBeVisible();
+    await expect(page.getByTestId('department-current-set-identity')).toHaveCount(0);
+    await expect(page.getByText('Secret Department Name')).toHaveCount(0);
+    await expect(page.getByText('Secret Organisation Name')).toHaveCount(0);
+    await expect(page.getByText('North Coast Imaging Trust')).toHaveCount(0);
+    expect(state.submissions).toEqual([]);
+    expect(state.unexpectedWrites).toEqual([]);
+  });
+}
+
+test('identity display does not alter draft or save payload contracts', async ({ page }) => {
+  const state = await install(page);
+  await page.goto(`/FormView?slug=${SLUG}&department_id=${IDS.department}&tenant=bnms-fixture`);
+  await dismissCookie(page);
+  await assertLoaded(page);
+
+  await page.getByTestId('button-save-draft').click();
+  await expect.poll(() => state.drafts.length).toBe(1);
+  expect(state.drafts[0].draft_data.__department_current_set).toEqual({
+    department_id: IDS.department,
+    version: 'version-1',
+    complete_sections: [WF, EQ],
+  });
+  expect(state.drafts[0].draft_data).not.toHaveProperty('organization');
+  expect(state.drafts[0].draft_data).not.toHaveProperty('department');
+
+  await acknowledge(page);
+  await page.getByRole('button', { name: 'Save current Department data', exact: true }).click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].submission_data.__department_current_set).toEqual(
+    state.drafts[0].draft_data.__department_current_set,
+  );
+  expect(state.submissions[0].submission_data).not.toHaveProperty('organization');
+  expect(state.submissions[0].submission_data).not.toHaveProperty('department');
+  expect(state.unexpectedWrites).toEqual([]);
 });
 
 test('live date metadata does not reject a visible decommissioning year, while invalid select values remain blocked', async ({ page }) => {

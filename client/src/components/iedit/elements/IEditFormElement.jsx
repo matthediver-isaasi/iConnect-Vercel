@@ -109,6 +109,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const urlPrefillOrgId = urlParams.get('organization_id');
   const draftToken = urlParams.get('draft');
   const currentSetDepartmentParam = urlParams.get('department_id');
+  const [selectedCurrentSetDepartment, setSelectedCurrentSetDepartment] = useState(currentSetDepartmentParam);
+  const selectCurrentSetDepartment = useCallback((departmentId) => {
+    if (!departmentId) return;
+    setSelectedCurrentSetDepartment(departmentId);
+    const next = new URLSearchParams(window.location.search);
+    next.set('department_id', departmentId);
+    window.history.replaceState({}, '', `${window.location.pathname}?${next.toString()}${window.location.hash}`);
+  }, []);
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -329,11 +337,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
   const departmentCurrentSet = useDepartmentCurrentSet({
     form,
-    departmentId: currentSetDepartmentParam,
+    departmentId: selectedCurrentSetDepartment,
     principalId: memberInfo?.id,
     formValues,
     setFormValues,
     ready: defaultsInitialized && (!draftToken || draftLoaded),
+    onDepartmentSelect: selectCurrentSetDepartment,
   });
   const departmentCurrentSetBlocked = currentSetSaveBlocked({
     enabled: departmentCurrentSet.active,

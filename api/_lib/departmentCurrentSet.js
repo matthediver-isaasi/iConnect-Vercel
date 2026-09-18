@@ -85,6 +85,73 @@ export function rpcError(error) {
   return new DepartmentCurrentSetError(503, 'CURRENT_SET_UNAVAILABLE', message);
 }
 
+const unavailableOrganization = () => ({ status: 'unavailable' });
+
+/**
+ * Resolve the Department's organisation strictly from the configured object
+ * graph. This is display-only context: any missing, ambiguous or failed lookup
+ * is represented explicitly and must not change current-set authorization or
+ * reconciliation.
+ */
+export async function loadDepartmentCurrentSetOrganization({
+  db, tenantId, departmentId, configuration,
+}) {
+  const departmentObjectId = configuration?.department_object_id;
+  if (!uuid(tenantId) || !uuid(departmentId) || !uuid(departmentObjectId)) {
+    return unavailableOrganization();
+  }
+  try {
+    const { data: definitions, error: definitionError } = await db
+      .from('custom_object_relationship_definition')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('relationship_key', 'organisation')
+      .eq('status', 'active')
+      .eq('is_required', true)
+      .eq('source_kind', 'custom_object')
+      .eq('source_custom_object_id', departmentObjectId)
+      .eq('target_kind', 'organization')
+      .is('target_custom_object_id', null)
+      .eq('cardinality', 'many_to_one')
+      .limit(2);
+    if (definitionError || !Array.isArray(definitions) || definitions.length !== 1
+        || !uuid(definitions[0]?.id)) {
+      return unavailableOrganization();
+    }
+
+    const { data: edges, error: edgeError } = await db
+      .from('custom_object_relationship')
+      .select('target_record_id')
+      .eq('tenant_id', tenantId)
+      .eq('relationship_definition_id', definitions[0].id)
+      .eq('source_record_id', departmentId)
+      .is('archived_at', null)
+      .limit(2);
+    if (edgeError || !Array.isArray(edges) || edges.length !== 1
+        || !uuid(edges[0]?.target_record_id)) {
+      return unavailableOrganization();
+    }
+
+    const { data: organization, error: organizationError } = await db
+      .from('organization')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .eq('id', edges[0].target_record_id)
+      .maybeSingle();
+    if (organizationError || !organization?.id || typeof organization.name !== 'string'
+        || !organization.name.trim()) {
+      return unavailableOrganization();
+    }
+    return {
+      status: 'available',
+      id: organization.id,
+      name: organization.name,
+    };
+  } catch {
+    return unavailableOrganization();
+  }
+}
+
 async function trustedMember({ req, tenantId, getMember = getSessionMember }) {
   const member = await getMember(req);
   const memberTenantId = member?.tenant_id || member?.organization?.tenant_id || null;
@@ -96,6 +163,7 @@ async function trustedMember({ req, tenantId, getMember = getSessionMember }) {
 
 export async function loadDepartmentCurrentSet({
   db, req, tenantId, formId, departmentId, getMember, getActiveSession = getSession,
+  includeOrganization = false,
 }) {
   if (tenantId !== DEPARTMENT_CURRENT_SET_TENANT_ID || formId !== DEPARTMENT_CURRENT_SET_FORM_ID) {
     throw new DepartmentCurrentSetError(404, 'CURRENT_SET_NOT_CONFIGURED', 'Current department data is unavailable');
@@ -142,7 +210,14 @@ export async function loadDepartmentCurrentSet({
     throw new DepartmentCurrentSetError(409, 'CURRENT_SET_CONFLICT',
       error?.message || 'Current Department data cannot be safely loaded');
   }
-  return data;
+  if (!includeOrganization) return data;
+  const organization = await loadDepartmentCurrentSetOrganization({
+    db,
+    tenantId,
+    departmentId,
+    configuration: config.config,
+  });
+  return { ...data, organization };
 }
 
 /**
@@ -241,7 +316,6 @@ export async function listDepartmentCurrentSetOptions({
     return {
       id,
       label: String(data?.[fieldName] ?? data.department_name ?? data.name ?? id),
-      organization_id: member.organization_id,
     };
   }).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 }

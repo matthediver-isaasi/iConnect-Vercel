@@ -38,6 +38,11 @@ function completeSection(value) {
   };
 }
 
+export function currentSetIdentityName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  return name && !DEPARTMENT_UUID_PATTERN.test(name) ? name : null;
+}
+
 export function normalizeDepartmentCurrentSet(payload) {
   const source = payload?.current_set || payload || {};
   const formValues = source.form_values || source.formValues || {};
@@ -48,6 +53,15 @@ export function normalizeDepartmentCurrentSet(payload) {
   return {
     department: source.department || payload?.department
       || (source.department_id ? { id: source.department_id } : null),
+    organization: source.organization?.status === 'available'
+      && currentSetDepartmentId(source.organization.id)
+      && currentSetIdentityName(source.organization.name)
+      ? {
+        status: 'available',
+        id: source.organization.id,
+        name: currentSetIdentityName(source.organization.name),
+      }
+      : { status: 'unavailable' },
     version: metadata.version || source.version || source.current_set_version || payload?.version || null,
     configVersion: source.configuration_version || source.config_version
       || payload?.configuration_version || payload?.config_version || null,
@@ -186,6 +200,16 @@ export function useDepartmentCurrentSet({
     return Array.isArray(options) ? options.filter(option => currentSetDepartmentId(option?.id)) : [];
   }, [optionsQuery.data]);
   const queriedCurrentSet = useMemo(() => normalizeDepartmentCurrentSet(query.data), [query.data]);
+  // Display context comes only from this request, never the frozen answer
+  // baseline, a restored draft, picker options or the respondent's organisation.
+  // Re-authorize cached results before showing names after mounting/switching.
+  const displayIdentity = active && ready && principalId && !principalChanged
+    && query.isFetchedAfterMount && !query.isFetching && !query.isError
+    && safeDepartmentId && queriedCurrentSet.department?.id === safeDepartmentId
+    ? {
+      department: queriedCurrentSet.department,
+      organization: queriedCurrentSet.organization,
+    } : null;
   const draftMetadata = formValues?.__department_current_set;
   const staleDraft = !!draftMetadata && typeof draftMetadata === 'object'
     && !!queriedCurrentSet.version
@@ -318,6 +342,11 @@ export function useDepartmentCurrentSet({
     active,
     departmentId: safeDepartmentId,
     currentSet: resolvedCurrentSet,
+    displayIdentity,
+    identityLoading: !!safeDepartmentId && (
+      !ready || query.isLoading || query.isFetching
+      || (!!principalId && !query.isFetchedAfterMount)
+    ),
     sectionIds,
     loading: query.isLoading,
     optionsLoading: optionsQuery.isLoading,

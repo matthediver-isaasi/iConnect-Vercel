@@ -21,6 +21,8 @@ const {
   currentSetSubmissionMetadata,
   currentSetCommitConfirmed,
   mergeDepartmentCurrentSetValues,
+  normalizeDepartmentCurrentSet,
+  currentSetIdentityName,
   useDepartmentCurrentSet,
 } = await import('./departmentCurrentSet.js');
 
@@ -39,6 +41,8 @@ const form = {
 function payload(version = 'v1', equipment = []) {
   return {
     department_id: departmentId,
+    department: { id: departmentId, label: 'North Department' },
+    organization: { status: 'available', id: '33333333-3333-4333-8333-333333333333', name: 'North Hospital' },
     version,
     complete_sections: ['workforce', 'equipment'],
     form_values: {
@@ -215,6 +219,122 @@ test('requires both acknowledgements before the complete-array payload can save'
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'committed', version: 'v1' } }), true);
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'replayed', version: 'v1' } }), true);
   assert.equal(currentSetCommitConfirmed({ current_set: { status: 'committed' } }), false);
+});
+
+test('identity normalization is display-only and never turns an ID into a name', () => {
+  const loaded = payload();
+  const normalized = normalizeDepartmentCurrentSet(loaded);
+  assert.deepEqual(normalized.organization, loaded.organization);
+  assert.equal(currentSetIdentityName(departmentId), null);
+  assert.equal(currentSetIdentityName('  '), null);
+  assert.equal(currentSetIdentityName({ name: 'not a string' }), null);
+  for (const organization of [
+    undefined, { status: 'unavailable', id: departmentId, name: 'Do not display' },
+    { status: 'available', id: departmentId, name: departmentId },
+    { status: 'available', id: 'bad-id', name: 'Do not display' },
+  ]) {
+    assert.deepEqual(normalizeDepartmentCurrentSet({ ...loaded, organization }).organization, { status: 'unavailable' });
+  }
+  assert.deepEqual(mergeDepartmentCurrentSetValues({
+    formValues: {}, sectionIds: { workforce: 'workforce', equipment: 'equipment' },
+    currentSet: {
+      ...normalized,
+      workforce: { rows: normalized.formValues.workforce },
+      equipment: { rows: normalized.formValues.equipment },
+    },
+  }), loaded.form_values);
+  assert.deepEqual(currentSetSubmissionMetadata({
+    form, departmentId, currentSet: normalized,
+  }), loaded.form_values.__department_current_set);
+});
+
+test('display identity clears during switches, ignores delayed old responses, and hides failed cached reloads', async () => {
+  const original = publicClient.getDepartmentCurrentSet;
+  const originalConfirm = window.confirm;
+  window.confirm = () => true;
+  const nextDepartment = '22222222-2222-4222-8222-222222222222';
+  const pending = new Map();
+  publicClient.getDepartmentCurrentSet = (_slug, _formId, id) => new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const root = createRoot(document.getElementById('root'));
+  let latest;
+  const render = (principalId = 'member-1', ready = true) => root.render(
+    React.createElement(QueryClientProvider, { client }, React.createElement(HookHarness, {
+      initialValues: {}, principalId, ready, onState: value => { latest = value; },
+    })),
+  );
+  try {
+    await act(async () => render());
+    assert.equal(latest.state.displayIdentity, null);
+    await act(async () => pending.get(departmentId).resolve(payload()));
+    await flush();
+    assert.equal(latest.state.displayIdentity.organization.name, 'North Hospital');
+    assert.deepEqual(latest.values, payload().form_values);
+
+    // A refetch removes even previously successful names until authorized again.
+    await act(async () => {
+      void client.invalidateQueries({ queryKey: ['department-current-set', form.id, departmentId] });
+    });
+    await flush();
+    assert.equal(latest.state.displayIdentity, null);
+    const oldRequest = pending.get(departmentId);
+    await act(async () => latest.state.selectDepartment(nextDepartment));
+    await flush();
+    assert.equal(latest.state.displayIdentity, null);
+    const next = payload('v2');
+    next.department = { id: nextDepartment, label: 'South Department' };
+    next.department_id = nextDepartment;
+    next.organization = { status: 'available', id: '44444444-4444-4444-8444-444444444444', name: 'South Hospital' };
+    next.form_values.__department_current_set.department_id = nextDepartment;
+    await act(async () => pending.get(nextDepartment).resolve(next));
+    await flush();
+    assert.equal(latest.state.displayIdentity.organization.name, 'South Hospital');
+    await act(async () => oldRequest.resolve(payload()));
+    await flush();
+    assert.equal(latest.state.displayIdentity.department.label, 'South Department');
+    assert.equal(latest.state.displayIdentity.organization.name, 'South Hospital');
+
+    await act(async () => {
+      void client.invalidateQueries({ queryKey: ['department-current-set', form.id, nextDepartment] });
+    });
+    await flush();
+    assert.equal(latest.state.displayIdentity, null);
+    await act(async () => pending.get(nextDepartment).reject(new Error('Access denied')));
+    await flush();
+    assert.equal(latest.state.displayIdentity, null);
+    assert.match(latest.state.error.message, /Access denied/);
+    await act(async () => render('member-2'));
+    assert.equal(latest.state.displayIdentity, null);
+    await act(async () => render('member-2', false));
+    assert.equal(latest.state.displayIdentity, null);
+  } finally {
+    publicClient.getDepartmentCurrentSet = original;
+    window.confirm = originalConfirm;
+    await act(async () => root.unmount());
+    client.clear();
+  }
+});
+
+test('a response with another Department ID cannot supply display identity', async () => {
+  const original = publicClient.getDepartmentCurrentSet;
+  publicClient.getDepartmentCurrentSet = async () => ({
+    ...payload(), department: { id: '22222222-2222-4222-8222-222222222222', label: 'Wrong Department' },
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const root = createRoot(document.getElementById('root'));
+  let latest;
+  try {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client },
+      React.createElement(HookHarness, { initialValues: {}, onState: value => { latest = value; } }))));
+    await flush();
+    assert.equal(latest.state.displayIdentity, null);
+  } finally {
+    publicClient.getDepartmentCurrentSet = original;
+    await act(async () => root.unmount());
+    client.clear();
+  }
 });
 
 test('switching Department clears only current-set answers and verified metadata', async () => {

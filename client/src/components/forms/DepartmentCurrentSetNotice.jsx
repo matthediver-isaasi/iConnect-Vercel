@@ -1,4 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
+import { currentSetIdentityName } from '@/lib/departmentCurrentSet';
 
 /**
  * Deliberate acknowledgement prevents a failed/partial prefill from being
@@ -9,11 +10,13 @@ export default function DepartmentCurrentSetNotice({
   blockedReason,
 }) {
   if (!state?.active) return null;
-  const departmentLabel = state.currentSet?.department?.label
-    || state.currentSet?.department?.name
-    || state.departmentId
-    || 'Department';
-  if (state.loading) {
+  const departmentLabel = currentSetIdentityName(state.displayIdentity?.department?.label)
+    || currentSetIdentityName(state.displayIdentity?.department?.name)
+    || 'Department unavailable';
+  const organizationLabel = state.displayIdentity?.organization?.status === 'available'
+    ? currentSetIdentityName(state.displayIdentity.organization.name) || 'Organisation unavailable'
+    : 'Organisation unavailable';
+  if (state.loading || state.identityLoading) {
     return <p className="text-sm text-slate-600" data-testid="department-current-set-loading">Loading current Department data…</p>;
   }
   if (!state.departmentId) {
@@ -45,7 +48,7 @@ export default function DepartmentCurrentSetNotice({
         >
           <option value="" disabled>Select a Department</option>
           {state.departmentOptions.map(option => (
-            <option key={option.id} value={option.id}>{option.label || option.name || option.id}</option>
+            <option key={option.id} value={option.id}>{currentSetIdentityName(option.label) || currentSetIdentityName(option.name) || 'Department name unavailable'}</option>
           ))}
         </select>
         <p className="text-xs text-slate-600">Only Departments assigned to your signed-in account are shown.</p>
@@ -58,12 +61,24 @@ export default function DepartmentCurrentSetNotice({
       || blockedReason?.includes('changed')) {
     return (
       <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" data-testid="department-current-set-error">
-        {blockedReason || 'Current Department data could not be loaded. Reload before saving.'}
+        {state.error?.message || blockedReason || 'Current Department data could not be loaded. Reload before saving.'}
       </div>
     );
   }
   return (
     <div className="space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-slate-700" data-testid="department-current-set-review">
+      <section aria-label="Workforce survey identity" data-testid="department-current-set-identity" className="rounded-md border border-blue-200 bg-white p-4 text-left">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="min-w-0">
+            <dt className="text-sm font-medium text-slate-600">Organisation</dt>
+            <dd className="mt-1 break-words text-lg font-semibold text-slate-900">{organizationLabel}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-sm font-medium text-slate-600">Department</dt>
+            <dd className="mt-1 break-words text-lg font-semibold text-slate-900">{departmentLabel}</dd>
+          </div>
+        </dl>
+      </section>
       <p>
         Editing the current Workforce and Equipment sets for <strong>{departmentLabel}</strong>.
         Existing blank serial numbers and installation years are retained; new equipment requires them.

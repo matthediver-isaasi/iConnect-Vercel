@@ -28,6 +28,8 @@ export default async function handler(req, res, dependencies = {}) {
     const currentSet = await loadDepartmentCurrentSet({
       db, req, tenantId: tenant.id, formId: req.query.form_id,
       departmentId: req.query.department_id, getMember: dependencies.getSessionMember,
+      getActiveSession: dependencies.getActiveSession,
+      includeOrganization: true,
     });
     return res.status(200).json(currentSet);
   } catch (error) {
