@@ -57,6 +57,41 @@ function canvasDesign(id, copy) {
   };
 }
 
+function loginCanvasDesign(id = "login") {
+  return {
+    version: 1,
+    root: {
+      background: null,
+      groups: [],
+      guides: { vertical: [], horizontal: [] },
+      sections: [{
+        id: `section-${id}`,
+        type: "section",
+        children: [{
+          id: `login-form-${id}`,
+          type: "login-form",
+          name: "Login Form",
+          geom: { x: 226, y: 0, w: 448, h: 520 },
+          bp: {
+            desktop: { x: 226, y: 0, w: 448, h: 520 },
+            tablet: { x: 126, y: 0, w: 448, h: 520 },
+            mobile: { x: 0, y: 0, w: 350, h: 520 },
+          },
+          style: { background: "transparent", opacity: 1, zIndex: 1 },
+          content: {},
+        }],
+      }],
+    },
+  };
+}
+
+function loginPageRecord({ chrome = "both", hideChrome = false, status = "published" } = {}) {
+  return {
+    ...pageRecord("login", { chrome, hideChrome, status }),
+    canvas_design: loginCanvasDesign(),
+  };
+}
+
 function pageRecord(slug, {
   chrome = "both",
   copy = `Content for ${slug}`,
@@ -147,6 +182,10 @@ async function installFixtures(page, options = {}) {
     pages: { ...defaultPages, ...(options.pages || {}) },
     pageDelays: { ...(options.pageDelays || {}) },
     pageFailures: new Set(options.pageFailures || []),
+    pageErrors: { ...(options.pageErrors || {}) },
+    pageHolds: new Set(options.pageHolds || []),
+    releasedPages: new Set(),
+    pageWaiters: new Map(),
     requests: [],
     unexpected: [],
     writes: [],
@@ -158,6 +197,10 @@ async function installFixtures(page, options = {}) {
     micrositesFailure: !!options.micrositesFailure,
     forms: { ...(options.forms || {}) },
     homeSlug: options.homeSlug || "root-home",
+  };
+  state.releasePage = (slug) => {
+    state.releasedPages.add(slug);
+    state.pageWaiters.get(slug)?.();
   };
 
   await page.addInitScript(() => {
@@ -243,6 +286,15 @@ async function installFixtures(page, options = {}) {
       }
       return json(route, { authenticated: false }, 401);
     }
+    if (path === "/api/auth/tenant-public-settings") {
+      return json(route, {
+        success: true,
+        settings: {
+          member_google_login_enabled: false,
+          member_portal_login_enabled: true,
+        },
+      });
+    }
     if (path === `/api/entities/Role/${MEMBER.role_id}`) {
       return json(route, { id: MEMBER.role_id, name: "Member", excluded_features: [] });
     }
@@ -326,9 +378,16 @@ async function installFixtures(page, options = {}) {
 
     if (path.startsWith("/api/public/page/")) {
       const slug = decodeURIComponent(path.slice("/api/public/page/".length));
+      if (state.pageHolds.has(slug) && !state.releasedPages.has(slug)) {
+        await new Promise((resolve) => state.pageWaiters.set(slug, resolve));
+        state.pageWaiters.delete(slug);
+      }
       if (state.pageDelays[slug]) {
         await new Promise((resolve) => setTimeout(resolve, state.pageDelays[slug]));
       }
+      const configuredError = state.pageErrors[slug];
+      if (configuredError?.abort) return route.abort(configuredError.abort);
+      if (configuredError) return json(route, configuredError.body, configuredError.status);
       if (state.pageFailures.has(slug)) return json(route, { error: "Fixture page failure" }, 503);
       const found = state.pages[slug];
       const microsite = url.searchParams.get("microsite");
@@ -336,7 +395,9 @@ async function installFixtures(page, options = {}) {
         (!found.microsite_id && !microsite)
         || (found.microsite_id === MICROSITE.id && microsite === MICROSITE.path_prefix)
       );
-      if (!correctlyScoped || found.status !== "published") return json(route, { error: "Not found" }, 404);
+      if (!correctlyScoped || found.status !== "published") {
+        return json(route, { error: "Page not found or not published" }, 404);
+      }
       return json(route, {
         success: true,
         page: found,
@@ -372,6 +433,13 @@ async function expectChromeInsertionHistory(page, { header, footer }) {
   const tags = await page.evaluate(() => window.__task1925ChromeInsertions.map((entry) => entry.tag));
   expect(tags.includes("header")).toBe(header);
   expect(tags.includes("footer")).toBe(footer);
+}
+
+async function expectRealLoginForm(page) {
+  await expect(page.getByText("Member Access", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("input-email")).toBeVisible();
+  await expect(page.getByTestId("input-password")).toBeVisible();
+  await expect(page.getByTestId("button-login")).toBeVisible();
 }
 
 async function expectNoFixtureEscape(state) {
@@ -715,5 +783,142 @@ test("task1925 missing and failed page reads settle to visible not-found without
   await expect(page.getByTestId("page-not-found")).toBeVisible();
   await expectChrome(page, { header: false, footer: false });
   expect(state.requests.some((request) => request.startsWith("GET /api/public/page/broken"))).toBe(true);
+  await expectNoFixtureEscape(state);
+});
+
+for (const [kind, pages] of [
+  ["missing", {}],
+  ["unpublished", { login: loginPageRecord({ status: "draft" }) }],
+]) {
+  test(`task4504 delayed ${kind} optional login resolves to the real login with both chrome`, async ({ page }, testInfo) => {
+    const state = await installFixtures(page, {
+      pages,
+      pageDelays: { login: 1_200 },
+    });
+    const requestedSearch = "?returnTo=%2Fboth%3Ftab%3Ddetails&resourceId=resource-4504";
+    await page.goto(`/login${requestedSearch}`);
+    await expect.poll(() => state.requests.some((request) => request.startsWith("GET /api/public/page/login"))).toBe(true);
+
+    for (let elapsed = 0; elapsed < 800; elapsed += 100) {
+      await page.waitForTimeout(100);
+      await expectChrome(page, { header: false, footer: false });
+      expect(await page.evaluate(() => window.__task1925ChromeInsertions)).toEqual([]);
+    }
+
+    await expectRealLoginForm(page);
+    await expectChrome(page, { header: true, footer: true });
+    expect(await page.evaluate(() => location.search)).toBe(requestedSearch);
+    if (kind === "missing") {
+      await page.screenshot({
+        path: testInfo.outputPath("task4504-resolved-default-login.png"),
+        fullPage: true,
+      });
+    }
+
+    const stableFormMarker = await page.evaluate(() => {
+      const form = document.querySelector('[data-testid="input-email"]')?.closest("form");
+      form.parentElement.dataset.task4504StableParent = "true";
+      form.dataset.task4504StableForm = "true";
+      return true;
+    });
+    expect(stableFormMarker).toBe(true);
+    await page.evaluate(() => {
+      history.replaceState({}, "", `${location.pathname}${location.search}&mode_hint=stable`);
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.locator('[data-task4504-stable-parent="true"]')).toHaveCount(1);
+    await expect(page.locator('form[data-task4504-stable-form="true"]')).toHaveCount(1);
+    await expectNoFixtureEscape(state);
+  });
+}
+
+for (const [name, chrome, hideChrome, expected] of [
+  ["both", "both", false, { header: true, footer: true }],
+  ["header", "header", false, { header: true, footer: false }],
+  ["footer", "footer", false, { header: false, footer: true }],
+  ["none", "none", false, { header: false, footer: false }],
+  ["legacy hide_chrome", "both", true, { header: false, footer: false }],
+]) {
+  test(`task4504 published Canvas login honors ${name} chrome on a cold load`, async ({ page }) => {
+    const state = await installFixtures(page, {
+      pages: { login: loginPageRecord({ chrome, hideChrome }) },
+      pageHolds: ["login"],
+    });
+    const requestedSearch = "?returnTo=%2Falpha%3Fview%3Dfull&groupId=group-4504";
+    const navigation = page.goto(`/login${requestedSearch}`);
+    await expect.poll(() => state.requests.some((request) => request.startsWith("GET /api/public/page/login"))).toBe(true);
+    for (let sample = 0; sample < 4; sample += 1) {
+      await page.waitForTimeout(100);
+      await expectChrome(page, { header: false, footer: false });
+      expect(await page.evaluate(() => window.__task1925ChromeInsertions)).toEqual([]);
+    }
+    state.releasePage("login");
+    await navigation;
+    await expectRealLoginForm(page);
+    await expectChrome(page, expected);
+    await expectChromeInsertionHistory(page, expected);
+    expect(await page.evaluate(() => location.search)).toBe(requestedSearch);
+    expect(state.requests.some((request) => request.startsWith("GET /api/public/page/login"))).toBe(true);
+    await expectNoFixtureEscape(state);
+  });
+}
+
+for (const [name, error] of [
+  ["tenant 404", { status: 404, body: { error: "Tenant not found" } }],
+  ["server 503", { status: 503, body: { error: "Tenant service unavailable" } }],
+  ["network", { abort: "connectionfailed" }],
+  ["unknown 404", { status: 404, body: { error: "Unknown page lookup failure" } }],
+]) {
+  test(`task4504 ${name} login lookup failure remains chrome none`, async ({ page }) => {
+    const state = await installFixtures(page, { pageErrors: { login: error } });
+    await page.goto("/login?returnTo=%2Fnone%3Ffrom%3Dfailure");
+    await expectRealLoginForm(page);
+    await expectChrome(page, { header: false, footer: false });
+    await expectChromeInsertionHistory(page, { header: false, footer: false });
+    expect(await page.evaluate(() => location.search)).toBe("?returnTo=%2Fnone%3Ffrom%3Dfailure");
+    await expectNoFixtureEscape(state);
+  });
+}
+
+test("task4504 SPA none to default login to none and back restores resolved chrome and navigation state", async ({ page }) => {
+  const state = await installFixtures(page, {
+    pageDelays: { login: 500 },
+  });
+  await page.goto("/none?phase=before");
+  await expect(page.getByText("Content for none", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    history.pushState({}, "", "/login?returnTo=%2Fnone%3Fphase%3Dafter&resourceId=resource-4504");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  for (let elapsed = 0; elapsed < 300; elapsed += 100) {
+    await page.waitForTimeout(100);
+    await expectChrome(page, { header: false, footer: false });
+    expect(await page.evaluate(() => window.__task1925ChromeInsertions)).toEqual([]);
+  }
+  await expectRealLoginForm(page);
+  await expectChrome(page, { header: true, footer: true });
+  await expectChromeInsertionHistory(page, { header: true, footer: true });
+
+  await page.evaluate(() => {
+    history.pushState({}, "", "/none?phase=after");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.getByText("Content for none", { exact: true })).toBeVisible();
+  await expectChrome(page, { header: false, footer: false });
+  expect(await page.evaluate(() => (
+    window.__task1925ChromeInsertions.filter((entry) => entry.path.startsWith("/none"))
+  ))).toEqual([]);
+
+  await page.goBack();
+  await expectRealLoginForm(page);
+  expect(await page.evaluate(() => location.search)).toBe("?returnTo=%2Fnone%3Fphase%3Dafter&resourceId=resource-4504");
+  await expectChrome(page, { header: true, footer: true });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/none\?phase=before$/);
+  await expect(page.getByText("Content for none", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (
+    window.__task1925ChromeInsertions.filter((entry) => entry.path.startsWith("/none"))
+  ))).toEqual([]);
   await expectNoFixtureEscape(state);
 });

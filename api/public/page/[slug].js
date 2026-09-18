@@ -119,7 +119,11 @@ export function createPublicPageHandler({
     if (microsite) {
       pageQuery = pageQuery.eq('microsite_id', microsite.id);
     }
-    const { data: page, error: pageError } = await pageQuery.single();
+    // Login is an optional system page: no matching row is a normal absence,
+    // while a database failure must remain distinguishable from that absence.
+    const { data: page, error: pageError } = slug === 'login'
+      ? await pageQuery.maybeSingle()
+      : await pageQuery.single();
 
     console.log('[Public Page Slug] Page lookup:', { 
       found: !!page, 
@@ -129,8 +133,17 @@ export function createPublicPageHandler({
       error: pageError?.message || pageError?.code || null 
     });
 
-    if (pageError || !page) {
+    if (pageError) {
+      if (slug === 'login') {
+        console.error('[Public Page Slug] Failed to fetch login page:', JSON.stringify(pageError));
+        return res.status(500).json({ error: 'Failed to fetch page' });
+      }
       console.log('[Public Page Slug] Page not found:', { slug, tenantId: tenant.id, error: pageError });
+      return res.status(404).json({ error: 'Page not found or not published' });
+    }
+
+    if (!page) {
+      console.log('[Public Page Slug] Page not found:', { slug, tenantId: tenant.id });
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 

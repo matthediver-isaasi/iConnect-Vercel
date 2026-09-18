@@ -20,6 +20,7 @@ import BuyProgramTickets from "./BuyProgramTickets";
 // TestLogin removed - no longer needed
 
 import Login from "./Login";
+import { getOptionalLoginPage } from "./loginPageQuery";
 
 import ResetPassword from "./ResetPassword";
 
@@ -448,7 +449,7 @@ const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRend
 function SmartLoginRoute() {
     const { data, isLoading, isError } = useQuery({
         queryKey: ['public-canvas-login-page'],
-        queryFn: () => publicClient.getPage('login'),
+        queryFn: getOptionalLoginPage,
         staleTime: 60_000,
         retry: false,
     });
