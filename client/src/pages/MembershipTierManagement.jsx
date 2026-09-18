@@ -3108,7 +3108,15 @@ export default function MembershipTierManagement() {
         <div className="border-t pt-4 mt-2 space-y-4">
           <h3 className="text-sm font-medium mb-3">Invoice Address</h3>
           <p className="text-sm text-muted-foreground">
-            Select which field to use as the invoice address when generating Xero invoices for this tier structure.
+            Choose the Member or Organisation address field to use when this structure’s address settings apply to invoices in your connected accounting system (Xero or QuickBooks).
+          </p>
+          <p className="text-sm text-muted-foreground">
+            For membership payments made through a form using Stripe, the invoice uses the billing address collected by Stripe, not this field.
+            You can leave this selector at its default if you only use that payment route.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            To also save Stripe address details to the Member or Organisation record, configure “Stripe billing address mappings” in the form’s payment field settings, save the mappings, then save the form.
+            If you also use non-Stripe payment routes, select the appropriate address field here for those invoices.
           </p>
           <div className="space-y-2">
             <Label>Invoice Address Field</Label>
