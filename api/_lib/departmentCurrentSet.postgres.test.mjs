@@ -33,6 +33,10 @@ const departmentAssignmentAuthMigration = fileURLToPath(new URL(
   '../../supabase/migrations/20261105_department_current_set_assignment_auth.sql',
   import.meta.url,
 ));
+const surveyStampMigration = fileURLToPath(new URL(
+  '../../supabase/migrations/20261106_department_current_set_survey_stamp.sql',
+  import.meta.url,
+));
 
 const executable = name => spawnSync('sh', ['-c', `command -v ${name}`], {
   encoding: 'utf8',
@@ -79,7 +83,7 @@ const ID = Object.freeze({
   group: '10000000-0000-4000-8000-000000000009',
   session: 'current-set-session',
   otherSession: 'other-current-set-session',
-  departmentObject: '10000000-0000-4000-8000-000000000010',
+  departmentObject: 'cd1ebfd3-3e16-4091-be5a-99992d926f2f',
   surveyObject: '10000000-0000-4000-8000-000000000011',
   rowObject: '10000000-0000-4000-8000-000000000012',
   equipmentObject: '10000000-0000-4000-8000-000000000013',
@@ -100,6 +104,9 @@ const ID = Object.freeze({
   subFive: '10000000-0000-4000-8000-000000000035',
   subSix: '10000000-0000-4000-8000-000000000036',
   subSeven: '10000000-0000-4000-8000-000000000037',
+  subStampOne: '10000000-0000-4000-8000-000000000038',
+  subStampTwo: '10000000-0000-4000-8000-000000000039',
+  subStampThree: '10000000-0000-4000-8000-000000000052',
   respondent: '10000000-0000-4000-8000-000000000040',
   surveyDepartment: '10000000-0000-4000-8000-000000000041',
   rowSurvey: '10000000-0000-4000-8000-000000000042',
@@ -111,6 +118,10 @@ const ID = Object.freeze({
   gradeField: '10000000-0000-4000-8000-000000000048',
   rowNameField: '10000000-0000-4000-8000-000000000049',
   departmentOrganization: '10000000-0000-4000-8000-000000000051',
+  surveyLastUpdatedField: 'c5dcd16c-e63e-49f2-b72f-b0caaa7c5903',
+  foreignTenant: '20000000-0000-4000-8000-000000000001',
+  foreignObject: '20000000-0000-4000-8000-000000000002',
+  foreignDepartment: '20000000-0000-4000-8000-000000000003',
 });
 
 const q = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -143,6 +154,15 @@ function payload({ workforce = "'[]'::jsonb", equipment = "'[]'::jsonb" } = {}) 
 // produces a canonical payload with both arrays present.
 function completePayload(workforce = "'[]'::jsonb", equipment = "'[]'::jsonb") {
   return payload({ workforce, equipment });
+}
+
+function currentPayload() {
+  return `(SELECT value->'form_values' FROM (
+    SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)}
+    ) AS value
+  ) loaded)`;
 }
 
 // Re-submit the current complete set while changing only the selected
@@ -226,7 +246,8 @@ function fixtureSql() {
     );
     CREATE TABLE preference_field (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL REFERENCES tenant(id),
-      custom_object_id uuid, name text NOT NULL, field_type text NOT NULL DEFAULT 'text',
+      custom_object_id uuid, entity_scope text NOT NULL DEFAULT 'member',
+      name text NOT NULL, field_type text NOT NULL DEFAULT 'text',
       is_active boolean NOT NULL DEFAULT true, is_required boolean NOT NULL DEFAULT false,
       options jsonb NOT NULL DEFAULT '[]'::jsonb
     );
@@ -243,6 +264,17 @@ function fixtureSql() {
       updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE (tenant_id,id),
       CHECK (jsonb_typeof(data) = 'object')
     );
+    -- Production's shared record validator owns the audit timestamp. Keep that
+    -- BEFORE-trigger behavior in this disposable fixture so the stamp RPC
+    -- cannot assume its requested clock instant survives unchanged.
+    CREATE FUNCTION validate_custom_object_record() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      NEW.updated_at := now();
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER validate_custom_object_record
+      BEFORE INSERT OR UPDATE ON custom_object_record
+      FOR EACH ROW EXECUTE FUNCTION validate_custom_object_record();
     CREATE TABLE custom_object_relationship_definition (
       id uuid PRIMARY KEY, tenant_id uuid NOT NULL REFERENCES tenant(id), relationship_key text NOT NULL,
       source_kind text NOT NULL, source_custom_object_id uuid, target_kind text NOT NULL, target_custom_object_id uuid,
@@ -258,7 +290,7 @@ function fixtureSql() {
       field_values jsonb NOT NULL DEFAULT '{}'::jsonb, updated_by text, updated_at timestamptz NOT NULL DEFAULT now(),
       CHECK (jsonb_typeof(field_values) = 'object')
     );
-    INSERT INTO tenant VALUES (${q(ID.tenant)});
+    INSERT INTO tenant VALUES (${q(ID.tenant)}), (${q(ID.foreignTenant)});
     INSERT INTO organization (id,tenant_id) VALUES
       (${q(ID.organization)},${q(ID.tenant)}),
       (${q(ID.otherOrganization)},${q(ID.tenant)});
@@ -268,14 +300,18 @@ function fixtureSql() {
     INSERT INTO session VALUES (${q(ID.session)}, ${q(JSON.stringify({ memberId: ID.member, tenantId: ID.tenant }))}, now() + interval '1 hour');
     INSERT INTO session VALUES (${q(ID.otherSession)}, ${q(JSON.stringify({ memberId: ID.otherMember, tenantId: ID.tenant }))}, now() + interval '1 hour');
     INSERT INTO form (id,tenant_id,fields) VALUES (${q(ID.form)},${q(ID.tenant)},'[{"id":"wf"},{"id":"eq"}]');
-    ${obj(ID.departmentObject, 'department')} ${obj(ID.surveyObject, 'survey')} ${obj(ID.rowObject, 'workforce_row')}
+    ${obj(ID.departmentObject, 'org_department')} ${obj(ID.surveyObject, 'survey')} ${obj(ID.rowObject, 'workforce_row')}
     ${obj(ID.equipmentObject, 'equipment')} ${obj(ID.typeObject, 'equipment_type')} ${obj(ID.modelObject, 'equipment_model')}
-    INSERT INTO preference_field (id,tenant_id,custom_object_id,name,field_type,is_active,is_required,options) VALUES
-      (${q(ID.staffGroupField)},${q(ID.tenant)},${q(ID.rowObject)},'staff_group','dropdown',true,true,
+    INSERT INTO custom_object_definition
+      (id,tenant_id,object_key,singular_label,plural_label,status)
+      VALUES (${q(ID.foreignObject)},${q(ID.foreignTenant)},'org_department','Foreign Department','Foreign Departments','active');
+    INSERT INTO preference_field (id,tenant_id,custom_object_id,entity_scope,name,field_type,is_active,is_required,options) VALUES
+      (${q(ID.surveyLastUpdatedField)},${q(ID.tenant)},${q(ID.departmentObject)},'custom_object','survey_last_updated','date',true,false,'[]'),
+      (${q(ID.staffGroupField)},${q(ID.tenant)},${q(ID.rowObject)},'custom_object','staff_group','dropdown',true,true,
         '["Clinical Practitioner – Technologist ","Nurse","Radiographer"]'),
-      (${q(ID.gradeField)},${q(ID.tenant)},${q(ID.rowObject)},'grade','dropdown',true,true,
+      (${q(ID.gradeField)},${q(ID.tenant)},${q(ID.rowObject)},'custom_object','grade','dropdown',true,true,
         '["Band 5","Band 6","Band 7","Band 8a"]'),
-      (${q(ID.rowNameField)},${q(ID.tenant)},${q(ID.rowObject)},'row_name','text',false,true,'[]');
+      (${q(ID.rowNameField)},${q(ID.tenant)},${q(ID.rowObject)},'custom_object','row_name','text',false,true,'[]');
     UPDATE custom_object_definition SET primary_display_field_id=${q(ID.staffGroupField)}::uuid
       WHERE id=${q(ID.rowObject)}::uuid;
     ${definition(ID.respondent, 'members', 'custom_object', ID.departmentObject, 'member', null,
@@ -288,8 +324,9 @@ function fixtureSql() {
     ${definition(ID.equipmentModel, 'equipment_register_model', 'custom_object', ID.equipmentObject, 'custom_object', ID.modelObject)}
     ${definition(ID.modelType, 'model_type', 'custom_object', ID.modelObject, 'custom_object', ID.typeObject)}
     INSERT INTO custom_object_record (id,tenant_id,custom_object_id,data) VALUES
-      (${q(ID.department)},${q(ID.tenant)},${q(ID.departmentObject)},'{"name":"North"}'),
+      (${q(ID.department)},${q(ID.tenant)},${q(ID.departmentObject)},'{"name":"North","unrelated":{"preserve":true},"legacy_code":"N-1"}'),
       (${q(ID.otherDepartment)},${q(ID.tenant)},${q(ID.departmentObject)},'{"name":"South"}'),
+      (${q(ID.foreignDepartment)},${q(ID.foreignTenant)},${q(ID.foreignObject)},'{"name":"Foreign","survey_last_updated":"1999-12-31"}'),
       (${q(ID.survey)},${q(ID.tenant)},${q(ID.surveyObject)},'{"survey_name":"Current workforce"}'),
       (${q(ID.workforceRow)},${q(ID.tenant)},${q(ID.rowObject)},'{"row_name":"Original","staff_group":"Clinical Practitioner – Technologist ","grade":"Band 7","occupied_wte":0,"vacant_wte":1,"legacy_vacancy_reported":"Unknown"}'),
        (${q(ID.equipment)},${q(ID.tenant)},${q(ID.equipmentObject)},'{"still_in_service":"Yes","year_decommissioned":2018,"additional_information":"legacy"}'),
@@ -324,6 +361,7 @@ function fixtureSql() {
        "equipment_fields":{"type":"equipment_type_id","manufacturer":"manufacturer","model":"model_id","serial":"serial_number","installed":"year_installed","decommissioned":"year_decommissioned","service":"still_in_service","notes":"additional_information"},
         "relationship_keys":{"workforce_department":"workforce_survey_row_department","equipment_department":"equipment_register_department","equipment_type":"equipment_register_type","equipment_model":"equipment_register_model","model_type":"model_type"},
         "relationship_ids":{"workforce_department":"${ID.rowSurvey}","equipment_department":"${ID.equipmentDepartment}","equipment_type":"${ID.equipmentType}","equipment_model":"${ID.equipmentModel}","model_type":"${ID.modelType}"}}$cfg$::jsonb);
+    \\i ${surveyStampMigration}
     INSERT INTO form_submission (id,tenant_id,form_id,created_member_id) VALUES
       (${q(ID.subOne)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
       (${q(ID.subTwo)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
@@ -332,7 +370,10 @@ function fixtureSql() {
       (${q(ID.subFour)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
       (${q(ID.subFive)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
       (${q(ID.subSix)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
-      (${q(ID.subSeven)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)});
+      (${q(ID.subSeven)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
+      (${q(ID.subStampOne)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
+      (${q(ID.subStampTwo)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)}),
+      (${q(ID.subStampThree)},${q(ID.tenant)},${q(ID.form)},${q(ID.member)});
     \\i ${authMigration}
     -- Match the production writer role narrowly enough to prove trigger
     -- privilege nesting, without granting its private lock helpers directly.
@@ -357,6 +398,14 @@ test('Department current-set migration executes its reconciliation behavior only
   const scalar = statement => run(psql, [...args, '-t', '-A'], statement);
   try {
     run(psql, args, fixtureSql());
+    // The stamp migration is safe to apply repeatedly and retains the narrow
+    // writer-role boundary established by the authenticated wrapper.
+    run(psql, args, `\\i ${surveyStampMigration}`);
+    assert.equal(scalar(`SELECT concat_ws(':',pf.name,pf.field_type,pf.entity_scope,pf.is_active,
+      pf.custom_object_id,d.object_key,d.status)
+      FROM preference_field pf JOIN custom_object_definition d ON d.id=pf.custom_object_id
+      WHERE pf.id=${q(ID.surveyLastUpdatedField)}::uuid;`),
+    `survey_last_updated:date:custom_object:t:${ID.departmentObject}:org_department:active`);
     run(psql, args, `INSERT INTO form (id,tenant_id) VALUES (${q(ID.otherForm)},${q(ID.tenant)});`);
     assert.match(fails(psql, args, `INSERT INTO department_current_set_config (tenant_id,form_id,config)
       VALUES (${q(ID.tenant)},${q(ID.otherForm)},'{}');`), /department_current_set_config_scope/);
@@ -481,6 +530,121 @@ test('Department current-set migration executes its reconciliation behavior only
     assert.equal(JSON.parse(scalar(`SELECT department_current_set_load_authenticated(${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,${q(ID.session)})::text;`)).department.id, ID.department);
     assert.equal(scalar(`SELECT has_function_privilege('authenticated','department_current_set_load_authenticated(uuid,uuid,uuid,uuid,text)','EXECUTE');`), 'f');
     assert.equal(scalar(`SELECT has_function_privilege('service_role','department_current_set_reconcile_authenticated(uuid,uuid,uuid,uuid,uuid,text,text,jsonb)','EXECUTE');`), 't');
+    assert.equal(scalar(`SELECT has_function_privilege('anon','department_current_set_reconcile_authenticated(uuid,uuid,uuid,uuid,uuid,text,text,jsonb)','EXECUTE');`), 'f');
+    assert.equal(scalar(`SELECT has_function_privilege('authenticated','department_current_set_reconcile_authenticated(uuid,uuid,uuid,uuid,uuid,text,text,jsonb)','EXECUTE');`), 'f');
+    assert.equal(scalar(`SELECT has_function_privilege('service_role','department_current_set_assert_survey_stamp_metadata(uuid,uuid,jsonb)','EXECUTE');`), 'f');
+    assert.equal(scalar(`SELECT has_function_privilege('anon','department_current_set_assert_survey_stamp_metadata(uuid,uuid,jsonb)','EXECUTE');`), 'f');
+
+    // A successful save stamps the Department itself even when its submitted
+    // answers are unchanged. The date is UTC and date-only; audit identity and
+    // time come from the database, not from the payload or response.
+    assert.equal(scalar(`SELECT data ? 'survey_last_updated' FROM custom_object_record WHERE id=${q(ID.department)}::uuid;`), 'f');
+    const unaffectedBefore = scalar(`SELECT jsonb_build_object(
+      'other_department',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.otherDepartment)}::uuid),
+      'other_tenant',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.foreignDepartment)}::uuid),
+      'other_object',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.survey)}::uuid)
+    )::text;`);
+    const firstBefore = Date.parse(scalar(`SELECT clock_timestamp()::text;`));
+    const firstStampResult = JSON.parse(scalar(`SET TIME ZONE 'Pacific/Kiritimati'; ${sqlCall(ID.subStampOne, currentPayload())}`));
+    const firstAfter = Date.parse(scalar(`SELECT clock_timestamp()::text;`));
+    const firstRecord = JSON.parse(scalar(`SELECT jsonb_build_object(
+      'data',data,'updated_at',updated_at,'updated_by',updated_by
+    )::text FROM custom_object_record WHERE id=${q(ID.department)}::uuid;`));
+    assert.match(firstRecord.data.survey_last_updated, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(firstRecord.data.survey_last_updated, scalar(`SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date::text;`));
+    assert.equal(firstRecord.updated_by, `member:${ID.member}`);
+    assert.ok(Date.parse(firstRecord.updated_at) >= firstBefore);
+    assert.ok(Date.parse(firstRecord.updated_at) <= firstAfter);
+    assert.deepEqual(firstRecord.data.unrelated, { preserve: true });
+    assert.equal(firstRecord.data.legacy_code, 'N-1');
+    assert.equal(scalar(`SELECT jsonb_build_object(
+      'other_department',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.otherDepartment)}::uuid),
+      'other_tenant',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.foreignDepartment)}::uuid),
+      'other_object',(SELECT to_jsonb(r) FROM custom_object_record r WHERE id=${q(ID.survey)}::uuid)
+    )::text;`), unaffectedBefore);
+
+    const freshAfterFirst = JSON.parse(scalar(`SET TIME ZONE 'Pacific/Kiritimati';
+      SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)})::text;`));
+    assert.equal(firstStampResult.version, freshAfterFirst.version);
+
+    // The result version is immediately usable for the next save. A later
+    // unchanged save refreshes audit time, while retrying the earlier
+    // submission preserves both the newer date and its exact audit instant.
+    run(psql, args, `SELECT pg_sleep(0.02);`);
+    const secondStampResult = JSON.parse(scalar(`SET TIME ZONE 'Pacific/Kiritimati'; ${sqlCall(
+      ID.subStampTwo,
+      currentPayload(),
+      q(firstStampResult.version),
+    )}`));
+    const secondRecord = JSON.parse(scalar(`SELECT jsonb_build_object(
+      'data',data,'updated_at',updated_at,'updated_by',updated_by
+    )::text FROM custom_object_record WHERE id=${q(ID.department)}::uuid;`));
+    assert.ok(Date.parse(secondRecord.updated_at) > Date.parse(firstRecord.updated_at));
+    assert.equal(secondRecord.updated_by, `member:${ID.member}`);
+    assert.equal(secondStampResult.version, scalar(`SET TIME ZONE 'Pacific/Kiritimati';
+      SELECT department_current_set_load_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+      ${q(ID.member)}::uuid,${q(ID.session)})->>'version';`));
+    assert.match(scalar(`SELECT department_current_set_reconcile_authenticated(
+      ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,${q(ID.member)}::uuid,
+      ${q(ID.subStampOne)}::uuid,'old-version',${q(ID.session)},
+      (SELECT submission_data FROM form_submission WHERE id=${q(ID.subStampOne)}::uuid)
+    )::text;`), /replayed/);
+    assert.deepEqual(JSON.parse(scalar(`SELECT jsonb_build_object('data',data,'updated_at',updated_at,'updated_by',updated_by)::text
+      FROM custom_object_record WHERE id=${q(ID.department)}::uuid;`)), secondRecord);
+
+    const stampState = () => scalar(`SELECT jsonb_build_object(
+      'stamp',data->'survey_last_updated','updated_at',updated_at,'updated_by',updated_by
+    )::text FROM custom_object_record WHERE id=${q(ID.department)}::uuid;`);
+    const stableStamp = stampState();
+
+    // Validation, authorization, and optimistic conflicts all fail before the
+    // stamp write and leave its date and audit columns untouched.
+    assert.match(failSql(sqlCall(ID.subBad, completePayload(
+      `jsonb_build_array(jsonb_build_object('grade','Band 5','occupied',0,'vacant',0))`,
+      "'[]'::jsonb",
+    ))), /missing an active required field/);
+    assert.equal(stampState(), stableStamp);
+    run(psql, args, `UPDATE custom_object_relationship SET field_values='{"survey_respondent":false}'
+      WHERE relationship_definition_id=${q(ID.respondent)}::uuid AND source_record_id=${q(ID.department)}::uuid
+        AND target_record_id=${q(ID.member)}::uuid;`);
+    assert.match(fails(psql, args, sqlCall(ID.subBad, currentPayload())), /CURRENT_SET_AUTHORIZATION/);
+    assert.equal(stampState(), stableStamp);
+    run(psql, args, `UPDATE custom_object_relationship SET field_values='{"survey_respondent":true}'
+      WHERE relationship_definition_id=${q(ID.respondent)}::uuid AND source_record_id=${q(ID.department)}::uuid
+        AND target_record_id=${q(ID.member)}::uuid;`);
+    assert.match(fails(psql, args, sqlCall(ID.subBad, currentPayload(), q('stale-version'))), /CURRENT_SET_CONFLICT/);
+    assert.equal(stampState(), stableStamp);
+
+    // The pinned field metadata is checked at write time. A field with the
+    // right id but an incompatible type fails closed rather than writing an
+    // unvalidated key.
+    run(psql, args, `UPDATE preference_field SET field_type='text' WHERE id=${q(ID.surveyLastUpdatedField)}::uuid;`);
+    assert.match(fails(psql, args, sqlCall(ID.subBad, currentPayload())), /CURRENT_SET_INVALID|survey_last_updated|stamp/i);
+    assert.equal(stampState(), stableStamp);
+    run(psql, args, `UPDATE preference_field SET field_type='date' WHERE id=${q(ID.surveyLastUpdatedField)}::uuid;`);
+
+    // Force the final Department write to fail after reconciliation work. The
+    // transaction must roll back the changed answer as well as the stamp.
+    const gradeBeforeStampFailure = scalar(`SELECT data->>'grade' FROM custom_object_record WHERE id=${q(ID.workforceRow)}::uuid;`);
+    run(psql, args, `
+      CREATE FUNCTION reject_department_stamp_for_test() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'forced stamp write failure'; END $$;
+      CREATE TRIGGER reject_department_stamp_for_test BEFORE UPDATE ON custom_object_record
+        FOR EACH ROW WHEN (NEW.id = ${q(ID.department)}::uuid)
+        EXECUTE FUNCTION reject_department_stamp_for_test();
+    `);
+    const changedCurrentPayload = `(SELECT jsonb_set(value->'form_values','{wf,0,grade}','"Band 6"'::jsonb)
+      FROM (SELECT department_current_set_load_authenticated(
+        ${q(ID.tenant)}::uuid,${q(ID.form)}::uuid,${q(ID.department)}::uuid,
+        ${q(ID.member)}::uuid,${q(ID.session)}) AS value) loaded)`;
+    assert.match(fails(psql, args, sqlCall(ID.subStampThree, changedCurrentPayload)), /forced stamp write failure/);
+    assert.equal(scalar(`SELECT data->>'grade' FROM custom_object_record WHERE id=${q(ID.workforceRow)}::uuid;`), gradeBeforeStampFailure);
+    assert.equal(stampState(), stableStamp);
+    run(psql, args, `DROP TRIGGER reject_department_stamp_for_test ON custom_object_record;
+      DROP FUNCTION reject_department_stamp_for_test();`);
 
     // Identity hints cannot point at a current-set record owned by another
     // Department, and a late invalid equipment section rolls back without

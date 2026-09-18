@@ -25,8 +25,17 @@ test('migration runner is pinned, SHA-reviewed, and uses verified TLS', () => {
   assert.match(script, /20261103_department_current_set_direct_workforce\.sql/);
   assert.match(script, /20261104_department_current_set_department_organisation_auth\.sql/);
   assert.match(script, /20261105_department_current_set_assignment_auth\.sql/);
+  assert.match(script, /20261106_department_current_set_survey_stamp\.sql/);
   assert.match(script, /direct-workforce config-v2/);
   assert.match(script, /Department-organisation authorization migration/);
+  assert.match(script, /Installed current-set function contract drifted/);
+  assert.match(script, /expectedSources\.get\(row\.contract\)\?\.includes\(row\.source\)/);
+  assert.match(script, /has_function_privilege\('service_role'/);
+  assert.match(script, /has_function_privilege\('authenticated'/);
+  assert.match(script, /c5dcd16c-e63e-49f2-b72f-b0caaa7c5903/);
+  assert.match(script, /field\.field_type = 'date'/);
+  assert.match(script, /config\.config->>'department_object_id'/);
+  assert.match(script, /before migration SQL/);
   assert.match(script, /for \(const migration of migrations\) await client\.query\(migration\.sql\)/);
 });
 
@@ -37,6 +46,7 @@ test('installer dry run loads all backend files including assignment-only author
     '20261103_department_current_set_direct_workforce.sql',
     '20261104_department_current_set_department_organisation_auth.sql',
     '20261105_department_current_set_assignment_auth.sql',
+    '20261106_department_current_set_survey_stamp.sql',
   ];
   const sql = await Promise.all(files.map(file =>
     readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')));
@@ -54,6 +64,8 @@ test('installer dry run loads all backend files including assignment-only author
     'supabase/migrations/20261104_department_current_set_department_organisation_auth.sql');
   assert.equal(report.assignmentAuthMigration,
     'supabase/migrations/20261105_department_current_set_assignment_auth.sql');
+  assert.equal(report.surveyStampMigration,
+    'supabase/migrations/20261106_department_current_set_survey_stamp.sql');
   assert.equal(report.rolloutReadiness, 'ready-for-reviewed-apply');
   assert.equal(report.sha256, expectedSha);
   assert.equal(report.writesPerformed, false);

@@ -56,3 +56,15 @@ Protection is per configuration-save attempt, not a reusable editor unlock, and 
 **Why:** The user explicitly requires a fresh protection-password check for configuration saves and a separate final confirmation after password validation for deactivation. The bespoke Department integration makes accidental configuration loss unsafe; deactivation must preserve the form and associated data.
 
 **How to apply:** Do not replace the per-attempt check with a session-wide unlock, gate respondent submissions with this password, or introduce an admin deletion override. Keep protection independent of editable form settings and consider parent deletion cascades and specialized configuration writers.
+
+Department survey save dates use the UTC calendar date, not the respondent's timezone or a submitted date.
+
+**Why:** The existing user-created field is date-only. Preserving that field's meaning takes priority over adding time precision; two deliberate saves on the same UTC day may display the same date while remaining distinct commits.
+
+**How to apply:** Keep the save date inside the authoritative reconciliation transaction and preserve committed retries without restamping. Do not retype the field or infer save completion from generic submission acceptance.
+
+Keep PostgreSQL session timezones consistent when comparing current-set concurrency versions.
+
+**Why:** The existing snapshot hashes JSON representations of timestamped rows; identical stored instants serialize with different offsets under different session timezones. A cross-timezone fixture can therefore look like a stale post-save version even when the save correctly captured its mutations.
+
+**How to apply:** Test UTC save-date semantics independently of cross-session hash equality. A future timezone-independent snapshot change needs deliberate compatibility treatment for existing loaded versions.

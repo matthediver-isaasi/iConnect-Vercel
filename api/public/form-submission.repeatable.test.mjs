@@ -480,7 +480,11 @@ test('current-set processing without a verified commit marker remains retryable 
   assert.equal(response.body.current_set, undefined);
 });
 
-test('failed current-set processing preserves its durable submission rather than rolling it back', async () => {
+for (const failure of [
+  { status: 409, code: 'CURRENT_SET_CONFLICT', error: 'Current Department data changed' },
+  { status: 503, code: 'CURRENT_SET_UNAVAILABLE', error: 'Department save date could not be stored' },
+]) {
+test(`failed current-set processing (${failure.code}) preserves its durable submission without confirming a save`, async () => {
   const form = currentSetFormFixture();
   const db = makePublicSubmissionBoundaryDb(form, {
     currentSetConfig: currentSetConfigFixture(),
@@ -501,17 +505,21 @@ test('failed current-set processing preserves its durable submission rather than
     internalApiBaseUrl: 'https://internal.example.test',
     getSessionMember: async () => ({ id: CURRENT_SET_MEMBER_ID, tenant_id: CURRENT_SET_TENANT_ID }),
     getActiveSession: async () => ({ id: 'current-set-session', data: { memberId: CURRENT_SET_MEMBER_ID } }),
-    fetchImpl: async () => jsonProcessingResponse(409, {
-      error: 'Current Department data changed',
-      code: 'CURRENT_SET_CONFLICT',
+    fetchImpl: async () => jsonProcessingResponse(failure.status, {
+      error: failure.error,
+      code: failure.code,
     }),
     sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
   });
-  assert.equal(response.statusCode, 409);
-  assert.equal(response.body.code, 'CURRENT_SET_CONFLICT');
+  assert.equal(response.statusCode, failure.status);
+  assert.equal(response.body.code, failure.code);
+  assert.notEqual(response.body.success, true);
+  assert.equal(response.body.current_set, undefined);
+  assert.equal(hasCurrentSetCommit(response.body), false);
   assert.equal(db.deletedSubmissionIds.length, 0);
   assert.equal(db.insertedSubmissions.length, 1);
 });
+}
 
 test('a committed current-set submission replays before an idempotent duplicate is acknowledged', async () => {
   const form = currentSetFormFixture();
