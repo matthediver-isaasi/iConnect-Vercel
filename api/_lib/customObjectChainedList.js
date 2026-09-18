@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
 const MAX_HOPS = 6;
 const MAX_PATHS = 250;
@@ -253,6 +254,7 @@ export function createChainedListService({
         for (const id of batch) cached.set(id, null);
         for (const row of data || []) {
           if (row.tenant_id === tenantId && row.archived_at == null
+            && (endpoint.kind !== 'member' || !isDeletedRelationshipMember(row))
             && (endpoint.kind !== 'custom_object' || String(row.custom_object_id) === String(endpoint.custom_object_id))) {
             cached.set(String(row.id), row);
           }

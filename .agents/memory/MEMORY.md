@@ -149,3 +149,4 @@
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
+- [Deleted-member relationships](deleted-member-relationship-visibility.md) — intentional identity suppression is not a missing endpoint; retain history and apply eligibility before paging.

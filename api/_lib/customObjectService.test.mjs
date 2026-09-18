@@ -554,6 +554,200 @@ function mockDb(seed = {}, rpcErrors = {}) {
   };
 }
 
+function deletedMemberFixture(side = 'source', members = null) {
+  const other = side === 'source' ? 'target' : 'source';
+  const memberRows = members || [
+    { id: 'deleted', email: 'DeLeTeD_token@DeLeTeD.LoCaL', first_name: 'A', last_name: 'Gone' },
+    { id: 'null', email: null, first_name: 'B', last_name: 'Null' },
+    { id: 'disabled', email: 'real@example.test', first_name: 'C', last_name: 'Disabled', is_active: false, show_in_directory: false },
+    { id: 'named', email: 'named@example.test', first_name: 'Deleted', last_name: 'Member' },
+    { id: 'empty-token', email: 'deleted_@deleted.local', first_name: 'E', last_name: 'Empty' },
+    { id: 'wrong-prefix', email: 'deletedXtoken@deleted.local', first_name: 'F', last_name: 'Prefix' },
+    { id: 'wrong-domain', email: 'deleted_token@deleted.local.example', first_name: 'G', last_name: 'Domain' },
+  ];
+  return {
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [{
+      id: 'member-links', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      [`${side}_kind`]: 'custom_object', [`${side}_custom_object_id`]: objectId,
+      [`${other}_kind`]: 'member', [`${other}_custom_object_id`]: null,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }],
+    member: memberRows.map((row) => ({ tenant_id: tenantId, ...row })),
+    custom_object_relationship: memberRows.map((row, index) => ({
+      id: `edge-${String(index).padStart(5, '0')}`, tenant_id: tenantId,
+      relationship_definition_id: 'member-links', [`${side}_record_id`]: 'origin',
+      [`${other}_record_id`]: row.id, archived_at: null, created_at: '2026-01-01',
+    })),
+  };
+}
+
+for (const side of ['source', 'target']) {
+  test(`deleted member panels ${side}: only deletion email excluded before totals, sort and pagination`, async () => {
+    const db = mockDb(deletedMemberFixture(side));
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const query = { definitionId: 'member-links', recordId: 'origin', side, pageSize: '2' };
+    const first = await service.listRelationships(objectId, query);
+    assert.equal(first.total, 6);
+    assert.deepEqual(first.data.map((row) => row.related.id), ['wrong-domain', 'wrong-prefix']);
+    const sorted = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'asc' });
+    assert.deepEqual(sorted.data.map((row) => row.related.id), ['null', 'disabled']);
+    const descending = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'desc' });
+    assert.deepEqual(descending.data.map((row) => row.related.id), ['wrong-domain', 'wrong-prefix']);
+    const last = await service.listRelationships(objectId, { ...query, page: '3' });
+    assert.equal(last.total, 6);
+    assert.deepEqual(last.data.map((row) => row.related.id), ['disabled', 'null']);
+    const beyond = await service.listRelationships(objectId, { ...query, page: '5' });
+    assert.equal(beyond.total, 6);
+    assert.deepEqual(beyond.data, []);
+    db.tables.custom_object_relationship.forEach((row) => { row.archived_at = '2026-01-02'; });
+    const archived = await service.listRelationships(objectId, { ...query, includeArchived: 'true' });
+    assert.equal(archived.total, 6);
+    assert.ok(archived.data.every((row) => row.archived_at));
+    assert.equal((await service.listRelationships(objectId, query)).total, 0);
+  });
+
+  test(`deleted member panels ${side}: all deleted is empty, missing and foreign endpoints remain errors`, async () => {
+    const seed = deletedMemberFixture(side, [{ id: 'deleted', email: 'deleted_x@deleted.local' }]);
+    const db = mockDb(seed);
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const query = { definitionId: 'member-links', recordId: 'origin', side };
+    const result = await service.listRelationships(objectId, query);
+    assert.equal(result.total, 0);
+    assert.deepEqual(result.data, []);
+    db.tables.member[0].tenant_id = 'foreign';
+    await assert.rejects(service.listRelationships(objectId, query), (error) =>
+      error.status === 409 && /missing, archived, or unavailable/.test(error.message));
+    db.tables.member = [];
+    await assert.rejects(service.listRelationships(objectId, query), (error) => error.status === 409);
+  });
+}
+
+test('member panels scan beyond API cap and bound every endpoint batch with tenant isolation', async () => {
+  const members = Array.from({ length: 1405 }, (_, index) => ({
+    id: `m-${String(index).padStart(5, '0')}`, first_name: `Name ${String(index).padStart(5, '0')}`,
+    email: index >= 1200 ? `deleted_${index}@deleted.local` : null,
+  }));
+  const seed = deletedMemberFixture('source', members);
+  seed.custom_object_relationship.push({
+    ...seed.custom_object_relationship[0], id: 'foreign-edge', tenant_id: 'foreign', target_record_id: 'missing',
+  });
+  const db = mockDb(seed, { __relationshipSelectCap: 1000 });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', page: '11', pageSize: '100' };
+  const result = await service.listRelationships(objectId, query);
+  assert.equal(result.total, 1200);
+  assert.equal(result.data.length, 100);
+  assert.equal(result.data[0].related.id, 'm-00199');
+  const sorted = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'asc' });
+  assert.equal(sorted.data[0].related.id, 'm-01000');
+  assert.equal(sorted.total, 1200);
+  const memberCalls = db.calls.filter((call) => call.table === 'member');
+  assert.ok(memberCalls.filter((call) => call.type === 'in').every((call) => call.values.length <= 200));
+  assert.ok(memberCalls.filter((call) => call.type === 'eq').every((call) =>
+    call.column === 'tenant_id' && call.value === tenantId));
+  assert.ok(db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range')
+    .every((call) => call.to - call.from < 200));
+});
+
+test('direct and initial member pickers and selected filter options use the same deletion eligibility', async () => {
+  const seed = deletedMemberFixture();
+  seed.custom_object_relationship = [];
+  seed.member.push({ id: 'foreign', tenant_id: 'foreign', email: null, first_name: 'Foreign' });
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', side: 'source', pageSize: '2' };
+  const picked = await service.entityPicker(objectId, query);
+  assert.equal(picked.total, 6);
+  assert.equal(picked.data.length, 2);
+  const initial = await service.initialRelationshipCandidates(objectId, { ...query, newRecordSide: 'source' });
+  assert.deepEqual(initial.data, picked.data);
+  assert.equal(initial.total, 6);
+  const searched = await service.entityPicker(objectId, { ...query, search: 'deleted' });
+  assert.equal(searched.total, 4);
+  assert.ok(searched.data.every((row) => row.id !== 'deleted'));
+  const options = await service.relationshipFilterOptions(objectId, {
+    fieldId: 'relationship:member-links:source', search: 'Disabled',
+    selected: ['deleted', 'null', 'foreign'],
+  });
+  assert.equal(options.total, 1);
+  assert.deepEqual(options.data.map((row) => row.id), ['null', 'disabled']);
+  db.tables.member.forEach((row) => { row.email = 'deleted_all@deleted.local'; });
+  assert.equal((await service.entityPicker(objectId, query)).total, 0);
+  assert.equal((await service.initialRelationshipCandidates(objectId, { ...query, newRecordSide: 'source' })).total, 0);
+});
+
+test('member picker scans deleted prefixes beyond the API cap before counting and paging', async () => {
+  const seed = deletedMemberFixture('target', Array.from({ length: 1302 }, (_, index) => ({
+    id: `picker-${index}`, last_name: String(index).padStart(5, '0'),
+    email: index < 1100 ? `deleted_${index}@deleted.local` : null,
+  })));
+  seed.custom_object_relationship = [];
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', side: 'target', pageSize: '100', page: '3' };
+  const picked = await service.entityPicker(objectId, query);
+  assert.equal(picked.total, 202);
+  assert.deepEqual(picked.data.map((row) => row.id), ['picker-1300', 'picker-1301']);
+  const beyond = await service.entityPicker(objectId, { ...query, page: '4' });
+  assert.equal(beyond.total, 202);
+  assert.deepEqual(beyond.data, []);
+  assert.ok(db.calls.filter((call) => call.table === 'member' && call.type === 'range')
+    .every((call) => call.to - call.from < 200));
+  assert.equal(db.calls.filter((call) => call.table === 'member' && call.type === 'not').length, 0);
+});
+
+test('compact custom-object and core cards omit deleted nested members without treating them as missing', async () => {
+  const seed = deletedMemberFixture();
+  seed.custom_object_definition.push(object({ id: 'container-object' }));
+  seed.custom_object_record.push({
+    id: 'container-record', tenant_id: tenantId, custom_object_id: 'container-object', archived_at: null, data: {},
+  });
+  seed.organization = [{ id: 'organization', tenant_id: tenantId, name: 'Organisation' }];
+  const compactConfiguration = {
+    compact_preview: { target_columns: [{
+      type: 'relationship', relationship_definition_id: 'member-links', side: 'source', label: 'Members',
+    }] },
+  };
+  seed.custom_object_relationship_definition.push({
+    id: 'container-link', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+    source_kind: 'custom_object', source_custom_object_id: 'container-object',
+    target_kind: 'custom_object', target_custom_object_id: objectId,
+    configuration: compactConfiguration,
+  }, {
+    id: 'organization-link', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+    source_kind: 'organization', source_custom_object_id: null,
+    target_kind: 'custom_object', target_custom_object_id: objectId,
+    configuration: compactConfiguration,
+  });
+  seed.custom_object_relationship.push({
+    id: 'container-edge', tenant_id: tenantId, relationship_definition_id: 'container-link',
+    source_record_id: 'container-record', target_record_id: 'origin', archived_at: null,
+  }, {
+    id: 'organization-edge', tenant_id: tenantId, relationship_definition_id: 'organization-link',
+    source_record_id: 'organization', target_record_id: 'origin', archived_at: null,
+  });
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const custom = await service.listRelationships('container-object', {
+    definitionId: 'container-link', recordId: 'container-record',
+  });
+  const core = await service.listCoreRelationships('organization', 'organization', {
+    definitionId: 'organization-link',
+  });
+  for (const result of [custom, core]) {
+    assert.equal(result.total, 1);
+    const columns = result.data[0].related.relationship_columns;
+    assert.equal(columns.length, 6);
+    assert.ok(columns.every((column) => column.value.id !== 'deleted'));
+    assert.ok(columns.some((column) => column.value.id === 'null'));
+  }
+});
+
 function context(overrides = {}) {
   return {
     isAuthenticated: true,
@@ -956,6 +1150,90 @@ test('chained columns exclude archived edges and endpoints and cap returned labe
     count: 3,
   });
 });
+
+for (const rootSide of ['source', 'target']) {
+  for (const memberSide of ['source', 'target']) {
+    test(`chained member eligibility prunes terminal and intermediate hops (${rootSide}/${memberSide})`, async () => {
+      const members = [
+        { id: 'deleted', email: 'DeLeTeD_token@DeLeTeD.LoCaL', first_name: 'A', last_name: 'Gone' },
+        { id: 'null', email: null, first_name: 'B', last_name: 'Null' },
+        { id: 'disabled', email: 'real@example.test', first_name: 'C', last_name: 'Disabled', is_active: false, show_in_directory: false },
+        { id: 'named', email: 'real2@example.test', first_name: 'Deleted', last_name: 'Member' },
+      ];
+      const seed = deletedMemberFixture(rootSide, members);
+      const leafObjectId = 'chain-member-leaf';
+      const leafName = field({
+        id: 'leaf-name', custom_object_id: leafObjectId, name: 'name',
+        field_type: 'text', is_required: false,
+      });
+      seed.preference_field.push(leafName);
+      seed.custom_object_definition.push(object({
+        id: leafObjectId, object_key: 'leaf', primary_display_field_id: leafName.id,
+      }));
+      const leafSide = memberSide === 'source' ? 'target' : 'source';
+      seed.custom_object_relationship_definition.push({
+        id: 'member-leaf', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+        [`${memberSide}_kind`]: 'member', [`${memberSide}_custom_object_id`]: null,
+        [`${leafSide}_kind`]: 'custom_object', [`${leafSide}_custom_object_id`]: leafObjectId,
+        show_on_source: true, show_on_target: true,
+      });
+      const memberRootSide = rootSide === 'source' ? 'target' : 'source';
+      seed.custom_object_record.push({
+        id: 'all-deleted', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+      });
+      seed.custom_object_relationship.push({
+        id: 'all-deleted-edge', tenant_id: tenantId, relationship_definition_id: 'member-links',
+        [`${rootSide}_record_id`]: 'all-deleted', [`${memberRootSide}_record_id`]: 'deleted',
+        archived_at: null,
+      });
+      for (const [index, member] of members.entries()) {
+        seed.custom_object_record.push({
+          id: `leaf-${member.id}`, tenant_id: tenantId, custom_object_id: leafObjectId,
+          archived_at: null, data: { name: `Leaf ${index}` },
+        });
+        seed.custom_object_relationship.push({
+          id: `leaf-edge-${member.id}`, tenant_id: tenantId, relationship_definition_id: 'member-leaf',
+          [`${memberSide}_record_id`]: member.id, [`${leafSide}_record_id`]: `leaf-${member.id}`,
+          archived_at: null,
+        });
+      }
+      // A terminal reachable via both a deleted and an eligible member stays.
+      seed.custom_object_relationship.push({
+        id: 'shared-leaf-edge', tenant_id: tenantId, relationship_definition_id: 'member-leaf',
+        [`${memberSide}_record_id`]: 'deleted', [`${leafSide}_record_id`]: 'leaf-null',
+        archived_at: null,
+      });
+      const db = mockDb(seed);
+      const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+      const discovered = await service.listRecords(objectId, {});
+      const memberColumn = chainColumns(discovered).find((column) =>
+        column.endpoint.kind === 'member' && column.terminal.kind === 'label'
+        && pathHas(column, ['member-links']));
+      const leafColumn = terminalColumn(discovered, leafObjectId, 'label', null, ['member-links', 'member-leaf']);
+      assert.ok(memberColumn);
+      assert.ok(leafColumn);
+      const query = { chainedColumns: JSON.stringify([memberColumn.id, leafColumn.id]) };
+      const result = await service.listRecords(objectId, query);
+      const mixed = result.data.find((row) => row.id === 'origin');
+      assert.deepEqual(mixed.chained_values[memberColumn.id], {
+        count: 3, records: [{ label: 'B Null' }, { label: 'C Disabled' }, { label: 'Deleted Member' }],
+      });
+      assert.deepEqual(mixed.chained_values[leafColumn.id], {
+        count: 3, records: [{ label: 'Leaf 1' }, { label: 'Leaf 2' }, { label: 'Leaf 3' }],
+      });
+      const empty = result.data.find((row) => row.id === 'all-deleted');
+      for (const column of [memberColumn, leafColumn]) {
+        assert.deepEqual(empty.chained_values[column.id], { count: 0, records: [] });
+      }
+      assert.ok(db.calls.filter((call) =>
+        call.table === 'custom_object_relationship' && call.type === 'in')
+        .every((call) => !call.values.includes('deleted')),
+      'deleted intermediates must never reach the next hop query');
+      const exported = await service.exportRecords(objectId, query);
+      assert.deepEqual(exported.data.map((row) => row.chained_values), result.data.map((row) => row.chained_values));
+    });
+  }
+}
 
 test('chained metadata never exposes denied terminal fields or core endpoints', async () => {
   const organisationId = 'chain-acl-organisation';
@@ -5791,7 +6069,7 @@ test('relationship list sorting is global, case-insensitive, stable, and paginat
   assert.deepEqual(
     db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range')
       .map(({ from, to }) => [from, to]),
-    [[0, 999]],
+    [[0, 999], [0, 199]], // Full panel sort, then the bounded compact relationship projection.
   );
   const descending = await service.listRelationships(objectId, {
     definitionId,
@@ -7312,6 +7590,39 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
   assert.equal(largeReverseScope.data.length, 2);
   assert.ok(db.calls.some((call) =>
     call.table === 'member' && call.type === 'range' && call.from === 1000));
+
+  // Both the graph path and the primary-organisation terminal source must
+  // remove anonymised members, while null/disabled members remain searchable.
+  db.tables.member.filter((row) => row.id.startsWith('bulk-member-'))
+    .forEach((row) => { row.email = 'DELETED_bulk@DELETED.LOCAL'; });
+  const retained = db.tables.member.find((row) => row.id === 'bulk-member-1000');
+  retained.email = null;
+  retained.is_active = false;
+  retained.show_in_directory = false;
+  db.tables.member.find((row) => row.id === 'member-a').email = 'deleted_graph@deleted.local';
+  db.tables.member.find((row) => row.id === 'member-primary-only').email = 'deleted_primary@deleted.local';
+  const eligibleScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source', search: 'Bulk',
+  });
+  assert.equal(eligibleScope.total, 1);
+  assert.deepEqual(eligibleScope.data.map((row) => row.id), ['bulk-member-1000']);
+  const beyondEligibleScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source', page: '2', pageSize: '1',
+  });
+  assert.equal(beyondEligibleScope.total, 1);
+  assert.deepEqual(beyondEligibleScope.data, []);
+  const scopedInitial = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId, newRecordSide: 'source',
+    proposedRelationships: JSON.stringify([{
+      relationship_definition_id: departmentOrganisationId, routed_side: 'source', related_record_id: 'org-a',
+    }]),
+  });
+  assert.equal(scopedInitial.total, 1);
+  assert.deepEqual(scopedInitial.data.map((row) => row.id), ['bulk-member-1000']);
+  const coreCustomCandidates = await service.coreEntityPicker('member', retained.id, {
+    definitionId: memberDefinitionId,
+  });
+  assert.equal(coreCustomCandidates.total, 2, 'Custom Object candidates must not be classified as deleted members');
 
   db.tables.custom_object_definition.find((item) => item.id === assignmentObjectId).status = 'archived';
   await assert.rejects(

@@ -21,6 +21,7 @@ import {
 import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
 import { randomUUID } from 'node:crypto';
 import { createChainedListService } from './customObjectChainedList.js';
+import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -881,7 +882,8 @@ export function createCustomObjectService({
       }
       const { data, error } = await request;
       throwDb(error);
-      rows.push(...(data || []));
+      rows.push(...(data || []).filter((row) =>
+        endpoint_.kind !== 'member' || !isDeletedRelationshipMember(row)));
     }
     return {
       rows: new Map(rows.map((row) => [String(row.id), row])),
@@ -1594,7 +1596,7 @@ export function createCustomObjectService({
       ? endpointQuery().in('id', selectedIds)
       : Promise.resolve({ data: [], error: null });
     const [{ data, error, count }, selectedResult] = await Promise.all([
-      q.range(p.from, p.to),
+      kind === 'member' ? scanMemberPicker(q, p, new Set(), search) : q.range(p.from, p.to),
       selectedQuery,
     ]);
     throwDb(error);
@@ -1611,6 +1613,7 @@ export function createCustomObjectService({
     const rows = [];
     const seen = new Set();
     for (const row of [...(selectedResult.data || []), ...(data || [])]) {
+      if (kind === 'member' && isDeletedRelationshipMember(row)) continue;
       if (!seen.has(String(row.id))) {
         seen.add(String(row.id));
         rows.push(row);
@@ -1946,10 +1949,12 @@ export function createCustomObjectService({
     // There is no routed record yet: only candidates whose own cardinality is
     // already full are excluded. Passing an impossible id avoids considering
     // routed saturation while retaining the shared generic calculation.
-    q = applyPickerExclusions(q, eligibility);
+    if (kind !== 'member') q = applyPickerExclusions(q, eligibility);
     q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
       .order('id', { ascending: true });
-    const { data, error, count } = await q.range(p.from, p.to);
+    const { data, error, count } = kind === 'member'
+      ? await scanMemberPicker(q, p, eligibility.excluded, search)
+      : await q.range(p.from, p.to);
     throwDb(error);
     return {
       data: (data || []).map((row) => ({
@@ -2698,13 +2703,18 @@ export function createCustomObjectService({
         const edges = [];
         for (let offset = 0; offset < recordIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
           const batchIds = recordIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE);
-          const { data, error } = await db.from('custom_object_relationship').select('*')
-            .eq('tenant_id', tenantId)
-            .eq('relationship_definition_id', directDefinition.id)
-            .is('archived_at', null)
-            .in(`${routedSide}_record_id`, batchIds);
-          throwDb(error);
-          edges.push(...(data || []));
+          for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+            const { data, error } = await db.from('custom_object_relationship').select('*')
+              .eq('tenant_id', tenantId)
+              .eq('relationship_definition_id', directDefinition.id)
+              .is('archived_at', null)
+              .in(`${routedSide}_record_id`, batchIds)
+              .order('id', { ascending: true })
+              .range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+            throwDb(error);
+            edges.push(...(data || []));
+            if (!data || data.length < ENDPOINT_ID_BATCH_SIZE) break;
+          }
         }
         const resolved = await resolveEndpointRows(
           directDefinition[`${oppositeSide}_kind`],
@@ -2732,7 +2742,9 @@ export function createCustomObjectService({
     }]));
   }
 
-  async function resolveEndpointRows(kind, customObjectId, ids, { includeArchived = false, previewFieldIds = [] } = {}) {
+  async function resolveEndpointRows(kind, customObjectId, ids, {
+    includeArchived = false, previewFieldIds = [], excludedIds = new Set(),
+  } = {}) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
     const table = {
@@ -2761,7 +2773,10 @@ export function createCustomObjectService({
       }
       const { data, error } = await q;
       throwDb(error);
-      rows.push(...(data || []));
+      for (const row of data || []) {
+        if (kind === 'member' && isDeletedRelationshipMember(row)) excludedIds.add(row.id);
+        else rows.push(row);
+      }
     }
     return new Map(rows.map((row) => {
       const labels = endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess, previewFieldIds);
@@ -2931,13 +2946,16 @@ export function createCustomObjectService({
     }
     const result = [];
     for (const ids of chunked(unique)) {
-      let q = db.from(table).select('id').eq('tenant_id', tenantId).in('id', ids);
+      let q = db.from(table).select(endpoint_.kind === 'member' ? 'id, email' : 'id')
+        .eq('tenant_id', tenantId).in('id', ids);
       if (endpoint_.kind === 'custom_object') {
         q = q.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
       }
       const { data, error } = await q;
       throwDb(error);
-      result.push(...(data || []).map((row) => String(row.id)));
+      result.push(...(data || [])
+        .filter((row) => endpoint_.kind !== 'member' || !isDeletedRelationshipMember(row))
+        .map((row) => String(row.id)));
     }
     return result;
   }
@@ -3024,21 +3042,25 @@ export function createCustomObjectService({
       if (!table) throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is unsupported');
       if (!reverse) {
         for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
-          const { data, error } = await db.from(table).select(`id, ${source.field}`)
+          const { data, error } = await db.from(table).select(`id, ${source.field}${source.endpoint.kind === 'member' ? ', email' : ''}`)
             .eq('tenant_id', tenantId).in('id', ids);
           throwDb(error);
-          for (const row of data || []) if (row[source.field]) result.add(String(row[source.field]));
+          for (const row of data || []) {
+            if (source.endpoint.kind === 'member' && isDeletedRelationshipMember(row)) continue;
+            if (row[source.field]) result.add(String(row[source.field]));
+          }
         }
       } else {
         for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
           for (let from = 0;; from += 1000) {
-            const { data, error } = await db.from(table).select('id')
+            const { data, error } = await db.from(table).select(source.endpoint.kind === 'member' ? 'id, email' : 'id')
               .eq('tenant_id', tenantId).in(source.field, ids)
               .order('id', { ascending: true })
               .range(from, from + 999);
             throwDb(error);
             const rows = data || [];
             for (const row of rows) {
+              if (source.endpoint.kind === 'member' && isDeletedRelationshipMember(row)) continue;
               result.add(String(row.id));
               if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
                 throw new CustomObjectHttpError(
@@ -3211,6 +3233,28 @@ export function createCustomObjectService({
     return q.not('id', 'in', `(${[...eligibility.excluded].map(quotePostgrestValue).join(',')})`);
   }
 
+  // Scan bounded, tenant-scoped queries rather than filtering a requested page
+  // or constructing an arbitrarily large NOT IN list of deleted/linked IDs.
+  // The database supplies the stable order; only eligible rows consume a slot.
+  async function scanMemberPicker(q, page, excluded = new Set(), search = '') {
+    const data = [];
+    let count = 0;
+    const needle = search.toLocaleLowerCase();
+    for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+      const { data: batch, error } = await q.range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+      throwDb(error);
+      for (const row of batch || []) {
+        if (isDeletedRelationshipMember(row) || excluded.has(String(row.id))) continue;
+        if (needle && ![row.first_name, row.last_name, row.email].some((value) =>
+          String(value || '').toLocaleLowerCase().includes(needle))) continue;
+        if (count >= page.from && count <= page.to) data.push(row);
+        count += 1;
+      }
+      if (!batch || batch.length < ENDPOINT_ID_BATCH_SIZE) break;
+    }
+    return { data, count, error: null };
+  }
+
   async function scopedPickerRows({
     table,
     kind,
@@ -3231,7 +3275,8 @@ export function createCustomObjectService({
       }
       const { data, error } = await q;
       throwDb(error);
-      rows.push(...(data || []));
+      rows.push(...(data || []).filter((row) =>
+        kind !== 'member' || !isDeletedRelationshipMember(row)));
     }
     const normalizedSearch = search.toLocaleLowerCase();
     const matchedRows = normalizedSearch ? rows.filter((row) => {
@@ -3326,6 +3371,53 @@ export function createCustomObjectService({
     return { data: visible };
   }
 
+  async function listMemberRelationships({
+    definition, side, relatedSide, recordId, page, sort, previewColumns,
+    includeArchived = false, core = false,
+  }) {
+    const projected = [];
+    for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+      let q = db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+        .eq(`${side}_record_id`, recordId)
+        .order('created_at', { ascending: false }).order('id', { ascending: false });
+      if (!includeArchived) q = q.is('archived_at', null);
+      const { data, error } = await q.range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+      throwDb(error);
+      const edges = data || [];
+      const excludedIds = new Set();
+      const resolved = await resolveEndpointRows('member', null,
+        edges.map((edge) => edge[`${relatedSide}_record_id`]), { excludedIds });
+      for (const edge of edges) {
+        const id = edge[`${relatedSide}_record_id`];
+        if (excludedIds.has(id)) continue;
+        if (!resolved.has(id)) {
+          throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
+        }
+        projected.push({
+          relationship_id: edge.id,
+          relationship_definition_id: edge.relationship_definition_id,
+          ...(!core ? {
+            source_record_id: edge.source_record_id,
+            target_record_id: edge.target_record_id,
+          } : {}),
+          ...projectRelationshipValues(definition, edge, side),
+          ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
+          related: resolved.get(id),
+        });
+      }
+      if (edges.length < ENDPOINT_ID_BATCH_SIZE) break;
+    }
+    return {
+      data: (sort ? sortRelationshipListRows(projected, sort) : projected)
+        .slice(page.from, page.to + 1),
+      total: projected.length,
+      page: page.page,
+      pageSize: page.pageSize,
+      preview_columns: previewColumns,
+    };
+  }
+
   async function listCoreRelationships(kind, recordId, query) {
     const { definition, side, relatedSide } = await coreRelationshipContext(
       kind, recordId, query?.definitionId, 'view_records',
@@ -3333,6 +3425,11 @@ export function createCustomObjectService({
     const p = pagination(query);
     const sort = await relationshipListSort(definition, side, relatedSide, query);
     const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+    if (definition[`${relatedSide}_kind`] === 'member') {
+      return listMemberRelationships({
+        definition, side, relatedSide, recordId, page: p, sort, previewColumns, core: true,
+      });
+    }
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .eq('relationship_definition_id', definition.id)
@@ -3631,10 +3728,12 @@ export function createCustomObjectService({
         if (customSearchKey) q = q.filter(`data->>${customSearchKey}`, 'ilike', `*${search}*`);
       }
     }
-    q = applyPickerExclusions(q, eligibility);
+    if (kind !== 'member') q = applyPickerExclusions(q, eligibility);
     q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
       .order('id', { ascending: true });
-    const { data, error, count } = await q.range(p.from, p.to);
+    const { data, error, count } = kind === 'member'
+      ? await scanMemberPicker(q, p, eligibility.excluded, search)
+      : await q.range(p.from, p.to);
     throwDb(error);
     const projected = (data || []).map((row) => ({
         id: row.id,
@@ -3699,6 +3798,11 @@ export function createCustomObjectService({
     const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide, {
       includeArchived,
     });
+    if (definition[`${relatedSide}_kind`] === 'member') {
+      return listMemberRelationships({
+        definition, side, relatedSide, recordId, page: p, sort, previewColumns, includeArchived,
+      });
+    }
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
       .eq(`${side}_record_id`, recordId)
