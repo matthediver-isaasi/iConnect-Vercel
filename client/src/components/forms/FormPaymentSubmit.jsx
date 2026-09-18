@@ -87,7 +87,9 @@ export default function FormPaymentSubmit({
   onContinue,
 }) {
   const [selectedProvider, setSelectedProvider] = useState(null);
-  const [creating, setCreating] = useState(false);
+  const [pendingMethod, setPendingMethod] = useState(null);
+  const creating = pendingMethod !== null;
+  const startupInFlightRef = useRef(false);
   const [processing, setProcessing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
@@ -282,19 +284,21 @@ export default function FormPaymentSubmit({
   };
 
   const startPayment = async (providerId) => {
+    if (startupInFlightRef.current || disabled || busy || processing || confirming) return;
+    startupInFlightRef.current = true;
+    setPendingMethod(providerId);
     setPaymentError(null);
     setPaymentCaptured(false);
     setPaymentStage(null);
     setExternalCheckoutUrl(null);
-    const payload = await buildPayload();
-    if (!payload) return;
-    // A Canvas form is an iframe inside a same-origin tenant page. Keep the
-    // provider return bound to that page and only let hosted flows leave via
-    // the top window when the ancestor is readable/same-origin.
-    const paymentNavigation = getPaymentNavigationContext();
-    const paymentScope = { pathname: window.location.pathname, search: window.location.search };
-    setCreating(true);
     try {
+      const payload = await buildPayload();
+      if (!payload) return;
+      // A Canvas form is an iframe inside a same-origin tenant page. Keep the
+      // provider return bound to that page and only let hosted flows leave via
+      // the top window when the ancestor is readable/same-origin.
+      const paymentNavigation = getPaymentNavigationContext();
+      const paymentScope = { pathname: window.location.pathname, search: window.location.search };
       const res = await fetch('/api/public/form-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -399,19 +403,22 @@ export default function FormPaymentSubmit({
     } catch (err) {
       setPaymentError(err.message);
     } finally {
-      setCreating(false);
+      startupInFlightRef.current = false;
+      setPendingMethod(null);
     }
   };
 
   const startMonthlyCard = async () => {
+    if (startupInFlightRef.current || disabled || busy || processing || confirming) return;
+    startupInFlightRef.current = true;
+    setPendingMethod('stripe_monthly_card');
     setPaymentError(null);
     setPaymentStage(null);
     setExternalCheckoutUrl(null);
-    const payload = await buildPayload();
-    if (!payload) return;
-    const paymentNavigation = getPaymentNavigationContext();
-    setCreating(true);
     try {
+      const payload = await buildPayload();
+      if (!payload) return;
+      const paymentNavigation = getPaymentNavigationContext();
       const res = await fetch('/api/public/form-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'create_monthly_card', form_id: payload.form_id, submission_data: payload.submission_data,
           idempotency_key: idempotencyKey || undefined, prefill_organization_id: payload.prefill_organization_id || null,
@@ -429,7 +436,10 @@ export default function FormPaymentSubmit({
          });
        } catch { /* ignore */ }
       leaveForProvider(json.checkoutUrl, paymentNavigation);
-    } catch (err) { setPaymentError(err.message); } finally { setCreating(false); }
+    } catch (err) { setPaymentError(err.message); } finally {
+      startupInFlightRef.current = false;
+      setPendingMethod(null);
+    }
   };
 
   const handleStripeConfirm = async () => {
@@ -673,7 +683,7 @@ export default function FormPaymentSubmit({
                   data-testid={`button-form-payment-monthly-card-${field?.id}`}
                 >
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground" aria-hidden="true">
-                    {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
+                    {pendingMethod === 'stripe_monthly_card' ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col items-start break-words">
                     <span className="min-h-10 text-sm font-semibold leading-snug">Pay monthly by card</span>
@@ -699,7 +709,7 @@ export default function FormPaymentSubmit({
                     data-testid={`button-form-payment-${p.id}-${field?.id}`}
                   >
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground" aria-hidden="true">
-                      {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : isCard ? <CreditCard className="h-5 w-5" /> : <Landmark className="h-5 w-5" />}
+                      {pendingMethod === p.id ? <Loader2 className="h-5 w-5 animate-spin" /> : isCard ? <CreditCard className="h-5 w-5" /> : <Landmark className="h-5 w-5" />}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col items-start break-words">
                       <span className="min-h-10 text-sm font-semibold leading-snug">

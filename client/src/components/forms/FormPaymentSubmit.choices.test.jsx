@@ -44,7 +44,7 @@ for (const end_policy of ['stop', 'continue']) {
   }
 }
 
-async function mount(overrides = {}) {
+async function mount(overrides = {}, paymentResponse) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
   client.setQueryData(['form-payment-providers', 'membership'],
     [{ id: 'stripe', configured: true }, { id: 'gocardless', configured: true }]);
@@ -56,6 +56,7 @@ async function mount(overrides = {}) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     calls.push({ url, body: JSON.parse(options.body) });
+    if (paymentResponse) return paymentResponse();
     return { ok: false, json: async () => ({ error: 'Fixture checkout unavailable' }) };
   };
   const render = props => root.render(
@@ -120,6 +121,8 @@ for (const state of [{ disabled: true, disabledMessage: 'Complete the required f
     try {
       for (const button of fixture.buttons()) {
         assert.equal(button.disabled, true);
+        assert.equal(button.querySelector('.animate-spin'), null);
+        assert.equal(button.hasAttribute('aria-pressed'), false);
         await act(async () => button.click());
       }
       assert.equal(fixture.validations(), 0);
@@ -149,3 +152,85 @@ test('quote pending/error stays blocked and zero due keeps ordinary submission e
     assert.deepEqual(fixture.calls, []);
   } finally { await fixture.cleanup(); }
 });
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function assertChoiceState(fixture, pendingIndex, disabled = pendingIndex !== null) {
+  fixture.buttons().forEach((button, index) => {
+    assert.equal(button.disabled, disabled);
+    assert.equal(!!button.querySelector('.animate-spin'), index === pendingIndex);
+    if (index !== pendingIndex) {
+      assert.ok(button.querySelector(index === 2 ? '.lucide-landmark' : '.lucide-credit-card'));
+    }
+  });
+  assert.equal(!!fixture.container.querySelector('[role="status"]'), pendingIndex !== null);
+}
+
+const payload = { form_id: 'fixture-form', submission_data: { answers: {} } };
+for (const [index, method] of ['monthly card', 'full card', 'Direct Debit'].entries()) {
+  test(`${method} alone spins through validation and startup, prevents duplicates, and allows a different retry`, async () => {
+    const validation = deferred();
+    const response = deferred();
+    let validations = 0;
+    const fixture = await mount({
+      buildPayload: () => { validations++; return validation.promise; },
+    }, () => response.promise);
+    try {
+      await act(async () => {
+        // Same-turn clicks exercise the ref guard before React commits disabled.
+        fixture.buttons()[index].click();
+        fixture.buttons().forEach(button => button.click());
+      });
+      assert.equal(validations, 1);
+      assert.equal(fixture.calls.length, 0);
+      assertChoiceState(fixture, index);
+      await act(async () => validation.resolve(payload));
+      assert.equal(fixture.calls.length, 1);
+      assert.equal(fixture.calls[0].body.action, index === 0 ? 'create_monthly_card' : 'create');
+      if (index !== 0) assert.equal(fixture.calls[0].body.provider, index === 1 ? 'stripe' : 'gocardless');
+      assertChoiceState(fixture, index);
+      await act(async () => fixture.buttons().forEach(button => button.click()));
+      assert.equal(validations, 1);
+      assert.equal(fixture.calls.length, 1);
+      await act(async () => response.resolve({ ok: false, json: async () => ({ error: 'Startup failed' }) }));
+      assertChoiceState(fixture, null);
+      assert.match(fixture.container.textContent, /Startup failed/);
+
+      const retry = deferred();
+      await fixture.render({ buildPayload: () => { validations++; return retry.promise; } });
+      await act(async () => fixture.buttons()[(index + 1) % 3].click());
+      assertChoiceState(fixture, (index + 1) % 3);
+      assert.doesNotMatch(fixture.container.textContent, /Startup failed/);
+      await act(async () => retry.resolve(payload));
+      assert.equal(validations, 2);
+      assert.equal(fixture.calls.length, 2);
+      assertChoiceState(fixture, null);
+    } finally { await fixture.cleanup(); }
+  });
+
+  for (const outcome of ['abort', 'throw']) {
+    test(`${method} clears pending after validation ${outcome} and still respects form rules`, async () => {
+      const validation = deferred();
+      const fixture = await mount({ buildPayload: () => validation.promise });
+      try {
+        await act(async () => fixture.buttons()[index].click());
+        assertChoiceState(fixture, index);
+        await fixture.render({ disabled: true });
+        await act(async () => outcome === 'abort'
+          ? validation.resolve(null)
+          : validation.reject(new Error('Validation failed')));
+        assertChoiceState(fixture, null, true);
+        assert.equal(fixture.calls.length, 0);
+        if (outcome === 'throw') assert.match(fixture.container.textContent, /Validation failed/);
+        await fixture.render({ disabled: false, buildPayload: async () => payload });
+        await act(async () => fixture.buttons()[(index + 1) % 3].click());
+        assert.equal(fixture.calls.length, 1);
+        assertChoiceState(fixture, null);
+      } finally { await fixture.cleanup(); }
+    });
+  }
+}
