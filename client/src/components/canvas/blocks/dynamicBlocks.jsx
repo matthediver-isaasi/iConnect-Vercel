@@ -128,6 +128,7 @@ import {
   buildSectionOverlayBackground,
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
+import { FORM_PAGE_NAVIGATED_MESSAGE, isFormEmbedMessage, scrollFormPageTarget } from '@/lib/formEmbedRuntime';
 import { forwardCanvasDepartmentContext } from './formEmbedDepartmentContext';
 import { getEmbeddedPaymentReturnRelay, stripPaymentParams } from '@/lib/formPaymentReturn';
 import {
@@ -6124,7 +6125,7 @@ function ResourceShowcaseInspector({ block, update }) {
 // ============================================================================
 // FORM EMBED
 // ============================================================================
-function FormEmbedRender({ block, asEditor, priority }) {
+function FormEmbedRender({ block, asEditor, priority, breakpoint, viewportBreakpoint }) {
   const c = block.content || {};
   const { micrositePrefix, micrositesLoaded } = useMicrosite();
   const { data: form, isLoading, isError } = useQuery({
@@ -6212,7 +6213,7 @@ function FormEmbedRender({ block, asEditor, priority }) {
             Form preview ({form.name}) — submissions only run on the published page.
           </div>
         ) : (
-          <FormEmbedIframe href={href} title={c.title || form.name || 'Form'} />
+          <FormEmbedIframe href={href} title={c.title || form.name || 'Form'} breakpoint={breakpoint || viewportBreakpoint} />
         )}
       </>
     );
@@ -6254,7 +6255,7 @@ function FormEmbedRender({ block, asEditor, priority }) {
   // flex column so the iframe can flex to fill until it reports its height.
   const railStyle = {
     width: '100%',
-    height: '100%',
+    height: asEditor || mode === 'link' ? '100%' : 'auto',
     display: 'flex',
     flexDirection: 'column',
   };
@@ -6278,7 +6279,7 @@ function FormEmbedRender({ block, asEditor, priority }) {
 
   return (
     <div
-      className="w-full h-full relative"
+      className={`w-full relative${asEditor || mode === 'link' ? ' h-full' : ''}`}
       style={wrapperStyle || undefined}
       aria-label={block.a11y?.ariaLabel || form.name}
       data-full-bleed={c.fullBleed ? 'true' : 'false'}
@@ -6337,9 +6338,10 @@ function FormEmbedRender({ block, asEditor, priority }) {
   );
 }
 
-function FormEmbedIframe({ href, title }) {
+function FormEmbedIframe({ href, title, breakpoint }) {
   const iframeRef = useRef(null);
   const [height, setHeight] = useState(null);
+  const [pageNavigation, setPageNavigation] = useState(0);
   const paymentReturnScrollTimerRef = useRef(null);
   const paymentReturnScrollDoneRef = useRef(false);
   const paymentReturnReadyRef = useRef(false);
@@ -6410,7 +6412,7 @@ function FormEmbedIframe({ href, title }) {
       const data = event.data;
       const iframe = iframeRef.current;
       // Only react to messages coming from this iframe's own contentWindow.
-      if (!iframe || event.source !== iframe.contentWindow) return;
+      if (!isFormEmbedMessage(event, iframe, src)) return;
       // A same-origin iframe can only trigger return scrolling when the
       // submission/instance-bound relay above was accepted. The origin check
       // prevents an arbitrary frame from moving the containing page.
@@ -6424,10 +6426,13 @@ function FormEmbedIframe({ href, title }) {
         schedulePaymentReturnScroll(400);
         return;
       }
-      if (!data || data.type !== 'iconn-form-resize') return;
+      if (!data || !['iconn-form-resize', FORM_PAGE_NAVIGATED_MESSAGE].includes(data.type)) return;
       const reported = Number(data.height);
       if (!Number.isFinite(reported) || reported <= 0) return;
       setHeight(Math.ceil(reported));
+      if (data.type === FORM_PAGE_NAVIGATED_MESSAGE) {
+        setPageNavigation(previous => previous + 1);
+      }
       if (paymentReturnReadyRef.current) schedulePaymentReturnScroll();
     };
     window.addEventListener('message', onMessage);
@@ -6438,7 +6443,7 @@ function FormEmbedIframe({ href, title }) {
         paymentReturnScrollTimerRef.current = null;
       }
     };
-  }, [relaySearch]);
+  }, [relaySearch, src]);
 
   // Canvas block boxes are absolutely positioned with a geometry-driven
   // fixed height and `overflow:hidden`, so a form taller than the block's
@@ -6458,7 +6463,17 @@ function FormEmbedIframe({ href, title }) {
     const blockEl = iframe.closest('[data-cb]');
     if (!blockEl) return;
     return applyFormEmbedResize(blockEl);
-  }, [height]);
+  }, [height, breakpoint]);
+
+  useEffect(() => {
+    if (!pageNavigation) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (iframeRef.current) scrollFormPageTarget(iframeRef.current);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pageNavigation]);
 
   return (
     <iframe
@@ -6474,7 +6489,7 @@ function FormEmbedIframe({ href, title }) {
         width: '100%',
         flex: height == null ? 1 : '0 0 auto',
         height: height == null ? undefined : height,
-        minHeight: 320,
+        minHeight: height == null ? 320 : 0,
         border: 0,
       }}
       data-testid="iframe-form-embed"

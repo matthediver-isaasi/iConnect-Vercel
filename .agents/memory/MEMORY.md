@@ -136,10 +136,8 @@
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Form answer lifecycle](form-answer-lifecycle-index.md) — scalar row sources, temporal validation, retained derived labels, and hidden-answer authority.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
-- [Canvas dashboard embedding](canvas-dashboard-embedding.md) — tenant-shared is not public; reuse dashboard authorization/presentation and keep viewer sizing inside the authored frame.
 - [Form author schema discovery](form-author-schema-discovery.md) — schema visibility is not record access; preserve author gates and explicit field denials in respondent-facing metadata.
 - [Paid form DD eligibility](paid-form-dd-eligibility.md) — prospective eligibility must survive checkout retries without backfilling historical submissions; ambiguous external effects cannot be blindly replayed.
-- [Canvas preview authorization](canvas-preview-authorization.md) — preview intent and absent member sessions cannot authorize cached editor content; verify either login system positively.
 - [Organisation access revocation](organisation-access-revocation.md) — restoration must not revive old sessions; fence concurrent member creation without revoking unrelated organisations.
 - [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility, not name-list roles; viewer organisation is authorization-relevant.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
@@ -149,6 +147,5 @@
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
-- [Positioned table overflow](positioned-table-overflow.md) — a bounded table scroller can still expand the document root unless positioned descendants are contained.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.

@@ -25,6 +25,10 @@ Use the focused topic that matches the change:
 - [Flow section backgrounds](canvas-flow-section-backgrounds.md)
 - [Reusable footer fallback](canvas-footer-fallback.md)
 - [Route-owned chrome decisions](route-owned-chrome.md)
+- [Canvas dashboard embedding](canvas-dashboard-embedding.md) — reuse dashboard authorization and presentation within the authored frame.
+- [Canvas preview authorization](canvas-preview-authorization.md) — positively verify editor access before returning preview content.
+- [Embedded form intrinsic layout](form-embed-intrinsic-layout.md) — measure content independently of the iframe viewport; coordinate navigation and layout.
+- [Positioned table overflow](positioned-table-overflow.md) — contain positioned descendants so a scroller cannot expand the document.
 
 **Why:** Canvas has parallel editor/public and V1/V2 paths. Flattening every specialized rule into the always-loaded memory index crowded out unrelated project knowledge.
 

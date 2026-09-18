@@ -559,7 +559,10 @@ test('Canvas relays only a validated return into its original iframe', () => {
   assert.match(src, /getEmbeddedPaymentReturnRelay/);
   assert.match(src, /payment_embed_instance/);
   assert.match(src, /payment_embed_continue/);
-  assert.match(src, /event\.source !== iframe\.contentWindow/, 'resize relay remains source-validated');
+  assert.match(src, /if \(!isFormEmbedMessage\(event, iframe, src\)\) return/, 'resize relay uses the source/origin guard');
+  const guard = read('./formEmbedRuntime.js');
+  assert.match(guard, /event\.source !== iframe\.contentWindow/, 'shared guard checks the exact initiating iframe');
+  assert.match(guard, /event\.origin === new URL\(expectedUrl/, 'shared guard checks the expected iframe origin');
   assert.match(src, /stripPaymentParams\(window\.location\.search\)/);
   assert.match(src, /src=\{src\}/);
 });

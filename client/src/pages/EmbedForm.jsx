@@ -34,6 +34,7 @@ import {
 import { useConditionalFormFieldPrefill, useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { getFormPagination } from "@/lib/formPagination";
+import { observeFormEmbedContent } from "@/lib/formEmbedRuntime";
 import { resolveFormPageVisibility } from "@/lib/formPageVisibility";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
@@ -58,6 +59,26 @@ const EMPTY_ARRAY = [];
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
 export default function EmbedFormPage() {
+  const contentRef = useRef(null);
+  const runtimeRef = useRef(null);
+  useEffect(() => {
+    const runtime = observeFormEmbedContent(contentRef.current);
+    runtimeRef.current = runtime;
+    return () => {
+      runtime.dispose();
+      runtimeRef.current = null;
+    };
+  }, []);
+  const notifyParentResize = useCallback(() => runtimeRef.current?.schedule(), []);
+  const onPageNavigation = useCallback(() => runtimeRef.current?.navigated(), []);
+  return (
+    <div ref={contentRef} style={{ display: 'flow-root' }} data-form-embed-content>
+      <EmbedFormContent notifyParentResize={notifyParentResize} onPageNavigation={onPageNavigation} />
+    </div>
+  );
+}
+
+function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
   const { slug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   
@@ -67,6 +88,7 @@ export default function EmbedFormPage() {
   // form); step transitions still focus as before.
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const pendingPageNavigationRef = useRef(null);
   const [formValues, setFormValues] = useState({});
   const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
   const [emptyRepeatableFieldIds, setEmptyRepeatableFieldIds] = useState(() => new Set());
@@ -1038,6 +1060,16 @@ export default function EmbedFormPage() {
   const currentPageFields = pages[currentPageIndex]?.fields || [];
   const currentPageTitle = pages[currentPageIndex]?.title;
 
+  // Only Next/Previous arm this signal, never initial load, conditional page
+  // clamping, or a form-to-form transition. Send it after React commits the page.
+  useEffect(() => {
+    const pending = pendingPageNavigationRef.current;
+    pendingPageNavigationRef.current = null;
+    if (pending && pending.formId === form?.id && pending.index === currentPageIndex) {
+      onPageNavigation();
+    }
+  }, [form?.id, currentPageIndex, onPageNavigation]);
+
   // A rule can hide/re-show a page while the respondent is on a later page.
   // Keep the index inside the projected visible page list without touching
   // any answers.
@@ -1084,6 +1116,7 @@ export default function EmbedFormPage() {
       }
     } else {
       if (currentPageIndex < pages.length - 1) {
+        pendingPageNavigationRef.current = { formId: form.id, index: currentPageIndex + 1 };
         setCurrentPageIndex(prev => prev + 1);
         notifyParentResize();
       }
@@ -1098,6 +1131,7 @@ export default function EmbedFormPage() {
       }
     } else {
       if (currentPageIndex > 0) {
+        pendingPageNavigationRef.current = { formId: form.id, index: currentPageIndex - 1 };
         setCurrentPageIndex(prev => prev - 1);
         notifyParentResize();
       }
@@ -1224,13 +1258,6 @@ export default function EmbedFormPage() {
     if (payload) submitFormMutation.mutate(payload);
   };
 
-  const notifyParentResize = () => {
-    setTimeout(() => {
-      const height = document.documentElement.scrollHeight;
-      window.parent.postMessage({ type: 'iconn-form-resize', height }, '*');
-    }, 100);
-  };
-
   useEffect(() => {
     notifyParentResize();
   }, [form, currentPageIndex, currentStep, submitted, hiddenFieldIds, hiddenPageIds]);
@@ -1260,14 +1287,6 @@ export default function EmbedFormPage() {
       // Cross-origin hosts cannot be inspected or navigated automatically.
     }
   }, [paymentReturn.active, paymentReturnHasParams]);
-
-  useEffect(() => {
-    const resizeObserver = new ResizeObserver(() => {
-      notifyParentResize();
-    });
-    resizeObserver.observe(document.body);
-    return () => resizeObserver.disconnect();
-  }, []);
 
   // Canvas Builder "Form embed" block lets authors choose one tenant font +
   // base text size for the whole embedded form. They arrive as `font` (a full
