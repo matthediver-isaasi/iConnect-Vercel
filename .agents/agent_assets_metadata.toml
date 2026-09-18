@@ -551,3 +551,17 @@ mtime_ms = 1789723234340
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5b9a6e1f-89fb-482b-b11d-3633435b1b40/e455166f-c115-4da9-9815-3d127e8ccbf4"
 storage_version_token = "1789723255143842"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "9Vz3b9KUNWqcc7ChWxdUo"
+uri = "file://.agents/outputs/BNMS-Full-members-renewal-review-2026-09-18.xlsx"
+type = "table"
+title = "BNMS Full members — renewal reconciliation"
+description = "Excel workbook for 167 members with member_class exactly Full, using the last twelve months of invoice evidence. Includes deduplicated invoices, GoCardless payment evidence, proposed fields and review limitations. Nominal-code matching remains unverified: both Full structure codes are empty and Xero invoice-line codes are unavailable. Read-only; no database changes or migrations applied."
+logical_id = "cf614161-495c-4891-b349-380eccc2f062"
+content_hash = "sha256:61158a0619f6dd857f8c2a29aa4df48a5d6007607f4fff11ec84ba745dcb5a58"
+size = 553032
+mtime_ms = 1789724513099
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cf614161-495c-4891-b349-380eccc2f062/1a62c0e7-c86f-4313-9040-a64eb9f950f0"
+storage_version_token = "1789724557009682"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
