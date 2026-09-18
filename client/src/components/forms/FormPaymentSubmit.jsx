@@ -16,6 +16,7 @@ import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary"
 import MembershipCommitmentNotice from "@/components/membership/MembershipCommitmentNotice";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
+const PAYMENT_METHOD_CARD_CLASS = "flex min-h-[9.35rem] w-full gap-3 rounded-[0.55rem] border border-border bg-background p-4 text-left text-foreground transition-[border-color,background-color] duration-150 hover:border-foreground/50 hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function formatPaymentAmount(amount, currency) {
   const symbol = CURRENCY_SYMBOLS[currency] || (currency ? currency + ' ' : '');
@@ -498,7 +499,7 @@ export default function FormPaymentSubmit({
         />
       )}
       {paymentError && (
-        <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20">
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20" role="alert">
           <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-sm text-destructive">{paymentError}</p>
         </div>
@@ -627,7 +628,7 @@ export default function FormPaymentSubmit({
           </Button>
         </div>
       ) : (
-        <div className="w-full space-y-3">
+        <div className="w-full space-y-4">
           <p className="text-sm font-medium">
             Amount due: <span data-testid={`form-payment-amount-${field?.id}`}>{formatPaymentAmount(amount, currency)}</span>
           </p>
@@ -644,53 +645,87 @@ export default function FormPaymentSubmit({
               <Loader2 className="h-4 w-4 animate-spin" /> Checking payment options…
             </div>
           )}
-          <div
-            className="grid w-full grid-cols-1 gap-3 md:grid-cols-2"
+          <section
+            className="mt-1"
             data-testid={`form-payment-provider-choices-${field?.id}`}
+            aria-labelledby={`form-payment-methods-title-${field?.id}`}
           >
-             {effective.membership?.monthly_card && (
-               <Button
-                 variant="outline"
-                 onClick={startMonthlyCard}
-                 disabled={disabled || anyBusy}
-                 className="h-auto min-h-11 w-full justify-start whitespace-normal px-4 py-3 text-left leading-snug"
-                 data-testid={`button-form-payment-monthly-card-${field?.id}`}
-               >
-                 {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
-                 {`Pay monthly by card — ${formatPaymentAmount(effective.membership.monthly_card.monthlyAmount, effective.membership.monthly_card.currency || currency)} × ${effective.membership.monthly_card.instalmentCount} (total ${formatPaymentAmount(effective.membership.monthly_card.planTotal, effective.membership.monthly_card.currency || currency)})`}
-               </Button>
-             )}
-            {(usableProviders || []).map((p) => (
-              <Button
-                key={p.id}
-                variant={p.id === 'stripe' ? 'default' : 'outline'}
-                onClick={() => startPayment(p.id)}
-                disabled={disabled || anyBusy}
-                 className="h-auto min-h-11 w-full justify-start whitespace-normal px-4 py-3 text-left leading-snug"
-                data-testid={`button-form-payment-${p.id}-${field?.id}`}
-              >
-                {creating ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : p.id === 'stripe' ? (
-                  <CreditCard className="mr-2 h-4 w-4" />
-                ) : (
-                  <Landmark className="mr-2 h-4 w-4" />
-                )}
-                 {p.id === 'stripe'
-                   ? `Pay ${formatPaymentAmount(amount, currency)} by card`
-                   : directDebitOffer
-                     ? (
-                       <span>
-                         <span className="block">Pay by Direct Debit — {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount}</span>
-                         <span className="block text-xs font-normal opacity-80">
-                           Plan total {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)} · First collection: {directDebitFirstCollectionText(directDebitOffer)}
-                         </span>
-                       </span>
-                     )
-                     : 'Pay by Direct Debit'}
-              </Button>
-            ))}
-          </div>
+            <div className="mb-3.5">
+              <h2 id={`form-payment-methods-title-${field?.id}`} className="text-[0.95rem] font-semibold leading-snug tracking-[-0.01em]">
+                Select your desired payment method
+              </h2>
+              <p className="mt-1 text-[0.82rem] leading-relaxed text-muted-foreground">
+                Click an option below to start secure payment or set up your payment plan.
+              </p>
+              {creating && (
+                <p className="mt-2 text-xs font-medium text-muted-foreground" role="status">
+                  Starting secure payment…
+                </p>
+              )}
+            </div>
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,12.5rem),1fr))]">
+              {effective.membership?.monthly_card && (
+                <button
+                  type="button"
+                  onClick={startMonthlyCard}
+                  disabled={disabled || anyBusy}
+                  className={PAYMENT_METHOD_CARD_CLASS}
+                  data-testid={`button-form-payment-monthly-card-${field?.id}`}
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground" aria-hidden="true">
+                    {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : <CreditCard className="h-5 w-5" />}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col items-start break-words">
+                    <span className="min-h-10 text-sm font-semibold leading-snug">Pay monthly by card</span>
+                    <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">
+                      {formatPaymentAmount(effective.membership.monthly_card.monthlyAmount, effective.membership.monthly_card.currency || currency)} × {effective.membership.monthly_card.instalmentCount} instalments
+                    </span>
+                    <span className="mt-1.5 block text-xs font-semibold leading-relaxed break-words">
+                      Plan total {formatPaymentAmount(effective.membership.monthly_card.planTotal, effective.membership.monthly_card.currency || currency)}
+                    </span>
+                  </span>
+                </button>
+              )}
+              {(usableProviders || []).map((p) => {
+                const isCard = p.id === 'stripe';
+                const monthlyDirectDebit = p.id === 'gocardless' && directDebitOffer;
+                return (
+                  <button
+                    type="button"
+                    key={p.id}
+                    onClick={() => startPayment(p.id)}
+                    disabled={disabled || anyBusy}
+                    className={PAYMENT_METHOD_CARD_CLASS}
+                    data-testid={`button-form-payment-${p.id}-${field?.id}`}
+                  >
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground" aria-hidden="true">
+                      {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : isCard ? <CreditCard className="h-5 w-5" /> : <Landmark className="h-5 w-5" />}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col items-start break-words">
+                      <span className="min-h-10 text-sm font-semibold leading-snug">
+                        {isCard ? 'Pay in full by card' : monthlyDirectDebit ? 'Pay monthly by Direct Debit' : 'Pay by Direct Debit'}
+                      </span>
+                      {isCard ? (
+                        <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{formatPaymentAmount(amount, currency)} due today</span>
+                      ) : monthlyDirectDebit ? (
+                        <>
+                          <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">
+                            {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount} instalments
+                          </span>
+                          <span className="mt-1.5 block text-xs font-semibold leading-relaxed break-words">
+                            Plan total {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)}
+                          </span>
+                          <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">First collection: {directDebitFirstCollectionText(directDebitOffer)}</span>
+                        </>
+                      ) : (
+                        <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">Set up a secure bank instruction</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         </div>
       )}
 

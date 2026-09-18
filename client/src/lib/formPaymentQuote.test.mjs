@@ -368,8 +368,12 @@ test('membership Direct Debit is rejected after authoritative quote resolution a
 test('payment choices and selected Stripe content use responsive full-width layout', () => {
   const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
   assert.match(src, /form-payment-provider-choices-/);
-  assert.match(src, /grid w-full grid-cols-1 gap-3 md:grid-cols-2/);
-  assert.match(src, /min-h-11 w-full justify-start whitespace-normal/);
+  assert.match(src, /repeat\(auto-fit,minmax\(min\(100%,12\.5rem\),1fr\)\)/,
+    'choices must respond to container width rather than a fixed two-column viewport grid');
+  assert.doesNotMatch(src, /md:grid-cols-2/);
+  assert.match(src, /Select your desired payment method/);
+  assert.match(src, /Pay in full by card/);
+  assert.match(src, /Pay monthly by Direct Debit/);
   assert.match(src, /form-payment-provider-content-/);
   assert.match(src, /w-full max-w-2xl space-y-4/);
   assert.doesNotMatch(src, /space-y-3 max-w-lg/, 'Stripe must not retain the narrow footer-era constraint');
@@ -418,7 +422,7 @@ test('server confirm securely retrieves and replays a monthly-card checkout', ()
   assert.match(confirm, /payment_provider === 'stripe_monthly_card'/);
   assert.match(
     confirm,
-    /checkout\.sessions\.retrieve\(checkoutSessionId,\s*\{\s*expand:\s*\['subscription\.latest_invoice'\]/s,
+    /checkout\.sessions\.retrieve\(checkoutSessionId,\s*\{\s*expand:\s*\['subscription\.latest_invoice(?:\.payment_intent)?'\]/s,
     'monthly-card confirmation must retrieve the latest invoice for completion/accounting verification',
   );
   assert.match(confirm, /session\.status !== 'complete'/);
