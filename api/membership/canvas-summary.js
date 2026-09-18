@@ -9,7 +9,7 @@ import { shapePlan } from './payment-plan.js';
 const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, payment_method, billing_period, term_key, term_start_date, term_end_date, membership_renewal_date, commitment_snapshot';
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
-const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id`;
+const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status`;
 const ORGANISATION_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, organization_id`;
 const pending = new Set(['pending', 'pending_activation', 'pending_payment', 'pending_payment_setup', 'payment_setup_required', 'mandate_pending', 'first_payment_pending', 'scheduled', 'unpaid']);
 const failed = new Set(['failed', 'payment_failed', 'payment_overdue', 'payment_grace_period']);
@@ -39,7 +39,7 @@ function dated(record, today) {
     else if (renewal || end) lifecycle = 'past';
   }
   if (lifecycle === 'current' && ['expired', 'cancelled', 'canceled'].includes(record.status)) lifecycle = 'past';
-  return { record, commitment, start, lifecycle, validCommencement: !invalidOrder };
+  return { record, commitment, start, renewal: invalidOrder ? null : renewal, lifecycle, validCommencement: !invalidOrder };
 }
 
 export function selectCanvasCommitment(personal, organisation, today) {
@@ -77,7 +77,7 @@ function paymentMethod(record, commitment, plan) {
 
 export function buildCanvasSummary({ selected, plan = null, paused = false, today }) {
   if (!selected) return {
-    membership: { state: 'none', memberSince: null, membershipType: null },
+    membership: { state: 'none', memberSince: null, membershipType: null, renewalDate: null },
     payment: { state: 'none', method: 'unavailable', nextPayment: null },
   };
   const { record, commitment, lifecycle, source } = selected;
@@ -101,16 +101,27 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
     state: membershipState,
     memberSince: starts[0] || null,
     membershipType: text(commitment?.tierLabel) || text(commitment?.structureName) || text(record.tier_label),
+    renewalDate: selected.renewal || null,
   };
   // Organisation payer details are not supported by the member billing cards.
   if (record.membership_source === 'organisation') {
     return { membership, payment: { state: 'unavailable', method: 'unavailable', nextPayment: null } };
   }
   const method = paymentMethod(record, commitment, plan);
-  // A paid annual invoice (or partial monthly payment) does not establish a
-  // currently configured payment arrangement. Keep the original vocabulary:
-  // no matching persisted plan means unavailable, never "payment is set up".
-  if (!plan) return { membership, payment: { state: 'unavailable', method, nextPayment: null } };
+  if (!plan) {
+    // Settlement and recurring setup are different facts. A confirmed upfront
+    // payment needs no billing agreement. Never use access status, an invoice
+    // reference or one paid monthly instalment as evidence of full settlement.
+    const frequency = commitment?.paymentFrequency;
+    const annual = (record.billing_period || commitment?.billingPeriod) === 'annual';
+    const upfront = frequency === 'upfront' || (!frequency && annual);
+    const monthly = record.billing_period === 'monthly' || commitment?.billingPeriod === 'monthly'
+      || frequency === 'monthly';
+    const paidUpfront = lifecycle === 'current' && record.payment_status === 'paid'
+      && !record.billing_agreement_id && upfront && !monthly
+      && ['card', 'invoice', 'bank_transfer'].includes(method);
+    return { membership, payment: { state: paidUpfront ? 'paid' : 'unavailable', method, nextPayment: null } };
+  }
   const status = plan.status;
   const agreementStatus = plan?.membership_billing_agreements?.status;
   let state = 'unavailable';

@@ -92,7 +92,7 @@ test('current organisation wins over past or future personal; billing remains un
     term({ term_start_date: '2020-01-01', membership_renewal_date: '2021-01-01' }),
   ], [orgTerm(), orgTerm({ id: 'older-org', term_start_date: '2024-01-01', membership_renewal_date: '2025-01-01' })]);
   assert.deepEqual(result, {
-    membership: { state: 'active', memberSince: '2024-01-01', membershipType: 'Organisation' },
+    membership: { state: 'active', memberSince: '2024-01-01', membershipType: 'Organisation', renewalDate: '2027-01-01' },
     payment: { state: 'unavailable', method: 'unavailable', nextPayment: null },
   });
   assert.equal(summary([term({ status: 'expired' })], [orgTerm()]).membership.membershipType, 'Organisation');
@@ -157,15 +157,50 @@ test('explicit failed/manual-pending history is not active; billing grace never 
   }
 });
 
-test('annual paid and partial ledgers are not recurring setup evidence', () => {
+test('only confirmed upfront settlement reports paid, never recurring setup success', () => {
   for (const payment_status of ['paid', 'partial', 'unpaid']) {
     for (const payment_method of ['stripe', 'invoice', 'bank_transfer']) {
-      const result = summary([term({ status: 'paid', payment_status, payment_method })]);
+      const result = summary([term({ status: 'paid', payment_status, payment_method, billing_period: 'annual' })]);
       assert.equal(result.membership.state, 'active');
-      assert.equal(result.payment.state, 'unavailable');
+      assert.equal(result.payment.state, payment_status === 'paid' ? 'paid' : 'unavailable');
       assert.equal(result.payment.nextPayment, null);
     }
   }
+});
+
+test('paid annual card term without a recurring plan retains settlement and separate renewal date', async () => {
+  const h = harness({ rows: { member_membership_history: [term({
+    term_key: 'rolling:2026-09-18', membership_year: 'rolling:2026-09-18',
+    term_start_date: today, term_end_date: '2027-09-17', membership_renewal_date: '2027-09-18',
+    tier_label: 'Flat Rate', billing_period: 'annual', billing_agreement_id: null,
+    payment_method: 'stripe', payment_status: 'paid',
+    commitment_snapshot: { payment_frequency: 'upfront', billing_period: 'annual', payment_method: 'stripe' },
+  })] } });
+  const response = await h.request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.membership.state, 'active');
+  assert.equal(response.payload.membership.renewalDate, '2027-09-18');
+  assert.deepEqual(response.payload.payment, { state: 'paid', method: 'card', nextPayment: null });
+  assert.ok(!h.db.calls.some(call => call.table === 'membership_payment_plans'));
+});
+
+test('unconfirmed, monthly, expired or unlinked recurring records cannot become paid-upfront success', () => {
+  const paid = { billing_period: 'annual', payment_status: 'paid' };
+  for (const patch of [
+    { payment_status: null }, { payment_status: 'partial' }, { payment_status: 'unpaid' },
+    { billing_period: 'monthly' }, { payment_method: 'direct_debit' },
+    { billing_agreement_id: 'unmatched-agreement' },
+    { commitment_snapshot: { payment_frequency: 'monthly' } },
+    { commitment_snapshot: { billing_period: 'monthly', payment_frequency: 'upfront' } },
+    { membership_renewal_date: '2026-01-02' },
+  ]) {
+    assert.equal(summary([term({ ...paid, ...patch })]).payment.state, 'unavailable', JSON.stringify(patch));
+  }
+  const withPlan = summary([term(paid)], [], {
+    plan: { status: 'active', provider: 'stripe', interval_unit: 'monthly', next_charge_date: '2026-10-01' },
+  });
+  assert.equal(withPlan.payment.state, 'active');
+  assert.equal(withPlan.payment.nextPayment, '2026-10-01');
 });
 
 test('monthly billing without a matching plan never reports setup success', () => {
@@ -227,7 +262,7 @@ test('authenticated response is minimal, tenant scoped and private no-store', as
   const res = await h.request();
   assert.equal(res.statusCode, 200);
   assert.deepEqual(Object.keys(res.payload), ['membership', 'payment']);
-  assert.deepEqual(Object.keys(res.payload.membership), ['state', 'memberSince', 'membershipType']);
+  assert.deepEqual(Object.keys(res.payload.membership), ['state', 'memberSince', 'membershipType', 'renewalDate']);
   assert.deepEqual(Object.keys(res.payload.payment), ['state', 'method', 'nextPayment']);
   assert.match(res.headers['Cache-Control'], /private, no-store/);
   assert.match(res.headers.Vary, /Cookie/);
@@ -245,11 +280,11 @@ test('history query projections respect each owner schema and avoid unsupported 
   assert.ok(!personal.includes('organization_id'));
   assert.ok(org.includes('organization_id'));
   for (const column of ['member_id', 'billing_agreement_id', 'payment_status']) assert.ok(!org.includes(column));
-  assert.ok(!personal.includes('payment_status'), 'invoice settlement is not an arrangement state');
+  assert.ok(personal.includes('payment_status'), 'personal upfront settlement must be read, not inferred');
 
   // Verify migration evidence without connecting to a database. Both ledgers
-  // actually have settlement columns; org also has an agreement column, but
-  // this endpoint deliberately no longer depends on these unnecessary fields.
+  // actually have settlement columns; personal billing now needs settlement,
+  // while unsupported organisation billing deliberately does not read it.
   const migration = name => readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), 'utf8');
   const personalBilling = migration('20260726_gocardless_phase2_dd_config.sql');
   const orgBilling = migration('20260726_gocardless_phase3_org_dd.sql');
@@ -262,7 +297,7 @@ test('history query projections respect each owner schema and avoid unsupported 
   const existingHistory = readFileSync(new URL('./member-history.js', import.meta.url), 'utf8');
   const personalSelect = existingHistory.match(/const PERSONAL_COLUMNS = \[([\s\S]*?)\]\.join/)[1];
   const orgSelect = existingHistory.match(/const ORGANISATION_COLUMNS = \[([\s\S]*?)\]\.join/)[1];
-  for (const column of personal.filter(column => column !== 'billing_agreement_id')) {
+  for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);

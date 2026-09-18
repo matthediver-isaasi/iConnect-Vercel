@@ -226,6 +226,7 @@ function symbolFixture() {
 async function installFixtures(page, {
   version = 1, viewer = "alpha", apiState = "ready", empty = false,
   duplicate = false, symbol = false, microsite = false,
+  summaryOverride = null,
 } = {}) {
   const fixturePage = pageFixture(version, { empty, duplicate, symbol, microsite });
   const requests = [];
@@ -309,7 +310,7 @@ async function installFixtures(page, {
           payment: { state: "none", method: "unavailable", nextPayment: null },
         });
       }
-      return member ? json(route, SUMMARIES[viewer]) : json(route, { error: "Sign in required" }, 401);
+      return member ? json(route, summaryOverride || SUMMARIES[viewer]) : json(route, { error: "Sign in required" }, 401);
     }
     if (path.startsWith("/api/canvas-versions/")) {
       if (method !== "GET") writes.push({ path, method, body: request.postDataJSON?.() });
@@ -377,6 +378,28 @@ async function dragPaletteBlock(page, type, targetY) {
 }
 
 for (const version of [1, 2]) {
+  test(`isolated V${version} paid upfront membership shows settlement and renewal, not an unavailable plan`, async ({ page }, testInfo) => {
+    const fixture = await installFixtures(page, { version, summaryOverride: {
+      membership: { state: "active", memberSince: "2026-09-18", membershipType: "Flat Rate", renewalDate: "2027-09-18" },
+      payment: { state: "paid", method: "card", nextPayment: null },
+    } });
+    await openPublished(page, fixture);
+    const membership = page.getByTestId("canvas-membership-summary").first();
+    const payment = page.getByTestId("canvas-payment-details").first();
+    await expect(membership).toContainText("Membership Active");
+    await expect(membership).toContainText("Renewal date");
+    await expect(membership).toContainText("18 September 2027");
+    await expect(membership).not.toContainText("Next payment");
+    await expect(payment).toContainText("Paid in full");
+    await expect(payment).not.toContainText("unavailable");
+    await expect(payment).not.toContainText("payment is set up");
+    await page.screenshot({ path: testInfo.outputPath(`paid-upfront-v${version}.png`), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(payment).toContainText("Paid in full");
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
+
   test(`isolated V${version} desktop/mobile published cards use live fixture data`, async ({ page }, testInfo) => {
     const fixture = await installFixtures(page, { version, viewer: "alpha" });
     await openPublished(page, fixture);

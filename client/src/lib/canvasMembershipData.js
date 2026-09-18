@@ -1,6 +1,7 @@
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
+export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
@@ -23,12 +24,13 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
-  active: 'Your payment method', pending: 'Payment setup pending', paused: 'Payments paused',
+  active: 'Your payment method', paid: 'Membership paid', pending: 'Payment setup pending', paused: 'Payments paused',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
   active: 'Your membership payment is set up',
+  paid: 'Your current membership has been paid in full.',
   pending: 'Your payment setup is awaiting confirmation.',
   paused: 'Your payment arrangement is paused.',
   expired: 'Your payment arrangement has expired.',
@@ -43,14 +45,18 @@ const number = (value, fallback, max) => value !== '' && value != null && Number
 
 export function getCanvasMembershipDefaults(type = 'membership-summary') {
   const payment = type === 'payment-details';
+  const states = payment ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
   return {
     eyebrow: payment ? 'PAYMENT DETAILS' : 'YOUR MEMBERSHIP',
-    states: Object.fromEntries(MEMBERSHIP_DATA_STATES.map(state => [state, {
+    states: Object.fromEntries(states.map(state => [state, {
       heading: (payment ? paymentHeadings : membershipHeadings)[state],
       supporting: (payment ? paymentSupport : membershipSupport)[state],
-      status: payment && state === 'none' ? 'Not set up' : statuses[state],
+      status: payment && state === 'paid' ? 'Paid in full' : payment && state === 'none' ? 'Not set up' : statuses[state],
     }])),
-    fields: { memberSince: 'Member since', membershipType: 'Membership type', method: 'Payment method', nextPayment: 'Next payment' },
+    fields: {
+      memberSince: 'Member since', membershipType: 'Membership type', method: 'Payment method',
+      nextPayment: 'Next payment', renewalDate: 'Renewal date',
+    },
     methods: {
       direct_debit: 'Direct Debit', monthly_direct_debit: 'Monthly Direct Debit',
       card: 'Card', monthly_card: 'Monthly card', bank_transfer: 'Bank transfer',
@@ -62,6 +68,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       denied: 'You do not have permission to view these details.',
       error: 'Your membership details could not be loaded. Please try again later.',
       missing: 'Not available',
+      noPaymentScheduled: 'No scheduled payment recorded',
     },
     typography: Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [role, ''])),
     manageLink: '', manageLinkText: 'Manage payments', manageLinkNewTab: false,
@@ -77,7 +84,7 @@ export function normalizeCanvasMembershipContent(content, type = 'membership-sum
   const panel = record(input.panel);
   return {
     eyebrow: text(input.eyebrow, defaults.eyebrow),
-    states: Object.fromEntries(MEMBERSHIP_DATA_STATES.map(state => [
+    states: Object.fromEntries((type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES).map(state => [
       state, strings(record(input.states)[state], defaults.states[state]),
     ])),
     fields: strings(input.fields, defaults.fields),
@@ -122,9 +129,10 @@ export function normalizeCanvasMembershipSummary(value) {
       state: MEMBERSHIP_DATA_STATES.includes(membership.state) ? membership.state : 'unavailable',
       memberSince: isoDate(membership.memberSince),
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,
+      renewalDate: isoDate(membership.renewalDate),
     },
     payment: {
-      state: MEMBERSHIP_DATA_STATES.includes(payment.state) ? payment.state : 'unavailable',
+      state: MEMBERSHIP_PAYMENT_STATES.includes(payment.state) ? payment.state : 'unavailable',
       method: MEMBERSHIP_PAYMENT_METHODS.includes(payment.method) ? payment.method : 'unavailable',
       nextPayment: isoDate(payment.nextPayment),
     },

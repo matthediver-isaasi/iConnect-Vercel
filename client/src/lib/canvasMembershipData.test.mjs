@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   getCanvasMembershipDefaults, normalizeCanvasMembershipContent, safeMembershipLink,
   normalizeCanvasMembershipSummary, formatMembershipDate, canvasMembershipQueryKey,
-  MEMBERSHIP_DATA_STATES, MEMBERSHIP_TEXT_ROLES,
+  MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } from './canvasMembershipData.js';
 
 test('presentation normalization excludes private records and preview samples', () => {
@@ -30,7 +30,8 @@ test('presentation normalization excludes private records and preview samples', 
 test('every non-active state has independent non-success headings and support', () => {
   for (const type of ['membership-summary', 'payment-details']) {
     const defaults = getCanvasMembershipDefaults(type);
-    for (const state of MEMBERSHIP_DATA_STATES.filter(value => value !== 'active')) {
+    const states = type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
+    for (const state of states.filter(value => value !== 'active')) {
       assert.notEqual(defaults.states[state].heading, defaults.states.active.heading);
       assert.notEqual(defaults.states[state].supporting, defaults.states.active.supporting);
     }
@@ -38,6 +39,32 @@ test('every non-active state has independent non-success headings and support', 
     first.states.active.heading = 'Changed';
     assert.notEqual(getCanvasMembershipDefaults(type).states.active.heading, 'Changed');
   }
+});
+
+test('paid is a payment state only and preserves paid-upfront term dates', () => {
+  assert.equal(MEMBERSHIP_DATA_STATES.includes('paid'), false);
+  assert.equal(MEMBERSHIP_PAYMENT_STATES.includes('paid'), true);
+  const data = normalizeCanvasMembershipSummary({
+    membership: {
+      state: 'paid', memberSince: '2024-01-01', membershipType: 'Annual',
+      renewalDate: '2030-04-15T00:00:00.000Z',
+    },
+    payment: { state: 'paid', method: 'card', nextPayment: null },
+  });
+  assert.equal(data.membership.state, 'unavailable');
+  assert.equal(data.membership.membershipType, 'Annual');
+  assert.equal(data.membership.renewalDate, '2030-04-15T00:00:00.000Z');
+  assert.equal(data.payment.state, 'paid');
+  assert.equal(data.payment.nextPayment, null);
+  const paymentDefaults = getCanvasMembershipDefaults('payment-details');
+  assert.deepEqual(paymentDefaults.states.paid, {
+    heading: 'Membership paid',
+    supporting: 'Your current membership has been paid in full.',
+    status: 'Paid in full',
+  });
+  assert.equal(paymentDefaults.fields.renewalDate, 'Renewal date');
+  assert.equal(paymentDefaults.messages.noPaymentScheduled, 'No scheduled payment recorded');
+  assert.equal(getCanvasMembershipDefaults().states.paid, undefined);
 });
 
 test('manage links reject executable, network-path, credential and obfuscated URLs', () => {

@@ -18,7 +18,9 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
-const { getCanvasMembershipDefaults, MEMBERSHIP_DATA_STATES, MEMBERSHIP_TEXT_ROLES } = await import('../../../lib/canvasMembershipData.js');
+const {
+  getCanvasMembershipDefaults, MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
+} = await import('../../../lib/canvasMembershipData.js');
 
 const live = {
   membership: { state: 'active', memberSince: '2017-01-01', membershipType: 'Professional' },
@@ -48,7 +50,8 @@ test('summary semantic labels, values, responsive grid and sample boundary', () 
 test('all lifecycle states select their own copy for both cards', () => {
   for (const type of ['membership-summary', 'payment-details']) {
     const defaults = getCanvasMembershipDefaults(type);
-    for (const state of MEMBERSHIP_DATA_STATES) {
+    const states = type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
+    for (const state of states) {
       const html = render({
         type, result: { status: 'ready', data: {
           membership: { ...live.membership, state }, payment: { ...live.payment, state },
@@ -63,6 +66,46 @@ test('all lifecycle states select their own copy for both cards', () => {
       }
     }
   }
+});
+
+test('paid-upfront cards render renewal without implying an automatic charge', () => {
+  const paid = {
+    membership: { ...live.membership, renewalDate: '2030-04-15' },
+    payment: { state: 'paid', method: 'card', nextPayment: null },
+  };
+  const paymentHtml = render({
+    type: 'payment-details', result: { status: 'ready', data: paid },
+  });
+  assert.match(paymentHtml, /Membership paid/);
+  assert.match(paymentHtml, /Paid in full/);
+  assert.match(paymentHtml, /Your current membership has been paid in full\./);
+  assert.match(paymentHtml, /Renewal date/);
+  assert.match(paymentHtml, /15 April 2030/);
+  assert.doesNotMatch(paymentHtml, /automatic|auto-renew|saved card/i);
+
+  const summaryHtml = render({ result: { status: 'ready', data: paid } });
+  assert.match(summaryHtml, /Renewal date/);
+  assert.match(summaryHtml, /15 April 2030/);
+  assert.doesNotMatch(summaryHtml, /Next payment/);
+
+  const withoutRenewal = {
+    membership: live.membership,
+    payment: { state: 'paid', method: 'bank_transfer', nextPayment: null },
+  };
+  for (const type of ['membership-summary', 'payment-details']) {
+    const html = render({ type, result: { status: 'ready', data: withoutRenewal } });
+    assert.match(html, /Next payment/);
+    assert.match(html, /No scheduled payment recorded/);
+    assert.doesNotMatch(html, /Not available/);
+  }
+});
+
+test('recurring Direct Debit keeps its actual next payment presentation', () => {
+  const html = render({ result: { status: 'ready', data: live } });
+  assert.match(html, /Monthly Direct Debit/);
+  assert.match(html, /Next payment/);
+  assert.match(html, /1 October 2029/);
+  assert.doesNotMatch(html, /Renewal date|No scheduled payment recorded/);
 });
 
 test('guest, denied, error and loading never paint cached active data', () => {
@@ -117,6 +160,7 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
       <MembershipDataInspector block={block} update={updater => updates.push(updater)} />
     </QueryClientProvider>));
     const state = container.querySelector('[data-testid="membership-state-wording"]');
+    assert.ok([...state.options].some(option => option.value === 'paid'));
     await act(async () => Simulate.change(state, { target: { value: 'paused' } }));
     const heading = container.querySelector('[data-testid="membership-input-paused-heading"]');
     await act(async () => Simulate.change(heading, { target: { value: 'Collections on hold' } }));
@@ -129,6 +173,14 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
     assert.ok(container.querySelector('[data-testid="membership-panel-background"]'));
     assert.ok(container.querySelector('[data-testid="membership-manage-link"]'));
     assert.equal(next.content.sample, undefined);
+    await act(async () => root.render(<QueryClientProvider client={client}>
+      <MembershipDataInspector block={{ ...block, type: 'membership-summary' }} update={() => {}} />
+    </QueryClientProvider>));
+    assert.equal(
+      [...container.querySelector('[data-testid="membership-state-wording"]').options]
+        .some(option => option.value === 'paid'),
+      false,
+    );
   } finally {
     await act(async () => root.unmount());
     client.clear();

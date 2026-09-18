@@ -12,7 +12,7 @@ import { useReportReflowHeight } from '../AccordionReflowContext';
 import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
 import {
   normalizeCanvasMembershipContent, normalizeCanvasMembershipSummary,
-  MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
+  MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
   formatMembershipDate, safeMembershipLink,
 } from '@/lib/canvasMembershipData';
 
@@ -30,7 +30,7 @@ const roleDefaults = {
   link: { fontSize: 17, lineHeight: 1.5, fontWeight: 700, color: 'var(--cb-color-primary, #9a4d16)' },
 };
 const stateColors = {
-  active: '#237249', pending: '#865d10', paused: '#865d10', expired: '#667085',
+  active: '#237249', paid: '#237249', pending: '#865d10', paused: '#865d10', expired: '#667085',
   failed: '#b42318', unavailable: '#667085', none: '#667085',
 };
 
@@ -68,12 +68,18 @@ export function MembershipDataView({
     + (style.borderStyle === 'none' ? 0 : 2 * (Number(style.borderWidth) || 0));
   const ref = useReportReflowHeight(block.id, extraHeight, { includeExtraHeightPublic: true });
   const href = safeMembershipLink(content.manageLink);
+  const paidWithoutNextPayment = summary.payment.state === 'paid' && !summary.payment.nextPayment;
+  const renewalDate = formatMembershipDate(summary.membership.renewalDate);
   const values = {
     memberSince: formatMembershipDate(summary.membership.memberSince, true) || content.messages.missing,
     membershipType: summary.membership.membershipType || content.messages.missing,
     method: content.methods[summary.payment.method],
-    nextPayment: formatMembershipDate(summary.payment.nextPayment) || content.messages.missing,
+    nextPayment: formatMembershipDate(summary.payment.nextPayment)
+      || (paidWithoutNextPayment ? content.messages.noPaymentScheduled : content.messages.missing),
+    renewalDate: renewalDate || content.messages.noPaymentScheduled,
   };
+  const fieldKeys = ['memberSince', 'membershipType', 'method',
+    paidWithoutNextPayment && renewalDate ? 'renewalDate' : 'nextPayment'];
   return (
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
       data-membership-state={state} aria-labelledby={`${id}-heading`}
@@ -112,13 +118,19 @@ export function MembershipDataView({
           <p {...role('value', { fontSize: 24 })}>{content.methods[summary.payment.method]}</p>
           <p {...role('status', { marginTop: 8, color: stateColors[state] })}>{copy.status}</p>
           <p {...role('supporting', { marginTop: 8, color: stateColors[state], fontWeight: 600 })}>{copy.supporting}</p>
+          {state === 'paid' && <dl style={{ margin: '16px 0 0' }}>
+            <dt {...role('fieldLabel')}>
+              {renewalDate ? content.fields.renewalDate : content.fields.nextPayment}
+            </dt>
+            <dd {...role('value')}>{renewalDate || content.messages.noPaymentScheduled}</dd>
+          </dl>}
         </div>
       ) : (
         <>
           <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>
           <dl className="membership-fields">
-            {Object.entries(content.fields).map(([key, label]) => <div key={key} style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{label}</dt>
+            {fieldKeys.map(key => <div key={key} style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields[key]}</dt>
               <dd {...role('value')}>{values[key]}</dd>
             </div>)}
           </dl>
@@ -152,6 +164,7 @@ export function PaymentDetailsRender(props) {
 export function MembershipDataInspector({ block, update }) {
   const c = normalizeCanvasMembershipContent(block.content, block.type);
   const [state, setState] = useState('active');
+  const editableStates = block.type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
   const set = patch => update(b => ({
     ...b, content: normalizeCanvasMembershipContent({ ...normalizeCanvasMembershipContent(b.content, b.type), ...patch }, b.type),
   }));
@@ -169,7 +182,7 @@ export function MembershipDataInspector({ block, update }) {
     <div className="space-y-2">
       <Label className="text-xs">State-specific wording
         <select className="mt-1 w-full rounded border p-2 text-sm" value={state} onChange={event => setState(event.target.value)} data-testid="membership-state-wording">
-          {MEMBERSHIP_DATA_STATES.map(item => <option key={item} value={item}>{item}</option>)}
+          {editableStates.map(item => <option key={item} value={item}>{item}</option>)}
         </select>
       </Label>
       {['heading', 'supporting', 'status'].map(key => field(

@@ -6,4 +6,4 @@
 - [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
 - [Manual membership activation atomicity](manual-membership-activation-atomicity.md) — admin approval must lock the plan/agreement and commit membership activation with its audit record.
-- [Membership summary evidence](membership-summary-evidence.md) — a settled term is not proof of recurring-payment setup; unavailable billing is safer than invented success.
+- [Membership summary evidence](membership-summary-evidence.md) — upfront settlement, recurring-payment setup and renewal dates need distinct claims.
