@@ -147,7 +147,7 @@ test('quoteFromSimulationResult denies Direct Debit unless the resolved schedule
   assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_allowed, false);
   assert.equal(quoteFromSimulationResult({
     ...base,
-    config: { ...base.config, dd_enabled: true, dd_monthly_amount: 10 },
+    config: { ...base.config, dd_enabled: true, dd_monthly_amount: 10, dd_auto_renew: true },
   }, 'member').direct_debit_allowed, true);
 });
 
@@ -215,6 +215,7 @@ test('member flat quote attaches the canonical Direct Debit offer', () => {
       pricing_model: 'flat',
       dd_enabled: true,
       dd_monthly_amount: 25,
+      dd_auto_renew: true,
       dd_instalment_count: 10,
     },
     annualCost: 999,
@@ -234,6 +235,7 @@ test('member banded quote uses only the matched band Direct Debit amount', () =>
       pricing_model: 'tiered',
       dd_enabled: true,
       dd_monthly_amount: 999,
+      dd_auto_renew: true,
       dd_instalment_count: 12,
     },
     matchedBand: { id: 'band-2', dd_monthly_amount: 17.5 },
@@ -253,6 +255,7 @@ test('Direct Debit offer is independent of prorated annual quote total', () => {
       pricing_model: 'flat',
       dd_enabled: true,
       dd_monthly_amount: 20,
+      dd_auto_renew: true,
       dd_instalment_count: 12,
     },
     currency: 'GBP',

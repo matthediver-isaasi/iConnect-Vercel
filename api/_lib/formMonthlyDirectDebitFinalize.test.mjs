@@ -63,9 +63,9 @@ function fake(
           .then(resolve, reject),
       }; return q;
     },
-    rpc: async (name) => {
+    rpc: async (name, args) => {
       rpcNames.push(name);
-      operations.push({ type: 'rpc', name });
+      operations.push({ type: 'rpc', name, args: structuredClone(args) });
       if (name === 'bind_form_monthly_direct_debit_membership') {
         rpcCalls += 1;
         return { data: rpcResult, error: null };
@@ -203,6 +203,24 @@ test('source contract keeps mandate-only finalizer free of subscription creation
   const source = readFileSync(new URL('./formMonthlyDirectDebitFinalize.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /createSubscription|ensureSubscriptionForAgreement/);
   assert.match(FORM_COLUMNS, /access_policy/);
+});
+
+test('dynamic form finalization binds null totals unchanged, without an annual payment/invoice side effect', async () => {
+  const dynamic = structuredClone(agreement);
+  Object.assign(dynamic.metadata.dd, {
+    final_cost: null, plan_total: null, total_with_vat: null, vat_amount: null,
+    monthly_amount: 10.66, invoicing_mode: 'per_instalment',
+    collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' },
+  });
+  const db = fake(submission());
+  assert.equal((await finalizeFormMonthlyDirectDebit({ db, agreement: dynamic })).handled, true);
+  const bound = db.operations.find((operation) => operation.name === 'bind_form_monthly_direct_debit_membership').args.p_history;
+  assert.deepEqual(bound, dynamic.metadata.dd);
+  assert.equal(bound.final_cost, null);
+  assert.equal(bound.total_with_vat, null);
+  assert.equal(db.tables.form_submission[0].payment_status, 'setup_complete');
+  assert.equal((await finalizeFormMonthlyDirectDebit({ db, agreement: dynamic })).alreadyFinalized, true);
+  assert.equal(db.rpcCalls, 1);
 });
 
 test('migration has durable conflict state and DD history values', () => {

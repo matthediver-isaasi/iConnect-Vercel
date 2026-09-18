@@ -9,6 +9,8 @@ import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getSessionMember } from '../_lib/session.js';
+import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDetails.js';
 
 // The member view is authorized only for the member themself (session
 // member matches memberId) or a tenant admin — never by memberId alone.
@@ -55,13 +57,17 @@ export function shapePlan(plan) {
   const collectionStopped = !!plan.collection_stopped_at;
   const activeCatchUp = plan.metadata?.catch_up_intent?.status === 'created'
     ? plan.metadata.catch_up_intent : null;
+  const ddPolicy = (plan.provider || 'gocardless') === 'gocardless'
+    ? resolveSavedCollectionPolicy(terms) : null;
+  const dynamic = ddPolicy?.pricing_policy === 'dynamic';
   return {
     id: plan.id,
     status: plan.status,
     provider: plan.provider || 'gocardless',
     instalmentsPaid: plan.instalments_paid ?? null,
     membershipYear: plan.membership_year,
-    monthlyAmount: plan.amount_minor != null ? plan.amount_minor / 100 : null,
+    monthlyAmount: !dynamic && plan.amount_minor != null ? plan.amount_minor / 100 : null,
+    ...(ddPolicy ? { collectionPolicy: ddPolicy } : {}),
     currency: plan.currency,
     dayOfMonth: plan.day_of_month,
     startDate: plan.start_date,
@@ -74,7 +80,7 @@ export function shapePlan(plan) {
     arrearsAmount: arrearsAmountMinor / 100,
     monthlyPostGraceCollectionPolicy: collectionPolicy,
     collectionStopped,
-    nextPlannedCollectionAmount: !collectionStopped && collectionPolicy === 'continue_catch_up'
+    nextPlannedCollectionAmount: dynamic ? null : !collectionStopped && collectionPolicy === 'continue_catch_up'
       ? ((Number(plan.amount_minor) || 0) + arrearsAmountMinor) / 100
       : (collectionStopped ? null : (plan.amount_minor != null ? plan.amount_minor / 100 : null)),
     nextPlannedCollectionDate: collectionStopped ? null
@@ -160,10 +166,13 @@ async function handleMemberView(req, res) {
   if (resolvedTenantId && member.tenant_id !== resolvedTenantId) {
     return res.status(403).json({ error: 'Member does not belong to this tenant' });
   }
+  if (auth.via === 'admin' && auth.tenantId !== member.tenant_id) {
+    return res.status(403).json({ error: 'Member does not belong to this tenant' });
+  }
 
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, membership_billing_agreements!billing_agreement_id(id, status, metadata, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
+    .select('*, membership_billing_agreements!billing_agreement_id(id, tenant_id, status, metadata, term_start_date, term_end_date, membership_renewal_date, term_duration_months, term_anchor_date, term_key, commitment_snapshot), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
     .eq('tenant_id', member.tenant_id)
     .eq('member_id', member.id)
     .order('created_at', { ascending: false })
@@ -181,6 +190,13 @@ async function handleMemberView(req, res) {
   // Task #3633: per-instalment invoicing mode — surface each collection's
   // own accounting invoice (number + sync status) on the plan.
   for (const plan of shaped) {
+    if (plan.provider === 'gocardless') {
+      const stored = plans.find((row) => row.id === plan.id);
+      plan.collectionDetails = await loadGoCardlessCollectionDetails({
+        db: supabase, tenantId: member.tenant_id, plan: stored,
+        agreement: stored.membership_billing_agreements,
+      });
+    }
     if (plan.terms?.invoicing_mode === 'per_instalment') {
       plan.instalmentInvoices = await loadInstalmentInvoices(plan);
     }

@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { canTransition, applyStatusTransition, STATUS } from './gocardlessState.js';
-import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction } from './gocardlessWebhookProcessor.js';
+import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction, dynamicPaymentEmailContext } from './gocardlessWebhookProcessor.js';
 import { buildIdempotencyKey } from './gocardless.js';
 
 test('confirmed GC catch-up amount mismatch rejects before period allocation or intent completion', () => {
@@ -17,6 +17,71 @@ test('confirmed GC catch-up amount mismatch rejects before period allocation or 
   assert.equal(periods[0].settled_at, null);
   assert.equal(intent.status, 'created');
 });
+
+test('dynamic email context requires a real minor-unit amount and provider currency', () => {
+  assert.deepEqual(dynamicPaymentEmailContext({ amount: 1789, currency: 'EUR' }), { paymentAmount: 17.89, currency: 'EUR' });
+  for (const value of [null, {}, { amount: 0, currency: 'GBP' }, { amount: 17.89, currency: 'GBP' }, { amount: 1789 }]) {
+    assert.throws(() => dynamicPaymentEmailContext(value), /verified payment/);
+  }
+});
+
+for (const action of ['confirmed', 'failed']) {
+  test(`dynamic ${action} email receives the verified provider amount rather than the original quote`, async () => {
+    const payment = {
+      id: 'PM-variable', amount: 1789, currency: 'GBP', charge_date: '2026-09-24',
+      status: action, links: { mandate: 'MD-variable' },
+    };
+    const reservation = {
+      id: 'reservation-variable', tenant_id: TENANT, plan_id: 'plan-variable',
+      billing_agreement_id: 'agreement-variable', amount_minor: 1789, currency: 'GBP',
+      due_date: '2026-09-24', requested_charge_date: '2026-09-24',
+      gocardless_payment_id: payment.id, collection_number: 1,
+    };
+    const plan = {
+      id: 'plan-variable', tenant_id: TENANT, billing_agreement_id: 'agreement-variable',
+      provider: 'gocardless', status: STATUS.ACTIVE, gocardless_mandate_id: 'MD-variable',
+      gocardless_subscription_id: null, amount_minor: 1066, currency: 'GBP', retry_count: 0,
+      interval_unit: 'monthly', metadata: { collection_mode: 'dynamic' },
+    };
+    const db = makeFakeDb({
+      membership_billing_agreements: [{
+        id: 'agreement-variable', tenant_id: TENANT, organization_id: 'org-variable',
+        dd_payer: 'billing_contact', billing_contact_email: 'billing@example.test',
+        status: STATUS.ACTIVE, gocardless_mandate_id: 'MD-variable',
+        metadata: { dd: {
+          kind: 'monthly_direct_debit', monthly_amount: 10.66, currency: 'GBP',
+          instalment_count: 3, activation_rule: 'manual', grace_days: 14,
+          collection_policy: { version: 1, end_policy: 'stop', pricing_policy: 'dynamic' },
+        } },
+      }],
+      membership_payment_plans: [plan],
+      gocardless_collection_reservations: [reservation],
+      organisation_membership_history: [{
+        id: 'history-variable', tenant_id: TENANT, organization_id: 'org-variable',
+        billing_agreement_id: 'agreement-variable', status: 'active', payment_status: 'partial',
+      }],
+      gocardless_payments: [{
+        tenant_id: TENANT, plan_id: plan.id, gocardless_payment_id: payment.id,
+        amount_minor: 1789, currency: 'GBP', status: 'submitted', charge_date: payment.charge_date,
+      }],
+    }, { rpc: (name) => name === 'attach_gocardless_dynamic_payment'
+      ? { data: reservation, error: null }
+      : { data: { completed: false, reason: 'remaining instalments' }, error: null } });
+    const sent = [];
+    const out = await processGocardlessEvent({
+      id: `EV-variable-${action}`, resource_type: 'payments', action,
+      links: { payment: payment.id, mandate: 'MD-variable' },
+    }, {
+      db, gc: { getPayment: async () => payment },
+      sendEmail: async (mail) => { sent.push(mail); return { success: true }; },
+      postToAccounting: async () => ({ posted: false }),
+    });
+    assert.equal(out.handled, true);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].html, /GBP 17\.89/);
+    assert.doesNotMatch(sent[0].html, /10\.66/);
+  });
+}
 
 test('matching confirmed GC catch-up amount validates identically on replay', () => {
   assert.equal(validateConfirmedCatchUpAmount(2500, 2500), 2500);
@@ -63,6 +128,7 @@ function makeFakeDb(initial = {}, { rpc = null } = {}) {
     update(payload) { this.op = 'update'; this.payload = payload; return this; }
     upsert(payload, opts) { this.op = 'upsert'; this.payload = payload; this.upsertOpts = opts || {}; return this; }
     eq(col, val) { this.filters.push((r) => r[col] === val); return this; }
+    neq(col, val) { this.filters.push((r) => r[col] !== val); return this; }
     filter() { return this; }
     is(col, val) { this.filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return this; }
     in(col, vals) { this.filters.push((r) => vals.includes(r[col])); return this; }
@@ -1419,4 +1485,72 @@ test('refund failed event immediately removes it from the rollup', async () => {
   assert.equal(out.handled, true);
   assert.equal(db.tables.gocardless_payments[0].amount_refunded_minor, 0);
   assert.equal(db.tables.gocardless_payments[0].refund_status, null);
+});
+
+test('final dynamic webhook preserves accounting then settles and notifies once across paid_out replay', async () => {
+  const payment = { id: 'PM-final', amount: 1789, currency: 'GBP', charge_date: '2027-12-06',
+    status: 'confirmed', links: { mandate: 'MD-final' } };
+  const plan = { id: 'plan-final', tenant_id: TENANT, billing_agreement_id: 'agreement-final',
+    provider: 'gocardless', status: STATUS.ACTIVE, gocardless_mandate_id: 'MD-final',
+    metadata: { collection_mode: 'dynamic' }, currency: 'GBP', amount_minor: 1789 };
+  const reservation = { id: 'reservation-final', tenant_id: TENANT, plan_id: plan.id,
+    billing_agreement_id: 'agreement-final', amount_minor: 1789, currency: 'GBP',
+    requested_charge_date: payment.charge_date, gocardless_payment_id: payment.id };
+  const order = [], sent = [];
+  const db = makeFakeDb({
+    membership_billing_agreements: [{ id: 'agreement-final', tenant_id: TENANT,
+      organization_id: 'org-final', status: STATUS.ACTIVE, gocardless_mandate_id: 'MD-final',
+      dd_payer: 'billing_contact', billing_contact_email: 'billing-final@example.test',
+      metadata: { dd: { kind: 'monthly_direct_debit', monthly_amount: 10.66, currency: 'GBP',
+        instalment_count: 12, activation_rule: 'manual',
+        collection_policy: { version: 1, end_policy: 'stop', pricing_policy: 'dynamic' } } } }],
+    membership_payment_plans: [plan],
+    organisation_membership_history: [{ id: 'history-final', tenant_id: TENANT, organization_id: 'org-final',
+      billing_agreement_id: 'agreement-final', status: 'active', payment_status: 'partial' }],
+    gocardless_collection_reservations: [reservation],
+    gocardless_payments: [{ id: 'local-final', tenant_id: TENANT, plan_id: plan.id,
+      gocardless_payment_id: payment.id, amount_minor: 1789, currency: 'GBP',
+      charge_date: payment.charge_date, status: 'submitted' }],
+    gocardless_dynamic_term_completions: [],
+    gocardless_dynamic_completion_deliveries: [],
+  }, { rpc: (name, args, tables) => {
+    if (name === 'attach_gocardless_dynamic_payment') return { data: reservation };
+    if (name === 'complete_gocardless_dynamic_term') {
+      order.push('completion');
+      tables.membership_payment_plans[0].status = 'expired';
+      tables.organisation_membership_history[0].payment_status = 'paid';
+      if (!tables.gocardless_dynamic_term_completions.length) tables.gocardless_dynamic_term_completions.push({
+        plan_id: plan.id, tenant_id: TENANT, billing_agreement_id: 'agreement-final', notification_status: 'pending',
+      });
+      return { data: { completed: true, completion: { ...tables.gocardless_dynamic_term_completions[0] } } };
+    }
+    if (name === 'prepare_gocardless_dynamic_completion_notice') {
+      tables.gocardless_dynamic_term_completions[0].notification_messages = args.p_messages;
+      return { data: { ...tables.gocardless_dynamic_term_completions[0] } };
+    }
+    if (name === 'claim_gocardless_dynamic_completion_delivery') {
+      const delivery = { id: 'delivery-final', plan_id: plan.id, tenant_id: TENANT, recipient: args.p_recipient,
+        message: args.p_message, status: 'sending', claim_token: 'claim-final' };
+      tables.gocardless_dynamic_completion_deliveries.push(delivery);
+      return { data: { claimed: true, delivery } };
+    }
+    if (name === 'finish_gocardless_dynamic_completion_delivery') {
+      tables.gocardless_dynamic_completion_deliveries[0].status = args.p_status;
+      return { data: null };
+    }
+    throw new Error(`Unexpected completion test RPC ${name}`);
+  } });
+  const deps = { db, gc: { getPayment: async () => payment },
+    sendEmail: async message => { sent.push(message); return { success: true, messageId: 'mail-final' }; },
+    postToAccounting: async () => { order.push('accounting'); return { posted: true }; } };
+  for (const action of ['confirmed', 'paid_out']) {
+    payment.status = action;
+    await processGocardlessEvent({ id: `EV-final-${action}`, resource_type: 'payments', action,
+      links: { payment: payment.id, mandate: 'MD-final' } }, deps);
+  }
+  assert.deepEqual(order, ['accounting', 'completion', 'completion']);
+  assert.equal(db.tables.membership_payment_plans[0].status, 'expired');
+  assert.equal(db.tables.organisation_membership_history[0].payment_status, 'paid');
+  assert.equal(sent.filter(message => message.subject.startsWith('Membership payments complete')).length, 1);
+  assert.equal(db.tables.gocardless_dynamic_completion_deliveries.length, 1);
 });

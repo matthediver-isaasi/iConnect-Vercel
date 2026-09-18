@@ -13,7 +13,9 @@ export async function resolveRollingSimulationContext(client, {
     .select('*').eq('tenant_id', tenantId).eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId);
   if (error) throw new Error(`Could not load purchased membership terms: ${error.message}`);
   const histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
-  const rollingRows = histories.filter(row => row.term_key);
+  const rollingRows = histories.filter(row => String(row.term_key || '').startsWith('rolling:'));
+  if (config?.start_mode !== 'immediate'
+      && options.previousTerm?.commitment_snapshot?.start_mode === 'fixed_date') return null;
   if (config?.start_mode !== 'immediate' && !rollingRows.length && !options.previousTerm) return null;
   if (histories.some(row => !row.term_key) && !rollingRows.length && !options.previousTerm) {
     throw new Error('Legacy rolling membership requires review: no trusted commencement date and pricing commitment are available.');
@@ -210,8 +212,8 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Config Resolution', 'Using default (unscoped) tier configuration — no structure scope defined');
   }
 
-  const currentYear = calculateMembershipYear(config);
-  const nextYear = calculateNextMembershipYear(config);
+  const currentYear = calculateMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : new Date());
+  const nextYear = calculateNextMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : new Date());
   log('Calculate Membership Year', `Current year: ${currentYear.label}, Next year: ${nextYear.label}`);
 
   let membershipYear;
@@ -1189,8 +1191,8 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     log('Config Resolution', 'Using default (unscoped) member tier configuration — no structure scope defined');
   }
 
-  const currentYearObj = calculateMembershipYear(config);
-  const nextYearObj = calculateNextMembershipYear(config);
+  const currentYearObj = calculateMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : new Date());
+  const nextYearObj = calculateNextMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : new Date());
   log('Calculate Membership Year', `Current year: ${currentYearObj.label}, Next year: ${nextYearObj.label}`);
 
   let membershipYear;

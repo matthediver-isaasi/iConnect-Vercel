@@ -22,11 +22,23 @@ import { supabase } from './database.js';
 import * as gocardless from './gocardless.js';
 import { buildIdempotencyKey } from './gocardless.js';
 import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import { resolveStructureCollectionPolicy, resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 
 export const FIRST_COLLECTION_RULES = ['earliest', 'nominated_day', 'anniversary'];
 export const ACTIVATION_RULES = ['mandate', 'first_payment', 'manual'];
 export const MONTHLY_POST_GRACE_COLLECTION_POLICIES = ['stop_collecting', 'continue_catch_up'];
 export const MANDATE_ONLY_CONSENT_VERSION = 'mandate-only-v2';
+
+export function isMonthlyConsentPolicyCurrent(agreement, offer) {
+  const saved = resolveSavedCollectionPolicy(agreement?.metadata?.dd);
+  const proposed = offer?.collectionPolicy;
+  return !saved.needs_review && !!proposed
+    && saved.end_policy === proposed.end_policy
+    && saved.pricing_policy === proposed.pricing_policy
+    && Number(agreement.metadata.dd.monthly_amount_minor) === offer.monthlyAmountMinor
+    && Number(agreement.metadata.dd.instalment_count) === offer.instalmentCount
+    && agreement.metadata.dd.currency === offer.currency;
+}
 
 export function monthlyConsentReplacementKey(baseIdempotencyKey) {
   if (!baseIdempotencyKey) throw new Error('base consent idempotency key is required');
@@ -223,19 +235,22 @@ export function resolveDdOffer(simResult) {
   const instalmentCount = monthlyInstalmentCount(config);
   const monthlyAmountMinor = toMinorUnits(monthlyAmount);
   if (!monthlyAmountMinor) return null;
+  const collectionPolicy = resolveStructureCollectionPolicy(config);
 
   return {
+    collectionPolicy,
     monthlyAmount: parseFloat(monthlyAmount.toFixed(2)),
     monthlyAmountMinor,
     instalmentCount,
-    planTotal: parseFloat(((monthlyAmountMinor * instalmentCount) / 100).toFixed(2)),
+    planTotal: collectionPolicy.pricing_policy === 'dynamic'
+      ? null : parseFloat(((monthlyAmountMinor * instalmentCount) / 100).toFixed(2)),
     currency: simResult.currency || config.currency || 'GBP',
     firstCollectionRule: FIRST_COLLECTION_RULES.includes(config.dd_first_collection_rule)
       ? config.dd_first_collection_rule : 'earliest',
     collectionDay: config.dd_collection_day || null,
     activationRule: ACTIVATION_RULES.includes(config.dd_activation_rule)
       ? config.dd_activation_rule : 'first_payment',
-    autoRenew: config.dd_auto_renew !== false,
+    autoRenew: collectionPolicy.end_policy === 'continue',
     graceDays: Number.isInteger(config.dd_grace_days) ? config.dd_grace_days : 7,
     termsVersion: config.dd_terms_version || 'v1',
     // Task #3633: 'annual' (default) or 'per_instalment'. Snapshotted at
@@ -320,6 +335,7 @@ export function monthlyBillingRequestFingerprint(snapshot) {
     terms_version: snapshot.terms_version || null,
     config_id: snapshot.config_id || null,
     band_id: snapshot.band_id || null,
+    collection_policy: snapshot.collection_policy || null,
   });
 }
 
@@ -335,6 +351,7 @@ export function publicDdConsentTerms({
   currency,
   firstCollectionRule,
   collectionDay,
+  collectionPolicy,
 }) {
   return {
     monthlyAmount: monthlyAmount == null ? null : Number(monthlyAmount),
@@ -347,6 +364,7 @@ export function publicDdConsentTerms({
     collectionDay: firstCollectionRule === 'nominated_day'
       ? Math.min(28, Math.max(1, Number.parseInt(collectionDay, 10) || 1))
       : null,
+    collectionPolicy: collectionPolicy || null,
   };
 }
 
@@ -432,10 +450,33 @@ export function computeFirstCollectionDate({ rule, collectionDay = null, members
 }
 
 /**
- * Build the immutable terms snapshot stored on the billing agreement at the
- * moment of member consent. Everything the webhook path later needs to
- * create the subscription and activate the membership lives here.
+ * Reject a schedule already known not to fit before creating a mandate flow.
+ * Actual bank/provider earliest-charge dates are checked again during setup.
  */
+export function newDdConsentScheduleError(snapshot, now = new Date()) {
+  // Only new policy snapshots are checked here. Existing purchased legacy
+  // agreements retain their original contract and reconciliation behaviour.
+  if (!snapshot?.collection_policy
+      || !(snapshot.commitment?.membership_renewal_date || snapshot.membership_renewal_date)) return null;
+  const today = toDateOnly(now)?.toISOString().slice(0, 10);
+  const start = snapshot.commitment?.term_start_date || snapshot.membership_year_start;
+  const earliest = start && start > today ? start : today;
+  try {
+    const schedule = computeSubscriptionCollectionDate(snapshot, earliest, null, now);
+    // Dynamic consent authorises eligible monthly collections, not a fixed
+    // total/count obligation. At least one future collection must fit.
+    const count = snapshot.collection_policy.pricing_policy === 'dynamic' ? 1 : snapshot.instalment_count;
+    assertMonthlyCollectionsWithinTerm(snapshot, schedule.startDate || earliest, count);
+    return null;
+  } catch {
+    return {
+      code: 'DD_SCHEDULE_OUTSIDE_TERM',
+      error: 'This Direct Debit schedule cannot fit within the membership term. Ask an administrator to review the collection count or dates, or choose another payment method.',
+    };
+  }
+}
+
+/** Immutable consent terms used by mandate callbacks, collections and renewals. */
 export function buildAgreementSnapshot({
   offer,
   simResult,
@@ -444,10 +485,14 @@ export function buildAgreementSnapshot({
   billingRequestMode = null,
 }) {
   if (!offer) throw new Error('offer is required');
+  const policy = { ...(offer.collectionPolicy || resolveStructureCollectionPolicy(simResult?.config)) };
+  const yearEnd = toDateOnly(simResult?.membershipYear?.end);
+  const renewalDate = yearEnd ? new Date(yearEnd.getTime() + 86_400_000) : null;
   const snapshot = {
     kind: 'monthly_direct_debit',
     start_mode: simResult?.config?.start_mode || 'fixed_date',
     commitment: monthlyCommitmentFields({ offer, simResult, paymentMethod: 'direct_debit' }),
+    collection_policy: policy,
     monthly_amount: offer.monthlyAmount,
     monthly_amount_minor: offer.monthlyAmountMinor,
     instalment_count: offer.instalmentCount,
@@ -456,7 +501,7 @@ export function buildAgreementSnapshot({
     first_collection_rule: offer.firstCollectionRule,
     collection_day: offer.collectionDay,
     activation_rule: offer.activationRule,
-    auto_renew: offer.autoRenew,
+    auto_renew: policy.end_policy === 'continue',
     grace_days: offer.graceDays,
     terms_version: offer.termsVersion,
     invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
@@ -467,14 +512,28 @@ export function buildAgreementSnapshot({
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start
       ? fmt(toDateOnly(simResult.membershipYear.start)) : null,
+    membership_year_end: yearEnd ? fmt(yearEnd) : null,
+    membership_renewal_date: renewalDate ? fmt(renewalDate) : null,
+    billing_period: simResult?.config?.billing_period || null,
+    structure_scope: {
+      structure_scope_type: simResult?.config?.structure_scope_type || null,
+      structure_field_id: simResult?.config?.structure_field_id || null,
+      structure_match_value: simResult?.config?.structure_match_value || null,
+    },
     config_id: simResult?.config?.id || null,
     band_id: simResult?.matchedBand?.id || null,
     tier_label: simResult?.tierLabel || null,
     annual_cost: simResult?.annualCost ?? null,
     final_cost: simResult?.finalCost ?? null,
   };
+  snapshot.final_cost = policy.pricing_policy === 'dynamic'
+    ? null : snapshot.commitment?.commitment_snapshot?.amounts?.final_cost ?? offer.planTotal;
+  snapshot.vat_amount = policy.pricing_policy === 'dynamic'
+    ? null : snapshot.commitment?.commitment_snapshot?.amounts?.vat_amount ?? (simResult?.vatAmount || 0);
+  snapshot.total_with_vat = policy.pricing_policy === 'dynamic' ? null : offer.planTotal;
   if (billingRequestMode) snapshot.billing_request_mode = billingRequestMode;
   if (includeBillingRequestPayment) {
+    if (policy.pricing_policy === 'dynamic') throw new Error('Dynamic Direct Debit consent must be mandate-only.');
     snapshot.billing_request_payment = {
       included: true,
       instalment_number: 1,
@@ -530,6 +589,14 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
   }
   if (!agreement.gocardless_mandate_id) {
     return { created: false, plan: null, detail: 'agreement has no mandate' };
+  }
+  const collectionPolicy = resolveSavedCollectionPolicy(snapshot);
+  if (snapshot.collection_policy && collectionPolicy.needs_review) {
+    throw new Error('Invalid Direct Debit collection policy; review is required before collecting.');
+  }
+  if (collectionPolicy.pricing_policy === 'dynamic') {
+    const { ensureDynamicPlanForAgreement } = await import('./gocardlessDynamicCollections.js');
+    return ensureDynamicPlanForAgreement(agreement, { ...deps, db, gc });
   }
 
   const idempotencyKey = buildIdempotencyKey('dd-sub', agreement.id, snapshot.membership_year || 'year');

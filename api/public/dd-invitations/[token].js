@@ -27,6 +27,7 @@ import {
   rotateStaleMonthlyConsentAgreement,
   attachMonthlyConsentFlow,
 } from '../../_lib/gocardlessDirectDebit.js';
+import { resolveSavedCollectionPolicy } from '../../../shared/gocardlessCollectionPolicy.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -82,6 +83,7 @@ function summarise(invitation, agreement, orgName) {
       currency: snap.currency,
       firstCollectionRule: snap.first_collection_rule,
       collectionDay: snap.collection_day,
+      collectionPolicy: resolveSavedCollectionPolicy(snap),
     }),
     invitedName: invitation.invited_name || null,
     expiresAt: invitation.expires_at,

@@ -64,8 +64,9 @@ function memoryDb(seed = {}) {
                   ? row.idempotency_key === payload.idempotency_key
                   : table === 'membership_dd_renewals'
                     ? row.previous_agreement_id === payload.previous_agreement_id && row.renewal_year === payload.renewal_year
-                    : table === 'member_membership_history'
-                      && row.tenant_id === payload.tenant_id && row.member_id === payload.member_id
+                     : ['member_membership_history', 'organisation_membership_history'].includes(table)
+                       && row.tenant_id === payload.tenant_id && row.member_id === payload.member_id
+                       && row.organization_id === payload.organization_id
                       && row.membership_year === payload.membership_year
               ));
               if (collision) return { data: null, error: { code: '23505', message: 'unique term' } };
@@ -229,6 +230,84 @@ test('concurrent reservation creates one history; cross-provider loser cannot re
   }), /another payment agreement/);
 });
 
+for (const startMode of ['immediate', 'fixed_date']) {
+  for (const pricingPolicy of ['fixed', 'dynamic']) {
+    test(`organisation ${startMode} ${pricingPolicy} continuation preserves owner, consent and retry terms`, async () => {
+      const sim = fixture();
+      Object.assign(sim.config, {
+        structure_scope_type: 'organization', start_mode: startMode,
+        membership_start_month: 9, membership_start_day: 15,
+        dd_policy_version: 1, dd_collection_end_policy: 'continue',
+        dd_pricing_policy: pricingPolicy, dd_invoicing_mode: 'per_instalment',
+      });
+      sim.membershipYear.end = new Date('2027-09-14');
+      if (startMode === 'fixed_date') sim.membershipYear.label = '2026/2027';
+      const prior = snapshotFor('gocardless', sim);
+      const previousAgreement = {
+        id: 'previous-org', tenant_id: 'tenant', organization_id: 'organization', provider: 'gocardless',
+        metadata: { dd: prior }, billing_contact_email: 'billing@example.test', dd_payer: 'billing_contact',
+      };
+      const successor = clone(sim);
+      Object.assign(successor.config, {
+        id: 'org-next', tenant_id: 'tenant', dd_monthly_amount: 25,
+        effective_from: '2027-09-15', effective_to: null,
+        // Changes to the catalogue policy cannot change this agreement.
+        dd_collection_end_policy: 'stop', dd_pricing_policy: pricingPolicy === 'fixed' ? 'dynamic' : 'fixed',
+      });
+      successor.membershipYear = {
+        label: startMode === 'fixed_date' ? '2027/2028' : 'rolling:2027-09-15',
+        start: new Date('2027-09-15'), end: new Date('2028-09-14'),
+      };
+      const db = memoryDb({
+        membership_tier_config: [successor.config],
+        membership_billing_agreements: [previousAgreement],
+        organisation_membership_history: [{
+          id: 'previous-history', tenant_id: 'tenant', organization_id: 'organization',
+          billing_agreement_id: previousAgreement.id, membership_year: sim.membershipYear.label,
+        }],
+      });
+      let collections = 0;
+      const used = new Set();
+      const args = {
+        tenantId: 'tenant', organizationId: 'organization', previousAgreement,
+        renewalRow: { mode: 'auto', status: 'notice_sent' },
+        deps: {
+          db, now: () => new Date('2027-09-16'),
+          simulate: async (_tenant, owner, options) => {
+            assert.equal(owner, 'organization');
+            assert.equal(options.asOfDate, '2027-09-15');
+            return successor;
+          },
+          findMandate: async ({ organizationId, memberId }) => {
+            assert.equal(organizationId, 'organization');
+            assert.equal(memberId, undefined);
+            return { mandateId: 'MD-organisation', customerId: 'CU-org' };
+          },
+          ensureSubscription: async (agreement) => {
+            assert.equal(db.tables.organisation_membership_history.length, 2);
+            assert.equal(agreement.organization_id, 'organization');
+            assert.equal(agreement.billing_contact_email, 'billing@example.test');
+            assert.equal(agreement.metadata.dd.collection_policy.end_policy, 'continue');
+            assert.equal(agreement.metadata.dd.collection_policy.pricing_policy, pricingPolicy);
+            assert.equal(agreement.metadata.dd.monthly_amount, 25);
+            if (!used.has(agreement.id)) collections++;
+            used.add(agreement.id);
+            return { created: true };
+          },
+          activateMembership: async () => {}, sendEmail: async () => ({ sent: true }),
+        },
+      };
+      assert.equal((await executeAutoRenewal(args)).renewed, true);
+      successor.config.dd_monthly_amount = 99;
+      assert.equal((await executeAutoRenewal(args)).renewed, true);
+      assert.equal(collections, 1);
+      assert.equal(db.tables.organisation_membership_history.length, 2);
+      assert.equal(db.tables.membership_dd_renewals[0].organization_id, 'organization');
+      assert.equal(db.tables.membership_dd_renewals[0].member_id, undefined);
+    });
+  }
+}
+
 for (const provider of ['stripe', 'gocardless']) {
   test(`${provider}: reserve before provider; delayed retry uses the first committed price without duplicate term`, async () => {
     const { db, previousAgreement, successor } = renewalFixture(provider);
@@ -301,6 +380,7 @@ for (const provider of ['stripe', 'gocardless']) {
     };
     assert.equal((await execute(args)).renewed, false);
     previousAgreement.metadata[provider === 'stripe' ? 'card' : 'dd'].auto_renew = false;
+    if (provider === 'gocardless') previousAgreement.metadata.dd.collection_policy.end_policy = 'stop';
     args.deps.now = () => new Date('2027-09-15');
     assert.equal((await execute(args)).renewed, false);
     assert.equal(db.tables.member_membership_history.length, 1);

@@ -29,6 +29,7 @@ import {
 } from './gocardlessDirectDebit.js';
 import { markInvitationCompletedForAgreement } from './gocardlessDdInvitations.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
+import { completeDynamicTerm } from './gocardlessDynamicCompletion.js';
 import {
   handlePaymentFailure,
   recoveryPlanUpdate,
@@ -45,6 +46,7 @@ import { postDdInstalmentToAccounting, postDdArrearsPeriodToAccounting } from '.
 import { settleMonthlyArrears, postSettledArrearsPeriods, completeMonthlyCollectionIntent, failMonthlyCollectionIntent } from './monthlyArrearsCollection.js';
 import { finalizeFormMonthlyDirectDebit } from './formMonthlyDirectDebitFinalize.js';
 import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
+import { resolveDynamicPayment } from './gocardlessDynamicCollections.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
 // it 'failed' and trigger redelivery/reprocessing of a correct state change).
@@ -929,12 +931,36 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
 
 // ---------------------------------------------------------------------------
 
+export function dynamicPaymentEmailContext(payment) {
+  if (!Number.isSafeInteger(payment?.amount) || payment.amount <= 0
+    || !/^[A-Z]{3}$/.test(payment?.currency || '')) {
+    throw new Error('Dynamic lifecycle email requires a verified payment amount and currency');
+  }
+  return { paymentAmount: payment.amount / 100, currency: payment.currency };
+}
+
 async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) {
   const paymentId = links.payment;
   if (!paymentId) return { handled: false, detail: 'no payment link' };
 
   const subscriptionId = links.subscription || null;
   let plan = subscriptionId ? await findPlanBySubscription(db, subscriptionId) : null;
+  let verifiedDynamicPayment = null;
+  if (!subscriptionId) {
+    const dynamic = await resolveDynamicPayment(paymentId, { db, gc });
+    if (dynamic) {
+      if (links.mandate && links.mandate !== dynamic.plan.gocardless_mandate_id) {
+        throw new Error('Dynamic payment webhook mandate identity mismatch');
+      }
+      plan = dynamic.plan;
+      verifiedDynamicPayment = dynamic.payment;
+    }
+  }
+  const paymentEmailOptions = {
+    db,
+    ...(deps.sendEmail ? { send: deps.sendEmail } : {}),
+    extraContext: verifiedDynamicPayment ? dynamicPaymentEmailContext(verifiedDynamicPayment) : {},
+  };
   let initialPaymentAgreement = null;
   const { data: immutableIntentMatch, error: immutableIntentError } = await db
     .from('membership_monthly_collection_intent').select('*')
@@ -1154,7 +1180,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         await safeDdEmail('membership_activated', initialPaymentAgreement, { db });
       }
       if (agreementResult.applied) {
-        await safeDdEmail('first_payment', initialPaymentAgreement, { db });
+        await safeDdEmail('first_payment', initialPaymentAgreement, paymentEmailOptions);
       }
       return {
         handled: true,
@@ -1332,7 +1358,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
           await clearAgreementArrearsFlag(agreement, { db });
         }
         if (recoveredFromArrears && action === 'confirmed') {
-          await safeDdEmail('payment_recovered', agreement, { db });
+          await safeDdEmail('payment_recovered', agreement, paymentEmailOptions);
         }
         // Post the confirmed instalment to accounting (best-effort; records
         // its own posted/failed/skipped status on the payment row).
@@ -1348,18 +1374,19 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
           await safeDdEmail('membership_activated', agreement, { db });
         }
         if (isInitialPayment && !agreement.metadata?.gocardless_initial_payment?.finalized_at) {
-          await safeDdEmail('first_payment', agreement, { db });
+          await safeDdEmail('first_payment', agreement, paymentEmailOptions);
         } else if (result.applied && result.fromStatus === STATUS.FIRST_PAYMENT_PENDING) {
-          await safeDdEmail('first_payment', agreement, { db });
+          await safeDdEmail('first_payment', agreement, paymentEmailOptions);
         } else if (action === 'confirmed') {
           // Subsequent instalment confirmed — 'confirmed' only, so the later
           // paid_out event for the same payment doesn't send a duplicate
           // (event-level idempotency also guards webhook redelivery).
-          await safeDdEmail('payment_confirmed', agreement, { db });
+          await safeDdEmail('payment_confirmed', agreement, paymentEmailOptions);
         }
         if (isInitialPayment) {
           await markInitialPaymentFinalized({ agreementId: agreement.id, paymentId, db });
         }
+        await completeDynamicTerm(plan, { db, sendEmail: deps.sendEmail });
         return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}; dd activation: ${actResult.detail}` };
       }
     }
@@ -1384,7 +1411,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       db,
     });
     if (result.applied && agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
-      await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, { db });
+      await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, paymentEmailOptions);
     }
     return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)} (grace expires ${graceExpiresAt}; auto retry ${autoRetry.reason || autoRetry.dueAt || 'scheduled'})` };
   }

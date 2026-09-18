@@ -277,6 +277,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       membership_year_start: membershipYear.start
         ? new Date(membershipYear.start).toISOString().slice(0, 10)
         : null,
+      membership_year_end: membershipYear.end ? new Date(membershipYear.end).toISOString().slice(0, 10) : null,
       year_number: 1,
       prorata_cost: cost.prorataCost,
       prorata_days: cost.prorataDays,
@@ -305,6 +306,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
     })
     : null;
   quote.direct_debit_offer = directDebitOffer;
+  quote.direct_debit_config = directDebitOffer ? config : null;
   quote.direct_debit_allowed = directDebitOffer !== null;
   // The public form needs an offer derived from the same resolved config and
   // band as its annual quote. This is display data only; checkout repeats the
@@ -343,6 +345,7 @@ export function quoteFromSimulationResult(simResult, target) {
     membership_year_start: simResult.membershipYear?.start
       ? new Date(simResult.membershipYear.start).toISOString().slice(0, 10)
       : null,
+    membership_year_end: simResult.membershipYear?.end ? new Date(simResult.membershipYear.end).toISOString().slice(0, 10) : null,
     year_number: simResult.yearNumber || null,
     prorata_cost: simResult.prorataCost,
     prorata_days: simResult.prorataDays,
@@ -361,6 +364,7 @@ export function quoteFromSimulationResult(simResult, target) {
   attachQuoteCommitment(quote, simResult.config, simResult.matchedBand, simResult.commitment, simResult.previousTerm);
   const directDebitOffer = target === 'member' ? resolveDdOffer(simResult) : null;
   quote.direct_debit_offer = directDebitOffer;
+  quote.direct_debit_config = directDebitOffer ? simResult.config : null;
   quote.direct_debit_allowed = directDebitOffer !== null;
   const monthlyCardOffer = target === 'member' ? resolveCardMonthlyOffer(simResult) : null;
   if (monthlyCardOffer) quote.monthly_card_offer = monthlyCardOffer;

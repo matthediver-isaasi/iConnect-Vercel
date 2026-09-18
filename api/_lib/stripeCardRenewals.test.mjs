@@ -60,10 +60,17 @@ test('card renewal blocked by next-year record from another method', () => {
   assert.equal(d.action, 'none');
 });
 
-test('DD decision behaviour unchanged (default expectedKind)', () => {
-  const SNAP = { kind: 'monthly_direct_debit', membership_year: '2026/27', membership_year_start: '2026-04-01' };
-  const d = decideRenewalAction({ snapshot: SNAP, planStatus: STATUS.ACTIVE, autoRenew: false, renewalRow: null, today: inNotice });
+test('DD default kind uses explicitly saved confirmation consent, not live auto-renew', () => {
+  const SNAP = { kind: 'monthly_direct_debit', membership_year: '2026/27', membership_year_start: '2026-04-01', auto_renew: false };
+  const d = decideRenewalAction({ snapshot: SNAP, planStatus: STATUS.ACTIVE, autoRenew: true, renewalRow: null, today: inNotice });
   assert.deepEqual({ action: d.action, mode: d.mode }, { action: 'send_notice', mode: 'confirm' });
+});
+
+test('DD default kind needs review when saved continuation consent is absent', () => {
+  const SNAP = { kind: 'monthly_direct_debit', membership_year: '2026/27', membership_year_start: '2026-04-01' };
+  const d = decideRenewalAction({ snapshot: SNAP, planStatus: STATUS.ACTIVE, autoRenew: true, renewalRow: null, today: inNotice });
+  assert.equal(d.action, 'none');
+  assert.match(d.reason, /consent needs review/);
 });
 
 // ---------------------------------------------------------------------------

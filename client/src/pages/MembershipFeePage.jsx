@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
+import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -752,10 +752,11 @@ export default function MembershipFeePage() {
                 <h2 className="font-medium">Pay Monthly by Direct Debit</h2>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                Spread your membership fee over {data?.ddOffer?.instalmentCount || 12} monthly payments of{' '}
+                {directDebitHasFixedTermTotal(data.ddOffer) ? <>Membership term: {data?.ddOffer?.instalmentCount || 12} monthly payments of{' '}</> : 'Current monthly price (variable): '}
                 <span className="font-medium text-gray-700">{formatCurrency(data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
-                {data?.ddOffer?.planTotal ? <> (total {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
+                {directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (total for this term {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
                  {' '}First collection: <span data-testid="text-dd-first-collection">{directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
+                {' '}{directDebitPolicyText(data.ddOffer)}
                  {' '}You'll be taken to our secure Direct Debit provider to set up your mandate; no payment is taken during bank set-up.
               </p>
               <Button

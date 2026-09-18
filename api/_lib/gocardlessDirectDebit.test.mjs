@@ -32,6 +32,7 @@ function flatSim(overrides = {}, configOverrides = {}) {
       id: 'cfg-1',
       pricing_model: 'flat',
       dd_enabled: true,
+      dd_auto_renew: true,
       dd_monthly_amount: 10,
       dd_instalment_count: 12,
       dd_first_collection_rule: 'earliest',
@@ -271,6 +272,7 @@ test('public consent terms include the immutable finite schedule and timing', ()
     collectionDay: 15,
   }), {
     monthlyAmount: 7.5,
+    collectionPolicy: null,
     instalmentCount: 6,
     planTotal: 45,
     currency: 'GBP',
@@ -605,7 +607,7 @@ test('all membership setup routes share the snapshotted monthly request contract
   assert.match(routes[3], /publicDdConsentTerms\s*\(/);
   assert.match(routes[4], /If a new bank setup is needed/);
   assert.match(routes[4], /If an existing Direct Debit can be reused/);
-  assert.match(routes[4], /finite schedule/);
+  assert.match(routes[4], /directDebitPolicyText/);
   assert.doesNotMatch(routes[4], /first instalment.*paid immediately/s);
   for (const source of routes.slice(5)) {
     assert.match(source, /directDebitFirstCollectionText\s*\(/);

@@ -65,7 +65,7 @@ test('computeRenewalWindow returns null without a start date', () => {
 // ---------------------------------------------------------------------------
 // decideRenewalAction
 
-const SNAP = { kind: 'monthly_direct_debit', membership_year: '2026/27', membership_year_start: '2026-04-01' };
+const SNAP = { kind: 'monthly_direct_debit', auto_renew: true, membership_year: '2026/27', membership_year_start: '2026-04-01' };
 const beforeNotice = new Date('2027-01-01T00:00:00Z');
 const inNotice = new Date('2027-03-15T00:00:00Z');   // after notice (2027-03-02), before year end
 const afterYearEnd = new Date('2027-04-02T00:00:00Z');
@@ -87,10 +87,10 @@ test('before notice window -> none', () => {
   assert.equal(d.action, 'none');
 });
 
-test('in notice window, no row -> send_notice with mode from tier autoRenew', () => {
+test('in notice window, no row -> send_notice with mode from saved authority', () => {
   const auto = decideRenewalAction({ snapshot: SNAP, planStatus: STATUS.ACTIVE, autoRenew: true, renewalRow: null, today: inNotice });
   assert.deepEqual({ action: auto.action, mode: auto.mode }, { action: 'send_notice', mode: 'auto' });
-  const confirm = decideRenewalAction({ snapshot: SNAP, planStatus: STATUS.EXPIRED, autoRenew: false, renewalRow: null, today: inNotice });
+  const confirm = decideRenewalAction({ snapshot: { ...SNAP, auto_renew: false }, planStatus: STATUS.EXPIRED, autoRenew: true, renewalRow: null, today: inNotice });
   assert.deepEqual({ action: confirm.action, mode: confirm.mode }, { action: 'send_notice', mode: 'confirm' });
 });
 

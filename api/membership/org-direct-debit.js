@@ -29,7 +29,9 @@ import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js'
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
   resolveDdOffer,
+  isMonthlyConsentPolicyCurrent,
   buildAgreementSnapshot,
+  newDdConsentScheduleError,
   buildMonthlyBillingRequest,
   monthlyBillingRequestFingerprint,
   findReusableMandate,
@@ -297,6 +299,10 @@ async function handleStart(req, res, resolvedTenantId) {
   let staleAgreement = null;
   let unstartedAgreement = null;
   if (existingAgreement) {
+    if ([STATUS.PAYMENT_SETUP_REQUIRED, STATUS.MANDATE_PENDING].includes(existingAgreement.status)
+        && !isMonthlyConsentPolicyCurrent(existingAgreement, offer)) {
+      return res.status(409).json({ error: 'This Direct Debit setup has different saved terms. Review or cancel it before starting a new authorisation.', code: 'DD_CONSENT_CHANGED' });
+    }
     const consent = classifyMonthlyConsentAgreement(existingAgreement);
     const reusableMandateRecovery = existingAgreement.status === STATUS.MANDATE_PENDING
       && !!existingAgreement.gocardless_mandate_id
@@ -333,6 +339,8 @@ async function handleStart(req, res, resolvedTenantId) {
     field_value: simResult.fieldValue ?? null,
   };
 
+  const scheduleError = newDdConsentScheduleError(snapshot);
+  if (scheduleError) return res.status(400).json(scheduleError);
   const agreementInsert = {
     ...(snapshot.commitment || {}),
     tenant_id: tenantId,
@@ -431,11 +439,11 @@ async function handleStart(req, res, resolvedTenantId) {
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,
       annual_cost: simResult.annualCost,
-      final_cost: snapshot.plan_total,
+      final_cost: snapshot.final_cost,
       currency: offer.currency,
       billing_period: 'monthly_direct_debit',
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
+      vat_amount: snapshot.vat_amount,
       total_with_vat: snapshot.plan_total,
       payment_method: 'direct_debit',
       status: 'pending_payment_setup',

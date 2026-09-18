@@ -22,6 +22,7 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
   resolveDdOffer,
   buildAgreementSnapshot,
+  newDdConsentScheduleError,
   buildMonthlyBillingRequest,
   monthlyBillingRequestFingerprint,
   findReusableMandate,
@@ -33,6 +34,7 @@ import {
   claimMonthlyConsentAgreement,
   attachMonthlyConsentFlow,
   isAgreementMandateActive,
+  isMonthlyConsentPolicyCurrent,
 } from '../_lib/gocardlessDirectDebit.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 import { markRenewalConfirmed } from '../_lib/gocardlessDdRenewals.js';
@@ -72,6 +74,10 @@ async function loadMember(memberId, resolvedTenantId, res, req) {
     .maybeSingle();
   if (!member?.tenant_id) {
     res.status(404).json({ error: 'Member not found' });
+    return null;
+  }
+  if (auth.via === 'admin' && auth.tenantId !== member.tenant_id) {
+    res.status(403).json({ error: 'Member does not belong to your tenant' });
     return null;
   }
   if (resolvedTenantId && member.tenant_id !== resolvedTenantId) {
@@ -224,6 +230,10 @@ async function handlePost(req, res, resolvedTenantId) {
   let staleAgreement = null;
   let unstartedAgreement = null;
   if (existingAgreement) {
+    if ([STATUS.PAYMENT_SETUP_REQUIRED, STATUS.MANDATE_PENDING].includes(existingAgreement.status)
+        && !isMonthlyConsentPolicyCurrent(existingAgreement, offer)) {
+      return res.status(409).json({ error: 'This Direct Debit setup has different saved terms. Review or cancel it before starting a new authorisation.', code: 'DD_CONSENT_CHANGED' });
+    }
     const consent = classifyMonthlyConsentAgreement(existingAgreement);
     const reusableMandateRecovery = existingAgreement.status === STATUS.MANDATE_PENDING
       && !!existingAgreement.gocardless_mandate_id
@@ -255,6 +265,8 @@ async function handlePost(req, res, resolvedTenantId) {
       billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
     });
 
+  const scheduleError = newDdConsentScheduleError(snapshot);
+  if (scheduleError) return res.status(400).json(scheduleError);
   let agreementInsert = {
     ...(snapshot.commitment || {}),
     tenant_id: tenantId,
@@ -344,7 +356,7 @@ async function handlePost(req, res, resolvedTenantId) {
       currency: offer.currency,
       billing_period: 'monthly_direct_debit',
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: snapshot.commitment?.commitment_snapshot?.amounts?.vat_amount ?? (simResult.vatAmount || 0),
+      vat_amount: snapshot.vat_amount,
       total_with_vat: snapshot.plan_total,
       payment_method: 'direct_debit',
       status: 'pending_payment_setup',

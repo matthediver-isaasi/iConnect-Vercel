@@ -736,12 +736,34 @@ export function validateMonthlyPostGraceCollectionPolicy(config) {
   return { ok: true, fields: { monthly_post_grace_collection_policy: policy || 'stop_collecting' } };
 }
 
+export function validateDdCollectionPolicy(config) {
+  const hasPolicy = config.dd_policy_version != null
+    || config.dd_collection_end_policy != null || config.dd_pricing_policy != null;
+  if (!config.dd_enabled && !hasPolicy) return { ok: true };
+  if (config.dd_policy_version !== 1) {
+    return { error: 'Choose explicit Direct Debit collection and pricing policies before saving.', field: 'dd_policy_version' };
+  }
+  if (!['stop', 'continue'].includes(config.dd_collection_end_policy)) {
+    return { error: 'Choose whether Direct Debit collections stop or continue at the end of the billing period.', field: 'dd_collection_end_policy' };
+  }
+  if (!['fixed', 'dynamic'].includes(config.dd_pricing_policy)) {
+    return { error: 'Choose a fixed or dynamic monthly Direct Debit amount.', field: 'dd_pricing_policy' };
+  }
+  if (config.dd_enabled && config.dd_pricing_policy === 'dynamic' && config.dd_invoicing_mode !== 'per_instalment') {
+    return { error: 'Dynamic Direct Debit pricing requires per-instalment invoicing. Select that invoicing mode explicitly.', field: 'dd_invoicing_mode' };
+  }
+  return { ok: true };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
   if (!config) {
     return res.status(400).json({ error: 'Configuration is required' });
   }
+
+  const ddPolicy = validateDdCollectionPolicy(config);
+  if (!ddPolicy.ok) return res.status(400).json(ddPolicy);
 
   if (!config.effective_from) {
     return res.status(400).json({ error: 'Effective from date is required' });
@@ -1093,7 +1115,7 @@ async function handlePost(req, res, tenantId) {
 
 // Phase 2 (GoCardless monthly Direct Debit) tier-level settings. Shared by
 // the update and insert paths so the whitelists can't drift apart.
-function ddConfigFields(config) {
+export function ddConfigFields(config) {
   // Task #3620: monthly card (Stripe) plans share the dd_* amount/instalment/
   // activation/grace settings, so those columns must survive whenever EITHER
   // monthly option is enabled. dd_enabled itself stays strictly DD.
@@ -1113,6 +1135,9 @@ function ddConfigFields(config) {
     // disabled path must write those schema defaults (writing null raises
     // 23502). Truly nullable columns stay null so re-enabling starts clean.
     return {
+      dd_policy_version: config.dd_policy_version ?? null,
+      dd_collection_end_policy: config.dd_collection_end_policy ?? null,
+      dd_pricing_policy: config.dd_pricing_policy ?? null,
       dd_enabled: false,
       card_monthly_enabled: false,
       dd_instalment_count: 12,
@@ -1144,6 +1169,9 @@ function ddConfigFields(config) {
     ? (parseFloat(config.dd_monthly_amount) > 0 ? parseFloat(config.dd_monthly_amount) : null)
     : null;
   return {
+    dd_policy_version: config.dd_policy_version ?? null,
+    dd_collection_end_policy: config.dd_collection_end_policy ?? null,
+    dd_pricing_policy: config.dd_pricing_policy ?? null,
     dd_enabled: config.dd_enabled === true,
     card_monthly_enabled: cardMonthlyEnabled,
     dd_instalment_count: instalments,

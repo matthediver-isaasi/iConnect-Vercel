@@ -7,6 +7,7 @@ import { useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, XCircle, Landmark } from "lucide-react";
+import { directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -154,7 +155,7 @@ export default function DirectDebitMigrationPage() {
                   </div>
                 )}
                 <div className="flex justify-between flex-wrap gap-1">
-                  <span className="text-muted-foreground">Monthly amount</span>
+                  <span className="text-muted-foreground">{directDebitHasFixedTermTotal(offer) ? 'Monthly amount' : 'Current monthly price (variable)'}</span>
                   <span className="font-medium" data-testid="text-migrate-monthly">{formatCurrency(offer?.monthlyAmount, offer?.currency)}</span>
                 </div>
                 <div className="flex justify-between flex-wrap gap-1">
@@ -162,11 +163,12 @@ export default function DirectDebitMigrationPage() {
                   <span data-testid="text-migrate-instalments">{offer?.instalmentCount} monthly payments</span>
                 </div>
                 <div className="flex justify-between flex-wrap gap-1">
-                  <span className="text-muted-foreground">Total</span>
-                  <span className="font-medium" data-testid="text-migrate-total">{formatCurrency(offer?.planTotal, offer?.currency)}</span>
+                  <span className="text-muted-foreground">Total for this term</span>
+                  <span className="font-medium" data-testid="text-migrate-total">{directDebitHasFixedTermTotal(offer) ? formatCurrency(offer?.planTotal, offer?.currency) : 'Variable — no fixed total'}</span>
                 </div>
               </div>
 
+              <p className="text-sm text-muted-foreground" data-testid="text-migrate-collection-policy">{directDebitPolicyText(offer)}</p>
               {invite?.expiresAt && (
                 <p className="text-xs text-muted-foreground" data-testid="text-migrate-expiry">
                   This link expires on {formatDate(invite.expiresAt)}.

@@ -23,6 +23,27 @@ const membershipQuote = {
   } },
 };
 
+for (const end_policy of ['stop', 'continue']) {
+  for (const pricing_policy of ['fixed', 'dynamic']) {
+    test(`mounted payment choice discloses ${end_policy}/${pricing_policy} before starting payment`, async () => {
+      const fixture = await mount({
+        membershipQuote: { ...membershipQuote, quote: { ...membershipQuote.quote,
+          membership: { ...membershipQuote.quote.membership,
+            direct_debit: { ...offer, collectionPolicy: { version: 1, end_policy, pricing_policy } },
+          },
+        } },
+      });
+      try {
+        const choice = fixture.container.querySelector('[data-testid="button-form-payment-gocardless-choice"]');
+        assert.match(choice.textContent, end_policy === 'stop' ? /Collections stop/ : /Collections continue/);
+        assert.match(choice.textContent, pricing_policy === 'dynamic' ? /No fixed term total/ : /Plan total for this term/);
+        if (pricing_policy === 'dynamic') assert.doesNotMatch(choice.textContent, /127.92/);
+        assert.equal(fixture.calls.length, 0);
+      } finally { await fixture.cleanup(); }
+    });
+  }
+}
+
 async function mount(overrides = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
   client.setQueryData(['form-payment-providers', 'membership'],
@@ -75,7 +96,7 @@ test('initial choices are neutral action buttons with aligned quote text and no 
     const [monthly, full, dd] = fixture.buttons();
     assert.match(monthly.textContent, /Pay monthly by card.*£10.66 × 12 instalments.*Plan total £127.92/s);
     assert.match(full.textContent, /Pay in full by card.*£128.00/s);
-    assert.match(dd.textContent, /Pay monthly by Direct Debit.*£10.66 × 12 instalments.*Plan total £127.92.*First collection: As soon as the mandate permits/s);
+    assert.match(dd.textContent, /Pay monthly by Direct Debit.*£10.66 × 12 instalments.*Plan total for this term £127.92.*First collection: As soon as the mandate permits/s);
     assert.equal(new Set(fixture.buttons().map(button => button.className)).size, 1);
     for (const button of fixture.buttons()) {
       assert.equal(button.type, 'button');

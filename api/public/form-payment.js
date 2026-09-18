@@ -74,6 +74,7 @@ import {
 import {
   attachMonthlyConsentFlow,
   buildAgreementSnapshot,
+  newDdConsentScheduleError,
   buildMonthlyBillingRequest,
   classifyMonthlyConsentAgreement,
   monthlyBillingRequestFingerprint,
@@ -1233,6 +1234,8 @@ async function handleCreate(req, res, supabase, tenantData) {
             === Number(monthlyDirectDebitOffer.instalmentCount)
           && Number(storedDirectDebit?.offer?.planTotal)
             === Number(monthlyDirectDebitOffer.planTotal)
+          && JSON.stringify(storedDirectDebit?.offer?.collectionPolicy || null)
+            === JSON.stringify(monthlyDirectDebitOffer.collectionPolicy || null)
         );
         const sameCharge = Number(existing.payment_amount) === Number(storedPaymentAmount)
           && String(existing.payment_currency || '').toLowerCase() === String(currency || '').toLowerCase()
@@ -1694,21 +1697,22 @@ async function handleCreateMonthlyDirectDebit({
         membershipYear: {
           label: quote.membership_year,
           start: quote.membership_year_start,
+          end: quote.membership_year_end,
         },
-        config: quote.commitment?.commitment_snapshot?.config || { id: quote.config_id },
+        config: quote.direct_debit_config || quote.commitment?.commitment_snapshot?.config || { id: quote.config_id },
         commitment: quote.commitment,
         matchedBand: quote.commitment?.commitment_snapshot?.pricing?.matchedBand || (quote.band_id ? { id: quote.band_id } : null),
         tierLabel: quote.tier_label,
         fieldValue: quote.field_value,
         annualCost: quote.annual_cost,
         finalCost: quote.final_cost,
+        vatRatePercent: quote.vat_rate_percent,
       },
       includeBillingRequestPayment: false,
       billingRequestMode: 'mandate_only',
     }),
     vat_rate_percent: quote.vat_rate_percent ?? null,
-    vat_amount: quote.vat_amount ?? 0,
-    total_with_vat: quote.total_with_vat ?? quote.final_cost,
+    total_with_vat: offer.collectionPolicy?.pricing_policy === 'dynamic' ? null : offer.planTotal,
   };
   const agreementKey = formMonthlyDirectDebitApplicantAgreementKey({
     tenantId: tenantData.id,
@@ -1754,6 +1758,10 @@ async function handleCreateMonthlyDirectDebit({
   }
 
   let consent = classifyMonthlyConsentAgreement(agreement);
+  if (!agreement.gocardless_mandate_id && !consent.resumable) {
+    const scheduleError = newDdConsentScheduleError(consent.rotatable ? snapshot : agreement.metadata?.dd);
+    if (scheduleError) return res.status(400).json(scheduleError);
+  }
   if (consent.rotatable) {
     try {
       agreement = await rotateStaleMonthlyConsentAgreement({
@@ -1838,6 +1846,8 @@ async function handleCreateMonthlyDirectDebit({
     });
   }
 
+  const scheduleError = newDdConsentScheduleError(agreement.metadata?.dd);
+  if (scheduleError) return res.status(400).json(scheduleError);
   const trustedBase = getTenantTrustedBaseUrl(req, tenantData);
   const withParams = (entries) => buildFormPaymentReturnUrl(trustedBase, returnPath, entries);
 

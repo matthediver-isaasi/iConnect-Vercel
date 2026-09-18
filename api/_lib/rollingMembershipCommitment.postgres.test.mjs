@@ -130,6 +130,189 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
       const keys = Object.keys(row);
       return connection.query(`INSERT INTO ${table} (${keys.map((key) => `"${key}"`).join(',')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, Object.values(row));
     };
+    await t.test('explicit DD dated commitments, dynamic forms and durable collection claims', async () => {
+      await db.query(`
+        ALTER TABLE member ADD COLUMN membership_paused boolean DEFAULT false;
+        ALTER TABLE organization ADD COLUMN membership_paused boolean DEFAULT false;
+        ALTER TABLE membership_tier_config ADD COLUMN dd_invoicing_mode text DEFAULT 'annual';
+        ALTER TABLE membership_billing_agreements ADD COLUMN gocardless_mandate_id text;
+        ALTER TABLE member_membership_history ADD COLUMN tier_label text, ADD COLUMN field_value text, ADD COLUMN notes text;
+        ALTER TABLE member_membership_history ADD COLUMN paid_at timestamptz;
+        ALTER TABLE organisation_membership_history ADD COLUMN paid_at timestamptz;
+        CREATE TABLE form_submission(id uuid PRIMARY KEY,tenant_id uuid,payment_provider text,payment_status text);
+        CREATE TABLE membership_payment_plans(
+          id uuid PRIMARY KEY,tenant_id uuid,billing_agreement_id uuid,status text,
+          metadata jsonb,gocardless_mandate_id text,gocardless_subscription_id text,
+          collection_stopped_at timestamptz,amount_minor integer,currency text,next_charge_date date,updated_at timestamptz);
+        CREATE TABLE membership_monthly_arrears_period(id uuid,tenant_id uuid,plan_id uuid,settled_at timestamptz);
+        CREATE TABLE gocardless_payments(id uuid DEFAULT gen_random_uuid(),tenant_id uuid,plan_id uuid,
+          gocardless_payment_id text UNIQUE,gocardless_mandate_id text,amount_minor integer,currency text,charge_date date,status text,updated_at timestamptz);
+      `);
+      await db.query(`ALTER TABLE membership_payment_plans ADD COLUMN completed_at timestamptz;
+        CREATE TABLE membership_payment_status_history(
+          tenant_id uuid,entity_type text,entity_id uuid,from_status text,to_status text,reason text,source text);`);
+      const formMigration = await readFile(new URL('../../supabase/migrations/20261016_form_monthly_direct_debit_lifecycle.sql', import.meta.url), 'utf8');
+      await db.query(formMigration.slice(formMigration.lastIndexOf('CREATE OR REPLACE FUNCTION bind_form_monthly_direct_debit_membership(')));
+      for (const name of ['20261108_direct_debit_dated_commitments.sql', '20261108_explicit_direct_debit_collection_policy.sql', '20261109_gocardless_dynamic_term_completion.sql']) {
+        const source = await readFile(new URL(`../../supabase/migrations/${name}`, import.meta.url), 'utf8');
+        await db.query(source);
+        await db.query(source);
+      }
+      for (const [offset, startMode, pricing, organization] of [[0, 'fixed_date', 'fixed'], [1, 'fixed_date', 'dynamic'], [2, 'immediate', 'dynamic'], [3, 'immediate', 'dynamic', true]]) {
+        const year = 2040 + offset;
+        const tier = { ...config, id: uuid(organization ? 32 : startMode === 'fixed_date' ? 33 : 31),
+          structure_scope_type: organization ? 'organization' : 'member', start_mode: 'immediate', billing_period: 'annual' };
+        const commitment = buildRollingCommitment({
+          config: tier, startDate: `${year}-01-01`, paymentMethod: 'direct_debit',
+          paymentFrequency: 'monthly', amounts: { annual_cost: 120, final_cost: 100, vat_amount: 20, total_with_vat: 120, currency: 'GBP', monthly_amount: 10, instalment_count: 12 },
+        });
+        if (startMode === 'fixed_date') {
+          commitment.term_key = `fixed:${year}-01-01`;
+          commitment.commitment_snapshot.start_mode = 'fixed_date';
+          commitment.commitment_snapshot.config.start_mode = 'fixed_date';
+        }
+        const policy = { version: 1, end_policy: 'stop', pricing_policy: pricing };
+        commitment.commitment_snapshot.collection_policy = policy;
+        if (pricing === 'dynamic') Object.assign(commitment.commitment_snapshot.amounts, { final_cost: null, vat_amount: null, total_with_vat: null });
+        const agreementId = uuid(810 + offset), submissionId = uuid(820 + offset), planId = uuid(830 + offset);
+        const terms = {
+          commitment, collection_policy: policy, invoicing_mode: 'per_instalment',
+          membership_year: startMode === 'fixed_date' ? String(year) : commitment.term_key,
+          config_id: tier.id, annual_cost: 120, final_cost: pricing === 'dynamic' ? null : 100,
+          plan_total: pricing === 'dynamic' ? null : 120, vat_amount: pricing === 'dynamic' ? null : 20,
+          currency: 'GBP', instalment_count: 12,
+        };
+        await rawInsert('membership_billing_agreements', {
+          id: agreementId, tenant_id: tenant, member_id: organization ? null : member,
+          organization_id: organization ? org : null, agreement_type: organization ? 'organization' : 'member', provider: 'gocardless',
+          metadata: { dd: terms, commitment, form_submission_id: submissionId }, ...commitment, gocardless_mandate_id: 'MD_DYNAMIC',
+        });
+        await db.query('INSERT INTO form_submission VALUES($1,$2,$3,$4)', [submissionId, tenant, 'gocardless_monthly_dd', 'pending']);
+        const historyTable = organization ? 'organisation_membership_history' : 'member_membership_history';
+        const bound = organization ? {
+          ok: true,
+          history_id: (await rawInsert(historyTable, {
+            ...commitment, tenant_id: tenant, organization_id: org, membership_year: terms.membership_year,
+            config_id: tier.id, annual_cost: 120, final_cost: null, vat_amount: null, total_with_vat: null,
+            currency: 'GBP', payment_method: 'direct_debit', billing_period: 'monthly_direct_debit', billing_agreement_id: agreementId,
+          })).rows[0].id,
+        } : (await db.query('SELECT bind_form_monthly_direct_debit_membership($1,$2,$3) AS value', [agreementId, submissionId, member])).rows[0].value;
+        assert.equal(bound.ok, true, JSON.stringify(bound));
+        const stored = (await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [bound.history_id])).rows[0];
+        assert.equal(stored.membership_year, terms.membership_year);
+        assert.equal(stored.final_cost, pricing === 'dynamic' ? null : '100');
+        assert.equal(stored.vat_amount, pricing === 'dynamic' ? null : '20');
+        await assert.rejects(db.query(`UPDATE ${historyTable} SET final_cost=2 WHERE id=$1`, [bound.history_id]), /immutable/);
+        await assert.rejects(db.query(`UPDATE membership_billing_agreements SET metadata=jsonb_set(metadata,'{dd,collection_policy,end_policy}','"continue"') WHERE id=$1`, [agreementId]), /immutable/);
+        await assert.rejects(db.query(`UPDATE ${historyTable} SET tenant_id=$1 WHERE id=$2`, [uuid(2), bound.history_id]), /immutable/);
+        if (pricing !== 'dynamic') continue;
+        const firstCollectionDate = `${year}-${organization ? '02' : '01'}-05`;
+        await db.query(`INSERT INTO membership_payment_plans(id,tenant_id,billing_agreement_id,status,metadata,gocardless_mandate_id,dynamic_next_collection_date)
+          VALUES($1,$2,$3,'active',$4,'MD_DYNAMIC',$5)`, [planId, tenant, agreementId, { collection_mode: 'dynamic', dynamic_first_date: firstCollectionDate }, firstCollectionDate]);
+        const price = { config_id: tier.id, intended_date: firstCollectionDate, monthly_amount_minor: 1250, currency: 'GBP', vat_rate: 'OUTPUT2', nominal_code: '200', config: tier };
+        const args = [tenant, planId, 1, firstCollectionDate, price, { next_possible_charge_date: firstCollectionDate }, `reserve-${year}`];
+        const claimSql = 'SELECT to_jsonb(reserve_gocardless_dynamic_collection($1,$2,$3,$4,$5,$6,$7)) AS reservation';
+        const concurrent = await connect();
+        const claims = await Promise.all([db.query(claimSql, args), concurrent.query(claimSql, [...args.slice(0, 4), { ...price, monthly_amount_minor: 9999 }, ...args.slice(5)])]);
+        const winner = claims[0].rows[0].reservation;
+        assert.equal(winner.id, claims[1].rows[0].reservation.id);
+        assert.ok([1250, 9999].includes(winner.amount_minor));
+        await db.query(`UPDATE ${organization ? 'organization' : 'member'} SET membership_paused=true WHERE id=$1`, [organization ? org : member]);
+        await assert.rejects(db.query(claimSql, args), /paused/);
+        await db.query(`UPDATE ${organization ? 'organization' : 'member'} SET membership_paused=false WHERE id=$1`, [organization ? org : member]);
+        await assert.rejects(db.query(claimSql, [uuid(2), ...args.slice(1)]), /tenant/);
+        await assert.rejects(db.query('UPDATE gocardless_collection_reservations SET amount_minor=1 WHERE id=$1', [winner.id]), /immutable/);
+        const payment = { id: `PM_${year}`, amount: winner.amount_minor, currency: 'GBP', charge_date: firstCollectionDate, status: 'pending_submission', links: { mandate: 'MD_DYNAMIC' } };
+        const attachSql = 'SELECT attach_gocardless_dynamic_payment($1,$2,$3) AS reservation';
+        await assert.rejects(db.query(attachSql, [tenant, winner.id, { ...payment, amount: 1 }]), /evidence/);
+        await db.query(attachSql, [tenant, winner.id, payment]);
+        await db.query(attachSql, [tenant, winner.id, payment]);
+        assert.equal((await db.query('SELECT count(*)::integer AS count FROM gocardless_payments WHERE gocardless_payment_id=$1', [payment.id])).rows[0].count, 1);
+        assert.equal((await db.query('SELECT dynamic_next_collection_date::text AS next FROM membership_payment_plans WHERE id=$1', [planId])).rows[0].next, `${year}-${organization ? '03' : '02'}-05`);
+        const completeSql = 'SELECT complete_gocardless_dynamic_term($1,$2) AS result';
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        // Twelve quoted instalments, but an authorized February anchor leaves
+        // eleven dates in the purchased org term: schedule-derived, not a
+        // synthetic assertion that every quote requires twelve payments.
+        const required = organization ? 11 : 12;
+        for (let number = 2; number <= required; number++) {
+          const due = `${year}-${String(number + (organization ? 1 : 0)).padStart(2, '0')}-05`;
+          const reservation = (await db.query(claimSql, [tenant, planId, number, due,
+            { ...price, intended_date: due }, { next_possible_charge_date: due }, `reserve-${year}-${number}`])).rows[0].reservation;
+          await db.query(attachSql, [tenant, reservation.id, {
+            ...payment, id: `PM_${year}_${number}`, amount: reservation.amount_minor, charge_date: due,
+            status: number === required ? 'paid_out' : 'confirmed',
+          }]);
+        }
+        // The last event may arrive first; earlier pending/failed evidence
+        // prevents settlement and does not alter the history or its finances.
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        await db.query("UPDATE gocardless_payments SET status='failed' WHERE gocardless_payment_id=$1", [payment.id]);
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        await db.query(attachSql, [tenant, winner.id, { ...payment, status: 'confirmed' }]);
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        await db.query("UPDATE gocardless_payments SET status='confirmed',amount_minor=amount_minor+1 WHERE gocardless_payment_id=$1", [payment.id]);
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        await db.query("UPDATE gocardless_payments SET amount_minor=amount_minor-1 WHERE gocardless_payment_id=$1", [payment.id]);
+        await db.query('INSERT INTO membership_monthly_arrears_period(tenant_id,plan_id) VALUES($1,$2)', [tenant, planId]);
+        assert.equal((await db.query(completeSql, [tenant, planId])).rows[0].result.completed, false);
+        await db.query('UPDATE membership_monthly_arrears_period SET settled_at=now() WHERE plan_id=$1', [planId]);
+        await assert.rejects(db.query(completeSql, [uuid(2), planId]), /tenant/);
+        const completed = await Promise.all([db.query(completeSql, [tenant, planId]), concurrent.query(completeSql, [tenant, planId])]);
+        assert.equal(completed.filter(r => r.rows[0].result.created).length, 1);
+        const completion = completed[0].rows[0].result.completion;
+        assert.equal(completion.required_collections, required);
+        assert.equal(completion.payment_evidence.length, required);
+        assert.equal(completion.notification_status, 'pending');
+        const after = (await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [stored.id])).rows[0];
+        assert.equal(after.payment_status, 'paid');
+        assert.ok(after.paid_at);
+        for (const key of ['final_cost', 'vat_amount', 'total_with_vat', 'commitment_snapshot', 'term_key']) {
+          assert.deepEqual(after[key], stored[key]);
+        }
+        const completedPlan = (await db.query('SELECT * FROM membership_payment_plans WHERE id=$1', [planId])).rows[0];
+        assert.equal(completedPlan.status, 'expired');
+        assert.ok(completedPlan.completed_at);
+        assert.equal((await db.query('SELECT count(*)::integer AS count FROM membership_payment_status_history WHERE entity_id=$1', [planId])).rows[0].count, 1);
+        await assert.rejects(db.query('UPDATE gocardless_dynamic_term_completions SET required_collections=1 WHERE plan_id=$1', [planId]), /immutable/);
+        const message = { tenantId: tenant, to: 'completion@example.test', subject: 'Complete', html: 'Completed' };
+        await db.query('SELECT prepare_gocardless_dynamic_completion_notice($1,$2,$3)', [tenant, planId, JSON.stringify([message])]);
+        const deliverySql = 'SELECT claim_gocardless_dynamic_completion_delivery($1,$2,$3,$4) AS result';
+        const deliveries = await Promise.all([db.query(deliverySql, [tenant, planId, message.to, message]), concurrent.query(deliverySql, [tenant, planId, message.to, message])]);
+        assert.equal(deliveries.filter(r => r.rows[0].result.claimed).length, 1);
+        const delivery = deliveries.find(r => r.rows[0].result.claimed).rows[0].result.delivery;
+        await assert.rejects(db.query('SELECT finish_gocardless_dynamic_completion_delivery($1,$2,$3,$4,$5)',
+          [uuid(2), delivery.id, delivery.claim_token, 'sent', {}]), /no longer owned/);
+        if (organization) {
+          await db.query("UPDATE gocardless_dynamic_completion_deliveries SET attempted_at=now()-interval '16 minutes' WHERE id=$1", [delivery.id]);
+          const abandoned = (await db.query(deliverySql, [tenant, planId, message.to, message])).rows[0].result;
+          assert.equal(abandoned.claimed, false);
+          assert.equal(abandoned.delivery.status, 'uncertain');
+          const recoverSql = 'SELECT resolve_gocardless_dynamic_completion_delivery($1,$2,$3,$4)';
+          await assert.rejects(db.query(recoverSql, [tenant, delivery.id, true, {}]), /evidence/);
+          await db.query(recoverSql, [tenant, delivery.id, true, {
+            verified_by: 'isolated-operator', reason: 'provider accepted attempt', provider_message_id: 'mail-fixture',
+          }]);
+        } else {
+          await db.query('SELECT finish_gocardless_dynamic_completion_delivery($1,$2,$3,$4,$5)',
+            [tenant, delivery.id, delivery.claim_token, 'sent', { messageId: 'mail-fixture' }]);
+        }
+        assert.equal((await db.query(deliverySql, [tenant, planId, message.to, message])).rows[0].result.claimed, false);
+      }
+      const privileges = (await db.query(`SELECT has_function_privilege('anon','reserve_gocardless_dynamic_collection(uuid,uuid,integer,date,jsonb,jsonb,text)','execute') AS anonymous,
+        has_function_privilege('authenticated','attach_gocardless_dynamic_payment(uuid,uuid,jsonb)','execute') AS authenticated`)).rows[0];
+      assert.deepEqual(privileges, { anonymous: false, authenticated: false });
+      const completionPrivileges = (await db.query(`SELECT bool_and(
+        has_function_privilege('service_role',p.oid,'execute')
+        AND NOT has_function_privilege('anon',p.oid,'execute')
+        AND NOT has_function_privilege('authenticated',p.oid,'execute')
+        AND NOT EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+          WHERE a.grantee=0 AND a.privilege_type='EXECUTE')) AS guarded
+        FROM pg_proc p WHERE p.proname IN ('complete_gocardless_dynamic_term',
+          'prepare_gocardless_dynamic_completion_notice','claim_gocardless_dynamic_completion_delivery',
+          'finish_gocardless_dynamic_completion_delivery','resolve_gocardless_dynamic_completion_delivery')`)).rows[0];
+      assert.equal(completionPrivileges.guarded, true);
+    });
     const loadLegacy = async (index) => {
       const seed = legacySeed[index];
       return {

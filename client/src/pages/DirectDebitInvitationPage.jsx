@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, CheckCircle2, XCircle, Landmark, Building2 } from "lucide-react";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
+import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -187,7 +187,7 @@ export default function DirectDebitInvitationPage() {
                     </div>
                   )}
                   <div className="flex justify-between flex-wrap gap-1">
-                    <span className="text-muted-foreground">Monthly amount</span>
+                    <span className="text-muted-foreground">{directDebitHasFixedTermTotal(data) ? 'Monthly amount' : 'Current monthly price (variable)'}</span>
                     <span className="font-medium" data-testid="text-dd-monthly">{formatCurrency(data.monthlyAmount, data.currency)}</span>
                   </div>
                   <div className="flex justify-between flex-wrap gap-1">
@@ -195,8 +195,8 @@ export default function DirectDebitInvitationPage() {
                     <span data-testid="text-dd-instalments">{data.instalmentCount} monthly payments</span>
                   </div>
                   <div className="flex justify-between flex-wrap gap-1">
-                    <span className="text-muted-foreground">Total</span>
-                    <span className="font-medium" data-testid="text-dd-total">{formatCurrency(data.planTotal, data.currency)}</span>
+                    <span className="text-muted-foreground">Total for this term</span>
+                    <span className="font-medium" data-testid="text-dd-total">{directDebitHasFixedTermTotal(data) ? formatCurrency(data.planTotal, data.currency) : 'Variable — no fixed total'}</span>
                   </div>
                   <div className="flex justify-between flex-wrap gap-1">
                     <span className="text-muted-foreground">First collection</span>
@@ -210,6 +210,8 @@ export default function DirectDebitInvitationPage() {
                   This link expires on {formatDate(data.expiresAt)}.
                 </p>
               )}
+
+              <p className="text-sm text-muted-foreground" data-testid="text-dd-collection-policy">{directDebitPolicyText(data)}</p>
 
               <label className="flex items-start gap-2 text-sm cursor-pointer" data-testid="label-dd-authority">
                 <Checkbox

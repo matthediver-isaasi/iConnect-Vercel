@@ -36,6 +36,7 @@ import {
 } from "@/lib/membershipTierNavigation";
 import { parseFlatMembershipCost } from "../../../shared/membershipFlatCost.js";
 import { billingPeriodMonths } from "../../../shared/rollingMembershipTerm.js";
+import { directDebitPolicyText } from "@/lib/directDebitConsentSummary";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -324,6 +325,9 @@ export default function MembershipTierManagement() {
     auto_approve_fees: false,
     online_card_payment: false,
     dd_enabled: false,
+    dd_policy_version: null,
+    dd_collection_end_policy: null,
+    dd_pricing_policy: null,
     dd_instalment_count: 12,
     dd_monthly_amount: null,
     dd_first_collection_rule: 'earliest',
@@ -697,7 +701,11 @@ export default function MembershipTierManagement() {
   };
 
   const handleConfigChange = (key, value) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
+    setConfig(prev => ({
+      ...prev,
+      [key]: value,
+      ...(['dd_collection_end_policy', 'dd_pricing_policy'].includes(key) ? { dd_policy_version: 1 } : {}),
+    }));
     setHasChanges(true);
   };
 
@@ -872,7 +880,7 @@ export default function MembershipTierManagement() {
   // admin must EXPLICITLY confirm the difference before saving (not just see
   // a warning). Flat pricing only — banded DD amounts are validated per band.
   const ddTotalMismatch = (() => {
-    if (!isMemberScoped || !config.dd_enabled || config.pricing_model !== 'flat') return null;
+    if (!isMemberScoped || !config.dd_enabled || config.pricing_model !== 'flat' || config.dd_pricing_policy === 'dynamic') return null;
     const annual = parseFloat(config.flat_cost);
     const monthly = parseFloat(config.dd_monthly_amount);
     const count = effectiveInstalmentCount;
@@ -886,6 +894,17 @@ export default function MembershipTierManagement() {
     const isFlat = config.pricing_model === 'flat';
     const isImmediate = config.start_mode === 'immediate';
     const parsedFlatCost = isFlat ? parseFlatMembershipCost(config.flat_cost) : null;
+
+    if (config.dd_enabled && (!config.dd_collection_end_policy || !config.dd_pricing_policy)) {
+      toast.error('Choose both Direct Debit collection policies before saving.');
+      setWizardStep(6);
+      return;
+    }
+    if (config.dd_enabled && config.dd_pricing_policy === 'dynamic' && config.dd_invoicing_mode !== 'per_instalment') {
+      toast.error('Dynamic Direct Debit pricing requires per-instalment invoicing. Select that invoicing mode explicitly.');
+      setWizardStep(6);
+      return;
+    }
 
     if (parsedFlatCost && !parsedFlatCost.valid) {
       toast.error(parsedFlatCost.error);
@@ -1010,6 +1029,9 @@ export default function MembershipTierManagement() {
 
   const ddFieldsFromConfig = (c) => ({
     dd_enabled: c?.dd_enabled ?? false,
+    dd_policy_version: c?.dd_policy_version ?? null,
+    dd_collection_end_policy: c?.dd_collection_end_policy ?? null,
+    dd_pricing_policy: c?.dd_pricing_policy ?? null,
     dd_instalment_count: c?.dd_instalment_count ?? 12,
     dd_monthly_amount: c?.dd_monthly_amount ?? null,
     dd_first_collection_rule: ['earliest', 'nominated_day', 'anniversary'].includes(c?.dd_first_collection_rule)
@@ -1767,10 +1789,37 @@ export default function MembershipTierManagement() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-4 rounded-md border p-4" data-testid="dd-collection-policies">
+                      <div className="space-y-2">
+                        <Label htmlFor="dd-collection-end-policy">At the end of the billing period</Label>
+                        <Select value={config.dd_collection_end_policy || ''} onValueChange={(value) => handleConfigChange('dd_collection_end_policy', value)} disabled={!isEditable}>
+                          <SelectTrigger id="dd-collection-end-policy" data-testid="select-dd-collection-end-policy"><SelectValue placeholder="Choose what happens at term end" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="stop">Stop collections</SelectItem>
+                            <SelectItem value="continue">Continue collections</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="dd-pricing-policy">Monthly collection amount</Label>
+                        <Select value={config.dd_pricing_policy || ''} onValueChange={(value) => handleConfigChange('dd_pricing_policy', value)} disabled={!isEditable}>
+                          <SelectTrigger id="dd-pricing-policy" data-testid="select-dd-pricing-policy"><SelectValue placeholder="Choose how the amount is set" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="fixed">Fixed for the membership term</SelectItem>
+                            <SelectItem value="dynamic">Use the current active membership structure price</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{directDebitPolicyText({ collectionPolicy: { version: config.dd_policy_version, end_policy: config.dd_collection_end_policy, pricing_policy: config.dd_pricing_policy } })}</p>
+                      {config.dd_pricing_policy === 'dynamic' && (
+                        <p className="text-sm text-warning">Dynamic pricing requires per-instalment invoicing. Select it below; an annual fixed invoice cannot represent variable collections.</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">These settings apply to new agreements only. Existing consent is not rewritten. Membership term end and collection end are separate from the arrears policy.</p>
+                    </div>
+                    {config.card_monthly_enabled && <div className="flex items-center justify-between gap-3">
                       <div>
-                        <Label>Automatically renew monthly memberships</Label>
-                        <p className="text-sm text-muted-foreground mt-0.5">Automatically renew next year using the member’s saved Stripe card or GoCardless Direct Debit mandate. When disabled, renewal requires member confirmation.</p>
+                        <Label>Automatically renew monthly card memberships</Label>
+                        <p className="text-sm text-muted-foreground mt-0.5">Renew using the member’s saved Stripe card. Direct Debit continuation is controlled separately above.</p>
                       </div>
                       <Switch
                         checked={config.dd_auto_renew !== false}
@@ -1778,7 +1827,7 @@ export default function MembershipTierManagement() {
                         disabled={!isEditable}
                         data-testid="switch-dd-auto-renew"
                       />
-                    </div>
+                    </div>}
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <Label>Allow migration of existing members</Label>
@@ -1933,6 +1982,19 @@ export default function MembershipTierManagement() {
                   </div>
                 )}
                 {config.card_monthly_enabled && !config.dd_enabled && (
+                  <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Automatically renew monthly card memberships</Label>
+                      <p className="text-sm text-muted-foreground">Renew using the saved Stripe card. This setting does not control Direct Debit continuation.</p>
+                    </div>
+                    <Switch
+                      checked={config.dd_auto_renew !== false}
+                      onCheckedChange={(value) => handleConfigChange('dd_auto_renew', value)}
+                      disabled={!isEditable}
+                      data-testid="switch-card-auto-renew"
+                    />
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label>Instalments</Label>
@@ -1971,6 +2033,7 @@ export default function MembershipTierManagement() {
                         data-testid="input-card-grace-days"
                       />
                     </div>
+                  </div>
                   </div>
                 )}
               </div>
@@ -3625,6 +3688,12 @@ export default function MembershipTierManagement() {
                 <span className="text-muted-foreground">Online card payment</span>
                 <span className="font-medium" data-testid="text-summary-online-card-payment">{config.online_card_payment ? 'Enabled' : 'Disabled'}</span>
               </div>
+              {config.dd_enabled && (
+                <div className="rounded-md border p-3 text-sm" data-testid="summary-dd-collection-policy">
+                  <p className="font-medium">Direct Debit collection policy</p>
+                  <p className="text-muted-foreground">{directDebitPolicyText({ collectionPolicy: { version: config.dd_policy_version, end_policy: config.dd_collection_end_policy, pricing_policy: config.dd_pricing_policy } })}</p>
+                </div>
+              )}
               {(config.dd_enabled || config.card_monthly_enabled) && (
                 <>
                   <div className="flex justify-between gap-2">

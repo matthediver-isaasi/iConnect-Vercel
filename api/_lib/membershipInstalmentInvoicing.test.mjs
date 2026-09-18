@@ -461,11 +461,14 @@ test('Stripe arrears retries retain historic ledger uniqueness but recover the s
 
 const ddSim = {
   success: true,
+  annualCost: 120,
   currency: 'GBP',
   membershipYear: { label: '2026-27', start: '2026-04-01', end: '2027-03-31' },
   config: {
     id: 'cfg1',
+    billing_period: 'annual',
     dd_enabled: true,
+    dd_auto_renew: true,
     pricing_model: 'flat',
     dd_monthly_amount: 10,
     dd_instalment_count: 12,

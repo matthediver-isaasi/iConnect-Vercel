@@ -12,7 +12,7 @@ import {
   loadPaymentSubmissionContext,
   MONTHLY_PAYMENT_PROVIDERS,
 } from "@/lib/formPaymentReturn";
-import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
+import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import MembershipCommitmentNotice from "@/components/membership/MembershipCommitmentNotice";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -710,12 +710,17 @@ export default function FormPaymentSubmit({
                       ) : monthlyDirectDebit ? (
                         <>
                           <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">
-                            {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount} instalments
+                            {directDebitHasFixedTermTotal(directDebitOffer)
+                              ? <>{formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount} instalments</>
+                              : <>Current monthly price {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} — variable</>}
                           </span>
                           <span className="mt-1.5 block text-xs font-semibold leading-relaxed break-words">
-                            Plan total {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)}
+                            {directDebitHasFixedTermTotal(directDebitOffer)
+                              ? <>Plan total for this term {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)}</>
+                              : 'No fixed term total'}
                           </span>
                           <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">First collection: {directDebitFirstCollectionText(directDebitOffer)}</span>
+                          <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{directDebitPolicyText(directDebitOffer)}</span>
                         </>
                       ) : (
                         <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">Set up a secure bank instruction</span>

@@ -9,6 +9,8 @@ import {
 } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
+import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDetails.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -33,7 +35,9 @@ function firstPresent(...values) {
  * continue to describe the structure and price agreed at commencement.
  */
 export function shapePersistedCommitment(record, now = new Date()) {
-  if (!record?.term_key && !record?.membership_renewal_date && !record?.commitment_snapshot) {
+  const legacyDirectDebit = record?.billing_agreement_id
+    && ['direct_debit', 'gocardless'].includes(record?.payment_method);
+  if (!record?.term_key && !record?.membership_renewal_date && !record?.commitment_snapshot && !legacyDirectDebit) {
     return null;
   }
   const snapshot = record.commitment_snapshot && typeof record.commitment_snapshot === 'object'
@@ -44,6 +48,12 @@ export function shapePersistedCommitment(record, now = new Date()) {
     ? snapshot.pricing : {};
   const amounts = snapshot.amounts && typeof snapshot.amounts === 'object'
     ? snapshot.amounts : {};
+  const isDirectDebit = ['direct_debit', 'gocardless'].includes(
+    record.payment_method || snapshot.payment_method,
+  );
+  const collectionPolicy = isDirectDebit
+    ? resolveSavedCollectionPolicy({ ...snapshot, ...(record._ddTerms || {}) }) : null;
+  const dynamic = collectionPolicy?.pricing_policy === 'dynamic';
   const startDate = firstPresent(record.term_start_date, snapshot.term_start_date);
   const renewalDate = firstPresent(record.membership_renewal_date, snapshot.membership_renewal_date);
   const today = new Date(now);
@@ -77,7 +87,7 @@ export function shapePersistedCommitment(record, now = new Date()) {
     ),
     tierLabel: firstPresent(record.tier_label, pricing.tier_label, snapshot.tier_label),
     billingPeriod: firstPresent(snapshot.billing_period, configSnapshot.billing_period),
-    agreedPrice: firstPresent(
+    agreedPrice: dynamic ? null : firstPresent(
       amounts.total_with_vat,
       amounts.final_cost,
       pricing.total_with_vat,
@@ -85,8 +95,9 @@ export function shapePersistedCommitment(record, now = new Date()) {
       record.total_with_vat,
       record.final_cost,
     ),
-    agreedNetPrice: firstPresent(amounts.final_cost, pricing.final_cost, record.final_cost),
-    monthlyAmount: firstPresent(amounts.monthly_amount, pricing.monthly_amount),
+    agreedNetPrice: dynamic ? null : firstPresent(amounts.final_cost, pricing.final_cost, record.final_cost),
+    monthlyAmount: dynamic ? null : firstPresent(amounts.monthly_amount, pricing.monthly_amount, record._ddTerms?.monthly_amount),
+    ...(isDirectDebit ? { collectionPolicy, collectionDetails: record._collectionDetails || null } : {}),
     currency: firstPresent(amounts.currency, pricing.currency, record.currency),
     paymentFrequency: firstPresent(
       record.payment_frequency,
@@ -107,6 +118,57 @@ export function shapePersistedCommitments(history, now = new Date()) {
       if (Number.isFinite(startDifference) && startDifference !== 0) return startDifference;
       return String(left.id || '').localeCompare(String(right.id || ''));
     });
+}
+
+/**
+ * Enrich only an already-authorized owner's displayed terms. Neither a live
+ * structure nor an unrelated agreement may supply consent for this read.
+ */
+export async function enrichDirectDebitCommitments({ db, tenantId, history, commitments, paused = false }) {
+  const visible = commitments.filter((item) => ['current', 'scheduled', 'unknown'].includes(item.lifecycle)).slice(0, 20);
+  for (const commitment of visible) {
+    const record = history.find((row) => row.id === commitment.id
+      && (row.membership_source || 'personal') === commitment.source);
+    if (!record?.billing_agreement_id
+      || !['direct_debit', 'gocardless'].includes(commitment.paymentMethod)) continue;
+    try {
+      const { data: agreement, error } = await db.from('membership_billing_agreements')
+        .select('id,tenant_id,member_id,organization_id,provider,status,metadata')
+        .eq('tenant_id', tenantId).eq('id', record.billing_agreement_id).maybeSingle();
+      if (error || !agreementMatchesHistory(agreement, record, commitment.source)
+        || (agreement.provider && agreement.provider !== 'gocardless')) throw new Error('Agreement evidence unavailable');
+      const planResult = await db.from('membership_payment_plans')
+        .select('*,membership_monthly_arrears_period(due_period,amount_minor,settled_at)')
+        .eq('tenant_id', tenantId).eq('billing_agreement_id', agreement.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (planResult.error) throw planResult.error;
+      if (planResult.data && !planMatchesAgreement(planResult.data, agreement, record)) {
+        throw new Error('Plan ownership does not match');
+      }
+      const terms = agreement.metadata?.dd || {};
+      commitment.collectionPolicy = resolveSavedCollectionPolicy(terms);
+      commitment.collectionDetails = await loadGoCardlessCollectionDetails({
+        db, tenantId, agreement, plan: planResult.data, paused,
+      });
+      if (!commitment.startDate || !commitment.endDate) {
+        commitment.collectionDetails.blockers.push('Membership term dates are not evidenced; administrator review is required');
+      }
+      if (commitment.collectionPolicy.pricing_policy === 'dynamic') {
+        commitment.agreedPrice = null;
+        commitment.agreedNetPrice = null;
+        commitment.monthlyAmount = null;
+      } else if (commitment.monthlyAmount == null && terms.monthly_amount != null) {
+        commitment.monthlyAmount = Number(terms.monthly_amount);
+      }
+    } catch {
+      commitment.collectionDetails = {
+        state: 'unknown', amount: null, currency: commitment.currency,
+        dueDate: null, providerStatus: null,
+        blockers: ['Current collection evidence could not be loaded'],
+      };
+    }
+  }
+  return commitments;
 }
 
 /**
@@ -978,8 +1040,12 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
   const commitments = shapePersistedCommitments(history);
+  await enrichDirectDebitCommitments({ db, tenantId, history, commitments, paused: pause?.paused });
   const currentCommitments = commitments.filter((commitment) => (
     commitment.lifecycle === 'current' || commitment.lifecycle === 'scheduled'
+    || (commitment.lifecycle === 'unknown'
+      && commitment === commitments.find((item) => item.source === commitment.source)
+      && ['direct_debit', 'gocardless'].includes(commitment.paymentMethod))
   ));
 
   const liveConfig = await resolveConfig(tenantId, memberId);

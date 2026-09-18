@@ -187,7 +187,14 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
   // invoice-address field). Best-effort: a deleted config falls back to
   // provider defaults rather than blocking the posting.
   let config = null;
-  if (snapshot.config_id) {
+  const collectionPrice = snapshot.collection_price_snapshot;
+  if (collectionPrice) {
+    config = collectionPrice.config;
+    if (!config || !Object.hasOwn(collectionPrice, 'vat_rate')
+      || !Object.hasOwn(collectionPrice, 'nominal_code')) {
+      throw new Error('Dynamic instalment invoice requires immutable tax and nominal-code evidence');
+    }
+  } else if (snapshot.config_id) {
     const { data } = await db
       .from('membership_tier_config')
       .select('*')
@@ -198,7 +205,10 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
 
   let vatRate = null;
   let nominalCode = null;
-  if ((config?.pricing_model || 'tiered') === 'flat') {
+  if (collectionPrice) {
+    vatRate = collectionPrice.vat_rate;
+    nominalCode = collectionPrice.nominal_code;
+  } else if ((config?.pricing_model || 'tiered') === 'flat') {
     vatRate = config?.flat_vat_rate || null;
     nominalCode = (typeof config?.nominal_code === 'string' && config.nominal_code.trim()) || null;
   } else if (snapshot.band_id) {
@@ -213,7 +223,7 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
         || (typeof config?.nominal_code === 'string' && config.nominal_code.trim()) || null;
     } catch { /* band gone — provider defaults apply */ }
   }
-  if (!nominalCode) {
+  if (!nominalCode && !collectionPrice) {
     try {
       const { data: setting } = await db
         .from('system_settings')

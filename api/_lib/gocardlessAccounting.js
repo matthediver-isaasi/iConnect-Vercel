@@ -119,7 +119,17 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
       if (!claimedRow) return { status: 'skipped', reason: 'already posted or another worker is posting' };
 
       try {
-        const snapshot = agreement.metadata?.dd || agreement.metadata?.card || null;
+        let snapshot = agreement.metadata?.dd || agreement.metadata?.card || null;
+        if (snapshot?.collection_policy?.version === 1 && snapshot.collection_policy.pricing_policy === 'dynamic') {
+          const { data: reservation, error } = await db.from('gocardless_collection_reservations').select('*')
+            .eq('tenant_id', agreement.tenant_id).eq('billing_agreement_id', agreement.id)
+            .eq('gocardless_payment_id', paymentRow.gocardless_payment_id).maybeSingle();
+          if (error || !reservation || reservation.amount_minor !== instAmountMinor
+            || reservation.currency !== paymentRow.currency) {
+            throw new Error('Dynamic instalment has no matching immutable collection/tax evidence');
+          }
+          snapshot = { ...snapshot, ...reservation.price_snapshot, collection_price_snapshot: reservation.price_snapshot };
+        }
         const outcome = await mintOrPayInstalmentInvoice({
           provider,
           agreement,

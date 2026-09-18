@@ -20,6 +20,8 @@ import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 import { isPerInstalmentAgreement } from '../_lib/membershipInstalmentInvoicing.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 import { processGocardlessEvent } from '../_lib/gocardlessWebhookProcessor.js';
+import { reconcileDynamicCollections } from '../_lib/gocardlessDynamicCollections.js';
+import { reconcileDynamicTermCompletions } from '../_lib/gocardlessDynamicCompletion.js';
 
 // Credentials are per tenant (tenant_integrations, env fallback) — cache one
 // bound client per tenant_id for the duration of a run.
@@ -55,6 +57,17 @@ async function executeReconciliation(_req, res) {
   const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
 
   try {
+    const completion = await reconcileDynamicTermCompletions({ db: supabase, limit: 10, budgetMs: 5000 });
+    results.repaired += completion.completed + completion.notified;
+    results.errors += completion.errors;
+    // Durable next-check ordering/backoff makes these bounded items fair.
+    // Run before the legacy scans so a long stale-invoice backlog cannot
+    // indefinitely prevent an authorized monthly collection being considered.
+    const dynamic = await reconcileDynamicCollections({
+      db: supabase, clientForTenant: gcFor, budgetMs: 35000,
+    });
+    results.repaired += dynamic.processed;
+    results.flagged += dynamic.blocked;
     await reconcileStaleAgreements(results);
     await reconcilePlansWithoutSubscription(results);
     await reconcileSubscriptionDrift(results);
@@ -236,6 +249,8 @@ async function reconcilePlansWithoutSubscription(results) {
   if (error) throw new Error(`load plans without subscription failed: ${error.message}`);
 
   for (const plan of rows || []) {
+    // Explicit dynamic plans deliberately have no provider subscription.
+    if (plan.metadata?.collection_mode === 'dynamic') continue;
     try {
       const gc = await gcFor(plan.tenant_id);
       const mandate = await gc.getMandate(plan.gocardless_mandate_id);

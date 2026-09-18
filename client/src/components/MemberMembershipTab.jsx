@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
+import DirectDebitCommitmentDetails from "@/components/membership/DirectDebitCommitmentDetails";
 import MemberMembershipInstalments, {
   getMembershipSource,
   isMonthlyMembershipRecord,
@@ -1396,13 +1397,15 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
               <div>
                 <dt className="text-muted-foreground">Agreed Price for this Billing Period</dt>
                 <dd className="font-medium" data-testid={`text-commitment-price-${commitment.id}`}>
-                  {formatCost(commitment.agreedPrice, commitment.currency)}
+                  {commitment.collectionPolicy?.pricing_policy === 'dynamic'
+                    ? 'Variable — determined for each collection'
+                    : formatCost(commitment.agreedPrice, commitment.currency)}
                 </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Payment Frequency</dt>
                 <dd className="font-medium">
-                  {formatPaymentFrequency(commitment.paymentFrequency, commitment.monthlyAmount, commitment.currency)}
+                  {formatPaymentFrequency(commitment.paymentFrequency, commitment.collectionPolicy?.pricing_policy === 'dynamic' ? null : commitment.monthlyAmount, commitment.currency)}
                 </dd>
               </div>
               <div>
@@ -1410,9 +1413,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 <dd className="font-medium">{formatPaymentMethod(commitment.paymentMethod)}</dd>
               </div>
             </dl>
-            <p className="text-xs text-muted-foreground mt-4">
-              Persisted commitment · pricing remains fixed for this term.
-            </p>
+            {['direct_debit', 'gocardless'].includes(commitment.paymentMethod)
+              ? <DirectDebitCommitmentDetails commitment={commitment} />
+              : <p className="text-xs text-muted-foreground mt-4">Persisted commitment · pricing remains fixed for this term.</p>}
           </CardContent>
         </Card>
       ))}

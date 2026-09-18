@@ -18,6 +18,34 @@
 
 import { supabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { resolveSavedCollectionPolicy, describeCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+
+function money(value) {
+  return value != null && value !== '' && Number.isFinite(Number(value))
+    ? Number(value).toFixed(2) : null;
+}
+
+function scheduleText(c, renewal = false) {
+  const amount = money(renewal ? (c.newMonthlyAmount ?? c.monthlyAmount) : c.monthlyAmount);
+  const currency = renewal ? (c.newCurrency || c.currency) : c.currency;
+  if (c.dynamic) {
+    return `monthly Direct Debit collections at the applicable active membership structure price${amount ? ` (current indicative monthly price: ${currency} ${amount})` : ''}. The amount is not fixed for the term; each collection is subject to provider notice and submission deadlines`;
+  }
+  const count = renewal ? (c.newInstalmentCount || c.instalmentCount) : c.instalmentCount;
+  const total = renewal ? money(c.newPlanTotal) : null;
+  return `${count} monthly payments${amount ? ` of ${currency} ${amount}` : ' (amount awaiting confirmation)'}${total ? ` (total ${currency} ${total})` : ''}`;
+}
+
+function paymentAmountText(c) {
+  // A variable-price receipt must never use the initial consent quote as the
+  // amount actually collected. Callers may supply verified paymentAmount.
+  const amount = money(c.paymentAmount ?? (c.dynamic ? null : c.monthlyAmount));
+  return amount ? ` of ${c.currency} ${amount}` : '';
+}
+
+function policyParagraph(c) {
+  return c.policy ? `<p>${describeCollectionPolicy(c.policy)}</p>` : '';
+}
 
 const EVENTS = {
   setup_started: {
@@ -25,7 +53,8 @@ const EVENTS = {
     body: (c) => `
       <p>Hi ${c.firstName},</p>
       <p>You've chosen to pay your ${c.yearLabel} membership by monthly Direct Debit
-      (${c.instalmentCount} payments of ${c.currency} ${c.monthlyAmount}).</p>
+      through ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
       <p>Your Direct Debit mandate is being set up with your bank. We'll confirm as soon as it's active — no payment is taken until then.</p>`,
   },
   setup_incomplete: {
@@ -40,7 +69,8 @@ const EVENTS = {
     body: (c) => `
       <p>Hi ${c.firstName},</p>
       <p>Your Direct Debit mandate is now active. Your ${c.yearLabel} membership will be collected in
-      ${c.instalmentCount} monthly payments of ${c.currency} ${c.monthlyAmount}.</p>
+      ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
       ${c.firstChargeDate ? `<p>Your first collection is expected on or around <strong>${c.firstChargeDate}</strong>.</p>` : ''}
       <p>You'll receive advance notice from GoCardless before each collection.</p>`,
   },
@@ -48,7 +78,8 @@ const EVENTS = {
     subject: (c) => `First membership payment scheduled — ${c.yearLabel}`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Your monthly membership payment plan is now in place: ${c.instalmentCount} payments of ${c.currency} ${c.monthlyAmount}.</p>
+      <p>Your monthly membership payment plan is now in place: ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
       ${c.firstChargeDate ? `<p>Your first collection is scheduled on or around <strong>${c.firstChargeDate}</strong>.</p>` : '<p>Your first collection will be taken as soon as your bank allows.</p>'}
       <p>GoCardless will notify you in advance of each collection, and your payments are protected by the Direct Debit Guarantee.</p>`,
   },
@@ -56,27 +87,28 @@ const EVENTS = {
     subject: (c) => `Your ${c.yearLabel} membership is now active`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Good news — your ${c.yearLabel} membership is now active. Your annual membership is being paid in ${c.instalmentCount} monthly instalments of ${c.currency} ${c.monthlyAmount} by Direct Debit.</p>
+      <p>Good news — your ${c.yearLabel} membership is now active. Your membership is being paid through ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
       <p>Welcome aboard!</p>`,
   },
   first_payment: {
     subject: (c) => `First membership payment received — ${c.yearLabel}`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Your first monthly membership payment of ${c.currency} ${c.monthlyAmount} has been collected successfully. Thank you!</p>
+      <p>Your first monthly membership payment${paymentAmountText(c)} has been collected successfully. Thank you!</p>
       <p>The remaining instalments will be collected automatically each month.</p>`,
   },
   payment_confirmed: {
     subject: (c) => `Membership payment received — ${c.yearLabel}`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Your monthly membership payment of ${c.currency} ${c.monthlyAmount} has been collected successfully. Thank you!</p>`,
+      <p>Your monthly membership payment${paymentAmountText(c)} has been collected successfully. Thank you!</p>`,
   },
   payment_failed: {
     subject: (c) => `Membership payment problem — action may be needed`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>A monthly membership payment of ${c.currency} ${c.monthlyAmount} could not be collected from your bank account.</p>
+      <p>A monthly membership payment${paymentAmountText(c)} could not be collected from your bank account.</p>
       <p>The payment will be retried automatically. Please make sure funds are available, or contact us if your bank details have changed.</p>`,
   },
   card_payment_failed: {
@@ -97,7 +129,7 @@ const EVENTS = {
     subject: (c) => `Membership payment retry scheduled`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>A retry of your monthly membership payment of ${c.currency} ${c.monthlyAmount} has been scheduled.</p>
+      <p>A retry of your monthly membership payment${paymentAmountText(c)} has been scheduled.</p>
       <p>Please make sure funds are available in your account. You'll receive advance notice from GoCardless before the collection.</p>`,
   },
   new_mandate_required: {
@@ -168,7 +200,8 @@ const EVENTS = {
     subject: (c) => `Membership payments complete — ${c.yearLabel}`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>All ${c.instalmentCount} monthly payments for your ${c.yearLabel} membership have now been collected. Your membership is fully paid — thank you!</p>`,
+      <p>${c.dynamic ? `The eligible monthly collections for your ${c.yearLabel} membership term are complete — thank you!` : `All ${c.instalmentCount} monthly payments for your ${c.yearLabel} membership have now been collected. Your membership is fully paid — thank you!`}</p>
+      ${policyParagraph(c)}`,
   },
   // Phase 5 — renewals & migration -----------------------------------------
   renewal_notice: {
@@ -176,7 +209,8 @@ const EVENTS = {
     body: (c) => `
       <p>Hi ${c.firstName},</p>
       <p>Your ${c.yearLabel} membership is coming to an end, and your monthly Direct Debit is set to renew automatically for ${c.renewalYear || 'the next membership year'}.</p>
-      <p>The renewal plan will be <strong>${c.newInstalmentCount || c.instalmentCount} monthly payments of ${c.newCurrency || c.currency} ${c.newMonthlyAmount || c.monthlyAmount}</strong>${c.newPlanTotal ? ` (total ${c.newCurrency || c.currency} ${c.newPlanTotal})` : ''}, collected using your existing Direct Debit mandate — no action is needed.</p>
+      <p>The renewal plan will use ${scheduleText(c, true)}, collected using your existing Direct Debit mandate — no action is needed.</p>
+      ${policyParagraph(c)}
       <p>If you do not wish to renew, or your details have changed, please contact us before the new membership year begins.</p>`,
   },
   renewal_confirmation_required: {
@@ -184,7 +218,8 @@ const EVENTS = {
     body: (c) => `
       <p>Hi ${c.firstName},</p>
       <p>Your ${c.yearLabel} membership is coming to an end. To continue paying by monthly Direct Debit for ${c.renewalYear || 'the next membership year'}, please confirm your renewal.</p>
-      <p>The new plan will be <strong>${c.newInstalmentCount || c.instalmentCount} monthly payments of ${c.newCurrency || c.currency} ${c.newMonthlyAmount || c.monthlyAmount}</strong>${c.newPlanTotal ? ` (total ${c.newCurrency || c.currency} ${c.newPlanTotal})` : ''}.</p>
+      <p>The new plan will use ${scheduleText(c, true)}.</p>
+      ${policyParagraph(c)}
       <p>Confirm from your membership payment page once the new membership year opens — your existing Direct Debit mandate will be reused, so there is no need to re-enter bank details.</p>
       <p>If you do nothing, no payment will be taken for the new year.</p>`,
   },
@@ -192,7 +227,8 @@ const EVENTS = {
     subject: (c) => `Membership renewal confirmed — ${c.yearLabel}`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Your membership has been renewed for ${c.yearLabel}: ${c.instalmentCount} monthly payments of ${c.currency} ${c.monthlyAmount} by Direct Debit, using your existing mandate.</p>
+      <p>Your membership has been renewed for ${c.yearLabel}: ${scheduleText(c)}, using your existing mandate.</p>
+      ${policyParagraph(c)}
       ${c.firstChargeDate ? `<p>Your first collection for the new year is expected on or around <strong>${c.firstChargeDate}</strong>.</p>` : ''}
       <p>You'll receive advance notice from GoCardless before each collection.</p>`,
   },
@@ -204,7 +240,10 @@ function contextFromAgreement(agreement, member) {
   const snap = agreement?.metadata?.dd?.kind
     ? agreement.metadata.dd
     : (agreement?.metadata?.card || agreement?.metadata?.dd || {});
+  const policy = agreement?.metadata?.dd && snap.kind !== 'monthly_card' ? resolveSavedCollectionPolicy(snap) : null;
   return {
+    policy,
+    dynamic: policy?.pricing_policy === 'dynamic',
     firstName: member?.first_name || (agreement?.organization_id ? 'there' : 'Member'),
     yearLabel: snap.commitment?.term_key
       ? `${snap.commitment.term_start_date} – ${snap.commitment.term_end_date}`
@@ -358,8 +397,12 @@ export async function sendDdMigrationInviteEmail({ tenantId, member, invite, off
     }
     const firstName = member.first_name || 'Member';
     const currency = offer.currency || 'GBP';
-    const monthly = Number(offer.monthlyAmount).toFixed(2);
-    const total = offer.planTotal != null ? Number(offer.planTotal).toFixed(2) : '';
+    const policy = resolveSavedCollectionPolicy({ collection_policy: offer.collectionPolicy, auto_renew: offer.autoRenew });
+    const context = {
+      policy, dynamic: policy.pricing_policy === 'dynamic', currency,
+      monthlyAmount: money(offer.monthlyAmount), instalmentCount: offer.instalmentCount,
+    };
+    const total = context.dynamic ? null : money(offer.planTotal);
     const expiry = invite.expires_at
       ? new Date(invite.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
       : null;
@@ -370,7 +413,8 @@ export async function sendDdMigrationInviteEmail({ tenantId, member, invite, off
       html: `
         <p>Hi ${firstName},</p>
         <p>You can now pay your membership by monthly Direct Debit, starting from the <strong>${invite.switch_from_year}</strong> membership year.</p>
-        <p>The plan is ${offer.instalmentCount} monthly payments of ${currency} ${monthly}${total ? ` (total ${currency} ${total})` : ''}. Your current membership and payment method are not affected — the switch only applies from ${invite.switch_from_year}.</p>
+        <p>The plan uses ${scheduleText(context)}${total ? ` (total ${currency} ${total})` : ''}. Your current membership and payment method are not affected — the switch only applies from ${invite.switch_from_year}.</p>
+        ${policyParagraph(context)}
         <p><a href="${setupUrl}">Review the details and set up your Direct Debit</a></p>
         ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
         <p>Payments are protected by the Direct Debit Guarantee. If you'd rather keep paying as you do now, you can simply ignore this email or decline from the link above.</p>`,
@@ -399,8 +443,8 @@ export async function sendDdInvitationEmail({ agreement, invitation, organizatio
     const snap = agreement.metadata?.dd || {};
     const firstName = (invitation.invited_name || '').trim().split(/\s+/)[0] || 'there';
     const currency = snap.currency || 'GBP';
-    const monthly = snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '';
-    const total = snap.plan_total != null ? Number(snap.plan_total).toFixed(2) : '';
+    const context = contextFromAgreement(agreement);
+    const total = context.dynamic ? null : money(snap.plan_total);
     const expiry = invitation.expires_at
       ? new Date(invitation.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
       : null;
@@ -413,7 +457,8 @@ export async function sendDdInvitationEmail({ agreement, invitation, organizatio
         <p>Hi ${firstName},</p>
         <p>You've been asked to set up the Direct Debit for <strong>${organizationName || 'your organisation'}</strong>'s
         ${snap.membership_year || ''} membership${snap.tier_label ? ` (${snap.tier_label})` : ''}.</p>
-        <p>The plan is ${snap.instalment_count || 12} monthly payments of ${currency} ${monthly}${total ? ` (total ${currency} ${total})` : ''}.</p>
+        <p>The plan uses ${scheduleText(context)}${total ? ` (total ${currency} ${total})` : ''}.</p>
+        ${policyParagraph(context)}
         <p><a href="${setupUrl}">Review the details and set up the Direct Debit</a></p>
         ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
         <p>You'll be asked to confirm that you are authorised to set up Direct Debits on the organisation's bank account.

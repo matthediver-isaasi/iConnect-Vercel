@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2, Landmark, AlertCircle } from "lucide-react";
+import DirectDebitCommitmentDetails from "./DirectDebitCommitmentDetails";
 
 const CURRENCY_SYMBOLS = { GBP: "\u00a3", USD: "$", EUR: "\u20ac", AUD: "A$", NZD: "NZ$" };
 
@@ -179,19 +180,21 @@ export default function DirectDebitPlanCard({ memberId }) {
           </div>
         )}
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <span className="text-muted-foreground">Monthly amount</span>
-          <span className="font-medium text-right" data-testid="text-dd-monthly-amount">{fmt(plan.monthlyAmount, plan.currency)}</span>
+          {isCardPlan && <>
+            <span className="text-muted-foreground">Monthly amount</span>
+            <span className="font-medium text-right" data-testid="text-dd-monthly-amount">{fmt(plan.monthlyAmount, plan.currency)}</span>
+          </>}
 
           <span className="text-muted-foreground">Payments made</span>
           <span className="font-medium text-right" data-testid="text-dd-payments-made">{paymentsMade} of {total}</span>
 
-          <span className="text-muted-foreground">Remaining</span>
+          <span className="text-muted-foreground">Remaining in this term</span>
           <span className="font-medium text-right" data-testid="text-dd-payments-remaining">{remaining}</span>
 
           <span className="text-muted-foreground">Next collection</span>
-          <span className="font-medium text-right" data-testid="text-dd-next-collection">{fmtDate(plan.nextChargeDate)}</span>
+          <span className="font-medium text-right" data-testid="text-dd-next-collection">{fmtDate(isCardPlan ? plan.nextChargeDate : plan.collectionDetails?.upcomingCollection?.dueDate)}</span>
           <span className="text-muted-foreground">Next planned amount</span>
-          <span className="font-medium text-right" data-testid="text-dd-next-planned-amount">{fmt(plan.nextPlannedCollectionAmount, plan.currency)}</span>
+          <span className="font-medium text-right" data-testid="text-dd-next-planned-amount">{fmt(isCardPlan ? plan.nextPlannedCollectionAmount : plan.collectionDetails?.upcomingCollection?.amount, plan.currency)}</span>
           {plan.arrearsCount > 0 && (
             <>
               <span className="text-muted-foreground">Outstanding instalments</span>
@@ -226,6 +229,11 @@ export default function DirectDebitPlanCard({ memberId }) {
             </>
           )}
         </div>
+        {!isCardPlan && <DirectDebitCommitmentDetails commitment={{
+          id: plan.id, currency: plan.currency,
+          collectionPolicy: plan.collectionPolicy,
+          collectionDetails: plan.collectionDetails,
+        }} />}
         {Array.isArray(plan.instalmentInvoices) && plan.instalmentInvoices.length > 0 && (
           <>
             <Separator />

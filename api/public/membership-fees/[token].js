@@ -312,6 +312,7 @@ export default async function handler(req, res) {
                 currency: offer.currency,
                 firstCollectionRule: offer.firstCollectionRule,
                 collectionDay: offer.collectionDay,
+                collectionPolicy: offer.collectionPolicy,
               });
             }
           }
@@ -1352,7 +1353,9 @@ export default async function handler(req, res) {
         }
         const {
           resolveDdOffer,
+          isMonthlyConsentPolicyCurrent,
           buildAgreementSnapshot,
+          newDdConsentScheduleError,
           buildMonthlyBillingRequest,
           monthlyBillingRequestFingerprint,
           findReusableMandate,
@@ -1416,6 +1419,10 @@ export default async function handler(req, res) {
         let staleAgreement = null;
         let unstartedAgreement = null;
         if (existingAgreement) {
+          if ([STATUS.PAYMENT_SETUP_REQUIRED, STATUS.MANDATE_PENDING].includes(existingAgreement.status)
+              && !isMonthlyConsentPolicyCurrent(existingAgreement, offer)) {
+            return res.status(409).json({ error: 'This Direct Debit setup has different saved terms. Review or cancel it before starting a new authorisation.', code: 'DD_CONSENT_CHANGED' });
+          }
           const consent = classifyMonthlyConsentAgreement(existingAgreement);
           const reusableMandateRecovery = existingAgreement.status === STATUS.MANDATE_PENDING
             && !!existingAgreement.gocardless_mandate_id
@@ -1445,6 +1452,8 @@ export default async function handler(req, res) {
             billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
           });
 
+        const scheduleError = newDdConsentScheduleError(snapshot);
+        if (scheduleError) return res.status(400).json(scheduleError);
         const agreementInsert = {
           ...(snapshot.commitment || {}),
           tenant_id: feeToken.tenant_id,
@@ -1548,11 +1557,11 @@ export default async function handler(req, res) {
             tier_label: simResult.tierLabel,
             field_value: simResult.fieldValue,
             annual_cost: simResult.annualCost,
-            final_cost: snapshot.plan_total,
+            final_cost: snapshot.final_cost,
             currency: offer.currency,
             billing_period: 'monthly_direct_debit',
             vat_rate_percent: simResult.vatRatePercent || null,
-            vat_amount: simResult.vatAmount || 0,
+            vat_amount: snapshot.vat_amount,
             total_with_vat: snapshot.plan_total,
             payment_method: 'direct_debit',
             status: 'pending_payment_setup',

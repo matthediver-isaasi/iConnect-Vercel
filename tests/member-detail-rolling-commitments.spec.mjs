@@ -258,7 +258,7 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixtures(page, { membershipStatus = 200 } = {}) {
+async function installFixtures(page, { membershipStatus = 200, commitmentOverrides = null } = {}) {
   const state = { writes: [], providerRequests: [], membershipRequests: 0 };
   await page.context().route(/\/(?:rest|auth)\/v1\//, async (route) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(route.request().method())) {
@@ -292,7 +292,15 @@ async function installFixtures(page, { membershipStatus = 200 } = {}) {
     if (path === "/api/membership/member-membership") {
       state.membershipRequests += 1;
       return membershipStatus === 200
-        ? json(route, membershipFixture())
+        ? json(route, (() => {
+            const fixture = membershipFixture();
+            if (commitmentOverrides) {
+              fixture.currentCommitments = fixture.currentCommitments.map((entry, index) => (
+                index === 0 ? { ...entry, ...commitmentOverrides } : entry
+              ));
+            }
+            return fixture;
+          })())
         : json(route, { error: "Membership commitment access denied" }, membershipStatus);
     }
     if (path === "/api/membership/membership-settings") return json(route, { require_approval: false });
@@ -368,6 +376,116 @@ test("Member Detail renders persisted current, scheduled, past, personal and inh
     type: "jpeg",
     quality: 85,
   });
+});
+
+for (const end_policy of ['stop', 'continue']) {
+  for (const pricing_policy of ['fixed', 'dynamic']) {
+    test(`Direct Debit commitment discloses ${end_policy}/${pricing_policy} with provider evidence`, async ({ page }) => {
+      const state = await installFixtures(page, { commitmentOverrides: {
+        paymentMethod: 'direct_debit',
+        agreedPrice: pricing_policy === 'dynamic' ? null : 288,
+        monthlyAmount: pricing_policy === 'dynamic' ? null : 24,
+        collectionPolicy: { version: 1, end_policy, pricing_policy },
+        collectionDetails: {
+          state: 'provider_scheduled', amount: 24, currency: 'GBP', dueDate: '2026-10-15',
+          providerStatus: 'pending_submission', blockers: [],
+        },
+      } });
+      await openMembership(page);
+      const current = page.getByTestId('card-member-commitment-personal-current');
+      await expect(current).toContainText(end_policy === 'stop' ? 'Stop collections' : 'Continue collections');
+      await expect(current).toContainText(pricing_policy === 'fixed' ? 'Fixed for the membership term' : 'Use the current active membership structure price');
+      await expect(current).toContainText('Accepted by provider — not yet collected');
+      await expect(current).toContainText('£24.00');
+      if (pricing_policy === 'dynamic') {
+        await expect(current).not.toContainText('£288.00');
+        await expect(current).not.toContainText('pricing remains fixed');
+      }
+      if (pricing_policy === 'fixed' && end_policy === 'continue') await expect(current).toContainText('restamped');
+      expect(state.writes).toEqual([]);
+    });
+  }
+}
+
+test('Direct Debit structure controls persist choices, reject implicit dynamic invoicing, and retain policies when scheduling a duplicate', async ({ page }) => {
+  const safety = await installFixtures(page);
+  const saved = [{
+    id: 'dd-policy-structure', name: 'Collection policy fixture', is_active: true,
+    effective_from: '2020-01-01', effective_to: null, status: 'active',
+    structure_scope_type: 'member', pricing_model: 'flat', flat_cost: 120,
+    start_mode: 'immediate', billing_period: 'annual', currency: 'GBP',
+    dd_enabled: true, dd_instalment_count: 12, dd_monthly_amount: 10,
+    dd_policy_version: 1, dd_collection_end_policy: 'stop', dd_pricing_policy: 'fixed',
+    dd_invoicing_mode: 'annual', dd_auto_renew: false,
+    monthly_post_grace_collection_policy: 'continue_catch_up',
+  }];
+  const writes = [];
+  await page.route('**/api/membership/tiers*', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON();
+      writes.push(body);
+      const config = { ...body.config, id: body.config.id || 'dd-policy-scheduled',
+        status: body.config.effective_from > '2030-01-01' ? 'scheduled' : 'active',
+        effective_to: null };
+      const existing = saved.findIndex(entry => entry.id === config.id);
+      if (existing < 0) saved.push(config); else saved[existing] = config;
+      return json(route, { config });
+    }
+    if (request.method() !== 'GET') return json(route, { error: 'Fixture rejects unexpected mutation' }, 599);
+    if (url.searchParams.has('action')) return json(route, []);
+    const selected = saved.find(entry => entry.id === url.searchParams.get('configId')) || saved[0];
+    return json(route, { config: selected, bands: [], discounts: [], vatOverrides: [], reminders: [],
+      activeConfigs: saved.filter(entry => entry.status === 'active'), history: saved });
+  });
+  const select = async (id, label) => {
+    await page.getByTestId(id).click();
+    await page.getByRole('option', { name: label, exact: true }).click();
+  };
+  await page.goto('/MembershipTierManagement');
+  await page.getByTestId('button-open-structure-dd-policy-structure').click();
+  await page.getByTestId('wizard-step-6').click();
+  await expect(page.getByTestId('select-dd-collection-end-policy')).toContainText('Stop collections');
+  await expect(page.getByTestId('select-dd-pricing-policy')).toContainText('Fixed for the membership term');
+  await select('select-dd-collection-end-policy', 'Continue collections');
+  await select('select-dd-pricing-policy', 'Use the current active membership structure price');
+  await page.getByTestId('wizard-step-8').click();
+  await page.getByTestId('button-wizard-save').click();
+  await expect(page.getByText('Dynamic Direct Debit pricing requires per-instalment invoicing. Select that invoicing mode explicitly.', { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(0);
+  await expect(page.getByTestId('select-dd-invoicing-mode')).toContainText('Single annual invoice');
+  await select('select-dd-invoicing-mode', 'Invoice per instalment (one paid invoice per collection)');
+  await page.getByTestId('wizard-step-8').click();
+  await page.getByTestId('button-wizard-save').click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].config).toMatchObject({ dd_policy_version: 1, dd_collection_end_policy: 'continue',
+    dd_pricing_policy: 'dynamic', dd_invoicing_mode: 'per_instalment', dd_auto_renew: false,
+    monthly_post_grace_collection_policy: 'continue_catch_up' });
+  await page.reload();
+  await page.getByTestId('button-open-structure-dd-policy-structure').click();
+  await page.getByTestId('wizard-step-6').click();
+  await expect(page.getByTestId('select-dd-collection-end-policy')).toContainText('Continue collections');
+  await expect(page.getByTestId('select-dd-pricing-policy')).toContainText('Use the current active membership structure price');
+  await page.getByTestId('button-duplicate-history-dd-policy-structure').click();
+  await page.getByTestId('wizard-step-1').click();
+  await page.getByTestId('input-config-name').fill('Scheduled collection policy fixture');
+  await page.getByTestId('input-effective-from').fill('2090-01-01');
+  await page.getByTestId('wizard-step-6').click();
+  await expect(page.getByTestId('select-dd-collection-end-policy')).toContainText('Continue collections');
+  await expect(page.getByTestId('select-dd-pricing-policy')).toContainText('Use the current active membership structure price');
+  await page.getByTestId('wizard-step-8').click();
+  await page.getByTestId('button-wizard-save').click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1].config.id).toBeUndefined();
+  expect(writes[1].config).toMatchObject({ effective_from: '2090-01-01',
+    dd_policy_version: 1, dd_collection_end_policy: 'continue', dd_pricing_policy: 'dynamic' });
+  await page.reload();
+  await expect(page.getByTestId('structure-card-dd-policy-scheduled')).toContainText('Scheduled');
+  await page.getByTestId('button-open-structure-dd-policy-scheduled').click();
+  await page.getByTestId('wizard-step-6').click();
+  await expect(page.getByTestId('select-dd-pricing-policy')).toContainText('Use the current active membership structure price');
+  expect(safety.writes).toEqual([]);
 });
 
 test("Member Detail fails closed when the authorized commitment read is denied", async ({ page }) => {

@@ -1,36 +1,63 @@
 import { resolveRollingSuccessorConfig } from './membershipConfigResolver.js';
 import { buildRollingTerm, billingPeriodMonths } from '../../shared/rollingMembershipTerm.js';
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
+import { calculateMembershipYearWindow } from './membershipYear.js';
 
 export function monthlySnapshotCommitment(snapshot) {
   return snapshot?.commitment?.term_key ? snapshot.commitment : null;
 }
 
 export function monthlyCommitmentFields({ offer, simResult, paymentMethod }) {
-  if (simResult?.config?.start_mode !== 'immediate') return {};
+  const fixedDd = paymentMethod === 'direct_debit'
+    && simResult?.config?.start_mode !== 'immediate' && simResult?.membershipYear?.end;
+  if (simResult?.config?.start_mode !== 'immediate' && !fixedDd) return {};
+  const dynamic = paymentMethod === 'direct_debit' && offer.collectionPolicy?.pricing_policy === 'dynamic';
+  const validationTotal = dynamic ? offer.monthlyAmount * offer.instalmentCount : offer.planTotal;
   // Provider instalments are gross collections. Derive the agreed net/VAT
   // from that total, not from a potentially different upfront annual quote.
   const rate = Number(simResult.vatRatePercent || 0);
   if (!Number.isFinite(rate) || rate < 0) throw new Error('Invalid membership VAT rate.');
-  const net = Math.round((offer.planTotal / (1 + rate / 100)) * 100) / 100;
-  const vat = Math.round((offer.planTotal - net) * 100) / 100;
-  return buildRollingCommitment({
-    config: simResult.config,
+  const net = Math.round((validationTotal / (1 + rate / 100)) * 100) / 100;
+  const vat = Math.round((validationTotal - net) * 100) / 100;
+  const fields = buildRollingCommitment({
+    config: fixedDd ? { ...simResult.config, start_mode: 'immediate' } : simResult.config,
     startDate: simResult.membershipYear?.start,
-    previousTerm: simResult.previousTerm || null,
+    previousTerm: fixedDd ? null : simResult.previousTerm || null,
     paymentMethod,
     paymentFrequency: 'monthly',
     amounts: {
       annual_cost: simResult.annualCost,
       final_cost: net,
-      total_with_vat: offer.planTotal,
+      total_with_vat: validationTotal,
       vat_amount: vat,
       currency: offer.currency,
       monthly_amount: offer.monthlyAmount,
       instalment_count: offer.instalmentCount,
     },
-    pricingSnapshot: { band: simResult.matchedBand || null, tier_label: simResult.tierLabel },
+    pricingSnapshot: { band: simResult.matchedBand || null, tier_label: simResult.tierLabel, field_value: simResult.fieldValue ?? null },
   });
+  if (fixedDd) {
+    const end = new Date(simResult.membershipYear.end);
+    fields.term_end_date = end.toISOString().slice(0, 10);
+    fields.membership_renewal_date = new Date(end.getTime() + 86_400_000).toISOString().slice(0, 10);
+    fields.term_key = `fixed:${fields.term_start_date}`;
+    fields.previous_term_id = simResult.previousTerm?.id || null;
+    // A successor remains in the original dated commitment chain. Changing
+    // its anchor would violate the predecessor guard even at an exact boundary.
+    fields.term_anchor_date = simResult.previousTerm?.term_anchor_date || fields.term_anchor_date;
+    fields.commitment_snapshot.start_mode = 'fixed_date';
+    fields.commitment_snapshot.config = JSON.parse(JSON.stringify(simResult.config));
+  }
+  if (paymentMethod === 'direct_debit' && offer.collectionPolicy) {
+    fields.commitment_snapshot.collection_policy = { ...offer.collectionPolicy };
+  }
+  if (dynamic) {
+    // An initial monthly quote is not a promise about the term's final total.
+    Object.assign(fields.commitment_snapshot.amounts, {
+      final_cost: null, vat_amount: null, total_with_vat: null,
+    });
+  }
+  return fields;
 }
 
 export function monthlyInstalmentCount(config) {
@@ -42,7 +69,27 @@ export function monthlyInstalmentCount(config) {
 
 export function monthlyRenewalIdentity(snapshot) {
   const commitment = monthlySnapshotCommitment(snapshot);
-  return commitment ? `rolling:${commitment.membership_renewal_date}` : null;
+  if (!commitment) return null;
+  return commitment.commitment_snapshot?.start_mode === 'fixed_date'
+    ? calculateMembershipYearWindow(commitment.commitment_snapshot.config, new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`)).label
+    : `rolling:${commitment.membership_renewal_date}`;
+}
+
+async function resolveFixedSuccessorConfig(db, { tenantId, previousTerm }) {
+  const prior = previousTerm.commitment_snapshot?.config;
+  if (!prior) throw new Error('Saved structure scope is missing; review renewal before collecting.');
+  const boundary = previousTerm.membership_renewal_date;
+  const { data, error } = await db.from('membership_tier_config').select('*').eq('tenant_id', tenantId)
+    .or(`effective_from.is.null,effective_from.lte.${boundary}`)
+    .or(`effective_to.is.null,effective_to.gte.${boundary}`);
+  if (error) throw new Error(`Could not resolve renewal structure: ${error.message}`);
+  const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+  const matches = (data || []).filter((c) => c.is_active !== false && c.start_mode !== 'immediate'
+    && equal(c.structure_scope_type || 'organization', prior.structure_scope_type || 'organization')
+    && equal(c.structure_field_id, prior.structure_field_id)
+    && equal(c.structure_match_value, prior.structure_match_value));
+  if (matches.length !== 1) throw new Error(`Renewal on ${boundary} requires exactly one applicable structure.`);
+  return matches[0];
 }
 
 export async function assertTrustedMonthlyTerm(db, tenantId, snapshot) {
@@ -59,21 +106,48 @@ export async function assertTrustedMonthlyTerm(db, tenantId, snapshot) {
 
 /** Never resolve a rolling successor from cron time or reuse the expired tier. */
 export async function simulateMonthlySuccessor({
-  tenantId, memberId, snapshot, simulate, source, resolveConfig = resolveRollingSuccessorConfig, db, provider,
+  tenantId, memberId, organizationId, snapshot, simulate, source, resolveConfig = resolveRollingSuccessorConfig, db, provider,
 }) {
-  const previousTerm = monthlySnapshotCommitment(snapshot);
+  const ownerColumn = organizationId ? 'organization_id' : 'member_id';
+  const ownerId = organizationId || memberId;
+  let previousTerm = monthlySnapshotCommitment(snapshot);
+  if (!previousTerm && provider === 'gocardless' && db) {
+    await assertTrustedMonthlyTerm(db, tenantId, snapshot);
+    // Pre-policy fixed-date agreements contain the purchased year start and
+    // structure ID. Read that structure only for scope/dates, never authority.
+    const start = snapshot?.membership_year_start;
+    if (!start || !snapshot?.config_id) throw new Error('Legacy Direct Debit term requires review: saved start or structure is missing.');
+    const { data: priorConfig, error } = await db.from('membership_tier_config').select('*')
+      .eq('tenant_id', tenantId).eq('id', snapshot.config_id).maybeSingle();
+    if (error || !priorConfig || priorConfig.start_mode === 'immediate') {
+      throw new Error('Legacy Direct Debit structure cannot be verified for renewal.');
+    }
+    const startDate = new Date(`${String(start).slice(0, 10)}T00:00:00.000Z`);
+    const window = calculateMembershipYearWindow(priorConfig, startDate);
+    if (window.start.toISOString().slice(0, 10) !== String(start).slice(0, 10)) {
+      throw new Error('Legacy membership year start conflicts with its saved structure; review is required.');
+    }
+    const end = window.end.toISOString().slice(0, 10);
+    previousTerm = {
+      term_key: `fixed:${String(start).slice(0, 10)}`, term_start_date: String(start).slice(0, 10),
+      term_end_date: end, membership_renewal_date: new Date(window.end.getTime() + 86_400_000).toISOString().slice(0, 10),
+      term_duration_months: 12, term_anchor_date: String(start).slice(0, 10),
+      commitment_snapshot: { start_mode: 'fixed_date', config: priorConfig },
+    };
+  }
   if (!previousTerm) {
     if (db) await assertTrustedMonthlyTerm(db, tenantId, snapshot);
     if (snapshot?.start_mode === 'immediate') {
       throw new Error('Rolling membership commitment is missing; review its original agreed dates before renewal.');
     }
-    return simulate(tenantId, memberId, { source, mode: 'automatic' });
+    return simulate(tenantId, ownerId, { source, mode: 'automatic' });
   }
   const boundary = previousTerm.membership_renewal_date;
+  const fixedDd = provider === 'gocardless' && previousTerm.commitment_snapshot?.start_mode === 'fixed_date';
   if (db && provider) {
     const { data: reserved, error } = await db.from('membership_billing_agreements')
-      .select('*').eq('tenant_id', tenantId).eq('member_id', memberId)
-      .eq('provider', provider).eq('term_key', `rolling:${boundary}`).maybeSingle();
+      .select('*').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)
+       .eq('provider', provider).eq('term_key', `${fixedDd ? 'fixed' : 'rolling'}:${boundary}`).maybeSingle();
     if (error) throw new Error(`Could not load reserved renewal terms: ${error.message}`);
     if (reserved) {
       const saved = reserved.metadata?.[provider === 'stripe' ? 'card' : 'dd'];
@@ -87,22 +161,29 @@ export async function simulateMonthlySuccessor({
         vatRatePercent: saved.vat_rate_percent, currency: terms.amounts.currency,
         matchedBand: terms.pricing?.band, tierLabel: saved.tier_label,
         membershipYear: {
-          label: commitment.term_key,
+          label: fixedDd ? saved.membership_year : commitment.term_key,
           start: new Date(`${commitment.term_start_date}T00:00:00.000Z`),
           end: new Date(`${commitment.term_end_date}T00:00:00.000Z`),
         },
       };
     }
   }
-  const config = await resolveConfig(db, { tenantId, previousTerm });
-  if (!config || config.structure_scope_type !== 'member' || config.start_mode !== 'immediate') {
+  const config = await (fixedDd ? resolveFixedSuccessorConfig : resolveConfig)(db, { tenantId, previousTerm });
+  if (!config || (config.structure_scope_type || 'organization') !== (organizationId ? 'organization' : 'member')
+      || (!fixedDd && config.start_mode !== 'immediate')) {
     throw new Error(`No eligible rolling member structure is effective on ${boundary}; review the renewal before collecting payment.`);
   }
-  const result = await simulate(tenantId, memberId, {
+  const result = await simulate(tenantId, ownerId, {
     source, mode: 'automatic', configId: config.id, asOfDate: boundary,
     termStartDate: boundary, previousTerm,
   });
   if (!result?.success) return result;
+  if (fixedDd) {
+    if (new Date(result.membershipYear?.start).toISOString().slice(0, 10) !== boundary) {
+      throw new Error('The successor membership period does not start at the saved renewal boundary.');
+    }
+    return { ...result, config, previousTerm };
+  }
   const term = buildRollingTerm({
     startDate: boundary, billingPeriod: config.billing_period,
     anchorDate: previousTerm.term_anchor_date, previousTerm,
@@ -119,7 +200,11 @@ export async function simulateMonthlySuccessor({
 
 /** Refuse a shifted monthly schedule instead of silently charging after expiry. */
 export function assertMonthlyCollectionsWithinTerm(snapshot, firstDate, count) {
-  const commitment = monthlySnapshotCommitment(snapshot);
+  const commitment = monthlySnapshotCommitment(snapshot)
+    || (snapshot?.membership_renewal_date ? {
+      term_start_date: snapshot.membership_year_start,
+      membership_renewal_date: snapshot.membership_renewal_date,
+    } : null);
   if (!commitment || count <= 0) return;
   const first = new Date(firstDate);
   if (!Number.isFinite(first.getTime())) throw new Error('Monthly collection start date is invalid.');
@@ -141,14 +226,17 @@ export function assertMonthlyCollectionsWithinTerm(snapshot, firstDate, count) {
  * is an error, never permission to proceed with an orphan subscription.
  */
 export async function reserveRollingMonthlyRenewal({
-  db, tenantId, memberId, previousAgreement, snapshot, provider, idempotencyKey, confirmedCheckout = false,
+  db, tenantId, memberId, organizationId, previousAgreement, snapshot, provider, idempotencyKey, confirmedCheckout = false,
 }) {
+  const ownerColumn = organizationId ? 'organization_id' : 'member_id';
+  const ownerId = organizationId || memberId;
+  const historyTable = organizationId ? 'organisation_membership_history' : 'member_membership_history';
   const rail = provider === 'stripe' ? 'card' : 'dd';
   const commitment = monthlySnapshotCommitment(snapshot);
   if (!commitment) throw new Error('A complete rolling commitment is required for renewal.');
   let predecessorId = commitment.previous_term_id;
   if (!confirmedCheckout) {
-    const { data: previousHistory, error: previousError } = await db.from('member_membership_history')
+    const { data: previousHistory, error: previousError } = await db.from(historyTable)
       .select('id').eq('tenant_id', tenantId).eq('billing_agreement_id', previousAgreement.id).maybeSingle();
     if (previousError || !previousHistory) {
       throw new Error(`Cannot verify predecessor membership: ${previousError?.message || 'history missing'}`);
@@ -168,7 +256,14 @@ export async function reserveRollingMonthlyRenewal({
   if (!agreement) {
     const { data, error } = await db.from('membership_billing_agreements').insert({
       ...snapshot.commitment,
-      tenant_id: tenantId, member_id: memberId, agreement_type: 'member', provider,
+      tenant_id: tenantId, [ownerColumn]: ownerId, agreement_type: organizationId ? 'organization' : 'member', provider,
+      ...(organizationId ? {
+        dd_payer: previousAgreement.dd_payer,
+        billing_contact_name: previousAgreement.billing_contact_name,
+        billing_contact_email: previousAgreement.billing_contact_email,
+        primary_contact_member_id: previousAgreement.primary_contact_member_id,
+        mandate_completed_by: previousAgreement.mandate_completed_by,
+      } : {}),
       status: 'payment_setup_required', idempotency_key: idempotencyKey,
       environment: previousAgreement.environment || (provider === 'stripe' ? 'live' : 'sandbox'),
       metadata: {
@@ -184,24 +279,24 @@ export async function reserveRollingMonthlyRenewal({
       agreement = raced;
     }
   }
-  if (agreement.provider !== provider || agreement.member_id !== memberId
+  if (agreement.provider !== provider || agreement[ownerColumn] !== ownerId
       || agreement.metadata?.[rail]?.renewal_of_agreement_id !== previousAgreement.id) {
     throw new Error('The next term is already reserved by a different payment agreement.');
   }
   // The persisted quote wins on re-entry, even after later pricing edits.
   snapshot = agreement.metadata[rail];
-  const { data: existing, error: existingError } = await db.from('member_membership_history')
-    .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq('member_id', memberId)
-    .eq('membership_year', snapshot.commitment.term_key).maybeSingle();
+  const { data: existing, error: existingError } = await db.from(historyTable)
+    .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)
+    .eq('membership_year', snapshot.membership_year || snapshot.commitment.term_key).maybeSingle();
   if (existingError) throw new Error(`Cannot check next membership term: ${existingError.message}`);
   if (existing && existing.billing_agreement_id !== agreement.id) {
     throw new Error('The next membership term already belongs to another payment agreement.');
   }
   if (!existing) {
-    const { error } = await db.from('member_membership_history').insert({
+    const { error } = await db.from(historyTable).insert({
       ...snapshot.commitment,
-      tenant_id: tenantId, member_id: memberId,
-      membership_year: snapshot.commitment.term_key,
+      tenant_id: tenantId, [ownerColumn]: ownerId,
+      membership_year: snapshot.membership_year || snapshot.commitment.term_key,
       config_id: snapshot.config_id, band_id: snapshot.band_id,
       tier_label: snapshot.tier_label, annual_cost: snapshot.annual_cost,
       final_cost: snapshot.commitment.commitment_snapshot.amounts.final_cost,
@@ -214,9 +309,9 @@ export async function reserveRollingMonthlyRenewal({
     });
     if (error) {
       if (error.code !== '23505') throw new Error(`Could not reserve next membership term: ${error.message}`);
-      const { data: raced, error: raceError } = await db.from('member_membership_history')
-        .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq('member_id', memberId)
-        .eq('membership_year', snapshot.commitment.term_key).maybeSingle();
+        const { data: raced, error: raceError } = await db.from(historyTable)
+          .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)
+          .eq('membership_year', snapshot.membership_year || snapshot.commitment.term_key).maybeSingle();
       if (raceError || raced?.billing_agreement_id !== agreement.id) {
         throw new Error('Concurrent next-term membership conflict; no payment was started.');
       }
@@ -251,7 +346,8 @@ export async function sendRollingMonthlyNotice({
 }) {
   const claimedAt = now.toISOString();
   const identity = {
-    tenant_id: tenantId, member_id: agreement.member_id,
+    tenant_id: tenantId,
+    ...(agreement.organization_id ? { organization_id: agreement.organization_id } : { member_id: agreement.member_id }),
     previous_agreement_id: agreement.id, renewal_year: renewalYear,
   };
   const { data: inserted, error: insertError } = await db.from('membership_dd_renewals').insert({
