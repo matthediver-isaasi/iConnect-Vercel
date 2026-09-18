@@ -5,6 +5,12 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+Large Supabase MCP results can be cut off inside JSON even in the saved output file.
+
+**Why:** A bounded bulk-member read produced a saved response cut off mid-string; the file path did not guarantee complete evidence.
+
+**How to apply:** For reconciliation exports, validate parsing and exact row counts before using the evidence. Prefer the pinned destination SQL connection in a verified read-only transaction for larger snapshots; never treat truncated results as an empty or complete dataset.
+
 MCP callback availability and project discovery are not reliable measures of destination database access.
 
 **Why:** A task agent reported an undefined Supabase callback before reaching the provider, while the main agent could invoke the discovered callback. Project listing omitted the documented destination, but a read-only query using its verified project ID succeeded.

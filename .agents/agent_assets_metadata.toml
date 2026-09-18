@@ -509,3 +509,45 @@ mtime_ms = 1789713634654
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a393f3d5-59e6-4ca4-b3d4-5e7daca18bce/b0972488-3491-4a66-951c-ea5a9a1f376a"
 storage_version_token = "1789713669659731"
 content_type = "text/csv"
+
+[[outputs]]
+id = "M2hnPUbvRh9ZghbAyFQNe"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/summary.html"
+type = "html"
+title = "BNMS membership reconciliation — read-only report"
+description = "Grouped findings, member-level blockers, scope exclusions and source coverage. No changes are approved or applied."
+logical_id = "1474ecbc-50bc-4bdf-88e3-81fa946f5ad3"
+content_hash = "sha256:474a4296afc1509ee2770c2f36afd759f05f3d71306c27ce3a46745e13e554f2"
+size = 1090637
+mtime_ms = 1789723234572
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1474ecbc-50bc-4bdf-88e3-81fa946f5ad3/bdbb3c1b-a7fa-4c64-b55a-98468c73bd41"
+storage_version_token = "1789723252670245"
+content_type = "text/html"
+
+[[outputs]]
+id = "NbWftPM57egW-uxvH1aEl"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/all-members.csv"
+type = "table"
+title = "BNMS member-by-member review spreadsheet"
+description = "All 3,822 records, including 882 review candidates, mapped structures, proposed dates, payment hints, provider references and explanations. Contains confidential member information."
+logical_id = "59fd3450-7dc3-4917-bff2-8fe825214211"
+content_hash = "sha256:f10a98ea2153aaa4a979f7eb86dd161748cd5d4b9873d3ee46ac6527034e456b"
+size = 4520540
+mtime_ms = 1789723234552
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/59fd3450-7dc3-4917-bff2-8fe825214211/1203bc42-8d71-4cb1-8b07-88f134a676db"
+storage_version_token = "1789723253874206"
+content_type = "text/csv"
+
+[[outputs]]
+id = "H0IysnGg2G5di2m-CUbZO"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/proposed-records.json"
+type = "unspecified"
+title = "BNMS detailed evidence and proposed record fields"
+description = "Complete per-member evidence, invoice/payment candidates, original source values, incomplete canonical membership fields and source fingerprints. Read-only data, not an executable migration."
+logical_id = "5b9a6e1f-89fb-482b-b11d-3633435b1b40"
+content_hash = "sha256:c2921f58ebf262779b22412f2188572e0d439bed4d92677f01a1c66baf376e2c"
+size = 26843413
+mtime_ms = 1789723234340
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5b9a6e1f-89fb-482b-b11d-3633435b1b40/e455166f-c115-4da9-9815-3d127e8ccbf4"
+storage_version_token = "1789723255143842"
+content_type = "application/octet-stream"
