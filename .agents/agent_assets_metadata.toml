@@ -331,7 +331,7 @@ content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.shee
 [[outputs]]
 id = "DEM_QJ0iHVJvP6_3O2bjF"
 uri = "file://reports/bnms-posters/2026-09-15T13-50-57.289Z/approval-summary.html"
-type = "text"
+type = "html"
 title = "BNMS posters — approval summary"
 description = "0 inserts, 920 proposed updates, 1 blocked row. Includes approval decisions, checksums and destination coverage."
 logical_id = "40b6acea-0fff-498e-9261-7000d2c52bcf"
@@ -387,7 +387,7 @@ content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.shee
 [[outputs]]
 id = "k3pEzBHbunkpcn2ZqOv_4"
 uri = "file://reports/bnms-workforce-validation/report.html"
-type = "text"
+type = "html"
 title = "BNMS workforce validation report"
 description = "Verified mappings, live destination reconciliation, duplicate totals, and the remaining approval blockers. Read-only: zero database writes."
 logical_id = "22106f7e-c9ed-49c5-880f-bc8e69db82a0"
@@ -443,7 +443,7 @@ content_type = "text/csv"
 [[outputs]]
 id = "fy07op4CjTInjHJAMDrs8"
 uri = "file://reports/bnms-workforce-import-preparation/report.html"
-type = "text"
+type = "html"
 title = "BNMS workforce import — final preparation review"
 description = "Approved mappings, retained duplicates, per-Department totals, rerun safeguards, operational impact, and the separate final approval boundary. No live import performed."
 logical_id = "3a2fafe0-25b9-4367-bd2c-36d1c372089e"
@@ -457,7 +457,7 @@ content_type = "text/html"
 [[outputs]]
 id = "tjUA528Xp2Fcq9QgrCsx4"
 uri = "file://reports/bnms-workforce-direct-import-preparation-v3/report.html"
-type = "text"
+type = "html"
 title = "Updated workforce import review"
 description = "Direct department mappings for 1,242 workforce rows, with Reporting Year omitted. Includes totals, preservation checks, and import execution requirements."
 logical_id = "e406159e-d8eb-4061-8863-564d3a1c87fb"
@@ -467,3 +467,45 @@ mtime_ms = 1789662290985
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e406159e-d8eb-4061-8863-564d3a1c87fb/c81ce763-f5e7-47d0-987e-6590faedd656"
 storage_version_token = "1789662335938878"
 content_type = "text/html"
+
+[[outputs]]
+id = "PLNqh4JiTQnwsaN3odK8N"
+uri = "file://reports/bnms-department-addresses/dry-run-rows.csv"
+type = "table"
+title = "Department address dry run — all 301 rows"
+description = "Source rows, duplicate mappings, resolved targets and proposed changes. No updates applied."
+logical_id = "21e41623-0d02-40e0-a905-77291c129bd4"
+content_hash = "sha256:bf982424cab50b7374fe64bd456b5300afa66f946ffa1740a46d7a06f884d3f6"
+size = 107519
+mtime_ms = 1789713160998
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/21e41623-0d02-40e0-a905-77291c129bd4/ddf047e1-40c5-46ca-9015-37fd166ea34d"
+storage_version_token = "1789713171257452"
+content_type = "text/csv"
+
+[[outputs]]
+id = "027-YS-lX-2NQXjmFj5ld"
+uri = "file://reports/bnms-department-addresses/matching-candidates.csv"
+type = "table"
+title = "Duplicate matching candidates"
+description = "Exact Organisation and Department IDs, creation dates and relationship counts for the unresolved matches."
+logical_id = "3bcd86e7-b707-46df-8b60-e48a24d2bfbf"
+content_hash = "sha256:0a79e3331de49e81243b3e13fe191541170a521f0feb6928d6e8bddf30b4aad9"
+size = 2550
+mtime_ms = 1789713160998
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3bcd86e7-b707-46df-8b60-e48a24d2bfbf/95aff6f3-fb0e-4254-8d25-e75f7645a481"
+storage_version_token = "1789713171957337"
+content_type = "text/csv"
+
+[[outputs]]
+id = "EgHz5eDZ7_NfA2ZWHH3xQ"
+uri = "file://reports/bnms-department-addresses/completed-rows.csv"
+type = "table"
+title = "Completed BNMS Department address import"
+description = "All 301 source rows accounted for, with target IDs, duplicate mappings and verified final values."
+logical_id = "a393f3d5-59e6-4ca4-b3d4-5e7daca18bce"
+content_hash = "sha256:4ff0fd5eb1441702603f78de4c05092f9b2e4ecf7d7c319dcb2ecac2c6ee4116"
+size = 103771
+mtime_ms = 1789713634654
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a393f3d5-59e6-4ca4-b3d4-5e7daca18bce/b0972488-3491-4a66-951c-ea5a9a1f376a"
+storage_version_token = "1789713669659731"
+content_type = "text/csv"

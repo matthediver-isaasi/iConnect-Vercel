@@ -8,3 +8,11 @@ When a process uses a transaction-pooler database URL, hold an explicit transact
 **Why:** A session-level advisory lock is attached to a physical PostgreSQL backend. Transaction poolers may assign later statements from the same logical client to another backend, leaking the lock or making unlock unreliable. An open transaction pins the backend, and a transaction-scoped lock releases automatically with the transaction.
 
 **How to apply:** Use this whenever a script must serialize work that may span API calls or multiple database connections while connected through a transaction pooler. Acquire the lock before the authoritative re-read and planning step, not after a stale plan has already been built.
+
+## TLS verification through a pooler
+
+Verify the Node PostgreSQL client's TLS socket is encrypted and certificate-authorized; do not use `pg_stat_ssl` alone as proof of client-to-pooler security.
+
+**Why:** The destination pooler can report `pg_stat_ssl.ssl = false` for its separate backend connection even when the client's connection to the pooler has verified TLS.
+
+**How to apply:** Keep certificate validation enabled with the trusted Supabase CA and a pinned project/host. Check the client socket without exposing credentials.
