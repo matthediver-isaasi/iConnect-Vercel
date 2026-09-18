@@ -1,0 +1,25 @@
+.form-picker-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  animation: none !important;
+}
+.form-picker-content [cmdk-root] {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+.form-picker-content [cmdk-input-wrapper] {
+  flex-shrink: 0;
+}
+.form-picker-content [cmdk-list] {
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.form-picker-content [cmdk-root] > :not([cmdk-list]) {
+  flex-shrink: 0;
+}

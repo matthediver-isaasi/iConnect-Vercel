@@ -61,6 +61,7 @@ function fixture() {
   return {
     root, win, messages, flush, frames,
     setHeight(value) { height = value; resize(); },
+    mutateBody() { mutated(); },
     setPaymentVisible(value) { paymentVisible = value; mutated(); },
     replacePayment() { payment = {}; paymentVisible = true; mutated(); },
     resizeViewport(width, assignedHeight) {
@@ -156,6 +157,31 @@ test('delayed body overlay reserves an independent viewport, stays stable, then 
     assert.equal(f.messages.at(-1)[0].height, height);
   }
   assert.ok(f.messages.every(([message]) => message.type === 'iconn-form-resize'));
+  runtime.dispose();
+});
+
+test('ordinary body menu mutations measure silently and coexist with payment reservation', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.flush();
+  f.setHeight(240);
+  f.flush();
+  f.messages.length = 0;
+
+  f.mutateBody();
+  assert.equal(f.frames.size, 1, 'ordinary body mutation schedules one measurement');
+  f.flush();
+  assert.deepEqual(f.messages, [], 'unchanged menu layout emits neither resize nor navigation');
+
+  f.setPaymentVisible(true);
+  f.flush();
+  assert.deepEqual(f.messages, [[{ type: 'iconn-form-resize', height: 720 }, '*']]);
+
+  f.mutateBody();
+  assert.equal(f.frames.size, 1, 'menu mutations continue to schedule with payment open');
+  f.flush();
+  assert.equal(f.messages.length, 1, 'stable payment reservation is not re-emitted');
+  assert.ok(f.messages.every(([message]) => message.type !== FORM_PAGE_NAVIGATED_MESSAGE));
   runtime.dispose();
 });
 

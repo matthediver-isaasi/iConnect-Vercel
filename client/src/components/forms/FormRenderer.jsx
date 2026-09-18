@@ -20,10 +20,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/forms/formSelect";
 import { publicClient } from "@/api/publicClient";
 import { COUNTRIES } from "@/data/countries";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/forms/formPickerOverlay";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import DOMPurify from 'dompurify';
@@ -1326,6 +1326,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const hasStoredNotListedText = allFormValues?.[FORM_NOT_LISTED_TEXT_KEY]?.[field.id] !== undefined;
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
+  // Keep search above the overlay so a keyboard-constrained dialog handoff
+  // does not discard the respondent's query when its content remounts.
+  const [relationshipSearch, setRelationshipSearch] = useState('');
   const [domainError, setDomainError] = useState('');
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
@@ -2960,7 +2963,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               : `${selectedArray.length} selected`;
           return (
             <div className="space-y-1">
-              <Popover>
+              <Popover onOpenChange={open => { if (!open) setRelationshipSearch(''); }}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -2978,7 +2981,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                 </PopoverTrigger>
                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                   <Command>
-                    <CommandInput placeholder="Search related records…" />
+                    <CommandInput
+                      placeholder="Search related records…"
+                      value={relationshipSearch}
+                      onValueChange={setRelationshipSearch}
+                    />
                     <CommandList>
                       <CommandEmpty>No related records found.</CommandEmpty>
                       <CommandGroup>

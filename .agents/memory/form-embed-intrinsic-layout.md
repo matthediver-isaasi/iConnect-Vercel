@@ -14,3 +14,18 @@ Coordinate runtime displacement at stage scope when several embeds affect the sa
 **Why:** Independent cleanup functions can capture and restore another embed's temporary positions, losing growth or accumulating gaps. Authored space is not runtime growth and must not be removed.
 
 **How to apply:** Restore only owned changes, then recompute all active embed contributions from current authored/breakpoint geometry. Test interleaved grow/shrink and removal, not just one embed in isolation.
+
+Treat picker clipping as an overlay-space problem unless measurements prove a
+resize feedback loop. Keep picker space separate from payment viewport reservations.
+
+**Why:** Real-iframe reproduction showed long menus opening above a short iframe
+with negative local coordinates while the natural wrapper, iframe, and downstream
+Canvas content all stayed the same height. Increasing iframe height would hide
+the collision defect by adding unwanted page space. A tall iframe also overstates
+usable space when most of it is outside its same-origin parent's viewport.
+
+**How to apply:** Bound embedded pickers to the visible iframe/ancestor viewport
+intersection, retain iframe-local behavior across an inaccessible origin, and use
+a contained dialog when no anchored side has usable space. Keep keyboard-induced
+dialog fallback latched until close to avoid focus/remount oscillation. Test actual
+iframe geometry and unchanged resize reports, not body mutation counts alone.
