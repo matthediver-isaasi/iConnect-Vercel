@@ -48,7 +48,24 @@ const DIRECT_SORT_FIELDS = {
   created_at: 'created_at'
 };
 
-export default async function handler(req, res) {
+function parseRequestedFields(rawFields) {
+  const value = Array.isArray(rawFields) ? rawFields.join(',') : String(rawFields || '');
+  if (value.trim().toLowerCase() === 'none') return { skip: true, ids: [] };
+  const ids = [...new Set(value.split(',').map((id) => id.trim()).filter(Boolean))];
+  return { skip: false, ids };
+}
+
+function requireRows(data, message) {
+  if (Array.isArray(data)) return data;
+  const error = new Error(message);
+  error.status = 500;
+  throw error;
+}
+
+export async function handlePaginatedOrganizations(req, res, {
+  db = supabase,
+  getContext = getTenantContext,
+} = {}) {
   // POST is accepted only so a widget click-through can send a large ids
   // list in the request body (thousands of UUIDs overflow URL limits);
   // all other params still come from the query string.
@@ -56,7 +73,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const tenantCtx = await getTenantContext(req);
+  const tenantCtx = await getContext(req);
   if (!tenantCtx || !tenantCtx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -101,6 +118,7 @@ export default async function handler(req, res) {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
+    const requestedFields = parseRequestedFields(fields);
 
     // Parse custom field filters (applied at DB level so paging + totals span the
     // whole tenant). Shape: { "<fieldId>": ["A","B"] } for option filters (OR
@@ -190,7 +208,7 @@ export default async function handler(req, res) {
         let from = 0;
         const PAGE = 1000;
         while (true) {
-          const { data, error } = await supabase
+          const { data, error } = await db
             .from('member')
             .select('organization_id')
             .eq('tenant_id', tenantId)
@@ -201,14 +219,17 @@ export default async function handler(req, res) {
             .range(from, from + PAGE - 1);
           if (error) {
             console.error('[OrgsPaginated] member count error:', error);
-            break;
+            const readError = new Error('Failed to count organisation members');
+            readError.status = 500;
+            throw readError;
           }
-          for (const m of data || []) {
+          const memberRows = requireRows(data, 'Failed to count organisation members');
+          for (const m of memberRows) {
             if (m.organization_id != null) {
               counts[m.organization_id] = (counts[m.organization_id] || 0) + 1;
             }
           }
-          if (!data || data.length < PAGE) break;
+          if (memberRows.length < PAGE) break;
           from += PAGE;
         }
       }
@@ -226,7 +247,7 @@ export default async function handler(req, res) {
       let from = 0;
       const PAGE = 1000;
       while (true) {
-        let idQuery = supabase.from('organization').select(buildSelect('id'));
+        let idQuery = db.from('organization').select(buildSelect('id'));
         // Unique ordering keeps ranged paging stable (no skipped/repeated rows).
         idQuery = applyFilters(idQuery).order('id', { ascending: true }).range(from, from + PAGE - 1);
         const { data, error } = await idQuery;
@@ -234,8 +255,9 @@ export default async function handler(req, res) {
           console.error('[OrgsPaginated] id query error:', error);
           return res.status(500).json({ error: 'Failed to fetch organisations' });
         }
-        for (const r of data || []) allIds.push(r.id);
-        if (!data || data.length < PAGE) break;
+        const idRows = requireRows(data, 'Failed to fetch organisations');
+        for (const r of idRows) allIds.push(r.id);
+        if (idRows.length < PAGE) break;
         from += PAGE;
       }
       totalCount = allIds.length;
@@ -243,11 +265,12 @@ export default async function handler(req, res) {
       allIds.sort((a, b) => {
         const ca = memberCounts[a] || 0;
         const cb = memberCounts[b] || 0;
-        return ascending ? ca - cb : cb - ca;
+        const countOrder = ascending ? ca - cb : cb - ca;
+        return countOrder || a.localeCompare(b);
       });
       const pageIds = allIds.slice(offset, offset + limitNum);
       if (pageIds.length > 0) {
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('organization')
           .select('*')
           .in('id', pageIds);
@@ -256,17 +279,19 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to fetch organisations' });
         }
         const byId = {};
-        (data || []).forEach((o) => { byId[o.id] = o; });
+        requireRows(data, 'Failed to fetch organisations').forEach((o) => { byId[o.id] = o; });
         pageOrgs = pageIds.map((id) => byId[id]).filter(Boolean);
         pageOrgs.forEach((o) => { o.member_count = memberCounts[o.id] || 0; });
       }
     } else {
       const actualSortField = DIRECT_SORT_FIELDS[sortField] || 'name';
-      let query = supabase
+      let query = db
         .from('organization')
         .select(buildSelect('*'), { count: 'exact' });
       query = applyFilters(query);
       query = query.order(actualSortField, { ascending, nullsFirst: false });
+      // Make ranged pagination deterministic when the selected value is shared.
+      query = query.order('id', { ascending: true });
       query = query.range(offset, offset + limitNum - 1);
 
       const { data, error, count } = await query;
@@ -274,70 +299,97 @@ export default async function handler(req, res) {
         console.error('[OrgsPaginated] query error:', error);
         return res.status(500).json({ error: 'Failed to fetch organisations' });
       }
-      totalCount = count || 0;
-      pageOrgs = (data || []).map((o) => {
+      if (!Number.isInteger(count)) {
+        console.error('[OrgsPaginated] query returned no exact count');
+        return res.status(500).json({ error: 'Failed to count organisations' });
+      }
+      totalCount = count;
+      pageOrgs = requireRows(data, 'Failed to fetch organisations').map((o) => {
         const rest = { ...o };
         customFilterEntries.forEach((_, idx) => { delete rest[`cf${idx}`]; });
         return rest;
       });
-      const memberCounts = await countMembersForOrgIds(pageOrgs.map((o) => o.id));
-      pageOrgs.forEach((o) => { o.member_count = memberCounts[o.id] || 0; });
     }
 
     // The primary organisation is visible in the list but cannot be selected.
     // Report the selectable population separately so bulk actions and exports
     // can validate against the exact scope they operate on.
-    let selectableCountQuery = supabase
-      .from('organization')
-      .select(buildSelect('id'), { count: 'exact', head: true });
-    selectableCountQuery = applyFilters(selectableCountQuery).neq('is_primary', true);
-    const { count: selectableCount, error: selectableCountError } = await selectableCountQuery;
-    if (selectableCountError) {
-      console.error('[OrgsPaginated] selectable count error:', selectableCountError);
-      return res.status(500).json({ error: 'Failed to count selectable organisations' });
-    }
-
-    // Fetch custom field values for just this page of orgs so columns populate
-    // on every page without a capped global fetch. Limit to requested fields.
     const orgIds = pageOrgs.map((o) => o.id);
-    const customFieldValuesByOrg = {};
-    if (orgIds.length > 0) {
-      let pvQuery = supabase
+    const pageGroupIds = [...new Set(pageOrgs.map((o) => o.organization_group_id).filter(Boolean))];
+
+    const loadSelectableCount = async () => {
+      let query = db
+        .from('organization')
+        .select(buildSelect('id'), { count: 'exact', head: true });
+      query = applyFilters(query).neq('is_primary', true);
+      const { count, error } = await query;
+      if (error) {
+        console.error('[OrgsPaginated] selectable count error:', error);
+        const readError = new Error('Failed to count selectable organisations');
+        readError.status = 500;
+        throw readError;
+      }
+      if (!Number.isInteger(count)) {
+        const readError = new Error('Failed to count selectable organisations');
+        readError.status = 500;
+        throw readError;
+      }
+      return count;
+    };
+
+    const loadPreferenceValues = async () => {
+      const valuesByOrg = {};
+      if (orgIds.length === 0 || requestedFields.skip) return valuesByOrg;
+      let pvQuery = db
         .from('organization_preference_value')
         .select('organization_id, field_id, value')
         .in('organization_id', orgIds);
-      const fieldIds = fields
-        ? fields.split(',').map((s) => s.trim()).filter(Boolean)
-        : [];
-      if (fieldIds.length > 0) pvQuery = pvQuery.in('field_id', fieldIds);
+      if (requestedFields.ids.length > 0) pvQuery = pvQuery.in('field_id', requestedFields.ids);
 
       const { data: prefValues, error: pvError } = await pvQuery;
       if (pvError) {
         console.error('[OrgsPaginated] Preference value query error:', pvError);
-      } else {
-        for (const pv of prefValues || []) {
-          if (!customFieldValuesByOrg[pv.organization_id]) {
-            customFieldValuesByOrg[pv.organization_id] = {};
-          }
-          customFieldValuesByOrg[pv.organization_id][pv.field_id] = pv.value;
-        }
+        const readError = new Error('Failed to fetch organisation preference values');
+        readError.status = 500;
+        throw readError;
       }
-    }
+      for (const pv of requireRows(prefValues, 'Failed to fetch organisation preference values')) {
+        if (!valuesByOrg[pv.organization_id]) {
+          valuesByOrg[pv.organization_id] = {};
+        }
+        valuesByOrg[pv.organization_id][pv.field_id] = pv.value;
+      }
+      return valuesByOrg;
+    };
 
-    // Resolve organisation group names for this page (tenant-scoped lookup).
-    const groupNameById = {};
-    const pageGroupIds = [...new Set(pageOrgs.map((o) => o.organization_group_id).filter(Boolean))];
-    if (pageGroupIds.length > 0) {
-      const { data: groupRows, error: groupErr } = await supabase
+    const loadGroupNames = async () => {
+      const namesById = {};
+      if (pageGroupIds.length === 0) return namesById;
+      const { data: groupRows, error: groupErr } = await db
         .from('organization_group')
         .select('id, name')
         .eq('tenant_id', tenantId)
         .in('id', pageGroupIds);
       if (groupErr) {
         console.error('[OrgsPaginated] group name query error:', groupErr);
-      } else {
-        for (const g of groupRows || []) groupNameById[g.id] = g.name;
+        const readError = new Error('Failed to fetch organisation group names');
+        readError.status = 500;
+        throw readError;
       }
+      for (const g of requireRows(groupRows, 'Failed to fetch organisation group names')) namesById[g.id] = g.name;
+      return namesById;
+    };
+
+    // Once page rows are known, these authoritative reads are independent.
+    const needsPageMemberCounts = sortField !== 'members';
+    const [selectableCount, memberCounts, customFieldValuesByOrg, groupNameById] = await Promise.all([
+      loadSelectableCount(),
+      needsPageMemberCounts ? countMembersForOrgIds(orgIds) : Promise.resolve(null),
+      loadPreferenceValues(),
+      loadGroupNames(),
+    ]);
+    if (memberCounts) {
+      pageOrgs.forEach((o) => { o.member_count = memberCounts[o.id] || 0; });
     }
 
     const organizations = pageOrgs.map((o) => ({
@@ -355,12 +407,17 @@ export default async function handler(req, res) {
         page: pageNum,
         limit: limitNum,
         total: totalCount,
-        selectableTotal: selectableCount || 0,
+        selectableTotal: selectableCount,
         totalPages
       }
     });
   } catch (err) {
+    if (err?.status) return res.status(err.status).json({ error: err.message });
     console.error('[OrgsPaginated] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+export default function handler(req, res) {
+  return handlePaginatedOrganizations(req, res);
 }

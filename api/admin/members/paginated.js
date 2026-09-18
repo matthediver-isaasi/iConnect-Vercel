@@ -9,7 +9,26 @@ import {
 } from '../../_lib/memberListFilters.js';
 import { resolveDepartmentMemberIds, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 
-export default async function handler(req, res) {
+function parseRequestedFields(rawFields) {
+  const value = Array.isArray(rawFields) ? rawFields.join(',') : String(rawFields || '');
+  if (value.trim().toLowerCase() === 'none') return { skip: true, ids: [] };
+  const ids = [...new Set(value.split(',').map((id) => id.trim()).filter(Boolean))];
+  return { skip: false, ids };
+}
+
+function requireRows(data, message) {
+  if (Array.isArray(data)) return data;
+  const error = new Error(message);
+  error.status = 500;
+  throw error;
+}
+
+export async function handlePaginatedMembers(req, res, {
+  db = supabase,
+  getContext = getTenantContext,
+  resolveDepartments = resolveDepartmentMemberIds,
+  enrichDepartments = enrichMembersWithDepartments,
+} = {}) {
   // POST is accepted only so a widget click-through can send a large ids
   // list in the request body (thousands of UUIDs overflow URL limits);
   // all other params still come from the query string.
@@ -17,7 +36,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const tenantCtx = await getTenantContext(req);
+  const tenantCtx = await getContext(req);
   if (!tenantCtx || !tenantCtx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -61,14 +80,15 @@ export default async function handler(req, res) {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
+    const requestedFields = parseRequestedFields(fields);
 
     // Shared filter contract (search, org/role id lists, status, custom field
     // filters, direct-column coreFilters) — kept in lockstep with the CSV
     // export via api/_lib/memberListFilters.js.
     const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
-    await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
+    await validateOrganizationFilterEntries(db, tenantId, filterCtx);
     const departmentMemberIds = filterCtx.departmentIds.length
-      ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;
+      ? await resolveDepartments(db, tenantId, filterCtx.departmentIds) : null;
     if (departmentMemberIds && departmentMemberIds.length === 0) {
       return res.json({ members: [], pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } });
     }
@@ -98,7 +118,7 @@ export default async function handler(req, res) {
 
     selectClause += memberFilterSelectJoins(filterCtx);
 
-    let query = supabase
+    let query = db
       .from('member')
       .select(selectClause, { count: 'exact' });
 
@@ -122,6 +142,8 @@ export default async function handler(req, res) {
     } else {
       query = query.order(actualSortField, { ascending });
     }
+    // Make ranged pagination deterministic when the selected value is shared.
+    query = query.order('id', { ascending: true });
     query = query.range(offset, offset + limitNum - 1);
 
     const { data: members, error, count } = await query;
@@ -130,41 +152,50 @@ export default async function handler(req, res) {
       console.error('[MembersPaginated] Query error:', error);
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
+    if (!Number.isInteger(count)) {
+      console.error('[MembersPaginated] Query returned no exact count');
+      return res.status(500).json({ error: 'Failed to count members' });
+    }
 
-    const memberRows = members || [];
+    const memberRows = requireRows(members, 'Failed to fetch members');
     const memberIds = memberRows.map(m => m.id);
 
     // Fetch custom field values for just this page of members so columns populate
     // on every page without a capped global fetch. Limit to the requested fields
     // when provided to keep the row count small.
     const customFieldValuesByMember = {};
-    if (memberIds.length > 0) {
-      let pvQuery = supabase
+    const loadPreferenceValues = async () => {
+      if (memberIds.length === 0 || requestedFields.skip) return;
+      let pvQuery = db
         .from('member_preference_value')
         .select('member_id, field_id, value')
         .in('member_id', memberIds);
 
-      const fieldIds = fields
-        ? fields.split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-      if (fieldIds.length > 0) {
-        pvQuery = pvQuery.in('field_id', fieldIds);
+      if (requestedFields.ids.length > 0) {
+        pvQuery = pvQuery.in('field_id', requestedFields.ids);
       }
 
       const { data: prefValues, error: pvError } = await pvQuery;
       if (pvError) {
         console.error('[MembersPaginated] Preference value query error:', pvError);
-      } else {
-        for (const pv of prefValues || []) {
-          if (!customFieldValuesByMember[pv.member_id]) {
-            customFieldValuesByMember[pv.member_id] = {};
-          }
-          customFieldValuesByMember[pv.member_id][pv.field_id] = pv.value;
-        }
+        const error = new Error('Failed to fetch member preference values');
+        error.status = 500;
+        throw error;
       }
-    }
+      for (const pv of requireRows(prefValues, 'Failed to fetch member preference values')) {
+        if (!customFieldValuesByMember[pv.member_id]) {
+          customFieldValuesByMember[pv.member_id] = {};
+        }
+        customFieldValuesByMember[pv.member_id][pv.field_id] = pv.value;
+      }
+    };
 
-    const enrichedMemberRows = await enrichMembersWithDepartments(supabase, tenantId, memberRows);
+    // These page enrichments read independent tables and can run concurrently.
+    const [, enrichedMemberRows] = await Promise.all([
+      loadPreferenceValues(),
+      enrichDepartments(db, tenantId, memberRows),
+    ]);
+    requireRows(enrichedMemberRows, 'Failed to fetch member departments');
     const filteredMembers = enrichedMemberRows.map(m => {
       const { ...rest } = m;
       // Strip the join-only aliases from the response
@@ -177,20 +208,25 @@ export default async function handler(req, res) {
       };
     });
 
-    const totalPages = Math.ceil((count || 0) / limitNum);
+    const totalPages = Math.ceil(count / limitNum);
 
     return res.json({
       members: filteredMembers,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: count || 0,
+        total: count,
         totalPages
       }
     });
   } catch (err) {
     if (err instanceof MemberDepartmentError) return res.status(err.status).json({ error: err.message });
+    if (err?.status) return res.status(err.status).json({ error: err.message });
     console.error('[MembersPaginated] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+export default function handler(req, res) {
+  return handlePaginatedMembers(req, res);
 }

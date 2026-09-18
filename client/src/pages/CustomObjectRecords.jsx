@@ -503,9 +503,13 @@ function CustomObjectRecordListWorkspace({ objectId }) {
     deleteView,
     setDefaultView,
     isSaving: viewSaving,
+    viewsError,
+    viewsFetching,
+    retryViews,
   } = useSavedListViews({
     page: "customObjects",
     memberId: memberInfo?.id,
+    tenantId: memberInfo?.tenant_id,
     scopeId: objectId,
     enabled: !!memberInfo?.id,
   });
@@ -699,7 +703,16 @@ function CustomObjectRecordListWorkspace({ objectId }) {
                 </Button>
               </div>
             </div>
-            <SavedViewSwitcher
+            {viewsError ? (
+              <div role="alert" className="space-y-2 text-sm text-red-700" data-testid="custom-object-views-error">
+                <p>Saved views could not be loaded.</p>
+                <Button variant="outline" size="sm" onClick={() => retryViews()} disabled={viewsFetching}>
+                  {viewsFetching ? "Retrying…" : "Retry saved views"}
+                </Button>
+              </div>
+            ) : !viewsLoaded ? (
+              <p role="status" className="text-xs text-slate-500">Loading saved views…</p>
+            ) : <SavedViewSwitcher
               views={savedViews} activeViewId={activeViewId} isSaving={viewSaving}
               onApplyView={applySavedView} onClearView={reset}
               onCreateView={(name, options) => createView(name, buildViewSnapshot(), options).then((view) => setActiveViewId(view.id))}
@@ -707,7 +720,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
               onRenameView={(view, name) => renameView(view.id, name)}
               onDeleteView={(view) => deleteView(view.id)}
               onSetDefault={setDefaultView} testIdPrefix="custom-object-view"
-            />
+            />}
             <div className="relative mt-3">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
               <Input className="h-8 pl-8 text-xs" placeholder="Search filters..." value={filterSearch} onChange={(event) => setFilterSearch(event.target.value)} />

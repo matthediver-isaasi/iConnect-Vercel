@@ -81,6 +81,9 @@ const MEMBER_SORT_KEYS = {
   status: 'login_enabled',
 };
 
+const EMPTY_FIELDS = [];
+const MEMBER_CORE_FILTER_IDS = new Set(['status', 'organisation', 'department', 'role', 'job_title', 'phone']);
+
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -151,7 +154,13 @@ const getInitials = (name) => {
 };
 
 export default function MembersListPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const access = useMemberAccess();
+  const scopeKey = `${access.memberInfo?.tenant_id || 'no-tenant'}:${access.memberInfo?.id || 'no-user'}`;
+  return <MembersListPageInner key={scopeKey} access={access} />;
+}
+
+function MembersListPageInner({ access }) {
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = access;
   const { memberLabel, memberLabelPlural, getMemberDetailUrl } = useMemberTerminology();
   const memberLabelLower = memberLabel.toLowerCase();
   const memberLabelPluralLower = memberLabelPlural.toLowerCase();
@@ -242,33 +251,36 @@ export default function MembersListPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations-for-members'],
+  const { data: organizations = EMPTY_FIELDS } = useQuery({
+    queryKey: ['organizations-for-members', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       // Paginate past the API's 1000-row cap so large tenants see the
       // full organisation list.
-      return await listAllOrganizationsForAdmin({ sort: { name: 'asc' } });
+      return await listAllOrganizationsForAdmin({ sort: { name: 'asc' }, signal });
     }
   });
 
-  const { data: roles = [] } = useQuery({
-    queryKey: ['roles-for-members'],
+  const { data: roles = EMPTY_FIELDS } = useQuery({
+    queryKey: ['roles-for-members', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
-      return await base44.entities.Role.list();
+    queryFn: async ({ signal }) => {
+      return await base44.entities.Role.list({ signal });
     }
   });
 
   const departmentOrganizationParam = orgFilter && orgFilter !== 'all' ? orgFilter : 'all';
   const { data: departmentsData, isSuccess: departmentsLoaded } = useQuery({
-    queryKey: ['member-departments', tenantSlug || 'default', departmentOrganizationParam],
+    queryKey: ['member-departments', memberInfo?.tenant_id, memberInfo?.id, departmentOrganizationParam],
     enabled: accessChecked,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams();
       if (departmentOrganizationParam !== 'all') params.set('organizationId', departmentOrganizationParam);
       const query = params.toString();
-      const response = await fetch(`/api/admin/members/departments${query ? `?${query}` : ''}`, { credentials: 'include' });
+      const response = await fetch(`/api/admin/members/departments${query ? `?${query}` : ''}`, {
+        credentials: 'include', signal,
+        headers: memberInfo?.tenant_id ? { 'X-Tenant-Id': memberInfo.tenant_id } : {},
+      });
       if (!response.ok) throw new Error('Failed to fetch departments');
       return response.json();
     },
@@ -297,47 +309,41 @@ export default function MembersListPage() {
     });
   }, [departments, departmentsLoaded]);
 
-  const { data: memberCustomFields = [], isSuccess: memberCustomFieldsLoaded } = useQuery({
-    queryKey: ['member-custom-fields-crm'],
+  const {
+    data: memberCustomFields = EMPTY_FIELDS,
+    isSuccess: memberCustomFieldsLoaded,
+    isError: memberCustomFieldsFailed,
+    error: memberCustomFieldsError,
+    refetch: retryMemberCustomFields,
+  } = useQuery({
+    queryKey: ['member-custom-fields-crm', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'member' },
-          sort: { display_order: 'asc' }
-        });
-        return (fields || []).filter(f => f.entity_scope === 'member' && (isMemberAdminColumnVisible(f) || isMemberAdminFilterVisible(f)));
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true },
-            sort: { display_order: 'asc' }
-          });
-          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && (isMemberAdminColumnVisible(f) || isMemberAdminFilterVisible(f)));
-        } catch {
-          return [];
-        }
-      }
+    queryFn: async ({ signal }) => {
+      const fields = await base44.entities.PreferenceField.list({
+        filter: { is_active: true, entity_scope: 'member' },
+        sort: { display_order: 'asc' },
+        signal,
+      });
+      return (fields || []).filter(f => f.entity_scope === 'member' && (isMemberAdminColumnVisible(f) || isMemberAdminFilterVisible(f)));
     }
   });
 
-  const { data: organizationCustomFields = [], isSuccess: organizationCustomFieldsLoaded } = useQuery({
-    queryKey: ['organization-custom-fields-member-crm'],
+  const {
+    data: organizationCustomFields = EMPTY_FIELDS,
+    isSuccess: organizationCustomFieldsLoaded,
+    isError: organizationCustomFieldsFailed,
+    error: organizationCustomFieldsError,
+    refetch: retryOrganizationCustomFields,
+  } = useQuery({
+    queryKey: ['organization-custom-fields-member-crm', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' },
-          sort: { display_order: 'asc' }
-        });
-        return (fields || []).filter(f => f.entity_scope === 'organization' && isOrgAdminFilterVisible(f));
-      } catch {
-        const allFields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true },
-          sort: { display_order: 'asc' }
-        });
-        return (allFields || []).filter(f => f.entity_scope === 'organization' && isOrgAdminFilterVisible(f));
-      }
+    queryFn: async ({ signal }) => {
+      const fields = await base44.entities.PreferenceField.list({
+        filter: { is_active: true, entity_scope: 'organization' },
+        sort: { display_order: 'asc' },
+        signal,
+      });
+      return (fields || []).filter(f => f.entity_scope === 'organization' && isOrgAdminFilterVisible(f));
     }
   });
 
@@ -385,7 +391,11 @@ export default function MembersListPage() {
     // filter without any value).
     const ids = new Set([
       ...Object.keys(customFieldFilters),
-      ...memberFilterFields.map(f => f.id).filter(id => isEmptinessOp(filterOps[id])),
+      ...Object.keys(filterOps).filter(id =>
+        !MEMBER_CORE_FILTER_IDS.has(id)
+        && !id.startsWith(ORGANIZATION_FILTER_PREFIX)
+        && isEmptinessOp(filterOps[id])
+      ),
     ]);
     ids.forEach((fieldId) => {
       const op = filterOps[fieldId];
@@ -396,7 +406,7 @@ export default function MembersListPage() {
       }
     });
     return obj;
-  }, [customFieldFilters, filterOps, memberFilterFields]);
+  }, [customFieldFilters, filterOps]);
   const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
   const activeOrganizationFilters = useMemo(
     () => buildOrganizationFilterPayload(organizationFieldFilters, filterOps),
@@ -407,8 +417,11 @@ export default function MembersListPage() {
     [activeOrganizationFilters]
   );
   const customFieldIdsParam = useMemo(
-    () => memberCustomFields.map(f => f.id).join(','),
-    [memberCustomFields]
+    () => columns
+      .filter(column => column.visible && column.isCustomField && column.fieldId)
+      .map(column => column.fieldId)
+      .join(',') || 'none',
+    [columns]
   );
 
   // Direct-column filters with operators, sent as the coreFilters param and
@@ -457,11 +470,18 @@ export default function MembersListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
 
-  const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
+  const {
+    data: membersData,
+    isLoading: membersLoading,
+    isFetching: membersFetching,
+    isError: membersFailed,
+    error: membersError,
+    refetch: retryMembers,
+  } = useQuery({
+    queryKey: ['members-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
@@ -482,17 +502,19 @@ export default function MembersListPage() {
       if (coreFiltersParam) {
         params.set('coreFilters', coreFiltersParam);
       }
-      if (customFieldIdsParam) {
-        params.set('fields', customFieldIdsParam);
-      }
+      params.set('fields', customFieldIdsParam);
       // A drill id list can be thousands of UUIDs — too long for a URL, so
       // it travels in a POST body while the other params stay in the query.
       const response = await fetch(`/api/admin/members/paginated?${params}`, {
         credentials: 'include',
+        signal,
+        headers: {
+          ...(memberInfo?.tenant_id ? { 'X-Tenant-Id': memberInfo.tenant_id } : {}),
+          ...(drillIdsParam ? { 'Content-Type': 'application/json' } : {}),
+        },
         ...(drillIdsParam
           ? {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ids: drillIdsParam }),
             }
           : {}),
@@ -511,37 +533,35 @@ export default function MembersListPage() {
 
   const { toast } = useToast();
   const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
-  const dbColumnsLoadedRef = useRef(false);
   const savedPrefIdRef = useRef(null);
   // Once a saved view has applied its own columns, the baseline column-prefs
   // row must not override them.
   const viewColumnsAppliedRef = useRef(false);
 
   const { data: savedDbColumns } = useQuery({
-    queryKey: ['crm-member-column-prefs', columnPrefKey],
-    enabled: accessChecked && !!columnPrefKey && !dbColumnsLoadedRef.current,
+    queryKey: ['crm-member-column-prefs', memberInfo?.tenant_id, columnPrefKey],
+    enabled: accessChecked && !!columnPrefKey,
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
-    queryFn: async () => {
-      if (dbColumnsLoadedRef.current) return null;
-      dbColumnsLoadedRef.current = true;
-      try {
-        const settings = await base44.entities.SystemSettings.list();
-        const setting = settings?.find(s => s.setting_key === columnPrefKey);
-        if (setting) {
-          savedPrefIdRef.current = setting.id;
-          return setting;
-        }
-        return null;
-      } catch {
-        return null;
+    queryFn: async ({ signal }) => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: columnPrefKey },
+        limit: 1,
+        signal,
+      });
+      const setting = settings?.[0];
+      if (setting) {
+        savedPrefIdRef.current = setting.id;
+        return setting;
       }
+      return null;
     }
   });
 
   useEffect(() => {
+    if (savedDbColumns?.id) savedPrefIdRef.current = savedDbColumns.id;
     if (viewColumnsAppliedRef.current) return;
     if (savedDbColumns?.setting_value) {
       try {
@@ -567,7 +587,7 @@ export default function MembersListPage() {
 
   // Named personal saved views (filters + columns + sort), persisted per user in
   // SystemSettings. The legacy single saved view is surfaced as "My view".
-  const restoredSearchRef = useRef(undefined);
+  const [restorationApplied, setRestorationApplied] = useState(false);
   const {
     views: savedViews,
     viewsLoaded,
@@ -580,7 +600,15 @@ export default function MembersListPage() {
     deleteView,
     setDefaultView,
     isSaving: viewSaving,
-  } = useSavedListViews({ page: 'members', memberId: memberInfo?.id, enabled: accessChecked });
+    viewsError,
+    retryViews,
+    viewsFetching,
+  } = useSavedListViews({
+    page: 'members',
+    memberId: memberInfo?.id,
+    tenantId: memberInfo?.tenant_id,
+    enabled: accessChecked,
+  });
 
   // Apply a view's saved filters. Full replace: keys absent from the view reset
   // to their defaults so switching between views never mixes filter values.
@@ -663,23 +691,62 @@ export default function MembersListPage() {
     return search;
   }, [applyViewFilters, tenantSlug, setActiveViewId]);
 
-  // Apply the default view once, BEFORE the list query is allowed to run, so
-  // users never see a flash of unfiltered results. No default = unfiltered load.
+  const defaultFilters = defaultView?.filters || {};
+  const defaultFilterOps = defaultFilters.filterOps || {};
+  const defaultMemberCustomFilters = defaultFilters.customFieldFilters || {};
+  const defaultOrganizationCustomFilters = defaultFilters.organizationFieldFilters || {};
+  const defaultNeedsMemberMetadata = !!defaultView && (
+    Object.values(defaultMemberCustomFilters).some(isActiveCustomFilterValue)
+    || Object.entries(defaultFilterOps).some(([id, op]) =>
+      !MEMBER_CORE_FILTER_IDS.has(id)
+      && !id.startsWith(ORGANIZATION_FILTER_PREFIX)
+      && isEmptinessOp(op)
+    )
+  );
+  const defaultNeedsOrganizationMetadata = !!defaultView && (
+    Object.values(defaultOrganizationCustomFilters).some(isActiveCustomFilterValue)
+    || Object.entries(defaultFilterOps).some(([id, op]) =>
+      id.startsWith(ORGANIZATION_FILTER_PREFIX) && isEmptinessOp(op)
+    )
+  );
+  const requiredMetadataFailed =
+    (defaultNeedsMemberMetadata && memberCustomFieldsFailed)
+    || (defaultNeedsOrganizationMetadata && organizationCustomFieldsFailed);
+  const requiredMetadataReady =
+    (!defaultNeedsMemberMetadata || memberCustomFieldsLoaded)
+    && (!defaultNeedsOrganizationMetadata || organizationCustomFieldsLoaded);
+
+  // Restore once, then release against the current intended search. This avoids
+  // comparing forever with a captured value if state changes during restoration.
   useEffect(() => {
-    if (filtersReady) return;
+    if (restorationApplied) return;
     if (!accessChecked) return;
-    if (!memberInfo?.id) { setFiltersReady(true); return; }
+    if (!memberInfo?.id) { setRestorationApplied(true); return; }
     if (!viewsLoaded) return;
-    // Apply the default view exactly once.
-    if (restoredSearchRef.current === undefined) {
-      restoredSearchRef.current = defaultView ? (applySavedView(defaultView) || '') : '';
-    }
-    // Wait for the debounced search to catch up to the restored value so the very
-    // first list fetch already carries the saved search (no unfiltered flash + refetch).
-    if (debouncedSearch === restoredSearchRef.current) {
-      setFiltersReady(true);
-    }
-  }, [accessChecked, memberInfo?.id, viewsLoaded, defaultView, filtersReady, debouncedSearch, applySavedView]);
+    if (!requiredMetadataReady) return;
+    if (defaultView) applySavedView(defaultView);
+    setRestorationApplied(true);
+  }, [accessChecked, memberInfo?.id, viewsLoaded, defaultView, restorationApplied, requiredMetadataReady, applySavedView]);
+
+  useEffect(() => {
+    if (!restorationApplied || filtersReady) return;
+    if (debouncedSearch === searchQuery) setFiltersReady(true);
+  }, [restorationApplied, filtersReady, debouncedSearch, searchQuery]);
+
+  const retryInitialization = () => {
+    if (viewsError) retryViews?.();
+    if (defaultNeedsMemberMetadata && memberCustomFieldsFailed) retryMemberCustomFields();
+    if (defaultNeedsOrganizationMetadata && organizationCustomFieldsFailed) retryOrganizationCustomFields();
+  };
+  const initializationFailed = !!viewsError || requiredMetadataFailed;
+  const metadataError = memberCustomFieldsError || organizationCustomFieldsError;
+  const resultsTransitioning =
+    !filtersReady || membersFetching || membersFailed || !membersData || searchQuery !== debouncedSearch;
+
+  useEffect(() => {
+    setSelectedMembers([]);
+    setSelectAllFiltered(false);
+  }, [searchQuery, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, drillIdsParam]);
 
   // Snapshot of the current filters, sort and columns for saving into a view.
   const buildViewSnapshot = () => ({
@@ -733,6 +800,7 @@ export default function MembersListPage() {
   // Selection handlers
   const toggleMemberSelection = (memberId, e) => {
     if (e?.stopPropagation) e.stopPropagation();
+    if (resultsTransitioning) return;
     if (selectAllFiltered) setSelectAllFiltered(false);
     setSelectedMembers(prev => 
       prev.includes(memberId) 
@@ -742,6 +810,7 @@ export default function MembersListPage() {
   };
 
   const toggleSelectAll = () => {
+    if (resultsTransitioning) return;
     const currentPageIds = paginatedMembers.map(m => m.id);
     const allSelected = currentPageIds.every(id => selectedMembers.includes(id));
     if (selectAllFiltered) setSelectAllFiltered(false);
@@ -759,6 +828,7 @@ export default function MembersListPage() {
   };
 
   const handleConfirmDelete = () => {
+    if (resultsTransitioning) return;
     if (singleDeleteMember) {
       batchDeleteMutation.mutate([singleDeleteMember.id]);
     } else {
@@ -767,6 +837,7 @@ export default function MembersListPage() {
   };
 
   const handleExportCSV = async () => {
+    if (resultsTransitioning) return;
     setIsExporting(true);
     try {
       const params = new URLSearchParams();
@@ -1537,6 +1608,13 @@ export default function MembersListPage() {
             sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
           }`}
         >
+          <fieldset
+            disabled={!filtersReady}
+            inert={!filtersReady ? '' : undefined}
+            aria-busy={!filtersReady}
+            className="contents"
+            data-testid="member-filter-controls"
+          >
           <div className="p-4 border-b border-slate-200 min-w-[288px]">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -1584,6 +1662,27 @@ export default function MembersListPage() {
                 testIdPrefix="member-view"
               />
             </div>
+            {!filtersReady && (
+              <div
+                className={`mb-2 rounded-md border px-3 py-2 text-xs ${initializationFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}
+                role={initializationFailed ? 'alert' : 'status'}
+                data-testid={initializationFailed ? 'member-list-initialization-error' : 'member-list-restoring'}
+              >
+                {initializationFailed ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Could not restore your saved list settings.</span>
+                    <Button type="button" variant="outline" size="sm" onClick={retryInitialization} className="h-7" data-testid="button-retry-member-initialization">
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {viewsFetching ? 'Loading saved views…' : 'Restoring filters…'}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
@@ -1709,6 +1808,7 @@ export default function MembersListPage() {
               Showing {filteredMembers.length} of {pagination.total} {memberLabelPluralLower}
             </p>
           </div>
+          </fieldset>
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
@@ -1806,7 +1906,7 @@ export default function MembersListPage() {
                     <Button 
                       variant="outline"
                       onClick={handleExportCSV}
-                      disabled={isExporting}
+                      disabled={isExporting || resultsTransitioning}
                       className="gap-1"
                       data-testid="button-export-csv-members"
                     >
@@ -1821,6 +1921,7 @@ export default function MembersListPage() {
                       <Button 
                         variant="destructive"
                         onClick={() => setShowDeleteDialog(true)}
+                        disabled={resultsTransitioning}
                         className="gap-1"
                         data-testid="button-delete-selected-members"
                       >
@@ -1893,6 +1994,7 @@ export default function MembersListPage() {
                   <button 
                     className="font-semibold underline"
                     onClick={() => setSelectAllFiltered(true)}
+                    disabled={resultsTransitioning}
                     data-testid="button-select-all-filtered-members"
                   >
                     Select all {pagination.total} {memberLabelPluralLower}
@@ -1908,9 +2010,50 @@ export default function MembersListPage() {
                 <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
               </div>
             )}
-            {membersLoading ? (
+            {filtersReady && metadataError && (
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert" data-testid="member-field-metadata-error">
+                <span>Custom field filters and columns could not be loaded. Core filters and results are still available.</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (memberCustomFieldsFailed) retryMemberCustomFields();
+                    if (organizationCustomFieldsFailed) retryOrganizationCustomFields();
+                  }}
+                  data-testid="button-retry-member-field-metadata"
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+            {filtersReady && resultsTransitioning && !membersLoading && (
+              <div className="mb-3 inline-flex items-center gap-2 text-sm text-slate-500" role="status" data-testid="member-list-refreshing">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Refreshing results…
+              </div>
+            )}
+            {membersLoading || !filtersReady ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                {initializationFailed ? (
+                  <div className="text-center" role="alert">
+                    <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-500" />
+                    <p className="font-medium text-slate-900">Saved list settings failed to load</p>
+                    <p className="mt-1 text-sm text-slate-500">Retry to restore filters before loading results.</p>
+                    <Button className="mt-4" variant="outline" onClick={retryInitialization} data-testid="button-retry-member-list-initialization">Retry</Button>
+                  </div>
+                ) : (
+                  <div className="text-center" role="status" data-testid="member-list-loading">
+                    <Loader2 className="mx-auto w-8 h-8 animate-spin text-blue-600" />
+                    <p className="mt-3 text-sm text-slate-500">Loading {memberLabelPluralLower}…</p>
+                  </div>
+                )}
+              </div>
+            ) : membersFailed ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center" role="alert" data-testid="member-list-error">
+                <AlertTriangle className="mb-3 h-12 w-12 text-red-500" />
+                <p className="text-lg font-medium text-slate-900">Could not load {memberLabelPluralLower}</p>
+                <p className="mt-1 text-sm text-slate-500">{membersError?.message || 'Please try again.'}</p>
+                <Button className="mt-4" variant="outline" onClick={() => retryMembers()} data-testid="button-retry-members">Retry</Button>
               </div>
             ) : paginatedMembers.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-slate-500">
@@ -1927,6 +2070,7 @@ export default function MembersListPage() {
                         <Checkbox 
                           checked={paginatedMembers.length > 0 && paginatedMembers.every(m => selectedMembers.includes(m.id))}
                           onCheckedChange={toggleSelectAll}
+                          disabled={resultsTransitioning}
                           data-testid="checkbox-select-all-members"
                         />
                       </TableHead>

@@ -81,6 +81,10 @@ import { useSavedListViews } from "@/hooks/useSavedListViews";
 import SavedViewSwitcher from "@/components/SavedViewSwitcher";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
+import {
+  getDisplayedOrganisationCardFields,
+  getOrganisationFieldsParam,
+} from "@/lib/organisationListFieldSelection.mjs";
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -103,6 +107,8 @@ const ORG_SORT_KEYS = {
 };
 
 const EMPTY_ORG_GROUPS = [];
+const EMPTY_FIELDS = [];
+const ORG_CORE_FILTER_IDS = new Set(['phone', 'email', 'website', 'address']);
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
@@ -201,7 +207,13 @@ function CountryFilterCombobox({ label, fieldId, selectedName, onChange, operato
 }
 
 export default function OrganisationsListPage() {
-  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const access = useMemberAccess();
+  const scopeKey = `${access.memberInfo?.tenant_id || 'no-tenant'}:${access.memberInfo?.id || 'no-user'}`;
+  return <OrganisationsListPageInner key={scopeKey} access={access} />;
+}
+
+function OrganisationsListPageInner({ access }) {
+  const { isFeatureExcluded, isAccessReady, memberInfo } = access;
   const { memberLabel, memberLabelPlural } = useMemberTerminology();
   // Column labels are persisted (localStorage/DB), so the "Members" column
   // label is resolved at render time from the configured terminology.
@@ -303,28 +315,23 @@ export default function OrganisationsListPage() {
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  const { data: orgCustomFields = [], isSuccess: orgCustomFieldsLoaded } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', 'organization', 'crm'],
+  const {
+    data: orgCustomFields = EMPTY_FIELDS,
+    isSuccess: orgCustomFieldsLoaded,
+    isError: orgCustomFieldsFailed,
+    error: orgCustomFieldsError,
+    refetch: retryOrgCustomFields,
+  } = useQuery({
+    queryKey: ['/api/entities/PreferenceField', 'organization', 'crm', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' },
-          sort: { display_order: 'asc' }
-        });
-        // Include any field admin-visible as either a column or a filter; consumers below split further.
-        return (fields || []).filter(f => f.entity_scope === 'organization' && (isOrgAdminColumnVisible(f) || isOrgAdminFilterVisible(f)));
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true },
-            sort: { display_order: 'asc' }
-          });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && (isOrgAdminColumnVisible(f) || isOrgAdminFilterVisible(f)));
-        } catch {
-          return [];
-        }
-      }
+    queryFn: async ({ signal }) => {
+      const fields = await base44.entities.PreferenceField.list({
+        filter: { is_active: true, entity_scope: 'organization' },
+        sort: { display_order: 'asc' },
+        signal,
+      });
+      // Include any field admin-visible as either a column or a filter; consumers below split further.
+      return (fields || []).filter(f => f.entity_scope === 'organization' && (isOrgAdminColumnVisible(f) || isOrgAdminFilterVisible(f)));
     }
   });
 
@@ -368,7 +375,9 @@ export default function OrganisationsListPage() {
     // filter without any value).
     const ids = new Set([
       ...Object.keys(customFieldFilters),
-      ...orgFilterFields.map(f => f.id).filter(id => isEmptinessOp(filterOps[id])),
+      ...Object.keys(filterOps).filter(id =>
+        !ORG_CORE_FILTER_IDS.has(id) && isEmptinessOp(filterOps[id])
+      ),
     ]);
     ids.forEach((fieldId) => {
       const op = filterOps[fieldId];
@@ -379,12 +388,20 @@ export default function OrganisationsListPage() {
       }
     });
     return obj;
-  }, [customFieldFilters, filterOps, orgFilterFields]);
+  }, [customFieldFilters, filterOps]);
   const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
   // Custom field ids whose values the server should fetch for the current page
   // so custom-field columns populate on every row.
   const customFieldIdsParam = useMemo(
-    () => orgColumnFields.map(f => f.id).join(','),
+    () => getOrganisationFieldsParam({
+      viewMode,
+      columns,
+      columnFields: orgColumnFields,
+    }),
+    [viewMode, columns, orgColumnFields]
+  );
+  const displayedOrgCardFields = useMemo(
+    () => getDisplayedOrganisationCardFields(orgColumnFields),
     [orgColumnFields]
   );
   // Direct-column filters with operators, sent as the coreFilters param and
@@ -413,22 +430,29 @@ export default function OrganisationsListPage() {
 
   // Organisation Groups for the group filter + column (tenant-scoped server-side).
   const { data: orgGroups = EMPTY_ORG_GROUPS } = useQuery({
-    queryKey: ['/api/entities/OrganizationGroup'],
+    queryKey: ['/api/entities/OrganizationGroup', memberInfo?.tenant_id, memberInfo?.id],
     enabled: accessChecked,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
-        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' } });
+        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' }, signal });
       } catch {
         return [];
       }
     }
   });
 
-  const { data: orgsData, isLoading: orgsLoading } = useQuery({
-    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam, groupFilter],
+  const {
+    data: orgsData,
+    isLoading: orgsLoading,
+    isFetching: orgsFetching,
+    isError: orgsFailed,
+    error: orgsError,
+    refetch: retryOrganizations,
+  } = useQuery({
+    queryKey: ['organizations-crm-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam, groupFilter],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
@@ -445,17 +469,19 @@ export default function OrganisationsListPage() {
       if (customFiltersParam && customFiltersParam !== '{}') {
         params.set('customFilters', customFiltersParam);
       }
-      if (customFieldIdsParam) {
-        params.set('fields', customFieldIdsParam);
-      }
+      params.set('fields', customFieldIdsParam);
       // A drill id list can be thousands of UUIDs — too long for a URL, so
       // it travels in a POST body while the other params stay in the query.
       const response = await fetch(`/api/admin/organizations/paginated?${params}`, {
         credentials: 'include',
+        signal,
+        headers: {
+          ...(memberInfo?.tenant_id ? { 'X-Tenant-Id': memberInfo.tenant_id } : {}),
+          ...(drillIdsParam ? { 'Content-Type': 'application/json' } : {}),
+        },
         ...(drillIdsParam
           ? {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ids: drillIdsParam }),
             }
           : {}),
@@ -470,7 +496,7 @@ export default function OrganisationsListPage() {
   const selectableTotal = pagination.selectableTotal ?? pagination.total;
 
   const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
-    queryKey: ['organization-direct', urlOrgId],
+    queryKey: ['organization-direct', memberInfo?.tenant_id, memberInfo?.id, urlOrgId],
     enabled: !!urlOrgId && accessChecked,
     queryFn: async () => {
       try {
@@ -511,39 +537,37 @@ export default function OrganisationsListPage() {
   // Fetch saved column preferences from database (once on load)
   const { toast } = useToast();
   const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
-  const dbColumnsLoadedRef = useRef(false);
   const savedPrefIdRef = useRef(null);
   // Once a saved view has applied its own columns, the baseline column-prefs
   // row must not override them.
   const viewColumnsAppliedRef = useRef(false);
 
   const { data: savedDbColumns } = useQuery({
-    queryKey: ['crm-org-column-prefs', columnPrefKey],
-    enabled: accessChecked && !!columnPrefKey && !dbColumnsLoadedRef.current,
+    queryKey: ['crm-org-column-prefs', memberInfo?.tenant_id, columnPrefKey],
+    enabled: accessChecked && !!columnPrefKey,
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
-    queryFn: async () => {
-      if (dbColumnsLoadedRef.current) return null;
-      dbColumnsLoadedRef.current = true;
-      try {
-        const settings = await base44.entities.SystemSettings.list();
-        const setting = settings?.find(s => s.setting_key === columnPrefKey);
-        if (setting) {
-          savedPrefIdRef.current = setting.id;
-          return setting;
-        }
-        return null;
-      } catch {
-        return null;
+    queryFn: async ({ signal }) => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: columnPrefKey },
+        limit: 1,
+        signal,
+      });
+      const setting = settings?.[0];
+      if (setting) {
+        savedPrefIdRef.current = setting.id;
+        return setting;
       }
+      return null;
     }
   });
 
   // Load columns from database on initial fetch (overrides localStorage)
   // Also merge in any new DEFAULT_COLUMNS that don't exist in saved prefs
   useEffect(() => {
+    if (savedDbColumns?.id) savedPrefIdRef.current = savedDbColumns.id;
     if (viewColumnsAppliedRef.current) return;
     if (savedDbColumns?.setting_value) {
       try {
@@ -562,7 +586,7 @@ export default function OrganisationsListPage() {
 
   // Named personal saved views (filters + columns + sort), persisted per user in
   // SystemSettings. The legacy single saved view is surfaced as "My view".
-  const restoredSearchRef = useRef(undefined);
+  const [restorationApplied, setRestorationApplied] = useState(false);
   const {
     views: savedViews,
     viewsLoaded,
@@ -575,7 +599,15 @@ export default function OrganisationsListPage() {
     deleteView,
     setDefaultView,
     isSaving: viewSaving,
-  } = useSavedListViews({ page: 'organisations', memberId: memberInfo?.id, enabled: accessChecked });
+    viewsError,
+    retryViews,
+    viewsFetching,
+  } = useSavedListViews({
+    page: 'organisations',
+    memberId: memberInfo?.id,
+    tenantId: memberInfo?.tenant_id,
+    enabled: accessChecked,
+  });
 
   // Apply a view's saved filters. Full replace: keys absent from the view reset
   // to their defaults so switching between views never mixes filter values.
@@ -639,23 +671,43 @@ export default function OrganisationsListPage() {
     return search;
   }, [applyViewFilters, tenantSlug, setActiveViewId]);
 
-  // Apply the default view once, BEFORE the list query is allowed to run, so
-  // users never see a flash of unfiltered results. No default = unfiltered load.
+  const defaultFilters = defaultView?.filters || {};
+  const defaultCustomFilters = defaultFilters.customFieldFilters || {};
+  const defaultNeedsMetadata = !!defaultView && (
+    Object.values(defaultCustomFilters).some(isActiveCustomFilterValue)
+    || Object.entries(defaultFilters.filterOps || {}).some(([id, op]) =>
+      !ORG_CORE_FILTER_IDS.has(id) && isEmptinessOp(op)
+    )
+  );
+  const requiredMetadataReady = !defaultNeedsMetadata || orgCustomFieldsLoaded;
+
   useEffect(() => {
-    if (filtersReady) return;
+    if (restorationApplied) return;
     if (!accessChecked) return;
-    if (!memberInfo?.id) { setFiltersReady(true); return; }
+    if (!memberInfo?.id) { setRestorationApplied(true); return; }
     if (!viewsLoaded) return;
-    // Apply the default view exactly once.
-    if (restoredSearchRef.current === undefined) {
-      restoredSearchRef.current = defaultView ? (applySavedView(defaultView) || '') : '';
-    }
-    // Wait for the debounced search to catch up to the restored value so the very
-    // first list fetch already carries the saved search (no unfiltered flash + refetch).
-    if (debouncedSearch === restoredSearchRef.current) {
-      setFiltersReady(true);
-    }
-  }, [accessChecked, memberInfo?.id, viewsLoaded, defaultView, filtersReady, debouncedSearch, applySavedView]);
+    if (!requiredMetadataReady) return;
+    if (defaultView) applySavedView(defaultView);
+    setRestorationApplied(true);
+  }, [accessChecked, memberInfo?.id, viewsLoaded, defaultView, restorationApplied, requiredMetadataReady, applySavedView]);
+
+  useEffect(() => {
+    if (!restorationApplied || filtersReady) return;
+    if (debouncedSearch === searchQuery) setFiltersReady(true);
+  }, [restorationApplied, filtersReady, debouncedSearch, searchQuery]);
+
+  const retryInitialization = () => {
+    if (viewsError) retryViews?.();
+    if (defaultNeedsMetadata && orgCustomFieldsFailed) retryOrgCustomFields();
+  };
+  const initializationFailed = !!viewsError || (defaultNeedsMetadata && orgCustomFieldsFailed);
+  const resultsTransitioning =
+    !filtersReady || orgsFetching || orgsFailed || !orgsData || searchQuery !== debouncedSearch;
+
+  useEffect(() => {
+    setSelectedOrgs([]);
+    setSelectAllFiltered(false);
+  }, [searchQuery, coreFiltersParam, customFiltersParam, sortField, sortDir, drillIdsParam, groupFilter]);
 
   // Snapshot of the current filters, sort and columns for saving into a view.
   const buildViewSnapshot = () => ({
@@ -714,6 +766,7 @@ export default function OrganisationsListPage() {
   // Selection handlers
   const toggleOrgSelection = (orgId, e) => {
     e.stopPropagation();
+    if (resultsTransitioning) return;
     if (selectAllFiltered) setSelectAllFiltered(false);
     setSelectedOrgs(prev => 
       prev.includes(orgId) 
@@ -723,6 +776,7 @@ export default function OrganisationsListPage() {
   };
 
   const toggleSelectAll = () => {
+    if (resultsTransitioning) return;
     const selectableOrgs = paginatedOrganizations.filter(org => !org.is_primary);
     const currentPageIds = selectableOrgs.map(org => org.id);
     const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedOrgs.includes(id));
@@ -741,6 +795,7 @@ export default function OrganisationsListPage() {
   };
 
   const handleConfirmDelete = () => {
+    if (resultsTransitioning) return;
     if (singleDeleteOrg) {
       batchDeleteMutation.mutate([singleDeleteOrg.id]);
     } else {
@@ -749,6 +804,7 @@ export default function OrganisationsListPage() {
   };
 
   const handleExportCSV = async () => {
+    if (resultsTransitioning) return;
     setIsExporting(true);
     try {
       const params = new URLSearchParams();
@@ -1346,6 +1402,13 @@ export default function OrganisationsListPage() {
             sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
           }`}
         >
+          <fieldset
+            disabled={!filtersReady}
+            inert={!filtersReady ? '' : undefined}
+            aria-busy={!filtersReady}
+            className="contents"
+            data-testid="org-filter-controls"
+          >
           <div className="p-4 border-b border-slate-200 min-w-[288px]">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -1393,6 +1456,27 @@ export default function OrganisationsListPage() {
                 testIdPrefix="org-view"
               />
             </div>
+            {!filtersReady && (
+              <div
+                className={`mb-2 rounded-md border px-3 py-2 text-xs ${initializationFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}
+                role={initializationFailed ? 'alert' : 'status'}
+                data-testid={initializationFailed ? 'org-list-initialization-error' : 'org-list-restoring'}
+              >
+                {initializationFailed ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Could not restore your saved list settings.</span>
+                    <Button type="button" variant="outline" size="sm" onClick={retryInitialization} className="h-7" data-testid="button-retry-org-initialization">
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {viewsFetching ? 'Loading saved views…' : 'Restoring filters…'}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
@@ -1536,6 +1620,7 @@ export default function OrganisationsListPage() {
               Showing {organizations.length} of {pagination.total} organisations
             </p>
           </div>
+          </fieldset>
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
@@ -1569,7 +1654,7 @@ export default function OrganisationsListPage() {
                     <Button 
                       variant="outline"
                       onClick={handleExportCSV}
-                      disabled={isExporting}
+                      disabled={isExporting || resultsTransitioning}
                       className="gap-1"
                       data-testid="button-export-csv-orgs"
                     >
@@ -1584,6 +1669,7 @@ export default function OrganisationsListPage() {
                       <Button 
                         variant="destructive"
                         onClick={() => setShowDeleteDialog(true)}
+                        disabled={resultsTransitioning}
                         className="gap-1"
                         data-testid="button-delete-selected"
                       >
@@ -1729,6 +1815,7 @@ export default function OrganisationsListPage() {
                   <button 
                     className="font-semibold underline"
                     onClick={() => setSelectAllFiltered(true)}
+                    disabled={resultsTransitioning}
                     data-testid="button-select-all-filtered-orgs"
                   >
                     Select all {selectableTotal} organisations
@@ -1744,9 +1831,40 @@ export default function OrganisationsListPage() {
                 <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
               </div>
             )}
-            {orgsLoading ? (
+            {filtersReady && orgCustomFieldsError && (
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert" data-testid="org-field-metadata-error">
+                <span>Custom field filters and columns could not be loaded. Core filters and results are still available.</span>
+                <Button variant="outline" size="sm" onClick={() => retryOrgCustomFields()} data-testid="button-retry-org-field-metadata">Retry</Button>
+              </div>
+            )}
+            {filtersReady && resultsTransitioning && !orgsLoading && (
+              <div className="mb-3 inline-flex items-center gap-2 text-sm text-slate-500" role="status" data-testid="org-list-refreshing">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Refreshing results…
+              </div>
+            )}
+            {orgsLoading || !filtersReady ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                {initializationFailed ? (
+                  <div className="text-center" role="alert">
+                    <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-500" />
+                    <p className="font-medium text-slate-900">Saved list settings failed to load</p>
+                    <p className="mt-1 text-sm text-slate-500">Retry to restore filters before loading results.</p>
+                    <Button className="mt-4" variant="outline" onClick={retryInitialization} data-testid="button-retry-org-list-initialization">Retry</Button>
+                  </div>
+                ) : (
+                  <div className="text-center" role="status" data-testid="org-list-loading">
+                    <Loader2 className="mx-auto w-8 h-8 animate-spin text-blue-600" />
+                    <p className="mt-3 text-sm text-slate-500">Loading organisations…</p>
+                  </div>
+                )}
+              </div>
+            ) : orgsFailed ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center" role="alert" data-testid="org-list-error">
+                <AlertTriangle className="mb-3 h-12 w-12 text-red-500" />
+                <p className="text-lg font-medium text-slate-900">Could not load organisations</p>
+                <p className="mt-1 text-sm text-slate-500">{orgsError?.message || 'Please try again.'}</p>
+                <Button className="mt-4" variant="outline" onClick={() => retryOrganizations()} data-testid="button-retry-organisations">Retry</Button>
               </div>
             ) : paginatedOrganizations.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-slate-500">
@@ -1763,7 +1881,7 @@ export default function OrganisationsListPage() {
                         <Checkbox 
                           checked={paginatedOrganizations.filter(org => !org.is_primary).length > 0 && paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id))}
                           onCheckedChange={toggleSelectAll}
-                          disabled={paginatedOrganizations.every(org => org.is_primary)}
+                          disabled={resultsTransitioning || paginatedOrganizations.every(org => org.is_primary)}
                           data-testid="checkbox-select-all"
                         />
                       </th>
@@ -2055,7 +2173,7 @@ export default function OrganisationsListPage() {
                         )}
                       </div>
 
-                      {orgColumnFields.slice(0, 2).map(field => {
+                      {displayedOrgCardFields.map(field => {
                         const value = orgValuesMap[org.id]?.[field.id];
                         if (!value) return null;
                         let displayValue = value;

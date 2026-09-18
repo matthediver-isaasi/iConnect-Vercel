@@ -63,7 +63,7 @@ class EntityProxy {
     
     const queryString = params.toString();
     const url = `/api/entities/${this.entityName}${queryString ? `?${queryString}` : ''}`;
-    const response = await this.apiRequest(url);
+    const response = await this.apiRequest(url, options?.signal ? { signal: options.signal } : undefined);
     return response;
   }
 

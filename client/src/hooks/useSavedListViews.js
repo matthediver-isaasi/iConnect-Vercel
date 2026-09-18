@@ -1,6 +1,6 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from '@/api/base44Client';
 import {
   savedListViewPreferenceKey,
   sanitizeSavedViews,
@@ -48,71 +48,70 @@ export const sanitizeViews = (raw) => {
   return sanitizeSavedViews(raw, genViewId);
 };
 
-export function useSavedListViews({ page, memberId, scopeId, enabled = true }) {
+const EMPTY_VIEWS = [];
+
+export function useSavedListViews({ page, memberId, scopeId, tenantId, enabled = true }) {
   const cfg = PAGE_CONFIG[page];
   if (!cfg) throw new Error(`useSavedListViews: unknown page "${page}"`);
   const prefKey = savedListViewPreferenceKey(page, memberId, scopeId);
   const legacyKey = memberId ? cfg.legacyKey(memberId, scopeId) : null;
   const queryClient = useQueryClient();
-  const loadedRef = useRef(false);
-  const loadedKeyRef = useRef(prefKey);
-  const rowIdRef = useRef(null);
-  const legacyRowIdRef = useRef(null);
-  const [activeViewId, setActiveViewId] = useState(null);
+  const activeTenant = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
+  const queryKey = useMemo(
+    () => ['crm-saved-list-views', tenantId || activeTenant || null, prefKey],
+    [tenantId, activeTenant, prefKey],
+  );
+  const identity = JSON.stringify(queryKey);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const [selection, setSelection] = useState(null);
+  const activeViewId = selection?.identity === identity ? selection.id : null;
+  const setActiveViewId = useCallback((next) => {
+    setSelection(previous => ({
+      identity,
+      id: typeof next === 'function'
+        ? next(previous?.identity === identity ? previous.id : null)
+        : next,
+    }));
+  }, [identity]);
 
-  // A mounted list can navigate directly between custom objects. Re-arm the
-  // one-shot query synchronously so the first render for the new object cannot
-  // accidentally reuse the previous object's persistence row.
-  if (loadedKeyRef.current !== prefKey) {
-    loadedKeyRef.current = prefKey;
-    loadedRef.current = false;
-    rowIdRef.current = null;
-    legacyRowIdRef.current = null;
-  }
-
-  useEffect(() => {
-    setActiveViewId(null);
-  }, [prefKey]);
-
-  const { data } = useQuery({
-    queryKey: ['crm-saved-list-views', prefKey],
-    enabled: enabled && !!prefKey && !loadedRef.current,
+  const { data, isSuccess, error, refetch, isFetching } = useQuery({
+    queryKey,
+    enabled: enabled && !!prefKey,
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
-    queryFn: async () => {
-      if (loadedRef.current) return null;
-      loadedRef.current = true;
-      try {
-        const settings = await base44.entities.SystemSettings.list();
+    retry: false,
+    queryFn: async ({ signal }) => {
+        // Match the keys on the server; an all-settings scan is expensive and
+        // can miss this user's view beyond the entity API's row cap.
+        const settings = await base44.entities.SystemSettings.list({
+          filter: { setting_key: [prefKey, legacyKey].filter(Boolean) },
+          signal,
+        });
+        if (!Array.isArray(settings)) throw new Error('Unable to read saved list views');
         const row = settings?.find((s) => s.setting_key === prefKey);
+        const legacyRow = legacyKey ? settings.find(s => s.setting_key === legacyKey) : null;
+        const legacyId = legacyRow?.id || null;
         if (row) {
-          rowIdRef.current = row.id;
           let views = [];
           try {
             views = sanitizeViews(JSON.parse(row.setting_value)?.views);
-          } catch {}
+          } catch { throw new Error('The saved list view could not be read'); }
           // Track the legacy row (if it survived a partial migration) so the
           // next persist cleans it up; it is otherwise ignored.
-          const legacyRow = legacyKey
-            ? settings?.find((s) => s.setting_key === legacyKey)
-            : null;
-          if (legacyRow?.id) legacyRowIdRef.current = legacyRow.id;
-          return { id: row.id, views };
+          return { id: row.id, views, legacyId };
         }
         // No views row yet: read the legacy single saved view as a first
         // named view so nobody loses their current setup.
-        const legacyRow = legacyKey
-          ? settings?.find((s) => s.setting_key === legacyKey)
-          : null;
         if (legacyRow?.setting_value) {
-          legacyRowIdRef.current = legacyRow.id;
           try {
             const f = JSON.parse(legacyRow.setting_value);
             if (f && typeof f === 'object') {
               return {
                 id: null,
+                legacyId,
                 views: [
                   {
                     id: genViewId(),
@@ -124,67 +123,71 @@ export function useSavedListViews({ page, memberId, scopeId, enabled = true }) {
                 ],
               };
             }
-          } catch {}
+          } catch { throw new Error('The legacy saved list view could not be read'); }
         }
-        return { id: null, views: [] };
-      } catch {
-        return { id: null, views: [] };
-      }
+        return { id: null, views: [], legacyId };
     },
   });
 
-  // Warm remount: recover the row id from cache (queryFn does not re-run).
-  useEffect(() => {
-    if (data?.id) rowIdRef.current = data.id;
-  }, [data]);
-
-  const views = data?.views || [];
-  const viewsLoaded = data !== undefined && data !== null;
+  const views = data?.views || EMPTY_VIEWS;
+  const viewsLoaded = isSuccess;
   const defaultView = views.find((v) => v.isDefault) || null;
   const activeView = views.find((v) => v.id === activeViewId) || null;
 
   const persistMutation = useMutation({
-    mutationFn: async (nextViews) => {
-      if (!prefKey) throw new Error('Member context not ready');
+    // Serialize changes within this query client, deriving each new value only
+    // when it starts. Two quick saves must not both create from the same null id.
+    scope: { id: identity },
+    mutationFn: async ({ updater, cacheKey, preferenceKey, description, sourceIdentity }) => {
+      if (identityRef.current !== sourceIdentity) throw new Error('List context changed before saving');
+      const source = queryClient.getQueryData(cacheKey);
+      if (!source) throw new Error('Saved views must load before saving');
+      const nextViews = updater(source.views);
       const valueStr = JSON.stringify({ views: nextViews });
-      if (rowIdRef.current) {
-        await base44.entities.SystemSettings.update(rowIdRef.current, {
+      let id = source.id;
+      if (id) {
+        await base44.entities.SystemSettings.update(id, {
           setting_value: valueStr,
         });
       } else {
         const created = await base44.entities.SystemSettings.create({
-          setting_key: prefKey,
+          setting_key: preferenceKey,
           setting_value: valueStr,
-          description: cfg.description,
+          description,
         });
-        if (created?.id) rowIdRef.current = created.id;
+        if (!created?.id) throw new Error('Unable to save list view');
+        id = created.id;
       }
       // The saved views now live in the new row; remove the legacy
       // single-view row so it can never be read back as a duplicate.
-      if (legacyRowIdRef.current) {
+      let legacyId = source.legacyId;
+      if (legacyId) {
         try {
-          await base44.entities.SystemSettings.delete(legacyRowIdRef.current);
+          await base44.entities.SystemSettings.delete(legacyId);
+          legacyId = null;
         } catch {}
-        legacyRowIdRef.current = null;
       }
-      return nextViews;
+      return { id, views: nextViews, legacyId };
     },
-    onSuccess: (nextViews) => {
-      queryClient.setQueryData(['crm-saved-list-views', prefKey], {
-        id: rowIdRef.current,
-        views: nextViews,
-      });
+    onSuccess: (saved, variables) => {
+      queryClient.setQueryData(variables.cacheKey, saved);
     },
   });
 
   const mutateViews = useCallback(
     (updater) => {
-      const current =
-        queryClient.getQueryData(['crm-saved-list-views', prefKey])?.views || [];
-      return persistMutation.mutateAsync(updater(current));
+      const state = queryClient.getQueryState(queryKey);
+      const source = state?.data;
+      if (!enabled || !prefKey || state?.status !== 'success' || !source) {
+        return Promise.reject(new Error('Saved views must load before saving; retry the load first.'));
+      }
+      return persistMutation.mutateAsync({
+        updater, preferenceKey: prefKey, sourceIdentity: identity,
+        description: cfg.description, cacheKey: queryKey,
+      }).then(saved => saved.views);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [prefKey, queryClient]
+    [prefKey, queryClient, queryKey, identity, enabled, cfg.description, persistMutation.mutateAsync]
   );
 
   const createView = useCallback(
@@ -246,6 +249,9 @@ export function useSavedListViews({ page, memberId, scopeId, enabled = true }) {
   return {
     views,
     viewsLoaded,
+    viewsError: error,
+    viewsFetching: isFetching,
+    retryViews: refetch,
     defaultView,
     activeViewId,
     setActiveViewId,
