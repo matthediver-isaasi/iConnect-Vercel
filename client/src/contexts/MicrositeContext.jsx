@@ -37,6 +37,7 @@ export function useMicrosite() {
   return useContext(MicrositeContext) || {
     microsites: [],
     micrositesLoaded: false,
+    micrositesError: null,
     activeMicrosite: null,
     micrositePrefix: null,
     micrositeBranding: null,
@@ -65,18 +66,14 @@ export function MicrositeProvider({ children }) {
   // Read once per mount — the SSR-injected global doesn't change at runtime.
   const injected = useMemo(() => readInjectedMicrositeContext(), []);
 
-  const { data: micrositesData, isFetched: micrositesLoaded } = useQuery({
+  const { data: micrositesData, isFetched: micrositesLoaded, error: micrositesError } = useQuery({
     queryKey: ['public-microsites'],
     queryFn: async () => {
-      try {
-        const res = await publicClient.listMicrosites();
-        return res?.microsites || [];
-      } catch {
-        // No microsites (or legacy backend) — default site behaviour.
-        return [];
-      }
+      const res = await publicClient.listMicrosites();
+      return res?.microsites || [];
     },
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
   const microsites = micrositesData || [];
 
@@ -126,11 +123,12 @@ export function MicrositeProvider({ children }) {
   const value = useMemo(() => ({
     microsites,
     micrositesLoaded: !!micrositesLoaded,
+    micrositesError,
     activeMicrosite,
     micrositePrefix,
     micrositeBranding: activeMicrosite ? (micrositeBrandingData || null) : null,
     micrositeBrandingLoading: !!micrositePrefix && micrositeBrandingLoading,
-  }), [microsites, micrositesLoaded, activeMicrosite, micrositePrefix, micrositeBrandingData, micrositeBrandingLoading]);
+  }), [microsites, micrositesLoaded, micrositesError, activeMicrosite, micrositePrefix, micrositeBrandingData, micrositeBrandingLoading]);
 
   return (
     <MicrositeContext.Provider value={value}>

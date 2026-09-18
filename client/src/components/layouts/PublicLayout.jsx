@@ -55,14 +55,12 @@ const pageToPortalPageMap = {
 };
 
 export default function PublicLayout({ children, currentPageName }) {
-  // Per-page public chrome control (set by DynamicPage / ViewPage from the
-  // page's `public_chrome` field). Defaults to showing both header and footer.
-  // `chromeReady` is false while the page query is in-flight; we suppress
-  // header/footer until we know the correct value to prevent a flicker where
-  // the default 'both' paints for one frame before being hidden.
+  // The shared route boundary starts unresolved before this component mounts.
+  // Gate the components themselves, not their CSS visibility.
   const {
     publicChrome,
     chromeReady,
+    forceBlankLayout,
     memberInfo,
     organizationInfo,
     authResolved,
@@ -80,7 +78,9 @@ export default function PublicLayout({ children, currentPageName }) {
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
   const [socialIcons, setSocialIcons] = useState(null);
   const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
-  const [footerNavItems, setFooterNavItems] = useState([]);
+  const [footerNavigation, setFooterNavigation] = useState(null);
+  const footerScope = `${branding?.id || ''}:${micrositePrefix || ''}`;
+  const footerNavItems = footerNavigation?.scope === footerScope ? footerNavigation.items : [];
   const [navFormModalOpen, setNavFormModalOpen] = useState(false);
   const [activeNavFormSlug, setActiveNavFormSlug] = useState(null);
   const [typographyStyles, setTypographyStyles] = useState([]);
@@ -144,9 +144,11 @@ export default function PublicLayout({ children, currentPageName }) {
 
   // Fetch social icons, footer configuration, and newsletter form slug
   useEffect(() => {
+    let cancelled = false;
     const fetchConfigs = async () => {
       try {
         const allSettings = await publicClient.listSystemSettings();
+        if (cancelled) return;
         
         const socialSetting = allSettings.find(s => s.setting_key === 'social_icons_config');
         if (socialSetting?.setting_value) {
@@ -162,12 +164,14 @@ export default function PublicLayout({ children, currentPageName }) {
           // Fetch the form to get its slug using public endpoint
           try {
             const form = await publicClient.getForm(newsletterSetting.setting_value);
+             if (cancelled) return;
             if (form?.is_active && form?.slug) {
               setNewsletterFormSlug(form.slug);
             } else {
               setNewsletterFormSlug(null);
             }
           } catch (e) {
+             if (cancelled) return;
             console.error('Failed to fetch newsletter form:', e);
             setNewsletterFormSlug(null);
           }
@@ -179,8 +183,9 @@ export default function PublicLayout({ children, currentPageName }) {
         // Task #2426: microsite routes get the microsite's footer nav.
         try {
           const navItems = await publicClient.listNavigationItems(micrositePrefix);
+          if (cancelled) return;
           const footerItems = navItems.filter(item => item.location === 'footer' && item.is_active);
-          setFooterNavItems(footerItems);
+          setFooterNavigation({ scope: footerScope, items: footerItems });
         } catch (e) {
           console.error('Failed to fetch footer navigation items:', e);
         }
@@ -188,6 +193,7 @@ export default function PublicLayout({ children, currentPageName }) {
         // Fetch typography styles for heading content blocks
         try {
           const styles = await publicClient.listTypographyStyles();
+          if (cancelled) return;
           setTypographyStyles(styles || []);
         } catch (e) {
           console.error('Failed to fetch typography styles:', e);
@@ -198,6 +204,7 @@ export default function PublicLayout({ children, currentPageName }) {
           const defaultsRes = await fetch('/api/public/platform-defaults');
           if (defaultsRes.ok) {
             const defaultsData = await defaultsRes.json();
+             if (cancelled) return;
             setPlatformDefaults(prev => ({
               ...prev,
               ...defaultsData
@@ -212,7 +219,8 @@ export default function PublicLayout({ children, currentPageName }) {
     };
 
     fetchConfigs();
-  }, [micrositePrefix]);
+    return () => { cancelled = true; };
+  }, [micrositePrefix, footerScope]);
 
   const handleNewsletterDialogChange = (open) => {
     setShowNewsletterDialog(open);
@@ -400,19 +408,19 @@ export default function PublicLayout({ children, currentPageName }) {
         </style>
 
         {/* Skip to main content (accessibility) */}
-        <a
+        {!forceBlankLayout && <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-background focus:text-foreground focus:px-3 focus:py-2 focus:rounded-md focus:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
           data-testid="link-skip-to-main"
         >
           Skip to main content
-        </a>
+        </a>}
 
         {/* Public Header - Now using dedicated component */}
         {showHeader && <PublicHeader />}
 
         {/* Top Page Banners - Displayed between header and main content */}
-        {!loadingBanners && topBanners.length > 0 && (
+        {chromeReady && !forceBlankLayout && !loadingBanners && topBanners.length > 0 && (
           <div className="w-full">
             {topBanners.map((banner) => (
               banner.banner_type === 'image'
@@ -424,7 +432,7 @@ export default function PublicLayout({ children, currentPageName }) {
 
         {/* Main Content Area - wrapped in BannerProvider for below-first-element banners */}
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
-          <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+          <BannerProvider belowFirstElementBanners={forceBlankLayout ? [] : belowFirstElementBanners}>
             {children}
           </BannerProvider>
         </main>
@@ -970,7 +978,7 @@ export default function PublicLayout({ children, currentPageName }) {
         )}
 
         {/* Floater Display for Public Pages */}
-        <FloaterDisplay
+        {chromeReady && !forceBlankLayout && <FloaterDisplay
           location="public"
           memberInfo={memberInfo}
           organizationInfo={organizationInfo}
@@ -978,10 +986,10 @@ export default function PublicLayout({ children, currentPageName }) {
           sessionValidated={sessionValidated}
           activeMicrositeId={activeMicrosite?.id || null}
           publicSiteContextReady={micrositesLoaded}
-        />
+        />}
       </div>
       {/* Newsletter Dialog - uses IEditFormElement for full form rendering */}
-      <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
+      <Dialog open={showFooter && showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
           {newsletterFormSlug ? (
             <IEditFormElement 
@@ -1004,7 +1012,7 @@ export default function PublicLayout({ children, currentPageName }) {
       </Dialog>
 
       {/* Navigation Item Form Modal Dialog */}
-      <Dialog open={navFormModalOpen} onOpenChange={setNavFormModalOpen}>
+      <Dialog open={showFooter && navFormModalOpen} onOpenChange={setNavFormModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
           {activeNavFormSlug ? (
             <IEditFormElement 

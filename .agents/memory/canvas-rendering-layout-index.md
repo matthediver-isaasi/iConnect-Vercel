@@ -24,6 +24,7 @@ Use the focused topic that matches the change:
 - [Editor zoom versus reflow](canvas-editor-zoom-reflow.md)
 - [Flow section backgrounds](canvas-flow-section-backgrounds.md)
 - [Reusable footer fallback](canvas-footer-fallback.md)
+- [Route-owned chrome decisions](route-owned-chrome.md)
 
 **Why:** Canvas has parallel editor/public and V1/V2 paths. Flattening every specialized rule into the always-loaded memory index crowded out unrelated project knowledge.
 

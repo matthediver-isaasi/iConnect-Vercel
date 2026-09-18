@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { RouteLayoutContext } from './RouteLayoutContext';
+export { usePageLayoutDecision } from './RouteLayoutContext';
 
 const LayoutContext = createContext({
   forcePublicLayout: false,
@@ -155,7 +157,9 @@ export function LayoutProvider({ children }) {
 }
 
 export function useLayoutContext() {
-  return useContext(LayoutContext);
+  const layout = useContext(LayoutContext);
+  const routeLayout = useContext(RouteLayoutContext);
+  return routeLayout ? { ...layout, ...routeLayout } : layout;
 }
 
 export default LayoutContext;

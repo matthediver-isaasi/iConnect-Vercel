@@ -429,8 +429,12 @@ import PublicSalesQuote from "./PublicSalesQuote";
 import PhotoGalleries from "./PhotoGalleries";
 
 import { useEffect, useRef, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useParams, createRoutesFromChildren, matchRoutes } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
+import { useLayoutContext, usePageLayoutDecision } from '@/contexts/LayoutContext';
+import { RouteLayoutProvider } from '@/contexts/RouteLayoutContext';
+import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useMicrosite } from '@/contexts/MicrositeContext';
 import { MicrositeProvider } from '@/contexts/MicrositeContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
@@ -442,16 +446,22 @@ import { publicClient } from '@/api/publicClient';
 const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
 
 function SmartLoginRoute() {
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, isError } = useQuery({
         queryKey: ['public-canvas-login-page'],
         queryFn: () => publicClient.getPage('login'),
         staleTime: 60_000,
         retry: false,
     });
-    if (isLoading) return null;
     const page = data?.page;
     const blocks = (page?.canvas_design?.root?.sections || []).flatMap(s => s.children || []);
     const hasLoginBlock = blocks.some(b => b.type === 'login-form');
+    const useCanvas = page?.builder_type === 'canvas' && page?.status === 'published' && hasLoginBlock;
+    usePageLayoutDecision(isLoading ? null : {
+        publicChrome: isError ? 'none' : useCanvas ? (page.hide_chrome ? 'none' : page.public_chrome || 'both') : 'both',
+        forcePublicLayout: true,
+        forceBlankLayout: useCanvas && !!page.hide_chrome,
+    });
+    if (isLoading) return null;
     if (page?.builder_type === 'canvas' && page?.status === 'published' && hasLoginBlock) {
         return (
             <Suspense fallback={null}>
@@ -924,13 +934,17 @@ function SurveyAssignmentRoute() {
 // Create a wrapper component that uses useLocation inside the Router context
 function PagesContent() {
     const location = useLocation();
-    const currentPage = _getCurrentPage(location.pathname);
-    
-    return (
-        <>
-            <ScrollToTop />
-            <Layout currentPageName={currentPage}>
-                <Routes>            
+    const { branding, loading: brandingLoading } = useTenantBranding();
+    const { authResolved, sessionValidated, memberInfo, memberRole } = useLayoutContext();
+    const { micrositesLoaded, activeMicrosite, micrositeBrandingLoading } = useMicrosite();
+    const scope = JSON.stringify([
+        location.key, location.pathname, location.search, branding?.id,
+        authResolved, sessionValidated, memberInfo?.id, memberRole,
+        micrositesLoaded, activeMicrosite?.id, activeMicrosite?.home_slug,
+    ]);
+
+    const routes = (
+                <>
                 
                     <Route path="/" element={<HomePageRedirect />} />
                 
@@ -1361,9 +1375,22 @@ function PagesContent() {
 
                 {/* Catch-all for multi-segment URLs that don't match any route above */}
                 <Route path="/*" element={<CatchAllNotFound />} />
-            </Routes>
+                </>
+    );
+    // Classify the actual matched route, not its last path segment (a
+    // microsite page may have the same slug as a built-in portal route).
+    const matches = matchRoutes(createRoutesFromChildren(routes), location);
+    const pageComponent = matches?.at(-1)?.route.element?.type;
+    const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute].includes(pageComponent);
+    const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname);
+    return (
+        <RouteLayoutProvider scope={scope} pageOwned={pageOwned}
+            prerequisitesReady={!brandingLoading && authResolved && micrositesLoaded && !micrositeBrandingLoading}>
+            <ScrollToTop />
+            <Layout currentPageName={currentPage}>
+                <Routes>{routes}</Routes>
             </Layout>
-        </>
+        </RouteLayoutProvider>
     );
 }
 

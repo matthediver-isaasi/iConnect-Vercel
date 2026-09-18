@@ -1,116 +1,185 @@
-import { useLayoutEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useLayoutContext } from "@/contexts/LayoutContext";
+import { usePageLayoutDecision } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import Events from "./Events";
+
+const visibleErrorDecision = {
+  publicChrome: "none",
+  forcePublicLayout: true,
+  forceBlankLayout: false,
+};
+
+function pageLayoutDecision(page, isLoggedIn) {
+  if (page.hide_chrome) {
+    return {
+      publicChrome: "none",
+      forcePublicLayout: false,
+      forceBlankLayout: true,
+    };
+  }
+
+  const layoutType = page.layout_type || "public";
+  const forcePublicLayout =
+    layoutType === "public" || (layoutType === "hybrid" && !isLoggedIn);
+  return {
+    publicChrome: forcePublicLayout ? (page.public_chrome || "both") : "both",
+    forcePublicLayout,
+    forceBlankLayout: false,
+  };
+}
 
 export default function HomePageRedirect() {
   const location = useLocation();
   const { memberInfo, authResolved, sessionValidated } = useMemberAccess();
-  const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
-  const isCanvasPreview = (() => {
-    try {
-      return new URLSearchParams(location.search).has('_canvasPreview');
-    } catch {
-      return false;
-    }
-  })();
+  const {
+    branding,
+    loading: brandingLoading,
+    error: brandingError,
+    tenantSlug,
+  } = useTenantBranding();
+  const isCanvasPreview = new URLSearchParams(location.search).has("_canvasPreview");
+  const isLoggedIn = authResolved && sessionValidated && !!memberInfo;
   const pageAudience = isCanvasPreview
-    ? 'editor'
-    : (authResolved
-      ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
-      : 'checking');
-  const { data: homePageSlug, isLoading: settingsLoading } = useQuery({
-    queryKey: ['home-page-setting'],
+    ? "editor"
+    : (isLoggedIn ? "member" : "guest");
+  const tenantId = branding?.id || tenantSlug || null;
+  const settingsQueryEnabled =
+    authResolved && !brandingLoading && !brandingError && !!tenantId;
+
+  const settingsQuery = useQuery({
+    queryKey: ["home-page-setting", tenantId, pageAudience],
     queryFn: async () => {
-      const response = await fetch('/api/public/portal-branding');
-      if (!response.ok) return null;
+      const response = await fetch("/api/public/portal-branding", {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(`Homepage settings request failed (${response.status})`);
+      }
       const data = await response.json();
       return data.homePageSlug || null;
     },
-    staleTime: 60000
+    enabled: settingsQueryEnabled,
+    staleTime: 60000,
+    retry: false,
   });
+  const homePageSlug = settingsQuery.data;
 
-  const { data: pageData, isLoading: pageLoading } = useQuery({
-    queryKey: ['public-home-page', homePageSlug, pageAudience],
+  const pageQuery = useQuery({
+    queryKey: ["public-home-page", tenantId, homePageSlug, pageAudience],
     queryFn: async () => {
-      if (!homePageSlug) return null;
-      const response = await fetch(`/api/public/page/${homePageSlug}`, { credentials: 'include' });
-      if (!response.ok) return null;
+      const response = await fetch(
+        `/api/public/page/${encodeURIComponent(homePageSlug)}`,
+        { credentials: "include" }
+      );
+      if (!response.ok) {
+        throw new Error(`Homepage request failed (${response.status})`);
+      }
       const data = await response.json();
-      if (!data.success) return null;
+      if (!data.success || !data.page) {
+        throw new Error("The configured homepage was not returned");
+      }
       return {
         page: data.page,
         elements: data.elements || [],
         symbols: data.symbols,
       };
     },
-    enabled: !!homePageSlug,
-    staleTime: 0
+    enabled: settingsQueryEnabled && !!homePageSlug,
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
   });
 
-  useLayoutEffect(() => {
-    setChromeReady(false);
-    return () => {
-      setChromeReady(true);
-      setForceBlankLayout(false);
-    };
-  }, [setChromeReady, setForceBlankLayout]);
+  const settingsPending =
+    brandingLoading ||
+    !authResolved ||
+    (settingsQueryEnabled && (settingsQuery.isPending || settingsQuery.isFetching));
+  const pagePending =
+    !!homePageSlug && (pageQuery.isPending || pageQuery.isFetching);
+  const prerequisiteFailure =
+    brandingError || (!brandingLoading && !tenantId) || settingsQuery.error;
 
-  useLayoutEffect(() => {
-    if (settingsLoading) return;
-    if (!homePageSlug) {
-      setChromeReady(true);
-      return;
+  let layoutDecision = null;
+  if (!settingsPending && !pagePending) {
+    if (prerequisiteFailure || pageQuery.error) {
+      layoutDecision = visibleErrorDecision;
+    } else if (!homePageSlug) {
+      layoutDecision = {
+        publicChrome: "both",
+        forcePublicLayout: !isLoggedIn,
+        forceBlankLayout: false,
+      };
+    } else if (pageQuery.data?.page) {
+      layoutDecision = pageLayoutDecision(pageQuery.data.page, isLoggedIn);
+    } else {
+      layoutDecision = visibleErrorDecision;
     }
-    if (pageLoading || !pageData?.page) return;
-    if (pageData.page.hide_chrome) {
-      setForcePublicLayout(false);
-      setForceBlankLayout(true);
-    }
-    setChromeReady(true);
-  }, [homePageSlug, pageData, settingsLoading, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
+  }
+  usePageLayoutDecision(layoutDecision);
 
-  if (settingsLoading) {
-    return null;
+  if (settingsPending || pagePending) {
+    return (
+      <div className="min-h-screen" data-testid="loading-home-page" aria-busy="true">
+        <div className="sr-only">Loading homepage</div>
+      </div>
+    );
+  }
+
+  if (prerequisiteFailure) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" role="alert">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-2xl font-bold mb-4">Homepage unavailable</h1>
+          <p className="text-slate-600">
+            We couldn't load the homepage settings. Please refresh and try again.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (!homePageSlug) {
     return <Events />;
   }
 
-  if (pageLoading || !pageData?.page) {
-    return null;
+  if (pageQuery.error || !pageQuery.data?.page) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" role="alert">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-2xl font-bold mb-4">Homepage unavailable</h1>
+          <p className="text-slate-600">
+            The configured homepage could not be loaded. Please try again later.
+          </p>
+        </div>
+      </div>
+    );
   }
 
-  // Static AI-generated pages (Task #3371) carry their whole body on the
-  // page row — mirror DynamicPage's dispatch.
-  if (pageData.page.builder_type === 'ai_static') {
+  const { page, symbols } = pageQuery.data;
+  if (page.builder_type === "ai_static") {
     return (
       <div className="w-full" data-testid="home-page-static">
-        <StaticHtmlPageRenderer page={pageData.page} />
+        <StaticHtmlPageRenderer page={page} />
       </div>
     );
   }
 
-  // Canvas Builder pages render via their own design document instead of
-  // the stacked IEditPageElement list — mirror DynamicPage's dispatch.
-  if (pageData.page.builder_type === 'canvas') {
+  if (page.builder_type === "canvas") {
     return (
       <div className="w-full" data-testid="home-page-canvas">
-        <CanvasPageRenderer page={pageData.page} symbols={pageData.symbols} />
+        <CanvasPageRenderer page={page} symbols={symbols} />
       </div>
     );
   }
 
-  const sortedElements = [...(pageData.elements || [])].sort((a, b) => 
-    (a.display_order || 0) - (b.display_order || 0)
+  const sortedElements = [...(pageQuery.data.elements || [])].sort(
+    (a, b) => (a.display_order || 0) - (b.display_order || 0)
   );
-
   return (
     <div className="iedit-page-container">
       {sortedElements.map((element) => (

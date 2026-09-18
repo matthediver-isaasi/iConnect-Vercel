@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -7,7 +7,7 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useLayoutContext } from "@/contexts/LayoutContext";
+import { usePageLayoutDecision } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite } from "@/contexts/MicrositeContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
@@ -28,7 +28,7 @@ export default function DynamicPage() {
   const { slug, micrositePrefix: routeMicrositePrefix } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { microsites, micrositesLoaded, activeMicrosite } = useMicrosite();
+  const { microsites, micrositesLoaded, micrositesError, activeMicrosite } = useMicrosite();
   const isMicrositeRoute = !!routeMicrositePrefix;
   const micrositeMatch = useMemo(() => {
     if (!isMicrositeRoute || !micrositesLoaded) return null;
@@ -149,8 +149,7 @@ export default function DynamicPage() {
     tenantAdminAuthQuery.isFetching,
     tenantAdminAuthQuery.isSuccess,
   ]);
-  const { setForcePublicLayout, setForceBlankLayout, setChromeReady, setPublicChrome } = useLayoutContext();
-  const { branding } = useTenantBranding();
+  const { branding, loading: brandingLoading, error: brandingError } = useTenantBranding();
   
   // Get banners that should appear below the first element
   // Must be called unconditionally at the top to follow React's Rules of Hooks
@@ -194,13 +193,20 @@ export default function DynamicPage() {
     }
     
     return null;
-  }, [articleDisplayName, urlSlug, viewSlug, editorSlug, mySlug, publicSlug, isCustomSlug, articleUrlLoading, slug]);
+  }, [articleDisplayName, urlSlug, viewSlug, editorSlug, mySlug, publicSlug, isCustomSlug, articleUrlLoading, slug, isMicrositeRoute, isMicrositeHomeRoute]);
 
   // The page query is only enabled once its route prerequisites are met. On a
   // microsite route that means the microsites list has loaded AND the prefix
   // matched a real microsite. Keep this in a named flag so we can also tell
   // "query enabled but not yet resolved" apart from "resolved with no page".
-  const pageQueryEnabled = !!slug && !dynamicArticleRoute && !articleUrlLoading &&
+  const previewAuthPending = isCanvasPreview && (
+    !authResolved || (memberInfo ? !isAccessReady :
+      (!tenantAdminAuthQuery.isFetched || tenantAdminAuthQuery.isFetching))
+  );
+  const routePrerequisitesReady = micrositesLoaded && !articleUrlLoading &&
+    !brandingLoading && authResolved && !previewAuthPending;
+  const routeMetadataError = micrositesError || brandingError;
+  const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError && !!slug && !dynamicArticleRoute &&
     (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
@@ -212,14 +218,14 @@ export default function DynamicPage() {
     : (authResolved
       ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
       : 'checking');
-  const { data: pageData, isLoading: pageLoading, isFetched: pageFetched, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience],
+  const { data: pageData, isLoading: pageLoading, isFetching: pageFetching, isFetched: pageFetched, error: pageError } = useQuery({
+    queryKey: ['iedit-dynamic-page', branding?.id, effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience, memberInfo?.id],
     queryFn: async () => {
       // Task #2426/#2764: microsite pages (both /{prefix}/{slug} and the bare
       // /{prefix} home page) are public-only — resolve strictly via the public
       // endpoint scoped to the microsite prefix (no authenticated fallback:
       // bare-slug auth reads would leak pages across microsites).
-      if (isAnyMicrositeRoute) {
+      if (isAnyMicrositeRoute && !canPreviewDrafts) {
         try {
           const data = await publicClient.getPage(effectiveSlug, effectivePrefix);
           if (data) {
@@ -248,7 +254,10 @@ export default function DynamicPage() {
       
       // Fall back to authenticated endpoints for protected pages or logged-in users
       const pages = await base44.entities.IEditPage.list({ 
-        filter: { slug: slug }
+        filter: {
+          slug: effectiveSlug,
+          ...(isAnyMicrositeRoute ? { microsite_id: effectiveMicrosite.id } : {}),
+        },
       });
       const page = pages[0] || null;
       if (!page) return { page: null, elements: [] };
@@ -257,7 +266,9 @@ export default function DynamicPage() {
       // served under its prefix. Mirror the public endpoint's bare-slug guard
       // (`!microsite && page.microsite_id` → 404) so the authenticated fallback
       // does not leak microsite pages at their bare /{slug} URL.
-      if (page.microsite_id) return { page: null, elements: [] };
+      if (isAnyMicrositeRoute
+        ? page.microsite_id !== effectiveMicrosite.id
+        : !!page.microsite_id) return { page: null, elements: [] };
 
       // Static AI-generated pages (Task #3371) carry their whole body on the
       // page row (static_html/static_css) — no element rows, no symbols.
@@ -295,7 +306,8 @@ export default function DynamicPage() {
       return { page, elements };
     },
     enabled: pageQueryEnabled,
-    staleTime: 0
+    staleTime: 0,
+    retry: false,
   });
 
   const page = pageData?.page;
@@ -410,61 +422,10 @@ export default function DynamicPage() {
   const isPublicPage = layoutType === 'public';
   const isLoggedIn = !!memberInfo;
 
-  // Signal to Layout whether to use public layout (no sidebar)
-  // - Default to public layout while loading (before we know the page type)
-  // - Public pages: Always use public layout, even for logged-in users
-  // - Hybrid pages: Use public layout for guests, portal layout for logged-in users
-  // - Member pages: Always use portal layout (with sidebar)
-  // - Dynamic article routes: Use portal layout (except PublicArticles)
-  useLayoutEffect(() => {
-    setChromeReady(false);
-    return () => {
-      setChromeReady(true);
-      setForceBlankLayout(false);
-    };
-  }, [slug, setChromeReady, setForceBlankLayout]);
-
-  useLayoutEffect(() => {
-    // Dynamic article routes bypass the page-data query entirely, so we need
-    // to release the chrome gate as soon as the route is resolved — otherwise
-    // Layout keeps the children wrapped in `visibility: hidden` forever.
-    if (dynamicArticleRoute) {
-      // Article routes always show full chrome — resolve before opening the gate.
-      setPublicChrome('both');
-      setChromeReady(true);
-      return () => {
-        setPublicChrome('both');
-      };
-    }
-    if (pageLoading) return;
-    // Release the chrome gate as soon as the page query has resolved, even
-    // when no page was found. Otherwise the not-found / unpublished /
-    // member-only / error branches below render inside Layout's
-    // `visibility: hidden` wrapper and the user sees a blank screen.
-    if (page?.hide_chrome) {
-      setForcePublicLayout(false);
-      setForceBlankLayout(true);
-      setChromeReady(true);
-      return () => {
-        setPublicChrome('both');
-      };
-    }
-    // Resolve the per-page chrome value *synchronously* before opening the
-    // gate so PublicLayout never paints header/footer with the stale default
-    // ('both') and then hides them — that one-frame mismatch causes the
-    // visible flicker on hide-chrome Canvas pages.
-    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
-    setPublicChrome(shouldForcePublic ? (page?.public_chrome || 'both') : 'both');
-    setChromeReady(true);
-    return () => {
-      setPublicChrome('both');
-    };
-  }, [page, pageLoading, dynamicArticleRoute, forcePublicPreview, isPublicPage, isHybridPage, isLoggedIn, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
-
   // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
-  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
-    queryKey: ['redirect-resolve', slug],
+  const shouldCheckRedirect = routePrerequisitesReady && pageFetched && !pageFetching && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
+  const { data: redirectResult, isLoading: redirectLoading, isError: redirectError } = useQuery({
+    queryKey: ['redirect-resolve', branding?.id, slug],
     queryFn: async () => {
       const currentPath = '/' + slug;
       const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
@@ -472,7 +433,8 @@ export default function DynamicPage() {
       return response.json();
     },
     enabled: shouldCheckRedirect,
-    staleTime: 60000
+    staleTime: 60000,
+    retry: false,
   });
 
   // Task #2785: form fallback — when the page lookup AND redirect lookup both
@@ -480,9 +442,9 @@ export default function DynamicPage() {
   // form matches the slug. If so we render the FormView experience at the
   // pretty URL (/{form-slug}) instead of the not-found screen.
   const redirectMissed = shouldCheckRedirect &&
-    redirectResult !== undefined && !redirectLoading && !redirectResult?.found;
+    (redirectResult !== undefined || redirectError) && !redirectLoading && !redirectResult?.found;
   const { data: fallbackForm, isLoading: formFallbackLoading, isFetched: formFallbackFetched } = useQuery({
-    queryKey: ['public-form-by-slug', slug, !!memberInfo],
+    queryKey: ['public-form-by-slug', branding?.id, slug, pageAudience, memberInfo?.id],
     queryFn: async () => {
       try {
         const form = await publicClient.getForm(slug, { authenticated: !!memberInfo });
@@ -505,48 +467,26 @@ export default function DynamicPage() {
   const formFallbackPending = redirectMissed && (!formFallbackFetched || formFallbackLoading);
   const hasFormFallback = redirectMissed && !!fallbackForm;
 
-  useEffect(() => {
-    if (page?.hide_chrome) return;
-
-    if (dynamicArticleRoute) {
-      const isPublicArticleRoute = dynamicArticleRoute.component === 'PublicArticles';
-      // Force public layout for the explicit PublicArticles route, OR for any
-      // dynamic article route when the visitor is not logged in. The Articles
-      // component supports guests internally via publicClient; we just need
-      // the public chrome (no portal sidebar) to wrap it.
-      setForcePublicLayout(isPublicArticleRoute || !isLoggedIn);
-      // Article routes always show the full public chrome. Reset explicitly so
-      // a per-page chrome choice from a previously viewed page cannot leak in.
-      setPublicChrome('both');
-      return () => {
-        setForcePublicLayout(false);
-        setPublicChrome('both');
-      };
-    }
-
-    if (pageLoading || !page) {
-      // Task #2785: when the slug resolved to a form fallback, mirror the
-      // hybrid /FormView behaviour — public chrome for guests, portal chrome
-      // for logged-in members. (Blank-layout forms override both via
-      // forceBlankLayout, set inside FormView itself.)
-      setForcePublicLayout(hasFormFallback ? !isLoggedIn : true);
-      return;
-    }
-
-    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
-    setForcePublicLayout(shouldForcePublic);
-    // When this page renders with the public layout, honour its per-page
-    // header/footer choice. Reset to 'both' on cleanup so it never leaks to
-    // the next page.
-    if (shouldForcePublic) {
-      setPublicChrome(page.public_chrome || 'both');
-    }
-
-    return () => {
-      setForcePublicLayout(false);
-      setPublicChrome('both');
-    };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute, hasFormFallback]);
+  const unknownMicrosite = isMicrositeRoute && micrositesLoaded && !micrositeMatch;
+  const terminalPage = pageFetched && !pageFetching;
+  const fallbackSettled = !shouldCheckRedirect || (
+    redirectMissed && formFallbackFetched && !formFallbackLoading
+  );
+  const decisionReady = routePrerequisitesReady && (
+    !!routeMetadataError || !!dynamicArticleRoute || unknownMicrosite || (terminalPage && (!!page || fallbackSettled))
+  );
+  const shouldForcePublic = dynamicArticleRoute
+    ? dynamicArticleRoute.component === 'PublicArticles' || !isLoggedIn
+    : page ? (forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn))
+      : hasFormFallback ? !isLoggedIn : true;
+  usePageLayoutDecision(decisionReady ? {
+    forcePublicLayout: shouldForcePublic,
+    forceBlankLayout: !!page?.hide_chrome || !!fallbackForm?.blank_layout,
+    // A missing/error response proves no chrome settings. Render its message,
+    // not a default header/footer; forms/articles have an explicit policy.
+    publicChrome: routeMetadataError || fallbackForm?.__access ? 'none' : dynamicArticleRoute || hasFormFallback ? 'both'
+      : page ? (page.public_chrome || 'both') : 'none',
+  } : null);
 
   // Handle 404 - check redirect mappings first, then fall back to default behavior
   // We need to wait for access state to be determined:
@@ -559,7 +499,7 @@ export default function DynamicPage() {
   // - If we should check redirects, wait for the result to be defined (not just not loading)
   // - If we shouldn't check redirects, consider it complete
   const redirectCheckComplete = shouldCheckRedirect 
-    ? (redirectResult !== undefined && !redirectLoading)
+    ? ((redirectResult !== undefined || redirectError) && !redirectLoading)
     : true;
   
   useEffect(() => {
@@ -593,6 +533,18 @@ export default function DynamicPage() {
   console.log('[DynamicPage] dynamicArticleRoute:', dynamicArticleRoute);
   console.log('[DynamicPage] mySlug:', mySlug, 'isCustomSlug:', isCustomSlug);
 
+  if (routeMetadataError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" role="alert">
+        <div>
+          <h1 className="text-2xl font-bold mb-4">Page unavailable</h1>
+          <p>We couldn't load the site settings. Please refresh and try again.</p>
+          <a href="/">Go to homepage</a>
+        </div>
+      </div>
+    );
+  }
+
   if (dynamicArticleRoute) {
     console.log('[DynamicPage] Rendering component:', dynamicArticleRoute.component);
     let routeEl = null;
@@ -621,7 +573,7 @@ export default function DynamicPage() {
 
   // Task #2426: microsite route gating. Wait for the microsites list, then
   // treat an unknown prefix as a plain 404 (same as the old catch-all).
-  if (isMicrositeRoute && !micrositesLoaded) {
+  if (!routePrerequisitesReady) {
     return (
       <div className="min-h-screen" data-testid="loading-microsite" aria-busy="true">
         <div className="sr-only">Loading content</div>
@@ -707,7 +659,7 @@ export default function DynamicPage() {
     );
   }
 
-  if (isMemberPage && !isAccessReady) {
+  if (isMemberPage && isLoggedIn && !isAccessReady) {
     return (
       <div className="min-h-screen" data-testid="loading-access-check" aria-busy="true">
         <div className="sr-only">Loading content</div>

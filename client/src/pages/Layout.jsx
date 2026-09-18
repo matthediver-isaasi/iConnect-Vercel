@@ -1758,6 +1758,7 @@ useEffect(() => {
     forcePublicLayout,
     forceBlankLayout,
     chromeReady,
+    pageOwned,
     authResolved,
     sessionValidated,
   } = useLayoutContext();
@@ -2555,7 +2556,7 @@ useEffect(() => {
   ) : null;
 
   // Render blank layout when forced (e.g., form with blank_layout option)
-  if (forceBlankLayout) {
+  if (forceBlankLayout && !pageOwned) {
     return <>{children}</>;
   }
 
@@ -2566,13 +2567,13 @@ useEffect(() => {
     // resolves page chrome. Toggling between a hidden div and PublicLayout
     // remounted the form subtree when chromeReady changed, which could reset
     // an iframe/return screen even though the route had not changed.
-    const publicVisibility = { visibility: chromeReady ? 'visible' : 'hidden' };
+    const publicVisibility = {};
     if (bareLayoutPages.includes(currentPageName)) {
       return (
         <div style={publicVisibility}>
           <BarePublicLayout>
             {children}
-            {chromeReady ? inboxUnreadPopupElement : null}
+            {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
           </BarePublicLayout>
         </div>
       );
@@ -2581,7 +2582,7 @@ useEffect(() => {
       <div style={publicVisibility}>
         <PublicLayout currentPageName={effectivePageName}>
           {children}
-          {chromeReady ? inboxUnreadPopupElement : null}
+          {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
         </PublicLayout>
       </div>
     );
@@ -3323,7 +3324,7 @@ useEffect(() => {
         </>
       )}
 
-      {chromeReady ? inboxUnreadPopupElement : null}
+      {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
     </div>
   );
 }
