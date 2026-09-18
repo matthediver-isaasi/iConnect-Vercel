@@ -42,6 +42,7 @@ import { resolveDdEmailRecipients } from './gocardlessDdEmails.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
+import { renewalRows } from './membershipRenewalBudget.js';
 import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
 import {
   monthlySnapshotCommitment, monthlyRenewalIdentity, simulateMonthlySuccessor,
@@ -131,6 +132,7 @@ export async function sendCardRenewalEmail(eventKey, agreement, { db = supabase,
     }
     return sentAny ? { sent: true } : { sent: false, reason: lastError || 'send failed' };
   } catch (err) {
+    if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
     console.error(`[Card Renewals] ${eventKey} failed for agreement ${agreement?.id}:`, err.message);
     return { sent: false, reason: err.message };
   }
@@ -310,6 +312,7 @@ export async function findReusableCardPaymentMethod({ stripe, previousAgreement 
     if (!paymentMethodId) return null;
     return { customerId, paymentMethodId };
   } catch (err) {
+    if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
     console.warn('[Card Renewals] customer/payment-method lookup failed:', err.message);
     return null;
   }
@@ -455,6 +458,7 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
       { idempotencyKey: `card-renew-sub:${tenantId}:${memberId}:${yearLabel}` },
     );
   } catch (err) {
+    if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
     console.error(`[Card Renewals] off-session subscription failed for member ${memberId}:`, err.message);
     if (rollingReservation) throw err;
     return { renewed: false, failed: true, detail: `card charge setup failed: ${err.message}` };
@@ -584,19 +588,20 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
   const db = d.db;
   const today = d.now();
   results.details = results.details || [];
+  const control = results.__renewalControl;
+  const agreementQuery = () => db.from('membership_billing_agreements')
+    .select('*').eq('tenant_id', tenantId).eq('agreement_type', 'member')
+    .not('member_id', 'is', null).eq('metadata->card->>kind', CARD_PLAN_KIND);
 
-  const { data: agreements, error } = await db
-    .from('membership_billing_agreements')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('agreement_type', 'member')
-    .not('member_id', 'is', null)
-    .eq('metadata->card->>kind', CARD_PLAN_KIND);
+  const { data: agreements, error } = control
+    ? { data: [], error: null }
+    : await agreementQuery();
   if (error) {
+    results.errors = (results.errors || 0) + 1;
     results.details.push({ tenantId, step: 'card-renewals', status: 'error', reason: error.message });
     return;
   }
-  if (!agreements?.length) return;
+  if (!control && !agreements?.length) return;
 
   // Only consider the latest agreement per member (earlier years superseded).
   const latestByMember = new Map();
@@ -607,11 +612,24 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
   }
 
   // Paused members are excluded from renewal processing (parity with DD).
-  const pausedMemberIds = await getPausedMemberIdSet(tenantId, db);
+  const pausedMemberIds = control ? null : await getPausedMemberIdSet(tenantId, db);
 
-  for (const agreement of latestByMember.values()) {
+  const candidates = control
+    ? renewalRows(agreementQuery, { control, results })
+    : latestByMember.values();
+  for await (const agreement of candidates) {
     try {
-      if (pausedMemberIds.has(agreement.member_id)) {
+      if (control) {
+        if (agreement.metadata?.renewal_setup_pending) continue;
+        const { data: latest, error: latestError } = await agreementQuery()
+          .eq('member_id', agreement.member_id)
+          .or('metadata->>renewal_setup_pending.is.null,metadata->>renewal_setup_pending.eq.false')
+          .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
+        if (latestError) throw new Error(`Could not check latest card agreement: ${latestError.message}`);
+        if (latest?.[0]?.id !== agreement.id) continue;
+      }
+      const paused = pausedMemberIds || await getPausedMemberIdSet(tenantId, db, [agreement.member_id]);
+      if (paused.has(agreement.member_id)) {
         results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'skipped', reason: 'Membership paused' });
         continue;
       }
@@ -620,12 +638,13 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
       const window = computeRenewalWindow(snapshot);
       if (!window || today < window.noticeDate) continue;
 
-      const { data: plans } = await db
+      const { data: plans, error: planError } = await db
         .from('membership_payment_plans')
         .select('id, status')
         .eq('billing_agreement_id', agreement.id)
         .order('created_at', { ascending: false })
         .limit(1);
+      if (planError) throw new Error(`Could not load card payment plan: ${planError.message}`);
       const planStatus = plans?.[0]?.status || null;
       if (!plans?.[0]?.id) {
         results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'blocked', reason: 'missing payment plan' });
@@ -634,27 +653,30 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
       try {
         await assertNoOpenMonthlyArrears({ tenantId, planId: plans[0].id, db });
       } catch (arrearsErr) {
+        if (arrearsErr.code === 'RENEWAL_BUDGET_EXHAUSTED') throw arrearsErr;
         results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'blocked', reason: arrearsErr.message });
         continue;
       }
 
       const renewalYear = monthlyRenewalIdentity(snapshot) || deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 
-      const { data: renewalRow } = await db
+      const { data: renewalRow, error: renewalError } = await db
         .from('membership_dd_renewals')
         .select('*')
         .eq('previous_agreement_id', agreement.id)
         .eq('renewal_year', renewalYear)
         .maybeSingle();
+      if (renewalError) throw new Error(`Could not check card renewal: ${renewalError.message}`);
 
       // Renewal year already recorded via a different payment method?
-      const { data: nextYearRows } = await db
+      const { data: nextYearRows, error: historyError } = await db
         .from('member_membership_history')
         .select('id, payment_method, billing_agreement_id')
         .eq('tenant_id', tenantId)
         .eq('member_id', agreement.member_id)
         .eq('membership_year', renewalYear)
         .limit(1);
+      if (historyError) throw new Error(`Could not check card renewal history: ${historyError.message}`);
       const nextRecord = nextYearRows?.[0] || null;
       const hasNextYearRecord = !!nextRecord && nextRecord.payment_method !== 'card_monthly';
 
@@ -728,6 +750,7 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
         if (outcome.renewed) {
           results.cardRenewed = (results.cardRenewed || 0) + 1;
         } else if (outcome.failed) {
+          results.errors = (results.errors || 0) + 1;
           // Hard failure (unusable card): record it on the renewal row so it
           // surfaces on the admin renewals ledger, and tell the member.
           await upsertRenewalRow(db, {
@@ -750,7 +773,9 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
       }
       results.cardRenewalsProcessed = (results.cardRenewalsProcessed || 0) + 1;
     } catch (err) {
+      if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
       console.error(`[Card Renewals] tenant ${tenantId} agreement ${agreement.id} failed:`, err.message);
+      results.errors = (results.errors || 0) + 1;
       results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'error', reason: err.message });
     }
   }

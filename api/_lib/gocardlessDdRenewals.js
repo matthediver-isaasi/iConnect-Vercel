@@ -37,6 +37,7 @@ import {
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
+import { renewalRows } from './membershipRenewalBudget.js';
 import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
 import {
   monthlySnapshotCommitment, monthlyRenewalIdentity, simulateMonthlySuccessor,
@@ -332,19 +333,20 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
   const db = d.db;
   const today = d.now();
   results.details = results.details || [];
+  const control = results.__renewalControl;
+  const agreementQuery = () => db.from('membership_billing_agreements')
+    .select('*').eq('tenant_id', tenantId).eq('agreement_type', 'member')
+    .not('member_id', 'is', null).eq('metadata->dd->>kind', 'monthly_direct_debit');
 
-  const { data: agreements, error } = await db
-    .from('membership_billing_agreements')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('agreement_type', 'member')
-    .not('member_id', 'is', null)
-    .eq('metadata->dd->>kind', 'monthly_direct_debit');
+  const { data: agreements, error } = control
+    ? { data: [], error: null }
+    : await agreementQuery();
   if (error) {
+    results.errors = (results.errors || 0) + 1;
     results.details.push({ tenantId, step: 'dd-renewals', status: 'error', reason: error.message });
     return;
   }
-  if (!agreements?.length) return;
+  if (!control && !agreements?.length) return;
 
   // Only consider the latest agreement per member (earlier years superseded).
   const latestByMember = new Map();
@@ -355,11 +357,26 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
   }
 
   // Task #3586: paused members are excluded from DD renewal processing.
-  const pausedMemberIds = await getPausedMemberIdSet(tenantId, db);
+  const pausedMemberIds = control ? null : await getPausedMemberIdSet(tenantId, db);
 
-  for (const agreement of latestByMember.values()) {
+  const candidates = control
+    ? renewalRows(agreementQuery, { control, results })
+    : latestByMember.values();
+  for await (const agreement of candidates) {
     try {
-      if (pausedMemberIds.has(agreement.member_id)) {
+      if (control) {
+        if (agreement.metadata?.renewal_setup_pending) continue;
+        // A page must not redefine "latest": an older agreement's successor may
+        // be on another page. Resolve against the whole tenant/member scope.
+        const { data: latest, error: latestError } = await agreementQuery()
+          .eq('member_id', agreement.member_id)
+          .or('metadata->>renewal_setup_pending.is.null,metadata->>renewal_setup_pending.eq.false')
+          .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
+        if (latestError) throw new Error(`Could not check latest DD agreement: ${latestError.message}`);
+        if (latest?.[0]?.id !== agreement.id) continue;
+      }
+      const paused = pausedMemberIds || await getPausedMemberIdSet(tenantId, db, [agreement.member_id]);
+      if (paused.has(agreement.member_id)) {
         results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'skipped', reason: 'Membership paused' });
         continue;
       }
@@ -368,12 +385,13 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
       const window = computeRenewalWindow(snapshot);
       if (!window || today < window.noticeDate) continue;
 
-      const { data: plans } = await db
+      const { data: plans, error: planError } = await db
         .from('membership_payment_plans')
         .select('id, status')
         .eq('billing_agreement_id', agreement.id)
         .order('created_at', { ascending: false })
         .limit(1);
+      if (planError) throw new Error(`Could not load DD payment plan: ${planError.message}`);
       const planStatus = plans?.[0]?.status || null;
       // Fail closed before notices or renewal creation: a query failure and
       // genuine debt are both blockers, never permission to renew.
@@ -384,27 +402,30 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
       try {
         await assertNoOpenMonthlyArrears({ tenantId, planId: plans[0].id, db });
       } catch (arrearsErr) {
+        if (arrearsErr.code === 'RENEWAL_BUDGET_EXHAUSTED') throw arrearsErr;
         results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'blocked', reason: arrearsErr.message });
         continue;
       }
 
       const renewalYear = monthlyRenewalIdentity(snapshot) || deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 
-      const { data: renewalRow } = await db
+      const { data: renewalRow, error: renewalError } = await db
         .from('membership_dd_renewals')
         .select('*')
         .eq('previous_agreement_id', agreement.id)
         .eq('renewal_year', renewalYear)
         .maybeSingle();
+      if (renewalError) throw new Error(`Could not check DD renewal: ${renewalError.message}`);
 
       // Renewal year already recorded via a different payment method?
-      const { data: nextYearRows } = await db
+      const { data: nextYearRows, error: historyError } = await db
         .from('member_membership_history')
         .select('id, payment_method, billing_agreement_id')
         .eq('tenant_id', tenantId)
         .eq('member_id', agreement.member_id)
         .eq('membership_year', renewalYear)
         .limit(1);
+      if (historyError) throw new Error(`Could not check DD renewal history: ${historyError.message}`);
       const nextRecord = nextYearRows?.[0] || null;
       const hasNextYearRecord = !!nextRecord && nextRecord.payment_method !== 'direct_debit';
 
@@ -481,7 +502,9 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
       }
       results.ddRenewalsProcessed = (results.ddRenewalsProcessed || 0) + 1;
     } catch (err) {
+      if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
       console.error(`[DD Renewals] tenant ${tenantId} agreement ${agreement.id} failed:`, err.message);
+      results.errors = (results.errors || 0) + 1;
       results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'error', reason: err.message });
     }
   }

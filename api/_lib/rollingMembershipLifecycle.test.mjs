@@ -23,7 +23,7 @@ before(async () => {
   await mkdir(path.join(temporaryRoot, 'shared'));
   await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'));
-  for (const file of ['membershipSimulation.js', 'membershipConfigResolver.js', 'membershipYear.js', 'membershipReminders.js', 'annualRenewalPolicy.js', 'annualMembershipExpiryEnforcement.js']) {
+  for (const file of ['membershipSimulation.js', 'membershipConfigResolver.js', 'membershipYear.js', 'membershipReminders.js', 'membershipRenewalBudget.js', 'annualRenewalPolicy.js', 'annualMembershipExpiryEnforcement.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   const stubs = {

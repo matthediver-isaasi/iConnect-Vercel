@@ -50,6 +50,95 @@ the final successful ping from the active window rather than requiring a
 backup to start from scratch on every invocation. A runner failure or a
 meaningful partial backup error sends the `/fail` heartbeat.
 
+### Membership-renewal continuation outcomes
+
+The membership-renewal worker uses a durable global lease and bounded
+continuation. Its outcome mapping differs deliberately from backup lock
+semantics:
+
+| Renewal outcome | Heartbeat behaviour | Reason |
+|---|---|---|
+| `completed` | Normal success URL | All selected work completed without errors. |
+| `deferred` | Normal success URL | Safe progress was checkpointed and remaining work is expected to resume later. |
+| `failed` | `/fail` URL | Attempted work, state persistence, finalisation, or another real operation failed. |
+| `stalled` | `/fail` URL | Pause, billing, or expiry hit three consecutive budget deferrals without the progress required for that stage. |
+| `busy` | No heartbeat from the competing invocation | It does not own the work and cannot prove that the lease owner is healthy. |
+
+Structured renewal logs contain `job`, `owner`, `stage`, `event`,
+`elapsed_ms`, and stage `duration_ms`, with expiry progress including tenant,
+cursor, examined, and enforced counts. The corresponding
+`scheduled_task_log.details` records the truthful outcome, billing stage, and
+progress. A `deferred` result is therefore observable pending work, not a
+silent success; `failed` and `stalled` must never be relabelled as deferral.
+
+Tenant discovery is itself resumable: it runs for up to three seconds, saves
+`discoveryOffset`, and reuses a cached tenant registry so known tenants continue
+to receive work while a large directory is still being paged. Expiry database
+reads use a two-second actual abort-and-await deadline, capped by remaining
+slice time. A cooperative boundary before starting more work is a healthy
+partial `deferred` result; an aborted/failed read is a true unhealthy error.
+
+No-progress detection covers all bounded work: three consecutive pause
+deferrals without cursor movement, billing deferrals without stage/cursor
+movement, or incomplete expiry slices with no examined/enforced rows produce
+`stalled`.
+
+The runner's 48-second work boundary leaves finalisation time under Vercel's
+60-second ceiling. Completion logs are inserted in batches of 200; no new batch
+starts after 54 seconds, and unwritten logs make the result unhealthy. The
+global lease lasts 120 seconds and is not renewed, so a second invocation can
+be `busy` even after the owner has returned. Keep the suggested 90-minute
+monitor grace: the next hourly owner run can provide the next conclusive
+heartbeat.
+
+The time boundaries are cooperative for provider rows, not a hard end-to-end
+guarantee. A started Stripe request has an 80-second default timeout and two
+network retries; GoCardless has a 15-second per-request timeout that does not
+include response-body parsing; Mailgun has a 15-second socket/response timeout.
+A row already in progress can therefore overrun the renewal stage boundary.
+The runner never reports such work as cancelled merely because its local
+budget elapsed.
+
+**Deployment note:** the continuation and expiry-journal migrations must be
+approved and applied before deploying the bounded handler. They have not been
+applied to production merely by adding the application code or this guide.
+
+After an approved release, verify using naturally scheduled hourly runs rather
+than manually triggering live renewal effects:
+
+1. Confirm the endpoint has no HTTP 504 in Vercel's scheduled request records.
+2. Confirm structured stage timing and expiry progress advance in application
+   logs, including advancing `nextOffset` when discovery defers.
+3. Read `scheduled_task_log` and confirm the billing stage plus
+   `completed`/`deferred`/`failed`/`stalled` outcome.
+4. Confirm the corresponding success or failure delivery in Better Stack.
+5. Treat a `busy` invocation as inconclusive and correlate it with the owner
+   UUID; do not expect a second heartbeat from the competitor.
+6. Treat expiry read aborts and missing completion-log batches as failures, not
+   expected partial-budget deferrals.
+
+Read-only database verification:
+
+```sql
+SELECT executed_at, tenant_id, status,
+       details::jsonb->>'outcome' AS outcome,
+       details::jsonb->>'duration_ms' AS duration_ms,
+       details::jsonb->'billing' AS billing,
+       details::jsonb->'progress' AS progress
+FROM public.scheduled_task_log
+WHERE task_name = 'membership_renewals'
+ORDER BY executed_at DESC
+LIMIT 100;
+
+SELECT owner, lease_until, updated_at, state
+FROM public.membership_renewal_cron_state
+WHERE singleton = true;
+```
+
+These queries do not prove heartbeat delivery; verify delivery in Better Stack.
+See `guides/membership-renewals-continuation.md` for deployment order,
+safeguards, and the complete verification runbook.
+
 ## Complete production cron inventory
 
 The table below is the complete 30-schedule inventory in `vercel.json`.

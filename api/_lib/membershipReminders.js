@@ -4,8 +4,36 @@ import { sendTenantEmail } from './tenantEmailService.js';
 import { replacePlaceholders } from './emailService.js';
 import { buildInboxDelivery, recordTransactionalInboxMessage, resolveCommunicationCategoryIdForLabel } from './transactionalInbox.js';
 import { getPausedMemberIdSet } from './memberPause.js';
+import { assertRenewalBudget, renewalRows } from './membershipRenewalBudget.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+// A reminder stage has several independently paged streams. Keep their cursors
+// together so a later config/member resumes without replaying earlier scopes.
+async function* reminderRows(queryFactory, results, stream) {
+  const control = results?.__renewalControl;
+  if (!control) {
+    const { data, error } = await queryFactory();
+    if (error) throw new Error(`Could not load reminder candidates: ${error.message}`);
+    yield* data || [];
+    return;
+  }
+  if (control.cursor?.[stream] === true) return;
+  const save = async value => {
+    const next = { ...(control.cursor || {}), [stream]: value };
+    await control.checkpoint(next);
+    control.cursor = next;
+  };
+  yield* renewalRows(queryFactory, {
+    results,
+    control: {
+      cursor: control.cursor?.[stream] || null,
+      shouldContinue: control.shouldContinue,
+      checkpoint: save,
+    },
+  });
+  await save(true);
+}
 
 export function rollingReminderSendDate(renewalDate, reminder) {
   const date = new Date(`${String(renewalDate).slice(0, 10)}T00:00:00.000Z`);
@@ -57,15 +85,25 @@ export function rollingReminderCandidates(histories, today) {
 }
 
 async function processRollingReminders(tenantId, results, today) {
-  const paused = await getPausedMemberIdSet(tenantId);
+  const paused = results?.__renewalControl ? null : await getPausedMemberIdSet(tenantId);
   for (const scope of ['member', 'organization']) {
     const memberScope = scope === 'member';
     const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
-    const { data: histories, error } = await supabase.from(table).select('*')
-      .eq('tenant_id', tenantId).not('term_key', 'is', null);
-    if (error) throw new Error(`Could not load rolling reminder terms: ${error.message}`);
-    for (const history of rollingReminderCandidates(histories, today)) {
-      if (memberScope && paused.has(history.member_id)) continue;
+    const histories = reminderRows(() => supabase.from(table).select('*')
+      .eq('tenant_id', tenantId).not('term_key', 'is', null), results, `rolling:${scope}`);
+    for await (const history of histories) {
+      if (!rollingReminderCandidates([history], today).length) continue;
+      if (memberScope && (paused || await getPausedMemberIdSet(tenantId, supabase, [history.member_id])).has(history.member_id)) continue;
+      // Successors may be beyond this page. A tenant/owner-scoped existence
+      // query preserves suppression without loading all purchased histories.
+      const { data: renewed, error: renewedError } = await supabase.from(table).select('id')
+        .eq('tenant_id', tenantId)
+        .eq(memberScope ? 'member_id' : 'organization_id', memberScope ? history.member_id : history.organization_id)
+        .neq('id', history.id).gte('term_start_date', history.membership_renewal_date)
+        .not('status', 'in', '(cancelled,void)')
+        .or('payment_status.eq.paid,paid_at.not.is.null').limit(1);
+      if (renewedError) throw new Error(`Could not check renewed reminder term: ${renewedError.message}`);
+      if (renewed?.length) continue;
       const { data: owner, error: ownerError } = await supabase.from(memberScope ? 'member' : 'organization')
         .select(memberScope ? 'id, email, first_name, last_name, name, role_id' : 'id, name')
         .eq('tenant_id', tenantId).eq('id', memberScope ? history.member_id : history.organization_id).maybeSingle();
@@ -74,11 +112,16 @@ async function processRollingReminders(tenantId, results, today) {
       const reminders = await loadActiveReminders(tenantId, history.config_id);
       const renewalDate = new Date(`${history.membership_renewal_date}T00:00:00.000Z`);
       for (const reminder of reminders) {
+        assertRenewalBudget(results?.__renewalControl);
         if (rollingReminderSendDate(history.membership_renewal_date, reminder) > today) continue;
         const roles = reminder.recipient_role_ids || [];
-        const recipients = memberScope
+        let recipients = memberScope
           ? (owner.email && (!roles.length || roles.includes(owner.role_id)) ? [owner] : [])
-          : (await resolveOrgRecipients(tenantId, owner.id, roles)).filter(member => !paused.has(member.id));
+          : await resolveOrgRecipients(tenantId, owner.id, roles);
+        if (!memberScope && recipients.length) {
+          const recipientPauses = paused || await getPausedMemberIdSet(tenantId, supabase, recipients.map(member => member.id));
+          recipients = recipients.filter(member => !recipientPauses.has(member.id));
+        }
         if (!recipients.length) continue;
         const template = await loadTemplate(tenantId, reminder.email_template_id);
         if (!template) continue;
@@ -109,6 +152,7 @@ async function processRollingReminders(tenantId, results, today) {
             });
           }
         } catch (error) {
+          if (error.code === 'RENEWAL_BUDGET_EXHAUSTED') throw error;
           status = 'error';
           sendError = error.message;
         }
@@ -168,32 +212,33 @@ async function loadActiveReminders(tenantId, configId) {
 
   if (error) {
     if (error.code === '42P01') return [];
-    console.error('[membershipReminders] Error loading reminders:', error.message);
-    return [];
+    throw new Error(`Could not load active reminders: ${error.message}`);
   }
   return data || [];
 }
 
 async function loadTemplate(tenantId, templateId) {
   if (!templateId) return null;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('email_template')
     .select('id, subject, body, is_active')
     .eq('id', templateId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
+  if (error) throw new Error(`Could not load reminder template: ${error.message}`);
   if (!data || data.is_active === false) return null;
   return data;
 }
 
 async function resolveOrgRecipients(tenantId, organizationId, roleIds) {
   if (!Array.isArray(roleIds) || roleIds.length === 0) return [];
-  const { data: members } = await supabase
+  const { data: members, error } = await supabase
     .from('member')
     .select('id, email, first_name, last_name, name, role_id')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .in('role_id', roleIds);
+  if (error) throw new Error(`Could not load reminder recipients: ${error.message}`);
   return (members || []).filter(m => m.email);
 }
 
@@ -234,15 +279,14 @@ async function alreadySent({ reminderId, membershipYear, organizationId = null, 
   if (memberId) query = query.eq('member_id', memberId);
   const { data, error } = await query;
   if (error) {
-    if (error.code === '42P01') return false;
-    return false;
+    throw new Error(`Could not check reminder delivery: ${error.message}`);
   }
   return (data || []).length > 0;
 }
 
 async function logSend({ tenantId, reminderId, membershipYear, scopeType, organizationId = null, memberId = null, recipientEmail, status, error = null }) {
   try {
-    await supabase
+    const { error: insertError } = await supabase
       .from('membership_tier_reminder_send')
       .insert({
         tenant_id: tenantId,
@@ -255,8 +299,10 @@ async function logSend({ tenantId, reminderId, membershipYear, scopeType, organi
         status,
         error,
       });
+    if (insertError) throw new Error(insertError.message);
   } catch (err) {
     console.error('[membershipReminders] Failed to log send:', err.message);
+    throw err;
   }
 }
 
@@ -271,15 +317,13 @@ export async function processTenantReminders(tenantId, results) {
   const today = toMidnight(new Date());
   await processRollingReminders(tenantId, results, new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`));
 
-  const { data: configs, error: cfgErr } = await supabase
+  const configs = reminderRows(() => supabase
     .from('membership_tier_config')
     .select('id, structure_scope_type, name, start_mode')
     .eq('tenant_id', tenantId)
-    .is('effective_to', null);
+    .is('effective_to', null), results, 'configs');
 
-  if (cfgErr || !configs || configs.length === 0) return;
-
-  for (const config of configs) {
+  for await (const config of configs) {
     // Rolling reminders above only use purchased terms, including retired
     // structures. Never bootstrap an unknown legacy anniversary by simulation.
     if (config.start_mode === 'immediate') continue;
@@ -288,7 +332,7 @@ export async function processTenantReminders(tenantId, results) {
       reminders = await loadActiveReminders(tenantId, config.id);
     } catch (err) {
       console.error(`[membershipReminders] Load reminders failed for config ${config.id}:`, err.message);
-      continue;
+      throw err;
     }
     if (!reminders || reminders.length === 0) continue;
 
@@ -303,14 +347,12 @@ export async function processTenantReminders(tenantId, results) {
 }
 
 async function processOrgConfigReminders(tenantId, config, reminders, today, results) {
-  const { data: orgs } = await supabase
+  const orgs = reminderRows(() => supabase
     .from('organization')
     .select('id, name')
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId), results, `fixed:${config.id}`);
 
-  if (!orgs || orgs.length === 0) return;
-
-  for (const org of orgs) {
+  for await (const org of orgs) {
     let simResult;
     try {
       simResult = await simulateMembershipForOrg(tenantId, org.id, {
@@ -319,7 +361,8 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
         configId: config.id,
       });
     } catch (err) {
-      continue;
+      if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
+      throw new Error(`Could not simulate organization reminder: ${err.message}`);
     }
     if (!simResult?.success || !simResult.membershipYear) continue;
     if (simResult.config?.id !== config.id) continue;
@@ -328,6 +371,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
     const renewalDate = toMidnight(membershipYear.start);
 
     for (const reminder of reminders) {
+      assertRenewalBudget(results?.__renewalControl);
       const sendDate = computeSendDate(renewalDate, reminder);
       if (sendDate > today) continue;
 
@@ -421,6 +465,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
         }
         console.log(`[membershipReminders] Sent reminder ${reminder.id} to ${toAddresses.length} recipients for org ${org.name} (${yearLabel})`);
       } catch (err) {
+        if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
         await logSend({
           tenantId,
           reminderId: reminder.id,
@@ -449,20 +494,18 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
 }
 
 async function processMemberConfigReminders(tenantId, config, reminders, today, results) {
-  const { data: members } = await supabase
+  const members = reminderRows(() => supabase
     .from('member')
     .select('id, email, first_name, last_name, name, role_id')
     .eq('tenant_id', tenantId)
-    .is('organization_id', null);
-
-  if (!members || members.length === 0) return;
+    .is('organization_id', null), results, `fixed:${config.id}`);
 
   // Task #3586: paused members receive no payment reminders.
-  const pausedMemberIds = await getPausedMemberIdSet(tenantId);
+  const pausedMemberIds = results?.__renewalControl ? null : await getPausedMemberIdSet(tenantId);
 
-  for (const member of members) {
+  for await (const member of members) {
     if (!member.email) continue;
-    if (pausedMemberIds.has(member.id)) continue;
+    if ((pausedMemberIds || await getPausedMemberIdSet(tenantId, supabase, [member.id])).has(member.id)) continue;
 
     let simResult;
     try {
@@ -472,7 +515,8 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
         configId: config.id,
       });
     } catch (err) {
-      continue;
+      if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
+      throw new Error(`Could not simulate member reminder: ${err.message}`);
     }
     if (!simResult?.success || !simResult.membershipYear) continue;
     if (simResult.config?.id !== config.id) continue;
@@ -481,6 +525,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
     const renewalDate = toMidnight(membershipYear.start);
 
     for (const reminder of reminders) {
+      assertRenewalBudget(results?.__renewalControl);
       const roleIds = reminder.recipient_role_ids || [];
       if (roleIds.length > 0 && !roleIds.includes(member.role_id)) continue;
 
@@ -561,6 +606,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
         }
         console.log(`[membershipReminders] Sent reminder ${reminder.id} to member ${memberName} (${yearLabel})`);
       } catch (err) {
+        if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
         await logSend({
           tenantId,
           reminderId: reminder.id,

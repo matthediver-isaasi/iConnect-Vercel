@@ -53,9 +53,13 @@ function fakeDb(result) {
   return {
     from() {
       const chain = {
+        after: null,
         select() { return chain; },
         eq() { return chain; },
-        then(resolve) { resolve(result); },
+        order() { return chain; },
+        limit() { return chain; },
+        gt(_key, value) { chain.after = value; return chain; },
+        then(resolve) { resolve(chain.after ? { ...result, data: [] } : result); },
       };
       return chain;
     },
@@ -72,6 +76,12 @@ test('getPausedMemberIdSet fails open to empty set on missing column (42703)', a
   const db = fakeDb({ data: null, error: { code: '42703', message: 'column does not exist' } });
   const set = await getPausedMemberIdSet('t1', db);
   assert.equal(set.size, 0);
+});
+
+test('getPausedMemberIdSet fails closed on a real query failure', async () => {
+  await assert.rejects(getPausedMemberIdSet('t1', fakeDb({
+    data: null, error: { code: '08006', message: 'connection lost' },
+  })), /Could not check paused memberships/);
 });
 
 // ---------------------------------------------------------------------------

@@ -37,3 +37,9 @@ An unstarted stage deferred by its minimum-time reserve is pending work, not a w
 **Why:** A successful paid-application processing stage consumed most of a slice, leaving insufficient reserve for membership and email. The next invocation completed normally, but the first misleadingly reported failures because it tested only deadline expiry. An address-to-completion handoff produced a similar false failure.
 
 **How to apply:** Track explicit budget deferrals separately from attempted-stage errors. Keep partial progress visible without marking the heartbeat unhealthy for a deferral alone; real failures and ambiguous effects must remain failures even when a later stage is deferred.
+
+**Rule:** A between-row deadline is not a bound on a provider request already in progress.
+
+**Why:** Renewal timeout investigation found a payment SDK's default request timeout exceeded the entire serverless invocation limit, with retries extending it further. A promise race would return while side effects continued.
+
+**How to apply:** Validate transport timeout and retry defaults when claiming a hard runtime bound. Abort and await read-only requests; financial writes need provider idempotency and explicit ambiguous-outcome recovery before adding cancellation.

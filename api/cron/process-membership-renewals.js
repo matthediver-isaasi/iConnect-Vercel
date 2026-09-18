@@ -24,6 +24,8 @@ import {
 import { processTenantAnnualExpirySweep } from '../_lib/annualMembershipExpiryEnforcement.js';
 import { annualRecordSchedule, resolveEntityAnnualRenewalEligibility } from '../_lib/annualRenewalPolicy.js';
 import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
+import { runMembershipRenewals } from '../_lib/membershipRenewalRunner.js';
+import { renewalRows } from '../_lib/membershipRenewalBudget.js';
 
 export function buildCronRollingFields(simResult, eligibility, addonTotals = { subtotal: 0, vat: 0, total: 0 }) {
   if (simResult.config?.start_mode !== 'immediate') return {};
@@ -46,7 +48,8 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) return res.status(503).json({ error: 'Cron authentication is not configured' });
+  if (authHeader !== `Bearer ${cronSecret}`) {
     console.log('[cron/process-membership-renewals] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -60,191 +63,25 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Database not configured' });
   }
 
-  const startTime = Date.now();
-  const results = { processed: 0, skipped: 0, errors: 0, details: [] };
-
-  try {
-    // Task #3586: scheduled pause restarts run every hour for ALL tenants
-    // (deliberately outside the per-tenant cron-hour gate so access is
-    // restored on the restart date, not at the tenant's billing hour).
-    try {
-      await processPauseAutoRestarts(results);
-    } catch (pauseErr) {
-      console.error('[cron/process-membership-renewals] Pause auto-restart sweep failed:', pauseErr);
-      results.errors++;
-      results.details.push({ step: 'pause-auto-restart', error: pauseErr.message });
-    }
-
-    const { data: configs, error: configError } = await supabase
-      .from('membership_tier_config')
-      .select('*')
-      .is('effective_to', null);
-
-    if (configError) {
-      console.error('[cron/process-membership-renewals] Error fetching configs:', configError);
-      await reportHeartbeat(false);
-      return res.status(500).json({ error: 'Failed to fetch tier configs' });
-    }
-
-    const tenantIds = [];
-    const currentHourUTC = new Date().getUTCHours();
-
-    if (!configs || configs.length === 0) {
-      console.log('[cron/process-membership-renewals] No active tier configs found');
-    } else {
-      tenantIds.push(...new Set(configs.map(c => c.tenant_id)));
-
-      const { data: cronTimeSettings } = await supabase
-        .from('system_settings')
-        .select('tenant_id, setting_value')
-        .eq('setting_key', 'membership_cron_time')
-        .in('tenant_id', tenantIds);
-
-      const tenantCronHours = {};
-      for (const row of (cronTimeSettings || [])) {
-        const hour = parseInt(row.setting_value?.split(':')[0], 10);
-        tenantCronHours[row.tenant_id] = isNaN(hour) ? 6 : hour;
-      }
-
-      for (const tenantId of tenantIds) {
-        // Annual expiry is deliberately hourly: it is access enforcement, not
-        // an invoice run, and must not be held behind a tenant billing hour.
-        try {
-          await processTenantAnnualExpirySweep(supabase, tenantId, results);
-        } catch (expiryErr) {
-          console.error(`[cron/process-membership-renewals] Annual expiry sweep failed for tenant ${tenantId}:`, expiryErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `Annual expiry sweep: ${expiryErr.message}` });
-        }
-
-        const scheduledHour = tenantCronHours[tenantId] ?? 6;
-        if (scheduledHour !== currentHourUTC) {
-          console.log(`[cron/process-membership-renewals] Skipping tenant ${tenantId} — scheduled for ${String(scheduledHour).padStart(2, '0')}:00 UTC, current hour is ${String(currentHourUTC).padStart(2, '0')}:00 UTC`);
-          continue;
-        }
-
-        try {
-          await activateScheduledRecords(tenantId, results);
-          await activateScheduledMemberRecords(tenantId, results);
-        } catch (activateErr) {
-          console.error(`[cron/process-membership-renewals] Error activating scheduled records for tenant ${tenantId}:`, activateErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `Scheduled activation: ${activateErr.message}` });
-        }
-
-        try {
-          await processTenantRenewals(tenantId, results);
-        } catch (tenantErr) {
-          console.error(`[cron/process-membership-renewals] Error processing tenant ${tenantId}:`, tenantErr);
-          results.errors++;
-          results.details.push({ tenantId, error: tenantErr.message });
-        }
-
-        try {
-          await processTenantMemberRenewals(tenantId, results);
-        } catch (memberErr) {
-          console.error(`[cron/process-membership-renewals] Error processing member renewals for tenant ${tenantId}:`, memberErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `Member renewals: ${memberErr.message}` });
-        }
-
-        try {
-          await processTenantDdRenewals(tenantId, results);
-        } catch (ddErr) {
-          console.error(`[cron/process-membership-renewals] Error processing DD renewals for tenant ${tenantId}:`, ddErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `DD renewals: ${ddErr.message}` });
-        }
-
-        try {
-          await processTenantCardRenewals(tenantId, results);
-        } catch (cardErr) {
-          console.error(`[cron/process-membership-renewals] Error processing card renewals for tenant ${tenantId}:`, cardErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `Card renewals: ${cardErr.message}` });
-        }
-
-        try {
-          await processTenantReminders(tenantId, results);
-        } catch (reminderErr) {
-          console.error(`[cron/process-membership-renewals] Error processing reminders for tenant ${tenantId}:`, reminderErr);
-          results.errors++;
-          results.details.push({ tenantId, error: `Reminders: ${reminderErr.message}` });
-        }
-      }
-    }
-
-    const duration = Date.now() - startTime;
-
-    for (const tenantId of tenantIds) {
-      try {
-        const tenantDetails = results.details.filter(d => d.tenantId === tenantId);
-        const tenantProcessed = tenantDetails.filter(d => d.status === 'processed').length;
-        const tenantSkipped = tenantDetails.filter(d => d.status === 'skipped').length;
-        const tenantErrors = tenantDetails.filter(d => d.status === 'error').length;
-
-        await supabase.from('scheduled_task_log').insert({
-          tenant_id: tenantId,
-          task_name: 'membership_renewals',
-          task_display_name: 'Membership Renewals',
-          status: tenantErrors > 0 ? 'partial' : 'success',
-          details: JSON.stringify({
-            processed: tenantProcessed,
-            skipped: tenantSkipped,
-            errors: tenantErrors,
-            duration_ms: duration,
-            details: tenantDetails,
-          }),
-          executed_at: new Date().toISOString(),
-        });
-      } catch (logErr) {
-        console.error(`[cron/process-membership-renewals] Failed to log for tenant ${tenantId}:`, logErr);
-      }
-    }
-
-    if (tenantIds.length === 0) {
-      try {
-        await supabase.from('scheduled_task_log').insert({
-          tenant_id: null,
-          task_name: 'membership_renewals',
-          task_display_name: 'Membership Renewals',
-          status: 'success',
-          details: JSON.stringify({ message: 'No active tier configs found', duration_ms: duration }),
-          executed_at: new Date().toISOString(),
-        });
-      } catch (logErr) {
-        console.error('[cron/process-membership-renewals] Failed to log:', logErr);
-      }
-    }
-
-    console.log(`[cron/process-membership-renewals] Completed in ${duration}ms. Processed: ${results.processed}, Skipped: ${results.skipped}, Errors: ${results.errors}`);
-
-    await reportHeartbeat(results.errors === 0);
-    return res.json({
-      success: true,
-      duration_ms: duration,
-      results,
-    });
-
-  } catch (error) {
-    console.error('[cron/process-membership-renewals] Fatal error:', error);
-
-    try {
-      await supabase.from('scheduled_task_log').insert({
-        tenant_id: null,
-        task_name: 'membership_renewals',
-        task_display_name: 'Membership Renewals',
-        status: 'error',
-        details: JSON.stringify({ error: error.message }),
-        executed_at: new Date().toISOString(),
-      });
-    } catch (logErr) {
-      console.error('[cron/process-membership-renewals] Failed to log error:', logErr);
-    }
-
-    await reportHeartbeat(false);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const results = await runMembershipRenewals({
+    db: supabase,
+    pause: processPauseAutoRestarts,
+    expiry: processTenantAnnualExpirySweep,
+    stages: [
+      ['organisation-activation', activateScheduledRecords],
+      ['member-activation', activateScheduledMemberRecords],
+      ['organisation-renewals', processTenantRenewals],
+      ['member-renewals', processTenantMemberRenewals],
+      ['direct-debit-renewals', processTenantDdRenewals],
+      ['card-renewals', processTenantCardRenewals],
+      ['reminders', processTenantReminders],
+    ],
+  });
+  const heartbeat = results.heartbeat ? await reportHeartbeat(results.healthy) : { sent: false, reason: 'busy' };
+  console.log(JSON.stringify({ job: 'membership_renewals', stage: 'heartbeat', outcome: results.outcome, ...heartbeat }));
+  return res.status(results.outcome === 'busy' ? 202 : results.healthy ? 200 : 500).json({
+    success: results.healthy, outcome: results.outcome, duration_ms: results.duration_ms, results, heartbeat,
+  });
 }
 
 // Activate advance-invoiced ("Invoice Now") membership records on their normal
@@ -255,22 +92,15 @@ async function activateScheduledRecords(tenantId, results) {
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
 
-  const { data: rows, error } = await supabase
+  const rows = renewalRows(() => supabase
     .from('organisation_membership_history')
     .select('id, organization_id, membership_year, scheduled_activation_date, xero_invoice_id, accounting_invoice_id, payment_status, paid_at, final_cost, total_with_vat')
     .eq('tenant_id', tenantId)
     .eq('status', 'scheduled')
-    .lte('scheduled_activation_date', todayStr);
+    .lte('scheduled_activation_date', todayStr),
+  { control: results.__renewalControl, results, missingSchema: true });
 
-  if (error) {
-    // Table or column not yet present — nothing to activate.
-    if (error.code === '42P01' || error.code === '42703') return;
-    throw error;
-  }
-
-  if (!rows || rows.length === 0) return;
-
-  for (const row of rows) {
+  for await (const row of rows) {
     const invoiceLessZeroDue = !row.xero_invoice_id
       && !row.accounting_invoice_id
       && canActivateScheduledMembershipWithoutInvoice(row);
@@ -347,18 +177,14 @@ async function activateScheduledRecords(tenantId, results) {
 
 async function activateScheduledMemberRecords(tenantId, results) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const { data: rows, error } = await supabase
+  const rows = renewalRows(() => supabase
     .from('member_membership_history')
     .select('id, member_id, membership_year, payment_status, paid_at, final_cost, total_with_vat')
     .eq('tenant_id', tenantId)
     .eq('status', 'scheduled')
-    .lte('scheduled_activation_date', todayStr);
-
-  if (error) {
-    if (error.code === '42P01' || error.code === '42703') return;
-    throw error;
-  }
-  for (const row of rows || []) {
+    .lte('scheduled_activation_date', todayStr),
+  { control: results.__renewalControl, results, missingSchema: true });
+  for await (const row of rows) {
     const isPaid = row.payment_status === 'paid'
       || !!row.paid_at
       || Number(row.total_with_vat ?? row.final_cost ?? 0) <= 0;
@@ -395,20 +221,14 @@ async function processTenantRenewals(tenantId, results) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const { data: invoicingRows, error: invError } = await supabase
+  const invoicingRows = renewalRows(() => supabase
     .from('organisation_membership_invoicing')
     .select('organization_id, invoicing_mode, membership_year, invoice_date')
     .eq('tenant_id', tenantId)
-    .in('invoicing_mode', ['automatic', 'scheduled']);
+    .in('invoicing_mode', ['automatic', 'scheduled']),
+  { key: 'organization_id', control: results.__renewalControl, results, missingSchema: true });
 
-  if (invError) {
-    if (invError.code === '42P01') return;
-    throw invError;
-  }
-
-  if (!invoicingRows || invoicingRows.length === 0) return;
-
-  for (const invoicingSetting of invoicingRows) {
+  for await (const invoicingSetting of invoicingRows) {
     const orgId = invoicingSetting.organization_id;
     const mode = invoicingSetting.invoicing_mode;
     const targetYear = invoicingSetting.membership_year || null;
@@ -1098,23 +918,17 @@ async function processTenantMemberRenewals(tenantId, results) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const { data: invoicingRows, error: invError } = await supabase
+  const invoicingRows = renewalRows(() => supabase
     .from('member_membership_invoicing')
     .select('member_id, invoicing_mode, membership_year, invoice_date')
     .eq('tenant_id', tenantId)
-    .in('invoicing_mode', ['automatic', 'scheduled']);
-
-  if (invError) {
-    if (invError.code === '42P01') return;
-    throw invError;
-  }
-
-  if (!invoicingRows || invoicingRows.length === 0) return;
+    .in('invoicing_mode', ['automatic', 'scheduled']),
+  { key: 'member_id', control: results.__renewalControl, results, missingSchema: true });
 
   // Task #3586: paused members are excluded from renewal invoicing entirely.
   const pausedMemberIds = await getPausedMemberIdSet(tenantId);
 
-  for (const invoicingSetting of invoicingRows) {
+  for await (const invoicingSetting of invoicingRows) {
     const memberId = invoicingSetting.member_id;
     if (pausedMemberIds.has(memberId)) {
       results.skipped++;

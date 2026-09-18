@@ -23,6 +23,7 @@ import { supabase as defaultSupabase } from './database.js';
 import { invalidateMemberSessions } from './session.js';
 import { gocardlessForTenant } from './gocardless.js';
 import { STATUS } from './gocardlessState.js';
+import { renewalRows } from './membershipRenewalBudget.js';
 
 export const MEMBER_PAUSE_FIELDS = Object.freeze([
   'membership_paused',
@@ -73,20 +74,25 @@ function isMissingColumnError(error) {
  * to exclude paused members. Returns an empty set when the pause columns do
  * not exist (pre-migration environments).
  */
-export async function getPausedMemberIdSet(tenantId, db = defaultSupabase) {
+export async function getPausedMemberIdSet(tenantId, db = defaultSupabase, memberIds = null) {
   if (!db || !tenantId) return new Set();
-  const { data, error } = await db
-    .from('member')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('membership_paused', true);
-  if (error) {
-    if (!isMissingColumnError(error)) {
-      console.error('[MemberPause] paused-set query failed:', error.message);
+  const ids = new Set();
+  let afterId = null;
+  while (true) {
+    let query = db.from('member').select('id')
+      .eq('tenant_id', tenantId).eq('membership_paused', true)
+      .order('id', { ascending: true }).limit(100);
+    if (memberIds) query = query.in('id', memberIds);
+    if (afterId) query = query.gt('id', afterId);
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingColumnError(error)) return new Set();
+      throw new Error(`Could not check paused memberships: ${error.message}`);
     }
-    return new Set();
+    if (!data?.length) return ids;
+    for (const row of data) ids.add(row.id);
+    afterId = data[data.length - 1].id;
   }
-  return new Set((data || []).map((r) => r.id));
 }
 
 async function fetchMemberForPause(tenantId, memberId, db) {
@@ -370,28 +376,26 @@ export async function resumeMember({
  * Cron sweep: find paused members whose restart date has arrived (across all
  * tenants) and resume each idempotently. Safe pre-migration (empty result).
  */
-export async function processPauseAutoRestarts(results, { db = defaultSupabase, gcFactory = gocardlessForTenant, now = new Date() } = {}) {
+export async function processPauseAutoRestarts(results, { db = defaultSupabase, gcFactory = gocardlessForTenant, now = new Date(), control = results?.__renewalControl } = {}) {
   if (!db) return;
   const todayStr = now.toISOString().slice(0, 10);
-  const { data: dueMembers, error } = await db
+  const dueMembers = renewalRows(() => db
     .from('member')
     .select('id, tenant_id, membership_pause_restart_date')
     .eq('membership_paused', true)
     .not('membership_pause_restart_date', 'is', null)
-    .lte('membership_pause_restart_date', todayStr);
-  if (error) {
-    if (!isMissingColumnError(error)) {
-      console.error('[MemberPause] auto-restart query failed:', error.message);
-      if (results) {
-        results.errors = (results.errors || 0) + 1;
-        (results.details = results.details || []).push({ step: 'pause-auto-restart', status: 'error', reason: error.message });
-      }
-    }
-    return;
-  }
-  for (const m of dueMembers || []) {
+    .lte('membership_pause_restart_date', todayStr), { control, results, missingSchema: true });
+  for await (const m of dueMembers) {
     try {
       const outcome = await resumeMember({ tenantId: m.tenant_id, memberId: m.id, auto: true, db, gcFactory });
+      if (!outcome.ok) throw new Error(outcome.error);
+      if (outcome.warnings?.length) {
+        // Access may be restored while a provider needs manual attention.
+        if (results) {
+          results.errors = (results.errors || 0) + 1;
+          (results.details = results.details || []).push({ tenantId: m.tenant_id, memberId: m.id, step: 'pause-auto-restart', status: 'error', reason: outcome.warnings.join('; ') });
+        }
+      }
       if (results) {
         results.details = results.details || [];
         if (outcome.ok && !outcome.alreadyResumed) {
@@ -403,11 +407,13 @@ export async function processPauseAutoRestarts(results, { db = defaultSupabase, 
         }
       }
     } catch (err) {
+      if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
       console.error(`[MemberPause] auto-restart failed for member ${m.id}:`, err.message);
       if (results) {
         results.errors = (results.errors || 0) + 1;
         (results.details = results.details || []).push({ tenantId: m.tenant_id, memberId: m.id, step: 'pause-auto-restart', status: 'error', reason: err.message });
       }
+      if (control) throw err;
     }
   }
 }
