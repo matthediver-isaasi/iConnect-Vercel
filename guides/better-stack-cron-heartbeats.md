@@ -31,6 +31,13 @@ retry policy, schedule, or business result.
 
 ## Ten-monitor setup matrix
 
+The expected cadences and grace periods below are monitor setup recommendations,
+not proof of deployed Better Stack settings or observed cron execution. Schedules
+reflect the repository's `vercel.json`. If an existing form-payment reconciliation
+monitor still uses the old cadence, align it separately with the every-minute
+cadence and suggested 10-minute grace period; this documentation change does not
+update any live monitor.
+
 | # | Better Stack monitor | Cron endpoint | Vercel schedule (UTC) | Expected cadence | Suggested grace | Production variable |
 |---:|---|---|---|---|---|---|
 | 1 | Membership renewals | `/api/cron/process-membership-renewals` | `0 * * * *` | Hourly | 90 minutes | `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` |
@@ -41,7 +48,7 @@ retry policy, schedule, or business result.
 | 6 | Scheduled campaigns | `/api/email-campaigns/process-scheduled` | `* * * * *` | Every minute | 10 minutes | `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` |
 | 7 | Database backup to R2 | `/api/cron/backup-database-to-r2` | `5-59/10 2-7 * * *` | Every 10 minutes, 02:05–07:55 UTC | 20 minutes while active | `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` |
 | 8 | Storage backup to R2 | `/api/cron/backup-storage-to-r2` | `*/10 2-7 * * *` | Every 10 minutes, 02:00–07:50 UTC | 20 minutes while active | `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` |
-| 9 | Form-payment reconciliation | `/api/cron/reconcile-form-payments` | `40 * * * *` | Hourly at :40 | 90 minutes | `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` |
+| 9 | Form-payment reconciliation | `/api/cron/reconcile-form-payments` | `* * * * *` | Every minute | 10 minutes | `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` |
 | 10 | Automatic membership processing | `/api/cron/process-automatic-memberships` | `* * * * *` | Every minute | 10 minutes | `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` |
 
 Backup continuation, a completed-for-today invocation, and a lock-held
@@ -159,7 +166,7 @@ monitored under the current plan.
 | 9 | `/api/cron/reconcile-training-fund-purchases` | `0 */3 * * *` | Not individually monitored |
 | 10 | `/api/cron/reconcile-job-posting-payments` | `30 * * * *` | Not individually monitored |
 | 11 | `/api/cron/sync-adzuna-job-feeds` | `10 * * * *` | Not individually monitored |
-| 12 | `/api/cron/reconcile-form-payments` | `40 * * * *` | **Covered — form-payment reconciliation** |
+| 12 | `/api/cron/reconcile-form-payments` | `* * * * *` | **Covered — form-payment reconciliation** |
 | 13 | `/api/cron/run-form-submission-export-jobs` | `* * * * *` | Not individually monitored |
 | 14 | `/api/cron/run-import-jobs` | `* * * * *` | Not individually monitored |
 | 15 | `/api/cron/recompute-tenant-storage` | `0 3 * * *` | Not individually monitored |
