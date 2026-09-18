@@ -12,6 +12,7 @@ import {
   normalizeCanvasDynamicWidgetContent,
 } from './canvasDynamicWidget.js';
 import { normalizeMemberOnlyContent } from './memberOnlyHtml.js';
+import { getCanvasMembershipDefaults, normalizeCanvasMembershipContent } from './canvasMembershipData.js';
 //
 // The canvas_design column on i_edit_page stores a versioned JSON document
 // describing a free-form page laid out by the Canvas Builder.
@@ -190,6 +191,8 @@ export const BLOCK_TYPES = {
   COUNTDOWN: 'countdown',
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
+  MEMBERSHIP_SUMMARY: 'membership-summary',
+  PAYMENT_DETAILS: 'payment-details',
   EVENT_TEASER: 'event-teaser',
   EVENT_REGISTRATION: 'event-registration',
   EVENT_SESSIONS: 'event-sessions',
@@ -472,6 +475,8 @@ export const SHADOW_BLOCK_TYPES = new Set([
   BLOCK_TYPES.BOX,
   BLOCK_TYPES.SECTION,
   BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.MEMBERSHIP_SUMMARY,
+  BLOCK_TYPES.PAYMENT_DETAILS,
 ]);
 
 export function blockSupportsShadow(type) {
@@ -491,6 +496,20 @@ const DEFAULT_A11Y = {
 // is the editor/renderer source-of-truth; this is the data-layer copy used
 // by createBlock/normalizeBlock so the lib can stay React-free.
 export const BLOCK_DEFAULTS = {
+  [BLOCK_TYPES.MEMBERSHIP_SUMMARY]: {
+    name: 'Membership Summary',
+    geom: { w: 940, h: 280 },
+    bp: { tablet: { x: 24, w: 720 }, mobile: { x: 16, w: 343 } },
+    style: { background: '#ffffff', borderColor: '#d7dde5', borderWidth: 1, borderRadius: 10, paddingTop: 28, paddingRight: 28, paddingBottom: 28, paddingLeft: 28 },
+    content: getCanvasMembershipDefaults('membership-summary'),
+  },
+  [BLOCK_TYPES.PAYMENT_DETAILS]: {
+    name: 'Payment Details',
+    geom: { w: 940, h: 330 },
+    bp: { tablet: { x: 24, w: 720 }, mobile: { x: 16, w: 343 } },
+    style: { background: '#ffffff', borderColor: '#d7dde5', borderWidth: 1, borderRadius: 10, paddingTop: 28, paddingRight: 28, paddingBottom: 28, paddingLeft: 28 },
+    content: getCanvasMembershipDefaults('payment-details'),
+  },
   [BLOCK_TYPES.BOX]: {
     name: 'Box',
     geom: { w: 200, h: 120 },
@@ -2332,6 +2351,9 @@ export function cloneCanvasBlockWithFreshIds(block, overrides = {}) {
     if (node.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
       next.content = cloneAdvancedAccordionContent(node.content);
     }
+    if (node.type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || node.type === BLOCK_TYPES.PAYMENT_DETAILS) {
+      next.content = normalizeCanvasMembershipContent(node.content, node.type);
+    }
     return next;
   }
 
@@ -2616,6 +2638,8 @@ export function insertFlowNode(design, node, options = {}) {
 // server, without the JSX registry) knows which leaves must flow-size.
 export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.TEXT,
+  BLOCK_TYPES.MEMBERSHIP_SUMMARY,
+  BLOCK_TYPES.PAYMENT_DETAILS,
   BLOCK_TYPES.ACCORDION,
   // Advanced Accordion is also content-driven: panel open/close changes
   // its rendered height, so it must be measured rather than pinned.
@@ -2805,6 +2829,9 @@ export function toDatetimeLocalValue(date) {
 // targetDate are left untouched.
 function buildBlockContent(type, defaultContent, overrideContent) {
   const merged = { ...(defaultContent || {}), ...(overrideContent || {}) };
+  if (type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || type === BLOCK_TYPES.PAYMENT_DETAILS) {
+    return normalizeCanvasMembershipContent(merged, type);
+  }
   if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate && !merged.eventSlug && !merged.eventId) {
     merged.targetDate = toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000));
   }
@@ -3389,6 +3416,10 @@ function normalizeBlock(block) {
   // outlive its authorization scope.
   if (type === BLOCK_TYPES.DYNAMIC_WIDGET) {
     normalized.content = normalizeCanvasDynamicWidgetContent(block.content);
+  }
+  // These documents contain presentation only, never a viewer's summary.
+  if (type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || type === BLOCK_TYPES.PAYMENT_DETAILS) {
+    normalized.content = normalizeCanvasMembershipContent(block.content, type);
   }
   if (type === BLOCK_TYPES.CUSTOM_HTML) {
     normalized.content = normalizeMemberOnlyContent(normalized.content);

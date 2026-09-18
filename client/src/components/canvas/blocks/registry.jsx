@@ -126,6 +126,7 @@ import {
 import { useLayoutContext } from '@/contexts/LayoutContext';
 import MemberOnlyHtmlPlaceholder from './MemberOnlyHtmlPlaceholder';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
+import { MembershipSummaryRender, PaymentDetailsRender, MembershipDataInspector } from './MembershipDataBlocks';
 import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 import { useMicrosite } from '@/contexts/MicrositeContext';
@@ -10590,6 +10591,16 @@ function DataTableInspector({ block, update }) {
 // ---------------------------------------------------------------------------
 
 const REGISTRY = {
+  [BLOCK_TYPES.MEMBERSHIP_SUMMARY]: {
+    label: 'Membership Summary', icon: Users, category: 'data',
+    Editor: MembershipSummaryRender, Renderer: MembershipSummaryRender, Inspector: MembershipDataInspector,
+    autoHeight: true, widthResizeOnly: true, renderOnlyAutoHeight: true, signedAutoHeight: true,
+  },
+  [BLOCK_TYPES.PAYMENT_DETAILS]: {
+    label: 'Payment Details', icon: FileText, category: 'data',
+    Editor: PaymentDetailsRender, Renderer: PaymentDetailsRender, Inspector: MembershipDataInspector,
+    autoHeight: true, widthResizeOnly: true, renderOnlyAutoHeight: true, signedAutoHeight: true,
+  },
   [BLOCK_TYPES.SECTION]:      { label: 'Section',        icon: LayoutPanelTop, category: 'layout',   Editor: SectionRender,      Renderer: SectionRender,      Inspector: SectionInspector },
   [BLOCK_TYPES.HERO]:         { label: 'Hero',           icon: LayoutPanelTop, category: 'content',  Editor: HeroRender,         Renderer: HeroRender,         Inspector: HeroInspector,         absoluteFill: true },
   [BLOCK_TYPES.TEXT]:         { label: 'Text',           icon: Type,           category: 'content',  Editor: TextRender,         Renderer: TextRender,         Inspector: TextInspector, autoHeight: true, widthResizeOnly: true },

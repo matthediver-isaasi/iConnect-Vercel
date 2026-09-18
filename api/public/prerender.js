@@ -622,6 +622,12 @@ function renderCanvasBlockHtml(block, opts) {
   const c = block.content || {};
   const parts = [];
   switch (block.type) {
+    case 'membership-summary':
+    case 'payment-details':
+      // Viewer-bound data is fetched after authentication in the browser only.
+      // Never emit state-specific author copy (or a cached/sample payload) into
+      // the shared crawler representation.
+      return '<p>Sign in to view your membership and payment details.</p>';
     case 'dynamic-widget':
       // Tenant-shared dashboards are authenticated data, never public SEO
       // content. Do not resolve the reference or trust cached content fields.

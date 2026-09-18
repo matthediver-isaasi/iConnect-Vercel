@@ -29,6 +29,7 @@ export function useFlowMeasurement(resetKey) {
   // nodeId -> element, so a ref callback can detach a previously observed
   // element when React swaps it, and the reset effect can re-measure.
   const idToEl = useRef(new Map());
+  const refCallbacks = useRef(new Map());
 
   const applyHeight = useCallback((id, height) => {
     if (!id || !Number.isFinite(height)) return;
@@ -54,27 +55,33 @@ export function useFlowMeasurement(resetKey) {
   }, [applyHeight]);
 
   // Ref-callback factory: attach `measureRef(nodeId)` to a leaf's measured
-  // wrapper. Handles element swaps and unmounts, and takes a synchronous first
-  // measurement so the very first layout pass already has a real height.
-  const measureRef = useCallback((id) => (el) => {
-    const ro = getObserver();
-    const prevEl = idToEl.current.get(id);
-    if (prevEl && prevEl !== el) {
-      elToId.current.delete(prevEl);
-      ro?.unobserve(prevEl);
-    }
-    if (el) {
-      idToEl.current.set(id, el);
-      elToId.current.set(el, id);
-      ro?.observe(el);
-      applyHeight(id, el.offsetHeight);
-    } else {
-      idToEl.current.delete(id);
-      if (prevEl) {
+  // wrapper. Keep the callback stable per node, not just the factory: otherwise
+  // every measurement render detaches/re-attaches all refs and synchronously
+  // measures again during commit. Container-query children can still be settling
+  // at that point, making those measurements trigger another commit indefinitely.
+  // Measure once on attachment; ResizeObserver owns subsequent layout changes.
+  const measureRef = useCallback((id) => {
+    if (refCallbacks.current.has(id)) return refCallbacks.current.get(id);
+    const callback = (el) => {
+      const ro = getObserver();
+      const prevEl = idToEl.current.get(id);
+      if (prevEl && prevEl !== el) {
         elToId.current.delete(prevEl);
         ro?.unobserve(prevEl);
       }
-    }
+      if (el) {
+        idToEl.current.set(id, el);
+        elToId.current.set(el, id);
+        ro?.observe(el);
+        applyHeight(id, el.offsetHeight);
+      } else {
+        idToEl.current.delete(id);
+        // Retain the callback across element swaps / breakpoint visibility
+        // changes; React may attach its replacement in this same commit.
+      }
+    };
+    refCallbacks.current.set(id, callback);
+    return callback;
   }, [getObserver, applyHeight]);
 
   // Drop stale heights on a breakpoint switch, then re-measure the still-
@@ -90,13 +97,16 @@ export function useFlowMeasurement(resetKey) {
     return () => cancelAnimationFrame(raf);
   }, [resetKey, applyHeight]);
 
-  // Tear the observer down on unmount.
-  useEffect(() => () => {
-    observerRef.current?.disconnect();
-    observerRef.current = null;
-    elToId.current.clear();
-    idToEl.current.clear();
-  }, []);
+  // Re-observe on effect setup too: StrictMode replays effects without
+  // re-attaching DOM refs. Actual ref detachment handles removing the elements.
+  useEffect(() => {
+    const ro = getObserver();
+    for (const el of idToEl.current.values()) ro?.observe(el);
+    return () => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    };
+  }, [getObserver]);
 
   return { measured, measureRef };
 }

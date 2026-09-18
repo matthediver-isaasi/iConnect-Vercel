@@ -40,7 +40,7 @@ export default async function handler(req, res) {
   }
 }
 
-function shapePlan(plan) {
+export function shapePlan(plan) {
   const terms = plan.membership_billing_agreements?.metadata?.dd
     || plan.membership_billing_agreements?.metadata?.card || {};
   const agreement = plan.membership_billing_agreements || {};
