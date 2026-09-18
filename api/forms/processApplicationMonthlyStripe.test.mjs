@@ -1,3 +1,4 @@
+import '../../scripts/test-support/isolation-boundary.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import handler from './process-application.js';
@@ -281,7 +282,13 @@ async function invokeMonthlyProcessor(db, formRow = form) {
   };
 
   try {
-    await handler(req, res, { supabase: db });
+    await handler(req, res, {
+      supabase: db,
+      triggerWorkflows: async () => {},
+      notifyGuestSignup: async () => {},
+      autoApproveMemberFees: async () => {},
+      autoApproveOrgFees: async () => {},
+    });
   } finally {
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSecret;

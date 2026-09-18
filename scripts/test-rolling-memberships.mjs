@@ -1,5 +1,3 @@
-import { spawnSync } from 'node:child_process';
-
 // Explicit allow-list: older membership PostgreSQL tests may use a configured
 // external database. This suite uses mocks plus its own disposable local cluster.
 const files = [
@@ -37,6 +35,21 @@ const files = [
   'api/membership/member-membership.instalments.test.mjs',
   'api/membership/member-fees.commitment.test.mjs',
 ];
-const result = spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' });
-if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+
+if (process.env.TEST_ISOLATION_ACTIVE === '1') {
+  // When an outer validation command already installed the boundary, importing
+  // keeps this launcher from creating an unguarded intermediary process.
+  for (const file of files) {
+    await import(new URL(`../${file}`, import.meta.url));
+  }
+} else {
+  const { spawnSync } = await import('node:child_process');
+  const runner = new URL('./run-isolated-tests.mjs', import.meta.url).pathname;
+  const result = spawnSync(
+    process.execPath,
+    [runner, '--allow-local-postgres', process.execPath, '--test', ...files],
+    { stdio: 'inherit' },
+  );
+  if (result.error) throw result.error;
+  process.exitCode = result.status ?? 1;
+}

@@ -1,3 +1,4 @@
+import '../../scripts/test-support/isolation-boundary.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import handler from './process-application.js';
@@ -286,6 +287,10 @@ async function invokeOrderingProcessor(payload, {
   completionOperationId = null,
   completionOperationKind = 'primary',
   invokeHandler = true,
+  triggerWorkflows = async () => {},
+  notifyGuestSignup = async () => {},
+  autoApproveMemberFees = async () => {},
+  autoApproveOrgFees = async () => {},
 } = {}) {
   const form = {
     id: 'form-structured-ordering',
@@ -380,7 +385,13 @@ async function invokeOrderingProcessor(payload, {
   };
   if (invokeHandler) {
     try {
-      await handler(req, res, { supabase: db.client });
+      await handler(req, res, {
+        supabase: db.client,
+        triggerWorkflows,
+        notifyGuestSignup,
+        autoApproveMemberFees,
+        autoApproveOrgFees,
+      });
     } finally {
       if (previousSecret === undefined) delete process.env.SESSION_SECRET;
       else process.env.SESSION_SECRET = previousSecret;
@@ -521,7 +532,13 @@ test('paid finalizer keeps one-off DD readiness for optional group blanks and cr
       await handler(request, {
         status(code) { response.statusCode = code; return this; },
         json(body) { response.body = body; return body; },
-      }, { supabase: context.client });
+      }, {
+        supabase: context.client,
+        triggerWorkflows: async () => {},
+        notifyGuestSignup: async () => {},
+        autoApproveMemberFees: async () => {},
+        autoApproveOrgFees: async () => {},
+      });
       const serialized = JSON.stringify(response.body);
       return {
         ok: response.statusCode >= 200 && response.statusCode < 300,
@@ -676,7 +693,13 @@ test('GroupUPSERT assigns existing groups once and leaves organisation-backed me
     await handler(request, {
       status(code) { response.statusCode = code; return this; },
       json(body) { response.body = body; return body; },
-    }, { supabase: context.client });
+    }, {
+      supabase: context.client,
+      triggerWorkflows: async () => {},
+      notifyGuestSignup: async () => {},
+      autoApproveMemberFees: async () => {},
+      autoApproveOrgFees: async () => {},
+    });
     return { ...context, response };
   };
 
@@ -834,7 +857,13 @@ test('monthly setup waits for optional organisation settlement, creates the memb
     await handler(request, {
       status(code) { response.statusCode = code; return this; },
       json(body) { response.body = body; return body; },
-    }, { supabase: context.client });
+    }, {
+      supabase: context.client,
+      triggerWorkflows: async () => {},
+      notifyGuestSignup: async () => {},
+      autoApproveMemberFees: async () => {},
+      autoApproveOrgFees: async () => {},
+    });
     const serialized = JSON.stringify(response.body);
     return {
       ok: response.statusCode >= 200 && response.statusCode < 300,

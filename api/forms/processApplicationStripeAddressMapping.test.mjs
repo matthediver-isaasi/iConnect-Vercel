@@ -1,4 +1,5 @@
 import test from 'node:test';
+import '../../scripts/test-support/isolation-boundary.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import handler from './process-application.js';
@@ -658,7 +659,13 @@ test(`paid finalization runs Stripe mapping, real pipeline processing, and DD re
         return value;
       },
     };
-    await handler(req, res, { supabase: processorDb });
+    await handler(req, res, {
+      supabase: processorDb,
+      triggerWorkflows: async () => {},
+      notifyGuestSignup: async () => {},
+      autoApproveMemberFees: async () => {},
+      autoApproveOrgFees: async () => {},
+    });
     return {
       ok: response.statusCode >= 200 && response.statusCode < 300,
       status: response.statusCode,

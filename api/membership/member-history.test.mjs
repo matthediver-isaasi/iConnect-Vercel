@@ -4,7 +4,15 @@ import {
   compareMembershipHistory,
   createMemberHistoryHandler,
 } from './member-history.js';
-import { isResourceExcluded } from '../_lib/roleVisibility.js';
+import {
+  __setRoleAccessOverlayForTests,
+  isResourceExcluded,
+} from '../_lib/roleVisibility.js';
+
+// These handler tests exercise the generated hierarchy only. Install an empty
+// fixed overlay through the existing test hook so `isResourceExcluded` cannot
+// start the production background refresh against the module-level client.
+__setRoleAccessOverlayForTests([]);
 
 function response() {
   return {

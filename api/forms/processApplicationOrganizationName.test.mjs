@@ -1,6 +1,10 @@
+import '../../scripts/test-support/isolation-boundary.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import handler from './process-application.js';
+import { spawnSync } from 'node:child_process';
+import handler, {
+  DEFAULT_PROCESS_APPLICATION_DEPENDENCIES,
+} from './process-application.js';
 import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
 import {
   ORGANIZATION_CORE_FIELD_MAPPINGS,
@@ -14,6 +18,8 @@ import {
 } from '../../shared/formNotListedChoice.js';
 import { buildStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
 import { retryPersistedStripeAddressMappings } from '../_lib/formStripeAddressMappingProcessing.js';
+import { triggerWorkflows as productionTriggerWorkflows } from '../_lib/workflows.js';
+import { notifyGuestSignup as productionNotifyGuestSignup } from '../_lib/guestSignupNotification.js';
 
 const dropdown = {
   id: 'organisation',
@@ -338,6 +344,10 @@ export async function invokeProcessor(payload, {
   submissionOverrides = {},
   provenanceRows = [],
   rpcResult = { data: null, error: null },
+  triggerWorkflows = async () => {},
+  notifyGuestSignup = async () => {},
+  autoApproveMemberFees = async () => {},
+  autoApproveOrgFees = async () => {},
 } = {}) {
   const previousSecret = process.env.SESSION_SECRET;
   process.env.SESSION_SECRET = 'runtime-org-name-test-secret';
@@ -421,7 +431,13 @@ export async function invokeProcessor(payload, {
     json(body) { response.body = body; return body; },
   };
   try {
-    await handler(req, res, { supabase: db.client });
+    await handler(req, res, {
+      supabase: db.client,
+      triggerWorkflows,
+      notifyGuestSignup,
+      autoApproveMemberFees,
+      autoApproveOrgFees,
+    });
   } finally {
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSecret;
@@ -442,6 +458,163 @@ test('public endpoint payload resolves nested not-listed text through canonical 
   assert.equal(result.response.statusCode, 200);
   assert.equal(insert?.payload.name, 'Runtime Organisation Ltd');
   assert.equal(resolveOrganizationCoreField('organisation_name'), 'name');
+});
+
+test('processor dependency defaults retain the production integration bindings', () => {
+  assert.equal(Object.isFrozen(DEFAULT_PROCESS_APPLICATION_DEPENDENCIES), true);
+  assert.equal(
+    DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.triggerWorkflows,
+    productionTriggerWorkflows,
+  );
+  assert.equal(
+    DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.notifyGuestSignup,
+    productionNotifyGuestSignup,
+  );
+});
+
+test('production workflow default performs its real empty-list lookup with controlled transport', () => {
+  const moduleUrl = new URL('./process-application.js', import.meta.url).href;
+  const script = `
+    const requests = [];
+    globalThis.fetch = async (input, init = {}) => {
+      requests.push({ url: String(input), method: init.method || 'GET' });
+      return new Response('[]', {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'content-range': '0-0/0',
+        },
+      });
+    };
+    const { DEFAULT_PROCESS_APPLICATION_DEPENDENCIES } = await import(${JSON.stringify(moduleUrl)});
+    const result = await DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.triggerWorkflows(
+      'member',
+      'member-production-default-test',
+      null,
+      { id: 'member-production-default-test', tenant_id: 'tenant-production-default-test' },
+      'record_create',
+      'https://app.example.test',
+      { formSubmissionId: 'submission-production-default-test' },
+    );
+    const workflowLookup = requests.find(request => request.url.includes('/rest/v1/workflow?'));
+    if (!workflowLookup) throw new Error('Production triggerWorkflows did not query workflows');
+    if (result.pendingConfirmations.length !== 0 || result.reverts.length !== 0) {
+      throw new Error('Unexpected production workflow no-op result');
+    }
+    console.log('PRODUCTION_DEFAULT_DISPATCH_OK');
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SUPABASE_URL: 'https://isolated.invalid',
+      SUPABASE_SERVICE_KEY: 'controlled-test-service-key',
+    },
+  });
+
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+  assert.match(child.stdout, /PRODUCTION_DEFAULT_DISPATCH_OK/);
+});
+
+test('injected workflow dispatcher receives newly created organization context', async () => {
+  const calls = [];
+  const result = await invokeProcessor(publicPayload(), {
+    triggerWorkflows: async (...args) => {
+      calls.push(args);
+    },
+  });
+
+  assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'organization');
+  assert.equal(calls[0][1], 'created-organization');
+  assert.equal(calls[0][4], 'record_create');
+  assert.deepEqual(calls[0][6], { formSubmissionId: 'submission-runtime-org' });
+});
+
+test('injected workflow dispatcher receives primary and additional member creates', async () => {
+  const calls = [];
+  const payload = {
+    fields: [
+      { id: 'primary-email', type: 'email' },
+      { id: 'additional-email', type: 'email' },
+    ],
+    form_values: {
+      'primary-email': 'primary-dispatch@example.test',
+      'additional-email': 'additional-dispatch@example.test',
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    entity_action: 'create',
+    member_entity_action: 'create',
+    organization_entity_action: 'none',
+    additional_member_creations: [],
+    entity_pipelines: {
+      members: [{
+        id: 'primary-member-dispatch',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'primary-email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+      }, {
+        id: 'additional-member-dispatch',
+        label: 'Additional member',
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'additional-email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  const result = await invokeProcessor(payload, {
+    triggerWorkflows: async (...args) => {
+      calls.push(args);
+    },
+  });
+
+  assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+  assert.deepEqual(calls.map(call => call[0]), ['member', 'member']);
+  assert.deepEqual(calls.map(call => call[3].email), [
+    'primary-dispatch@example.test',
+    'additional-dispatch@example.test',
+  ]);
+  assert.equal(calls.every(call => call[6].formSubmissionId === 'submission-runtime-org'), true);
+});
+
+test('injected workflow failures are non-fatal and completed retries do not redispatch', async () => {
+  let attempts = 0;
+  const failedDispatch = await invokeProcessor(publicPayload(), {
+    triggerWorkflows: async () => {
+      attempts += 1;
+      throw new Error('controlled workflow failure');
+    },
+  });
+  assert.equal(failedDispatch.response.statusCode, 200, JSON.stringify(failedDispatch.response.body));
+  assert.equal(attempts, 1);
+
+  const retry = await invokeProcessor(publicPayload(), {
+    existingOrganization: {
+      id: 'created-organization',
+      tenant_id: 'tenant-runtime-org',
+      name: 'Runtime Organisation Ltd',
+    },
+    persistedCreatedOrganizationId: 'created-organization',
+    entityProcessingCompletedAt: '2026-10-01T10:00:00.000Z',
+    triggerWorkflows: async () => {
+      attempts += 1;
+    },
+  });
+  assert.equal(retry.response.statusCode, 200, JSON.stringify(retry.response.body));
+  assert.equal(retry.response.body.already_processed, true);
+  assert.equal(attempts, 1);
 });
 
 function relatedDepartmentPayload({

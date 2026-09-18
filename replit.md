@@ -3,6 +3,8 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 
 ## Run & Operate
 -   **Run Dev Server:** `npm run dev`
+-   **Startup is application-only:** Run / the default `Project` workflow starts only `Start application`. Regression suites are deliberate separate workflows. The production relationship check is never an automatic validation.
+-   **Testing modes:** see [guides/testing-modes.md](guides/testing-modes.md) for isolated logic tests, disposable PostgreSQL integration tests, and explicitly opted-in read-only production smoke checks. Use guarded `npm test`, `npm run test:form-processing`, or the named `test:*` workflows; raw legacy test examples below do not establish isolation. Credentials never authorize live writes or provider effects.
 -   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
 -   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
 -   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.

@@ -85,6 +85,27 @@ const defaultSupabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+const defaultAutoApproveMemberFees = async (...args) => {
+  const { autoApproveMemberFees } = await import('../_lib/membershipFeeApproval.js');
+  return autoApproveMemberFees(...args);
+};
+
+const defaultAutoApproveOrgFees = async (...args) => {
+  const { autoApproveOrgFees } = await import('../_lib/membershipFeeApproval.js');
+  return autoApproveOrgFees(...args);
+};
+
+// Keep production integrations as explicit, immutable defaults while allowing
+// tests and other trusted in-process callers to provide deterministic doubles.
+// This avoids replacing module globals (especially the shared database client)
+// when exercising workflow and notification dispatch.
+export const DEFAULT_PROCESS_APPLICATION_DEPENDENCIES = Object.freeze({
+  triggerWorkflows,
+  notifyGuestSignup,
+  autoApproveMemberFees: defaultAutoApproveMemberFees,
+  autoApproveOrgFees: defaultAutoApproveOrgFees,
+});
+
 // Fields that should be coerced to boolean values
 const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
 
@@ -647,7 +668,13 @@ const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
   };
 };
 
-export default async function handler(req, res, { supabase = defaultSupabase } = {}) {
+export default async function handler(req, res, {
+  supabase = defaultSupabase,
+  triggerWorkflows: triggerWorkflowsDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.triggerWorkflows,
+  notifyGuestSignup: notifyGuestSignupDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.notifyGuestSignup,
+  autoApproveMemberFees: autoApproveMemberFeesDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.autoApproveMemberFees,
+  autoApproveOrgFees: autoApproveOrgFeesDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.autoApproveOrgFees,
+} = {}) {
   let stripeProcessingLease = null;
   let paidPipelineOperation = null;
   const releaseStripeProcessingLease = async () => {
@@ -1623,10 +1650,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
         // Task #3241 — shared helper resolves the config, checks
         // auto_approve_fees, and upserts the invoicing row.
-        const { autoApproveMemberFees, autoApproveOrgFees } = await import('../_lib/membershipFeeApproval.js');
-        await autoApproveMemberFees(effectiveTenantId, memberId);
+        await autoApproveMemberFeesDependency(effectiveTenantId, memberId);
         if (organizationId) {
-          await autoApproveOrgFees(effectiveTenantId, organizationId);
+          await autoApproveOrgFeesDependency(effectiveTenantId, organizationId);
         }
       } catch (autoApproveErr) {
         console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
@@ -3444,7 +3470,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
         console.log('[AppProcessor] Triggering workflows for organization:', newlyCreatedOrgData.id, 'tenant_id:', newlyCreatedOrgData.tenant_id);
         try {
-          await triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl, { formSubmissionId: submission_id });
+          await triggerWorkflowsDependency('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl, { formSubmissionId: submission_id });
           console.log('[AppProcessor] Workflow evaluation completed for organization:', newlyCreatedOrgData.id);
         } catch (err) {
           console.error('[AppProcessor] Workflow error for organization:', err);
@@ -3967,7 +3993,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // Approve/Deny links. Non-fatal — never blocks member creation.
           if (domainCtx?.guestStamp) {
             try {
-              await notifyGuestSignup({
+              await notifyGuestSignupDependency({
                 client: supabase,
                 tenantId: newMember.tenant_id || effectiveEntityTenantId || null,
                 member: newMember,
@@ -4031,7 +4057,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       if (newlyCreatedMemberData) {
         const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
         try {
-          await triggerWorkflows('member', newlyCreatedMemberData.id, null, newlyCreatedMemberData, 'record_create', baseUrl, { formSubmissionId: submission_id });
+          await triggerWorkflowsDependency('member', newlyCreatedMemberData.id, null, newlyCreatedMemberData, 'record_create', baseUrl, { formSubmissionId: submission_id });
           console.log('[AppProcessor] Workflow evaluation completed for member:', newlyCreatedMemberData.id);
         } catch (err) {
           console.error('[AppProcessor] Workflow error:', err);
@@ -4992,7 +5018,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (newlyCreatedAdditionalMember) {
           const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
           try {
-            await triggerWorkflows('member', newlyCreatedAdditionalMember.id, null, newlyCreatedAdditionalMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
+            await triggerWorkflowsDependency('member', newlyCreatedAdditionalMember.id, null, newlyCreatedAdditionalMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
             console.log('[AppProcessor] Workflow evaluation completed for additional member:', newlyCreatedAdditionalMember.id);
           } catch (err) {
             console.error('[AppProcessor] Additional member workflow error:', err);
