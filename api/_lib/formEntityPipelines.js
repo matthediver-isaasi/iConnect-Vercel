@@ -263,14 +263,33 @@ export async function runFormEntityPipelines({
         const resolvedMemberId = body.created_member_id || body.member_id;
         result.organizationId = resolvedOrgId || null;
         result.memberId = resolvedMemberId || null;
-        const updates = {};
-        if (resolvedOrgId && !submission.organization_id) updates.organization_id = resolvedOrgId;
-        if (resolvedMemberId) updates.created_member_id = resolvedMemberId;
-        if (Object.keys(updates).length > 0) {
-          const { error } = await supabase.from('form_submission').update(updates).eq('id', submission.id);
-          if (error) {
+        // The processor owns durable linkage. A response is not authority to
+        // overwrite a conflicting checkpoint or repair a missing historical
+        // link. Fail closed if its successful response outpaced persistence.
+        const oneOffMembership = !!meta.membership?.quote
+          && ['stripe', 'gocardless'].includes(submission.payment_provider);
+        if (oneOffMembership && (resolvedOrgId || resolvedMemberId)) {
+          const { data: linked, error } = await supabase.from('form_submission')
+            .select('created_member_id, organization_id')
+            .eq('id', submission.id).eq('tenant_id', submission.tenant_id).maybeSingle();
+          if (error || !linked
+              || (resolvedOrgId && String(linked.organization_id) !== String(resolvedOrgId))
+              || (resolvedMemberId && String(linked.created_member_id) !== String(resolvedMemberId))) {
             result.failed = true;
-            result.detail = `resolved entity persistence failed: ${error.message}`;
+            result.ambiguous = true;
+            result.integrityErrorCode = 'MEMBERSHIP_PROCESSOR_LINK_MISMATCH';
+            result.detail = 'resolved entity durable linkage is missing or inconsistent';
+          }
+        } else if (!oneOffMembership) {
+          const updates = {};
+          if (resolvedOrgId && !submission.organization_id) updates.organization_id = resolvedOrgId;
+          if (resolvedMemberId) updates.created_member_id = resolvedMemberId;
+          if (Object.keys(updates).length > 0) {
+            const { error } = await supabase.from('form_submission').update(updates).eq('id', submission.id);
+            if (error) {
+              result.failed = true;
+              result.detail = `resolved entity persistence failed: ${error.message}`;
+            }
           }
         }
         if (!result.failed && !result.partial) {

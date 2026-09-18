@@ -51,6 +51,10 @@ function oneOffFinalizationDb({
         row.payment_meta = { ...row.payment_meta, ...structuredClone(args.p_patch) };
         return { data: row.payment_meta, error: null };
       }
+      if (name === 'merge_form_membership_result') {
+        row.payment_meta.membership_result = { ...row.payment_meta.membership_result, ...args.p_patch };
+        return { data: { ok: true, membership_result: row.payment_meta.membership_result }, error: null };
+      }
       if (name === 'queue_form_payment_completion') {
         row.payment_meta = {
           ...row.payment_meta,
@@ -89,7 +93,7 @@ function oneOffFinalizationDb({
         select() { return query; },
         maybeSingle: async () => {
           if (update) Object.assign(row, structuredClone(update));
-          return { data: { id: row.id }, error: null };
+          return { data: structuredClone(row), error: null };
         },
         then(resolve, reject) {
           if (update) Object.assign(row, structuredClone(update));
@@ -123,6 +127,22 @@ test('queued Stripe completion has a truthful non-terminal receipt and does not 
     formPaymentCompletionStatus({ payment_status: 'paid', payment_meta: { finalized: false } }),
     'finalizing',
   );
+});
+
+test('new paid completion with blocked membership records attention before any downstream effects', async () => {
+  const db = oneOffFinalizationDb();
+  db.row.payment_meta = {
+    completion: { version: 1, status: 'queued' },
+    membership_result: { status: 'blocked', integrity_error_code: 'MEMBERSHIP_ENTITY_LINK_MISMATCH' },
+  };
+  const out = await finalizeFormSubmission({
+    supabase: db, submission: structuredClone(db.row),
+    form: { id: 'form-1', tenant_id: 'tenant-1' },
+  });
+  assert.equal(out.requiresAttention, true);
+  assert.equal(db.row.payment_meta.completion.status, 'attention');
+  assert.equal(db.rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
+  assert.equal(db.rpcNames.includes('observe_or_begin_form_paid_pipeline_operation'), false);
 });
 
 test('a bounded completion records done only after durable stages, while a fresh owner is not duplicated', async () => {
@@ -306,7 +326,7 @@ test('a known partial entity result stops downstream effects and remains retryab
     assert.equal(db.row.payment_meta.completion.status, 'retryable');
     assert.equal(db.rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
     assert.equal(db.rpcNames.includes('claim_form_due_diligence_initialization'), false);
-    assert.equal(db.fromCalls.length, 1);
+    assert.equal(db.fromCalls.length, 2); // completion claim plus authoritative membership diagnostic reload
   } finally {
     globalThis.fetch = previousFetch;
     if (previousAppUrl === undefined) delete process.env.APP_URL;

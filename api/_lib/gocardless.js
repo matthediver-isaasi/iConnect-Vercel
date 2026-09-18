@@ -30,6 +30,7 @@
 
 import crypto from 'node:crypto';
 import { envGocardlessCredentials, getGocardlessCredentials } from './gocardlessCredentials.js';
+import { gocardlessProviderContext } from './gocardlessFormProviderContext.js';
 
 const API_VERSION = '2015-07-06';
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -167,6 +168,7 @@ export function createGocardlessClient(creds) {
 
   return {
     credentials: { source: creds.source, tenantId: creds.tenantId || null, environment: creds.environment },
+    providerContext: gocardlessProviderContext(creds),
     getGocardlessEnvironment: () => creds.environment,
     isConfigured: () => !!creds.accessToken,
 

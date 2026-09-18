@@ -17,6 +17,8 @@
  */
 import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
 import { finalizeFormMembership } from './formMembershipFinalize.js';
+import { membershipIsBlocked, missingMembershipEntityOutcome } from './formMembershipIntegrity.js';
+import { mergeFormMembershipProgress } from './formStripeInvoiceSettlement.js';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { initializePaidFormDueDiligence } from './formDueDiligence.js';
 import { randomUUID } from 'node:crypto';
@@ -30,6 +32,7 @@ export const FORM_PAYMENT_COMPLETION_CLAIM_TTL_MS = 2 * 60 * 1000;
 export const FORM_PAYMENT_COMPLETION_BUDGET_MS = 40 * 1000;
 
 export function formPaymentCompletionStatus(submission) {
+  if (membershipIsBlocked(submission?.payment_meta?.membership_result)) return 'attention';
   const completion = submission?.payment_meta?.completion;
   // Historical paid rows predate the explicit completion receipt. Only their
   // actual legacy finalization stamp is compatible terminal evidence. A paid
@@ -194,6 +197,9 @@ export async function finalizeFormSubmission({
   const completion = meta.completion?.version === 1 ? meta.completion : null;
   let claimedCompletion = null;
   let resumingUnreadyFinalization = false;
+  if (completion?.status === 'done' && membershipIsBlocked(meta.membership_result)) {
+    return { finalized: false, requiresAttention: true, terminal: true };
+  }
   if (completion?.status === 'done') {
     // Older owners could have recorded `done` after a transient readiness
     // write failure. A terminal receipt is the trusted evidence that entity
@@ -326,6 +332,14 @@ export async function finalizeFormSubmission({
   // payment has been taken, so a pipeline failure is logged for admin
   // follow-up instead of deleting a paid submission.
   const submissionData = submission.submission_data || {};
+  if (membershipIsBlocked(meta.membership_result)) {
+    if (claimedCompletion) {
+      await recordCompletionOutcome(supabase, submission, claimedCompletion, 'attention', {
+        stage: 'membership', error: meta.membership_result.integrity_error_code || 'Membership requires administrator review',
+      });
+    }
+    return { finalized: false, requiresAttention: true };
+  }
   const pipelineStartedAt = Date.now();
   const pipelineResult = await runFormEntityPipelines({
     supabase,
@@ -353,7 +367,30 @@ export async function finalizeFormSubmission({
   // operation (including another active owner) may already have caused an
   // effect whose outcome this worker cannot safely infer.
   if (!pipelineSucceeded) {
-    const requiresAttention = pipelineResult.ambiguous === true;
+    let requiresAttention = pipelineResult.ambiguous === true;
+    if (pipelineResult.integrityErrorCode) {
+      const saved = await mergeFormMembershipProgress(supabase, {
+        tenantId: submission.tenant_id, submissionId: submission.id,
+        patch: { status: 'blocked', integrity_state: 'blocked',
+          integrity_error_code: pipelineResult.integrityErrorCode },
+      });
+      if (!saved.updated) throw new Error('Membership integrity failure was not persisted');
+    }
+    if (meta.membership?.quote && !pipelineResult.awaitingOperation && !requiresAttention) {
+      const { data: current, error } = await supabase.from('form_submission').select('*')
+        .eq('id', submission.id).eq('tenant_id', submission.tenant_id).maybeSingle();
+      if (error || !current) throw new Error('Membership diagnostic checkpoint unavailable');
+      const missing = meta.membership.quote.target === 'member'
+        ? !current.created_member_id : !current.organization_id;
+      if (missing) {
+        const outcome = missingMembershipEntityOutcome(current, current.payment_meta?.membership_result, pipelineResult);
+        const saved = await mergeFormMembershipProgress(supabase, {
+          tenantId: submission.tenant_id, submissionId: submission.id, patch: outcome,
+        });
+        if (!saved.updated) throw new Error('Membership diagnostic was not persisted');
+        requiresAttention = outcome.status === 'blocked';
+      }
+    }
     if (claimedCompletion) {
       await recordCompletionOutcome(
         supabase,
@@ -393,8 +430,17 @@ export async function finalizeFormSubmission({
         baseUrl,
         memberId: pipelineCreatedMemberId || submission.created_member_id || null,
         organizationId: pipelineCreatedOrgId || submission.organization_id || null,
+        processorResult: pipelineResult,
         deadlineAt,
       });
+      if (membershipResult?.blocked || membershipResult?.requiresAttention) {
+        if (claimedCompletion) {
+          await recordCompletionOutcome(supabase, submission, claimedCompletion, 'attention', {
+            stage: 'membership', error: membershipResult.errorCode || 'Membership requires administrator review',
+          });
+        }
+        return { finalized: false, requiresAttention: true };
+      }
       membershipSucceeded = membershipResult?.created === true || membershipResult?.alreadyProcessed === true;
       membershipFailed = !membershipSucceeded;
       // A membership row can exist while its provider invoice, Stripe

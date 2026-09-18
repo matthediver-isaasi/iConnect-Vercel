@@ -728,3 +728,95 @@ test('only definitive create rejections are safely recreated after a fresh claim
   assert.equal(isDefinitiveInvoiceCreateRejection({ code: 'ETIMEDOUT' }), false);
   assert.equal(isDefinitiveInvoiceCreateRejection(new Error('socket closed')), false);
 });
+
+for (const kind of ['missing', 'cross-tenant', 'mismatched-history']) {
+  test(`untrusted ${kind} membership linkage blocks durably without side effects or repeated notes`, async () => {
+    const initial = fixture();
+    if (kind === 'missing') initial.submission.created_member_id = null;
+    if (kind === 'cross-tenant') initial.members[0].tenant_id = 'other-tenant';
+    if (kind === 'mismatched-history') initial.submission.payment_meta.membership_result = {
+      status: 'created', history_id: 'other-history', entity_id: 'other-member',
+      invoice_state: 'pending', workflow_state: 'pending',
+    };
+    const db = makeDb(initial);
+    const args = { supabase: db, submission: initial.submission, memberId: 'stale-caller-member' };
+    const first = await finalizeFormMembership(args);
+    assert.equal(first.blocked, true);
+    assert.equal(db.getSubmission().payment_meta.membership_result.status, 'blocked');
+    const noteWrites = db.updateCalls.length;
+    assert.equal((await finalizeFormMembership(args)).blocked, true);
+    assert.equal(db.updateCalls.length, noteWrites);
+    assert.equal(db.insertCalls.length, 0);
+  });
+}
+
+test('stale caller ID never replaces a valid authoritative member link', async () => {
+  const db = makeDb(fixture());
+  const provider = makeProvider('xero');
+  const result = await finalizeFormMembership({
+    supabase: db, submission: db.getSubmission(), memberId: 'stale-caller',
+  }, {
+    getAccountingProvider: async () => provider,
+    getConfigByIdDirect: async () => ({}),
+    settleFormStripeInvoice: realSettlement(db, provider),
+    fireWorkflowForPaidRow: async () => {},
+  });
+  assert.equal(result.created, true);
+  assert.equal(db.historyRows()[0].member_id, 'member-1');
+});
+
+test('finished processor without entity blocks once instead of indefinite awaiting_entity', async () => {
+  const initial = fixture();
+  initial.submission.created_member_id = null;
+  initial.submission.entity_processing_completed_at = new Date().toISOString();
+  const db = makeDb(initial);
+  const out = await finalizeFormMembership({ supabase: db, submission: initial.submission });
+  assert.equal(out.requiresAttention, true);
+  assert.equal(db.getSubmission().payment_meta.membership_result.integrity_error_code, 'MEMBERSHIP_PROCESSOR_TARGET_MISSING');
+  assert.equal(db.insertCalls.length, 0);
+});
+
+test('tenant-valid authoritative organisation reference can create membership without edit authority', async () => {
+  const initial = fixture({ quoteOverrides: { target: 'organization' } });
+  initial.submission.organization_id = 'org-1';
+  initial.organizations = [{ id: 'org-1', tenant_id: TENANT_ID, name: 'Test Organisation' }];
+  const db = makeDb(initial);
+  const provider = makeProvider('xero');
+  const out = await finalizeFormMembership({ supabase: db, submission: db.getSubmission(), organizationId: 'stale-org' }, {
+    getAccountingProvider: async () => provider,
+    getConfigByIdDirect: async () => ({}),
+    settleFormStripeInvoice: realSettlement(db, provider),
+    fireWorkflowForPaidRow: async () => {},
+  });
+  assert.equal(out.created, true);
+  assert.equal(db.historyRows('organisation_membership_history')[0].organization_id, 'org-1');
+});
+
+test('exact in-flight processor does not age or block an old completed checkpoint', async () => {
+  const initial = fixture({ progress: { status: 'awaiting_entity', attempts: 99 } });
+  initial.submission.entity_processing_completed_at = '2020-01-01';
+  initial.submission.created_member_id = null;
+  const db = makeDb(initial);
+  const out = await finalizeFormMembership({
+    supabase: db, submission: initial.submission, processorResult: { awaitingOperation: true, failed: true },
+  });
+  assert.equal(out.waitingOperation, true);
+  assert.equal(db.rpcCalls.length, 0);
+  assert.equal(db.insertCalls.length, 0);
+  assert.equal(db.updateCalls.length, 0);
+});
+
+test('legacy unresolved diagnostics terminate after eight attempts and then remain inert', async () => {
+  const initial = fixture();
+  initial.submission.created_member_id = null;
+  const db = makeDb(initial);
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const out = await finalizeFormMembership({ supabase: db, submission: initial.submission });
+    assert.equal(out.blocked, attempt === 8);
+    assert.equal(db.getSubmission().payment_meta.membership_result.attempts, attempt);
+  }
+  const writes = db.rpcCalls.length;
+  await finalizeFormMembership({ supabase: db, submission: initial.submission });
+  assert.equal(db.rpcCalls.length, writes);
+  assert.equal(db.insertCalls.length, 0);
+});

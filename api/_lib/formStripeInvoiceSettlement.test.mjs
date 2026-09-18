@@ -8,6 +8,21 @@ import fs from 'node:fs';
 const tenantId = '11111111-1111-1111-1111-111111111111';
 const submissionId = '22222222-2222-2222-2222-222222222222';
 
+test('preclaim identity failure is durably blocked once before any provider call', async () => {
+  const rows = fixture({ created_member_id: null });
+  const db = makeDb(rows);
+  const args = { supabase: db, submissionId, tenantId, dryRun: false,
+    retrievePaymentIntent: async () => { assert.fail('Stripe must not be called'); },
+    getProvider: async () => { assert.fail('Accounting must not be called'); } };
+  assert.equal((await settleFormStripeInvoice(args)).settlement_state, 'blocked');
+  assert.equal(rows.submission.payment_meta.membership_result.integrity_state, 'blocked');
+  const writes = db.rpcCalls.length;
+  const notes = db.updateCalls.length;
+  assert.equal((await settleFormStripeInvoice(args)).settlement_state, 'blocked');
+  assert.equal(db.rpcCalls.length, writes);
+  assert.equal(db.updateCalls.length, notes);
+});
+
 function fixture(overrides = {}) {
   const submission = {
     id: submissionId,
@@ -50,7 +65,7 @@ function fixture(overrides = {}) {
   return { submission, history };
 }
 
-function makeDb({ submission, history }) {
+function makeDb({ submission, history, entity = { id: 'member-1', tenant_id: tenantId } }) {
   const rpcCalls = [];
   const updateCalls = [];
   return {
@@ -64,7 +79,8 @@ function makeDb({ submission, history }) {
         eq() { return q; },
         maybeSingle() {
           return Promise.resolve({
-            data: table === 'form_submission' ? submission : history,
+            data: table === 'form_submission' ? submission
+              : ['member', 'organization'].includes(table) ? entity : history,
             error: null,
           });
         },
@@ -188,7 +204,7 @@ test('metadata and immutable quote mismatch block provider calls', async () => {
       calls += 1;
       return {};
     },
-  }), /metadata does not match/);
+  }), /MEMBERSHIP_PAYMENT_METADATA_MISMATCH/);
   assert.equal(calls, 0);
 
   await assert.rejects(() => settleFormStripeInvoice({
@@ -200,7 +216,7 @@ test('metadata and immutable quote mismatch block provider calls', async () => {
       calls += 1;
       return {};
     },
-  }), /amount\/currency/);
+  }), /MEMBERSHIP_PAYMENT_AMOUNT_MISMATCH/);
   assert.equal(calls, 0);
 });
 
@@ -286,14 +302,16 @@ test('legacy missing provider context previews it but execute requires signed co
     }),
   });
   assert.deepEqual(preview.provider_context, { xero_tenant_id: 'preview-tenant' });
-  await assert.rejects(() => settleFormStripeInvoice({
+  const blocked = await settleFormStripeInvoice({
     supabase: db,
     tenantId,
     submissionId,
     dryRun: false,
     retrievePaymentIntent: async () => succeededIntent(),
     getProvider: async () => { throw new Error('must not resolve provider'); },
-  }), /requires explicit confirmed provider context/);
+  });
+  assert.equal(blocked.settlement_state, 'blocked');
+  assert.equal(blocked.error, 'MEMBERSHIP_ACCOUNTING_CONTEXT_MISSING');
 });
 
 test('legacy absent state claims against SQL null and stale processing CAS includes claimed_at', async () => {

@@ -30,11 +30,10 @@
  *    form's pipelines can produce the target entity, and this module
  *    re-reads the submission row fresh (created_member_id /
  *    organization_id are written by the pipelines) before concluding no
- *    entity exists. An unresolved entity stamps 'awaiting_entity' with an
- *    attempt counter — the cron re-runs the form's entity pipelines and
- *    retries indefinitely (an admin re-running processing also sets the
- *    ids); after MAX_ENTITY_ATTEMPTS an admin note is escalated once.
- *    A paid row is never terminally abandoned.
+ *    entity exists. An unresolved entity stamps 'awaiting_entity' with bounded
+ *    diagnostic attempts/age. A proven finished processor lacking its required
+ *    target, or exhausted legacy diagnostics, stops in visible blocked review.
+ *    No caller-provided ID repairs a missing or inconsistent durable link.
  *  - The workflow uses a durable atomic claim before dispatch: a CAS update
  *    (conditional on the current workflow_state via a PostgREST filter)
  *    flips 'pending' → 'claimed' with a timestamp; only the winner
@@ -79,9 +78,12 @@ import {
 // claim and dispatch) and may be re-claimed by the cron sweep.
 export const WORKFLOW_CLAIM_TTL_MS = 15 * 60 * 1000;
 
-// After this many entity-resolution retries an admin note is escalated
-// onto the submission (retries continue — never terminal).
-export const MAX_ENTITY_ATTEMPTS = 8;
+// Diagnostic exhaustion stops automatic retries without reopening payment.
+export { MAX_ENTITY_ATTEMPTS } from './formMembershipIntegrity.js';
+import {
+  authoritativeMembershipEntity, membershipIntegrityError, membershipIsBlocked,
+  missingMembershipEntityOutcome,
+} from './formMembershipIntegrity.js';
 
 export function isDefinitiveInvoiceCreateRejection(error) {
   const statusCode = Number(error?.statusCode || error?.status || error?.response?.status);
@@ -89,7 +91,12 @@ export function isDefinitiveInvoiceCreateRejection(error) {
     && ![408, 409, 429].includes(statusCode);
 }
 
-export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null, deadlineAt = null }, deps = {}) {
+export async function finalizeFormMembership({ supabase, submission, baseUrl, memberId = null, organizationId = null, processorResult = null, deadlineAt = null }, deps = {}) {
+  // Always reload, including resumes and callers carrying non-null stale IDs.
+  const { data: fresh, error: loadError } = await supabase.from('form_submission')
+    .select('*').eq('id', submission.id).eq('tenant_id', submission.tenant_id).maybeSingle();
+  if (loadError || !fresh) throw new Error('Authoritative membership submission unavailable');
+  submission = fresh;
   const meta = (submission?.payment_meta && typeof submission.payment_meta === 'object')
     ? submission.payment_meta : {};
   const membership = meta.membership;
@@ -100,26 +107,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
   const isMemberScoped = quote.target === 'member';
   const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
   const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
-  let entityId = isMemberScoped
-    ? (memberId || submission.created_member_id || null)
-    : (organizationId || submission.organization_id || meta.prefill_organization_id || null);
-  // Entity-resolution contract: the pipelines write created_member_id /
-  // organization_id onto the submission row; the caller's snapshot may be
-  // stale (browser confirm captured the row before the pipeline update, or
-  // an admin re-ran processing since). Always re-read fresh before
-  // concluding the entity is missing.
-  if (!entityId) {
-    try {
-      const { data: freshSub } = await supabase
-        .from('form_submission')
-        .select('created_member_id, organization_id')
-        .eq('id', submission.id)
-        .maybeSingle();
-      entityId = isMemberScoped
-        ? (freshSub?.created_member_id || null)
-        : (freshSub?.organization_id || null);
-    } catch { /* fall through */ }
-  }
+  let entityId = null;
   const paymentRef = submission.payment_reference || null;
   const isStripe = submission.payment_provider === 'stripe';
   // Deterministic ownership marker embedded in the history row's notes so a
@@ -479,6 +467,14 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       }
     }
 
+    // Settlement can stop at a preclaim identity guard. Do not dispatch any
+    // subsequent workflow/email from a now-blocked identity.
+    const { data: latestSubmission, error: latestError } = await supabase.from('form_submission')
+      .select('payment_meta').eq('id', submission.id).eq('tenant_id', tenantId).maybeSingle();
+    if (latestError || !latestSubmission) throw new Error('Membership progress reload failed');
+    if (membershipIsBlocked(latestSubmission.payment_meta?.membership_result)) {
+      return { created: false, blocked: true, requiresAttention: true };
+    }
     // Membership-paid workflow — durable atomic claim BEFORE dispatch:
     // CAS 'pending' → 'claimed' (or re-claim a stale claim, matching both
     // state and the exact stale timestamp) so exactly one actor dispatches.
@@ -554,14 +550,29 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
   try {
     // ── Resume path: a prior run already created/adopted the row. ───────
     const prior = meta.membership_result;
+    if (membershipIsBlocked(prior)) return { created: false, blocked: true, requiresAttention: true };
+    // An exact observed operation may still publish its authoritative links.
+    // No membership side effects or diagnostic attempts while it owns work.
+    if (processorResult?.awaitingOperation) return { created: false, awaitingEntity: true, waitingOperation: true };
+    entityId = await authoritativeMembershipEntity(supabase, submission, quote.target);
+    if (prior?.entity_id && String(prior.entity_id) !== String(entityId)) {
+      throw membershipIntegrityError('MEMBERSHIP_ENTITY_LINK_MISMATCH');
+    }
+    if (!entityId) {
+      if ((isMemberScoped ? memberId : organizationId) || prior?.history_id) {
+        throw membershipIntegrityError('MEMBERSHIP_AUTHORITATIVE_LINK_MISSING');
+      }
+      const outcome = missingMembershipEntityOutcome(submission, prior, processorResult);
+      await stampResult(outcome);
+      if (outcome.status === 'blocked') await noteFailure(outcome.integrity_error_code);
+      return { created: false, awaitingEntity: outcome.status !== 'blocked',
+        blocked: outcome.status === 'blocked', requiresAttention: outcome.status === 'blocked' };
+    }
     if (prior?.status === 'created' && prior.history_id) {
       const workflowIncomplete = prior.workflow_state === 'pending' || prior.workflow_state === 'claimed';
       const settlementIncomplete = Object.prototype.hasOwnProperty.call(prior, 'settlement_state')
         && ['pending', 'retry', 'processing'].includes(prior.settlement_state);
       const invoiceIncomplete = ['pending', 'retry', 'processing'].includes(prior.invoice_state);
-      if (!invoiceIncomplete && !workflowIncomplete && !settlementIncomplete) {
-        return { created: false, alreadyProcessed: true, historyId: prior.history_id };
-      }
       const { data: historyRow } = await supabase
         .from(historyTable)
         .select('*')
@@ -573,23 +584,13 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         await stampResult({ status: 'row_missing' });
         return { created: false };
       }
-      return await runSideEffects(historyRow, prior, { newlyCreated: false });
-    }
-
-    if (!entityId) {
-      // Not yet resolvable. NEVER terminal: the reconciliation cron
-      // re-runs the form's entity pipelines before each retry, and an
-      // admin re-running processing also writes the ids onto the
-      // submission — a paid row stays actionable until the membership is
-      // created. After MAX_ENTITY_ATTEMPTS we escalate once via an admin
-      // note but keep retrying.
-      const attempts = (prior?.status === 'awaiting_entity' ? (prior.attempts || 0) : 0) + 1;
-      if (attempts === MAX_ENTITY_ATTEMPTS) {
-        await noteFailure(`no ${isMemberScoped ? 'member' : 'organisation'} has been resolved by the form's processing pipelines after ${attempts} attempts — re-run processing from the submissions list; the membership will then be created automatically`);
+      if (prior.table !== historyTable || String(historyRow[historyIdCol]) !== String(entityId)) {
+        throw membershipIntegrityError('MEMBERSHIP_HISTORY_LINK_MISMATCH');
       }
-      console.warn(`[formMembershipFinalize] Entity not yet resolved for submission ${submission.id} (attempt ${attempts}); will retry`);
-      await stampResult({ status: 'awaiting_entity', attempts });
-      return { created: false, awaitingEntity: true };
+      if (!invoiceIncomplete && !workflowIncomplete && !settlementIncomplete) {
+        return { created: false, alreadyProcessed: true, historyId: prior.history_id };
+      }
+      return await runSideEffects(historyRow, prior, { newlyCreated: false });
     }
 
     // ── Existing-row checks (retry safety, one row per (entity, year)). ──
@@ -719,6 +720,11 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       workflow_state: 'pending',
     }, { newlyCreated: true });
   } catch (err) {
+    if (err?.membershipIntegrity) {
+      await stampResult({ status: 'blocked', integrity_state: 'blocked', integrity_error_code: err.code });
+      await noteFailure(err.code);
+      return { created: false, blocked: true, requiresAttention: true, errorCode: err.code };
+    }
     // Transient/unexpected: no terminal stamp → retried by the cron sweep.
     await noteFailure(err?.message || 'unexpected error');
     return { created: false };

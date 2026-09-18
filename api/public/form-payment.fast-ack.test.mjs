@@ -11,6 +11,7 @@ process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
 
 const tenant = { id: 'tenant-1', slug: 'tenant' };
 const form = { id: 'form-1', tenant_id: tenant.id, fields: [] };
+const gcContext = { version: 1, environment: 'sandbox', source: 'tenant', tenant_id: tenant.id, account_fingerprint: 'fixture-account' };
 
 function responseRecorder() {
   return {
@@ -35,6 +36,11 @@ function fakeDb(row, agreement) {
   const calls = [];
   const db = {
     calls,
+    async rpc(name, args) {
+      assert.equal(name, 'record_form_gocardless_reconciliation');
+      row.payment_meta.gc_reconciliation = args.p_diagnostic;
+      return { data: true, error: null };
+    },
     from(table) {
       calls.push({ table, operation: 'select' });
       let operation = 'select';
@@ -92,6 +98,7 @@ function monthlyRow(provider) {
     payment_provider: provider,
     payment_status: 'pending',
     payment_meta: {
+      gc_provider_context: gcContext,
       access_authorized_at: '2027-01-01T00:00:00.000Z',
       ...(provider === 'gocardless_monthly_dd'
         ? { monthly_direct_debit: { agreement_id: 'agreement-1', billing_request_id: 'BR-1' } }
@@ -118,6 +125,10 @@ function agreement(provider) {
 
 test('handler fast-ack acknowledges GoCardless submitted consent without processor or membership work', async () => {
   const row = monthlyRow('gocardless_monthly_dd');
+  // A successful earlier cron GET must not delay the user's flow return.
+  row.payment_meta.gc_reconciliation = {
+    status: 'waiting', next_attempt_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
   const db = fakeDb(row, agreement('gocardless_monthly_dd'));
   let processorCalls = 0;
   const response = responseRecorder();
@@ -125,6 +136,7 @@ test('handler fast-ack acknowledges GoCardless submitted consent without process
     supabase: db,
     tenantData: tenant,
     gocardlessForTenant: async () => ({
+      providerContext: gcContext,
       isConfigured: () => true,
       getGocardlessEnvironment: () => 'sandbox',
       getBillingRequest: async () => ({
@@ -154,6 +166,53 @@ test('handler fast-ack acknowledges GoCardless submitted consent without process
   assert.deepEqual([...new Set(db.calls.map((call) => call.table))], [
     'form_submission', 'form', 'membership_billing_agreements',
   ]);
+});
+
+test('browser confirmation cannot bypass account/environment/legacy quarantine for monthly or one-off GC', async () => {
+  for (const provider of ['gocardless_monthly_dd', 'gocardless']) {
+    for (const origin of [null, { ...gcContext, environment: 'live' }, { ...gcContext, account_fingerprint: 'other' }]) {
+      const row = monthlyRow('gocardless_monthly_dd');
+      row.payment_provider = provider;
+      row.payment_meta.gc_provider_context = origin;
+      const db = fakeDb(row, agreement('gocardless_monthly_dd'));
+      const response = responseRecorder();
+      let calls = 0;
+      await handler(request(provider, row.id), response, {
+        supabase: db, tenantData: tenant,
+        gocardlessForTenant: async () => ({
+          providerContext: gcContext,
+          isConfigured: () => true,
+          getGocardlessEnvironment: () => 'sandbox',
+          getBillingRequest: async () => { calls++; throw new Error('must not call provider'); },
+        }),
+      });
+      assert.equal(response.statusCode, 409);
+      assert.equal(calls, 0);
+      assert.equal(row.payment_status, 'pending');
+      assert.equal(row.payment_meta.gc_reconciliation.status, 'blocked');
+    }
+  }
+});
+
+test('browser reports a newly exhausted fifth 404 as review immediately', async () => {
+  const row = monthlyRow('gocardless_monthly_dd');
+  row.payment_meta.gc_reconciliation = { status: 'retry', attempts: 4 };
+  const db = fakeDb(row, agreement('gocardless_monthly_dd'));
+  // Model a remote RPC: persistence does not mutate the caller's snapshot.
+  db.rpc = async () => ({ data: true, error: null });
+  const response = responseRecorder();
+  await handler(request(row.payment_provider, row.id), response, {
+    supabase: db, tenantData: tenant,
+    gocardlessForTenant: async () => ({
+      providerContext: gcContext,
+      isConfigured: () => true,
+      getGocardlessEnvironment: () => 'sandbox',
+      getBillingRequest: async () => { throw { status: 404 }; },
+    }),
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.body.retryable, false);
+  assert.equal(row.payment_status, 'pending');
 });
 
 test('handler fast-ack acknowledges Stripe setup and reports only actual first-charge evidence', async () => {

@@ -14,3 +14,9 @@ Durable failure states and recovery scan predicates must change together. A rele
 **Why:** adding a useful saved failure reason can otherwise disable the background path that is supposed to recover it when the applicant closes the page.
 
 **How to apply:** test selection and reclaimability for every new lease state, while keeping blocked/conflict states distinct from transient failures.
+
+Identity and accounting-context failures before a provider-operation claim need their own durable blocked outcome; an attempt limit applied after the claim cannot bound them.
+
+**Why:** A membership history and its result agreed on a member, but the submission lacked the authoritative member link. Settlement correctly rejected it before incrementing its attempt counter, leaving the same error eligible forever.
+
+**How to apply:** Reload and tenant-validate persisted submission links before creating or resuming memberships. Do not repair missing links from caller IDs. Save integrity failures once, exclude blocked rows before sweep limits, and keep the paid receipt distinct from membership or settlement completion.

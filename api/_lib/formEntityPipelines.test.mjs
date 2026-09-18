@@ -33,6 +33,42 @@ function makeSupabaseSpy() {
   };
 }
 
+test('one-off membership response cannot repair missing or conflicting durable processor links', async () => {
+  const oldFetch = globalThis.fetch;
+  const oldUrl = process.env.APP_URL;
+  process.env.APP_URL = 'https://configured-internal.example';
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      success: true, created_member_id: 'returned-member',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    for (const persistedId of [null, 'different-member', 'returned-member']) {
+      const writes = [];
+      const db = { from() {
+        const q = {
+          select() { return q; }, eq() { return q; }, filter() { return q; },
+          update(payload) { writes.push(payload); return q; },
+          maybeSingle: async () => ({ data: { created_member_id: persistedId } }),
+          then(resolve) { return Promise.resolve({ error: null }).then(resolve); },
+        };
+        return q;
+      } };
+      const out = await runFormEntityPipelines({
+        supabase: db,
+        submission: { id: 'sub-link', tenant_id: 'tenant-1', payment_status: 'paid',
+          payment_provider: 'stripe', payment_meta: { membership: { quote: { target: 'member' } } } },
+        form: FORM_WITH_PIPELINES,
+      });
+      assert.equal(out.failed, persistedId !== 'returned-member');
+      if (out.failed) assert.equal(out.integrityErrorCode, 'MEMBERSHIP_PROCESSOR_LINK_MISMATCH');
+      assert.equal(writes.some(value => 'created_member_id' in value), false);
+    }
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = oldUrl;
+  }
+});
+
 const FORM_WITH_PIPELINES = { id: 'f1', entity_pipelines: { members: [{ id: 'p1' }], organisations: [] } };
 
 test('only complete monthly processing may defer profile mapping until the first payment', async () => {

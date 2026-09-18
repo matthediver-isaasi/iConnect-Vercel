@@ -31,6 +31,10 @@ import {
   resolveRepeatableOrganisationLabel,
 } from "../../../shared/repeatableFormRowsFormat.js";
 import { isRepeatableRowField } from "../../../shared/formRepeatableRows.js";
+import {
+  getFormSubmissionPaymentReview,
+  getSafeProcessingNoteDetails,
+} from "@/lib/formSubmissionPaymentReview";
 
 function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
@@ -231,6 +235,7 @@ export default function FormSubmissionView() {
   }
 
   const submissionData = submission.submission_data || {};
+  const paymentReview = getFormSubmissionPaymentReview(submission);
   const fields = form?.fields || [];
   
   const hasPages = form?.layout_type !== 'card_swipe' && form?.pages && form.pages.length > 0;
@@ -522,6 +527,23 @@ export default function FormSubmissionView() {
           </CardContent>
         </Card>
 
+        {paymentReview && (
+          <Card
+            className="mb-6 border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+            data-testid="card-payment-review"
+          >
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-400" />
+                Needs review
+              </CardTitle>
+              <CardDescription className="text-amber-950 dark:text-amber-100">
+                {paymentReview.reason}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+
         {Array.isArray(submission.processing_notes) && submission.processing_notes.length > 0 && (
           <Card className="mb-6 border-warning/30 dark:border-warning" data-testid="card-processing-notes">
             <CardHeader>
@@ -537,6 +559,7 @@ export default function FormSubmissionView() {
               <ul className="space-y-2">
                 {submission.processing_notes.map((note, idx) => {
                   const level = note?.level || 'info';
+                  const safeDetails = getSafeProcessingNoteDetails(note);
                   const levelClass = level === 'error'
                     ? 'border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900'
                     : level === 'warn'
@@ -570,15 +593,9 @@ export default function FormSubmissionView() {
                               {note.message}
                             </p>
                           )}
-                          {note && Object.keys(note).some((k) => !['level', 'kind', 'stage', 'message', 'at', 'entity_scope', 'field_id'].includes(k)) && (
+                          {Object.keys(safeDetails).length > 0 && (
                             <pre className="mt-2 text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words font-mono">
-                              {JSON.stringify(
-                                Object.fromEntries(
-                                  Object.entries(note).filter(([k]) => !['level', 'kind', 'stage', 'message', 'at', 'entity_scope', 'field_id'].includes(k))
-                                ),
-                                null,
-                                2,
-                              )}
+                              {JSON.stringify(safeDetails, null, 2)}
                             </pre>
                           )}
                         </div>

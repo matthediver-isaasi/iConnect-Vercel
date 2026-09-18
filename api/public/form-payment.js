@@ -30,6 +30,8 @@ import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { getStripeCredentials, getStripeIntegrationCredentials, retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
+import { validateGocardlessProviderContext, retrieveFormGocardlessBillingRequest } from '../_lib/gocardlessFormProviderContext.js';
+import { resolveFormPaymentOrganization } from '../_lib/formPaymentOrganization.js';
 import {
   computeAuthoritativeHiddenFieldIds,
   findPaymentField,
@@ -448,6 +450,7 @@ export function membershipAllowsPaymentProvider(provider, membershipMeta) {
  * { membershipMeta, amount, currency, evalOptions }.
  */
 async function resolvePayableCharge({ supabase, tenantData, form, paymentField, values, prefill_organization_id, evalOptions: presetEvalOptions = null }) {
+  let organizationId = null;
   // LMIC options shared by submit-control AND visibility evaluation.
   const evalOptions = presetEvalOptions || {};
   if (!presetEvalOptions && rulesUseLmicOperators(form.visibility_rules)) {
@@ -523,10 +526,16 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
 
     let quote = null;
     if (membershipTarget === 'organization' && prefill_organization_id) {
+      try {
+        organizationId = await resolveFormPaymentOrganization(supabase, tenantData.id, prefill_organization_id);
+        if (!organizationId) throw new Error('An existing organisation is required');
+      } catch (error) {
+        return { error: { status: 400, body: { error: error.message, code: 'MEMBERSHIP_TARGET_UNRESOLVABLE' } } };
+      }
       // An existing organisation is already known: use the full simulation
       // (honours go-live date, existing records, overrides, stored values).
       const { simulateMembershipForOrg } = await import('../_lib/membershipSimulation.js');
-      const simResult = await simulateMembershipForOrg(tenantData.id, prefill_organization_id, {
+      const simResult = await simulateMembershipForOrg(tenantData.id, organizationId, {
         source: 'form-payment', mode: 'manual', configId: membershipConfigId, fieldOverrides,
       });
       if (!simResult.success) {
@@ -559,7 +568,7 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
     ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
     : (paymentField.payment_currency || 'GBP').toUpperCase();
 
-  return { membershipMeta, amount, currency, evalOptions };
+  return { membershipMeta, amount, currency, evalOptions, organizationId };
 }
 
 /**
@@ -1309,6 +1318,11 @@ async function handleCreate(req, res, supabase, tenantData) {
     }
   }
 
+  // Resolve once: the exact client used for creation owns the durable origin.
+  const creationGc = provider === 'gocardless' ? await gocardlessForTenant(tenantData.id) : null;
+  if (creationGc && (!creationGc.isConfigured() || !creationGc.providerContext)) {
+    return res.status(400).json({ error: 'Direct Debit is not configured for this organisation' });
+  }
   if (!submissionRow) {
     const insertRecord = {
       form_id: form.id,
@@ -1321,7 +1335,10 @@ async function handleCreate(req, res, supabase, tenantData) {
       payment_provider: storedPaymentProvider,
       payment_amount: storedPaymentAmount,
       payment_currency: currency,
+      ...(resolved.organizationId && !monthlyDirectDebitOffer
+        ? { organization_id: resolved.organizationId } : {}),
       payment_meta: withFormPaymentAccessProof({
+        ...(creationGc ? { gc_provider_context: creationGc.providerContext } : {}),
         price_field_id: paymentField.price_field_id || null,
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
@@ -1588,9 +1605,13 @@ async function handleCreate(req, res, supabase, tenantData) {
   }
 
   // GoCardless: billing request (mandate + one-off payment) + hosted flow.
-  const gc = await gocardlessForTenant(tenantData.id);
+  const gc = creationGc;
   if (!gc.isConfigured()) {
     return res.status(400).json({ error: 'Direct Debit is not configured for this organisation' });
+  }
+  const existingOrigin = submissionRow.payment_meta?.gc_provider_context;
+  if (validateGocardlessProviderContext(existingOrigin, gc.providerContext)) {
+    return res.status(409).json({ error: 'Direct Debit provider context requires administrator review' });
   }
   if (monthlyDirectDebitOffer) {
     return handleCreateMonthlyDirectDebit({
@@ -1757,6 +1778,9 @@ async function handleCreateMonthlyDirectDebit({
     });
   }
 
+  if (validateGocardlessProviderContext(submissionRow.payment_meta?.gc_provider_context, gc.providerContext, agreement)) {
+    return res.status(409).json({ error: 'Direct Debit provider context requires administrator review' });
+  }
   let consent = classifyMonthlyConsentAgreement(agreement);
   if (!agreement.gocardless_mandate_id && !consent.resumable) {
     const scheduleError = newDdConsentScheduleError(consent.rotatable ? snapshot : agreement.metadata?.dd);
@@ -2069,7 +2093,21 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
         code: 'PROVIDER_ENVIRONMENT_MISMATCH',
       }));
     }
-    const billingRequest = await gc.getBillingRequest(billingRequestId);
+    const contextReason = validateGocardlessProviderContext(row.payment_meta?.gc_provider_context, gc.providerContext, agreement);
+    if (row.payment_status !== 'pending' && contextReason) {
+      return res.status(409).json({ error: 'Direct Debit provider context requires administrator review', code: 'PROVIDER_CONTEXT_REVIEW' });
+    }
+    const billingRequest = row.payment_status === 'pending'
+      ? await retrieveFormGocardlessBillingRequest({ db: supabase, row, gc, reference: billingRequestId, agreement, refreshWaiting: true })
+      : await gc.getBillingRequest(billingRequestId);
+    if (!billingRequest) {
+      const blocked = !!contextReason || row.payment_meta?.gc_reconciliation?.status === 'blocked';
+      return res.status(blocked ? 409 : 503).json({
+        error: blocked ? 'Direct Debit lookup requires administrator review' : 'Direct Debit verification is deferred; payment outcome is not yet known',
+        code: blocked ? 'PROVIDER_CONTEXT_REVIEW' : 'PROVIDER_LOOKUP_DEFERRED',
+        pending: true, retryable: !blocked,
+      });
+    }
     const billingRequestMeta = billingRequest?.metadata || {};
     if (billingRequestMeta.type !== 'form_monthly_direct_debit'
         || billingRequestMeta.form_submission_id !== String(row.id)
@@ -2614,10 +2652,19 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
   }
 
   // GoCardless: verify the billing request server-side.
-  const gc = await gocardlessForTenant(tenantData.id);
+  const gc = await (dependencies.gocardlessForTenant || gocardlessForTenant)(tenantData.id);
   if (!gc.isConfigured()) return res.status(400).json({ error: 'Direct Debit is not configured' });
   if (!row.payment_reference) return res.status(400).json({ error: 'No Direct Debit request found for this submission' });
-  const br = await gc.getBillingRequest(row.payment_reference);
+  const contextReason = validateGocardlessProviderContext(row.payment_meta?.gc_provider_context, gc.providerContext);
+  const br = await retrieveFormGocardlessBillingRequest({ db: supabase, row, gc, reference: row.payment_reference, refreshWaiting: true });
+  if (!br) {
+    const blocked = !!contextReason || row.payment_meta?.gc_reconciliation?.status === 'blocked';
+    return res.status(blocked ? 409 : 503).json({
+      error: blocked ? 'Direct Debit lookup requires administrator review' : 'Direct Debit verification is deferred; payment outcome is not yet known',
+      code: blocked ? 'PROVIDER_CONTEXT_REVIEW' : 'PROVIDER_LOOKUP_DEFERRED',
+      pending: true, retryable: !blocked,
+    });
+  }
   const brMeta = br?.metadata || {};
   if (brMeta.type !== 'form_payment' || brMeta.form_submission_id !== String(row.id)) {
     return res.status(400).json({ error: 'Direct Debit request does not match this submission' });

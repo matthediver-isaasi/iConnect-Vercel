@@ -17,6 +17,7 @@ import {
 import Stripe from 'stripe';
 import { randomUUID } from 'node:crypto';
 import { gocardlessForTenant } from './gocardless.js';
+import { filterGocardlessPendingSelection, retrieveFormGocardlessBillingRequest } from './gocardlessFormProviderContext.js';
 import {
   markFormSubmissionPaid,
   finalizeFormSubmission,
@@ -24,6 +25,7 @@ import {
   FORM_PAYMENT_COMPLETION_BUDGET_MS,
 } from './formPaymentFinalize.js';
 import { finalizeFormMembership, WORKFLOW_CLAIM_TTL_MS } from './formMembershipFinalize.js';
+import { membershipIsBlocked } from './formMembershipIntegrity.js';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
 import { finalizeFormMonthlyCardCheckout, FINALIZE_CLAIM_TTL_MS } from './formMonthlyCardFinalize.js';
@@ -47,6 +49,7 @@ import { processStripeCardPlanEvent, CARD_PLAN_KIND } from './stripeMonthlyCard.
 import {
   FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS,
   formMembershipQuoteAmountMinor,
+  mergeFormMembershipProgress,
 } from './formStripeInvoiceSettlement.js';
 import { reconcilePaidFormDueDiligence } from './formDueDiligence.js';
 import { verifiedStripeMonthlySetup } from './formMonthlyConfirmLifecycle.js';
@@ -429,14 +432,15 @@ export async function reconcileFormPayments(supabase, {
 
   let rows = [];
   try {
-    const { data, error } = await supabase
+    const { data, error } = await filterGocardlessPendingSelection(supabase
       .from('form_submission')
       .select('*')
       .eq('payment_status', 'pending')
       .or('payment_reference.not.is.null,payment_provider.eq.gocardless_monthly_dd')
       .gte('created_date', minCreated)
-      .lte('created_date', maxCreated)
+      .lte('created_date', maxCreated))
       .order('created_date', { ascending: true })
+      .order('id', { ascending: true })
       .limit(limit);
     if (error) throw error;
     rows = data || [];
@@ -482,14 +486,17 @@ export async function reconcileFormPayments(supabase, {
       return { handled: false, detail: 'monthly Direct Debit Billing Request not found' };
     }
     const gc = await gocardlessForTenant(currentRow.tenant_id);
-    if (!gc.isConfigured()) {
-      return { handled: false, detail: 'GoCardless is not configured for the tenant' };
-    }
     const remainingMs = deadlineAt - Date.now() - 2_000;
     if (remainingMs < 1_000) throw new Error('worker budget exhausted before GoCardless Billing Request retrieval');
-    const billingRequest = await gc.getBillingRequest(billingRequestId, {
-      timeoutMs: Math.min(15_000, remainingMs),
-    });
+    // This helper is also used by the separate setup-complete recovery sweep;
+    // origin quarantine here is deliberately limited to pending payments.
+    const billingRequest = currentRow.payment_status === 'pending'
+      ? await retrieveFormGocardlessBillingRequest({
+          db: supabase, row: currentRow, gc, reference: billingRequestId, agreement,
+          timeoutMs: Math.min(15_000, remainingMs),
+        })
+      : await gc.getBillingRequest(billingRequestId, { timeoutMs: Math.min(15_000, remainingMs) });
+    if (!billingRequest) return { handled: false, blocked: true, detail: 'GoCardless lookup deferred; see gc_reconciliation' };
     const metadata = billingRequest?.metadata || {};
     if (metadata.type !== 'form_monthly_direct_debit'
         || metadata.form_submission_id !== String(currentRow.id)
@@ -629,15 +636,16 @@ export async function reconcileFormPayments(supabase, {
         if (outcome.handled && !outcome.failed) results.finalized += 1;
       } else if (row.payment_provider === 'gocardless') {
         const gc = await gocardlessForTenant(row.tenant_id);
-        if (!gc.isConfigured()) continue;
         const remainingMs = deadlineAt - Date.now() - 2_000;
         if (remainingMs < 1_000) {
           results.budgetExhausted = true;
           break;
         }
-        const br = await gc.getBillingRequest(row.payment_reference, {
+        const br = await retrieveFormGocardlessBillingRequest({
+          db: supabase, row, gc, reference: row.payment_reference,
           timeoutMs: Math.min(15_000, remainingMs),
         });
+        if (!br) continue;
         const brMeta = br?.metadata || {};
         if (brMeta.type !== 'form_payment' || brMeta.form_submission_id !== String(row.id)) continue;
         if (br.status === 'fulfilled') {
@@ -733,6 +741,10 @@ export async function reconcileFormPayments(supabase, {
        // Do not let this independent membership scan bypass a partial,
        // retryable, processing, or attention pipeline lifecycle.
        .or('payment_meta->completion->>version.is.null,payment_meta->completion->>version.neq.1')
+      .or('payment_meta->membership_result->>status.is.null,payment_meta->membership_result->>status.neq.blocked')
+      .or('payment_meta->membership_result->>integrity_state.is.null,payment_meta->membership_result->>integrity_state.neq.blocked')
+      .or('payment_meta->membership_result->>invoice_state.is.null,payment_meta->membership_result->>invoice_state.neq.blocked')
+      .or('payment_meta->membership_result->>settlement_state.is.null,payment_meta->membership_result->>settlement_state.neq.blocked')
       // Also recover orphaned workflow claims (crash between claim and
       // dispatch): 'claimed' with a claim timestamp past the TTL. ISO
       // strings compare lexicographically, so lt on the ->> text works.
@@ -753,6 +765,7 @@ export async function reconcileFormPayments(supabase, {
       .limit(20);
     if (error) throw error;
     for (const row of pendingMembership || []) {
+      if (membershipIsBlocked(row.payment_meta?.membership_result)) continue;
       // Defense in depth for PostgREST expression compatibility: a managed
       // v1 receipt must never run membership/accounting outside its owner-
       // fenced finalizeFormSubmission path.
@@ -772,8 +785,9 @@ export async function reconcileFormPayments(supabase, {
       const target = row.payment_meta?.membership?.quote?.target;
       const entityMissing = target === 'member'
         ? !row.created_member_id
-        : !(row.organization_id || row.payment_meta?.prefill_organization_id);
+        : !row.organization_id;
       const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
+      let processorResult = null;
       if (entityMissing && rowBaseUrl) {
         try {
           if (form) {
@@ -784,7 +798,17 @@ export async function reconcileFormPayments(supabase, {
               baseUrl: rowBaseUrl,
               deadlineAt,
               completionOperationId: randomUUID(),
+              observeLateSuccess: true,
             });
+            processorResult = pipelineOut;
+            if (pipelineOut.awaitingOperation) {
+              // Pass the exact observed running outcome, never an old
+              // entity_processing_completed_at marker, to diagnostics.
+              await finalizeFormMembership({
+                supabase, submission: row, baseUrl: rowBaseUrl, deadlineAt, processorResult: pipelineOut,
+              });
+              continue;
+            }
             if (pipelineOut.ambiguous) {
               // The operation reservation is now durable attention. Do not
               // advance membership/accounting from a processor result whose
@@ -794,6 +818,11 @@ export async function reconcileFormPayments(supabase, {
                 'membership-pipeline-rerun',
                 new Error(pipelineOut.detail || 'pipeline outcome requires administrator review'),
               );
+              await mergeFormMembershipProgress(supabase, {
+                tenantId: row.tenant_id, submissionId: row.id,
+                patch: { status: 'blocked', integrity_state: 'blocked',
+                  integrity_error_code: 'MEMBERSHIP_PROCESSOR_REVIEW_REQUIRED' },
+              });
               continue;
             }
             if (pipelineOut.memberId) row.created_member_id = row.created_member_id || pipelineOut.memberId;
@@ -805,7 +834,7 @@ export async function reconcileFormPayments(supabase, {
         }
       }
       const out = await finalizeFormMembership({
-        supabase, submission: row, baseUrl: rowBaseUrl, deadlineAt,
+        supabase, submission: row, baseUrl: rowBaseUrl, deadlineAt, processorResult,
       });
       if (out?.created) results.membershipCreated = (results.membershipCreated || 0) + 1;
     }

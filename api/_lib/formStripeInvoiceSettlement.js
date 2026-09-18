@@ -1,5 +1,6 @@
 import { getAccountingProviderByName } from './accountingProvider.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
+import { authoritativeMembershipEntity, membershipIntegrityError, membershipIsBlocked } from './formMembershipIntegrity.js';
 
 export const FORM_STRIPE_SETTLEMENT_CLAIM_TTL_MS = 15 * 60 * 1000;
 export const MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS = 12;
@@ -78,7 +79,7 @@ async function findHistory(supabase, submission, historyId, tableHint) {
     ? 'member_membership_history'
     : target === 'organization' ? 'organisation_membership_history' : null;
   if (!expectedTable || tableHint !== expectedTable) {
-    throw new Error('Membership history table does not match the immutable quote target');
+    throw membershipIntegrityError('MEMBERSHIP_HISTORY_TABLE_MISMATCH');
   }
   const { data, error } = await supabase.from(expectedTable).select('*')
     .eq('id', historyId).eq('tenant_id', submission.tenant_id).maybeSingle();
@@ -142,7 +143,31 @@ function stripeTransportOptions(deadlineAt) {
  * tenant-scoped paid submission and existing membership/invoice linkage.
  * dryRun defaults true so admin repair callers must opt in to provider writes.
  */
-export async function settleFormStripeInvoice({
+export async function settleFormStripeInvoice(options) {
+  try {
+    return await settleVerifiedFormStripeInvoice(options);
+  } catch (error) {
+    if (!error?.membershipIntegrity || options.dryRun !== false) throw error;
+    const persisted = await mergeFormMembershipProgress(options.supabase, {
+      tenantId: options.tenantId, submissionId: options.submissionId,
+      expected: { integrity_state: null },
+      patch: { status: 'blocked', integrity_state: 'blocked', integrity_error_code: error.code,
+        settlement_state: 'blocked', settlement_error: error.code },
+    });
+    if (!persisted.updated && persisted.result?.integrity_state !== 'blocked') {
+      throw new Error('Membership integrity failure could not be persisted');
+    }
+    if (persisted.updated) {
+      const { error: noteError } = await options.supabase.from('form_submission').update({
+        processing_notes: `Payment remains paid; membership needs administrator review (${error.code}). Do not charge the applicant again.`,
+      }).eq('id', options.submissionId).eq('tenant_id', options.tenantId);
+      if (noteError) throw new Error('Membership integrity diagnostic could not be persisted');
+    }
+    return { settlement_state: 'blocked', requiresAttention: true, error: error.code };
+  }
+}
+
+async function settleVerifiedFormStripeInvoice({
   supabase,
   submissionId,
   tenantId,
@@ -165,41 +190,43 @@ export async function settleFormStripeInvoice({
 
   const meta = asObject(submission.payment_meta);
   const progress = asObject(meta.membership_result);
+  if (membershipIsBlocked(progress)) {
+    return { settlement_state: 'blocked', requiresAttention: true,
+      error: progress.integrity_error_code || progress.settlement_error || 'MEMBERSHIP_REVIEW_REQUIRED' };
+  }
   const quote = meta.membership?.quote;
-  if (!quote || !progress.history_id) throw new Error('Existing membership linkage not found');
+  if (!quote || !progress.history_id) throw membershipIntegrityError('MEMBERSHIP_HISTORY_LINK_MISSING');
   const { table: historyTable, row: history } = await findHistory(supabase, submission, progress.history_id, progress.table);
-  if (!history) throw new Error('Linked membership history row not found');
-  const expectedEntityId = quote.target === 'member'
-    ? submission.created_member_id
-    : (submission.organization_id || meta.prefill_organization_id);
+  if (!history) throw membershipIntegrityError('MEMBERSHIP_HISTORY_LINK_MISSING');
+  const expectedEntityId = await authoritativeMembershipEntity(supabase, submission, quote.target);
   const historyEntityId = quote.target === 'member' ? history.member_id : history.organization_id;
   if (!expectedEntityId || !progress.entity_id
       || String(historyEntityId) !== String(expectedEntityId)
       || String(historyEntityId) !== String(progress.entity_id)) {
-    throw new Error('Linked membership entity does not match the form submission');
+    throw membershipIntegrityError('MEMBERSHIP_ENTITY_LINK_MISMATCH');
   }
   if (history.billing_agreement_id || history.payment_method !== 'stripe'
       || history.payment_status !== 'paid') {
-    throw new Error('Membership history is not an eligible paid one-off Stripe record');
+    throw membershipIntegrityError('MEMBERSHIP_PAYMENT_LINK_INVALID');
   }
   let invoiceId = history.accounting_invoice_id || history.xero_invoice_id;
   let invoiceNumber = history.accounting_invoice_number || history.xero_invoice_number || null;
   const pinnedProvider = history.accounting_provider
     || (history.xero_invoice_id ? 'xero' : null)
     || progress.accounting_provider;
-  if (!pinnedProvider) throw new Error('Linked accounting provider not found');
+  if (!pinnedProvider) throw membershipIntegrityError('MEMBERSHIP_ACCOUNTING_PROVIDER_MISSING');
   if (progress.accounting_provider && progress.accounting_provider !== pinnedProvider) {
-    throw new Error('Recorded accounting provider linkage is inconsistent');
+    throw membershipIntegrityError('MEMBERSHIP_ACCOUNTING_PROVIDER_MISMATCH');
   }
   const recordedProviderContext = progress.provider_context
     || history.accounting_provider_context
     || null;
   if (recordedProviderContext && expectedProviderContext
       && !accountingProviderContextsEqual(recordedProviderContext, expectedProviderContext)) {
-    throw new Error('Expected accounting provider context does not match the recorded invoice context');
+    throw membershipIntegrityError('MEMBERSHIP_ACCOUNTING_CONTEXT_MISMATCH');
   }
   if (!recordedProviderContext && !dryRun && !expectedProviderContext) {
-    throw new Error('Legacy invoice settlement requires explicit confirmed provider context');
+    throw membershipIntegrityError('MEMBERSHIP_ACCOUNTING_CONTEXT_MISSING');
   }
   const providerContext = recordedProviderContext || expectedProviderContext || null;
   const persistDiagnostics = async (errorMessage = null) => {
@@ -233,9 +260,9 @@ export async function settleFormStripeInvoice({
       }
     }
   };
-  if (!submission.payment_reference) throw new Error('Stripe PaymentIntent linkage not found');
+  if (!submission.payment_reference) throw membershipIntegrityError('MEMBERSHIP_PAYMENT_REFERENCE_MISSING');
   if (history.stripe_payment_intent_id !== submission.payment_reference) {
-    throw new Error('Membership history Stripe PaymentIntent linkage does not match the submission');
+    throw membershipIntegrityError('MEMBERSHIP_PAYMENT_REFERENCE_MISMATCH');
   }
 
   const stripeFeature = meta.stripe_feature || 'membership';
@@ -247,30 +274,30 @@ export async function settleFormStripeInvoice({
   );
   const pi = found?.paymentIntent;
   if (!pi || pi.id !== submission.payment_reference || pi.status !== 'succeeded') {
-    throw new Error('Stripe PaymentIntent is not verified as succeeded');
+    throw membershipIntegrityError('MEMBERSHIP_PAYMENT_NOT_SUCCEEDED');
   }
   const metadataMatches = pi.metadata?.type === 'form_payment'
     && pi.metadata?.tenant_id === String(tenantId)
     && pi.metadata?.form_id === String(submission.form_id)
     && pi.metadata?.form_submission_id === String(submission.id);
-  if (!metadataMatches) throw new Error('Stripe PaymentIntent metadata does not match the form submission');
+  if (!metadataMatches) throw membershipIntegrityError('MEMBERSHIP_PAYMENT_METADATA_MISMATCH');
 
   const currency = String(quote.currency || submission.payment_currency || '').toUpperCase();
   const amountMinor = formMembershipQuoteAmountMinor(quote);
   const receivedMinor = Number(pi.amount_received ?? pi.amount);
   if (!currency || String(pi.currency || '').toUpperCase() !== currency
       || amountMinor === null || receivedMinor !== amountMinor) {
-    throw new Error('Stripe PaymentIntent amount/currency does not match the immutable membership quote');
+    throw membershipIntegrityError('MEMBERSHIP_PAYMENT_AMOUNT_MISMATCH');
   }
   const amount = amountMinor / (10 ** currencyExponent(currency));
   const paidAtDate = new Date(submission.payment_paid_at);
   if (!submission.payment_paid_at || !Number.isFinite(paidAtDate.getTime())) {
-    throw new Error('Persisted form payment paid timestamp is missing');
+    throw membershipIntegrityError('MEMBERSHIP_PAYMENT_TIMESTAMP_MISSING');
   }
   const paidAt = paidAtDate.toISOString();
   let provider = null;
   if (!invoiceId) {
-    if (progress.invoice_state !== 'processing') throw new Error('Linked accounting invoice not found');
+    if (progress.invoice_state !== 'processing') throw membershipIntegrityError('MEMBERSHIP_ACCOUNTING_INVOICE_MISSING');
     let discoveryAttempts = Number(progress.invoice_discovery_attempts || 0);
     if (!dryRun) {
       const nextClaimedAt = new Date().toISOString();

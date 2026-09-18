@@ -75,6 +75,10 @@ import {
   resolveRepeatableOrganisationLabel,
 } from '../../../shared/repeatableFormRowsFormat.js';
 import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
+import {
+  getFormSubmissionPaymentReview,
+  isVisibleFormSubmission,
+} from '@/lib/formSubmissionPaymentReview';
 
 function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
@@ -867,6 +871,10 @@ export default function FormSubmissionsPage() {
 
   const rerunSubmissionMutation = useMutation({
     mutationFn: async (submission) => {
+      const review = getFormSubmissionPaymentReview(submission);
+      if (review?.blocksRerun) {
+        throw new Error('Re-run is disabled because this submission is blocked by payment or membership integrity checks.');
+      }
       const form = forms.find(f => f.id === submission.form_id);
       if (!form) {
         throw new Error('Form not found');
@@ -1000,9 +1008,7 @@ export default function FormSubmissionsPage() {
     // Task #3483: submissions awaiting payment aren't real submissions yet —
     // they're finalised (or reconciled) once the payment confirms. Failed
     // payments stay hidden too.
-    const paid = submissions.filter(s => !s.payment_status
-      || s.payment_status === 'paid'
-      || (s.payment_provider === 'stripe_monthly_card' && s.payment_status === 'setup_complete'));
+    const paid = submissions.filter(isVisibleFormSubmission);
     if (activeTab === 'owned') {
       return paid.filter(s => ownedFormIds.has(s.form_id));
     }
@@ -2417,6 +2423,7 @@ export default function FormSubmissionsPage() {
               {paginatedSubmissions.map(submission => {
                 const form = forms.find(f => f.id === submission.form_id);
                 const isDueDiligenceForm = form?.due_diligence_required === true;
+                const paymentReview = getFormSubmissionPaymentReview(submission);
                 
                 return (
                 <Card key={submission.id} className="border-slate-200 hover:shadow-lg transition-shadow">
@@ -2478,6 +2485,22 @@ export default function FormSubmissionsPage() {
                                 : ''}
                             </Badge>
                           )}
+                          {paymentReview && (
+                            <>
+                              <Badge
+                                className="bg-amber-100 text-amber-900 border-amber-300"
+                                data-testid={`badge-payment-review-${submission.id}`}
+                              >
+                                Needs review
+                              </Badge>
+                              <span
+                                className="text-amber-900"
+                                data-testid={`text-payment-review-reason-${submission.id}`}
+                              >
+                                {paymentReview.reason}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2485,9 +2508,11 @@ export default function FormSubmissionsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => rerunSubmissionMutation.mutate(submission)}
-                          disabled={rerunSubmissionMutation.isPending}
+                          disabled={rerunSubmissionMutation.isPending || paymentReview?.blocksRerun}
                           data-testid={`button-rerun-submission-${submission.id}`}
-                          title="Re-run submission processing"
+                          title={paymentReview?.blocksRerun
+                            ? 'Re-run is disabled because integrity checks blocked this submission. Review the issue without bypassing the safety checks.'
+                            : 'Re-run submission processing'}
                         >
                           {rerunSubmissionMutation.isPending ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -2759,6 +2784,18 @@ export default function FormSubmissionsPage() {
                       <p className="text-xs text-slate-500">Paid {moment(viewingSubmission.paid_at).format('MMM D, YYYY h:mm A')}</p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {getFormSubmissionPaymentReview(viewingSubmission) && (
+                <div
+                  className="rounded-lg border border-amber-300 bg-amber-50 p-4"
+                  data-testid="panel-payment-review"
+                >
+                  <Badge className="mb-2 bg-amber-100 text-amber-900 border-amber-300">Needs review</Badge>
+                  <p className="text-sm text-amber-950">
+                    {getFormSubmissionPaymentReview(viewingSubmission).reason}
+                  </p>
                 </div>
               )}
 
