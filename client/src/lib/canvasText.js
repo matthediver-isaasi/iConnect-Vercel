@@ -10,6 +10,8 @@
 // resolved from their design (top-level references only, matching the public
 // page endpoint's symbol embedding), and rich-text HTML is stripped to prose.
 
+import { projectCanvasMemberTokensForGuest } from '../../../shared/canvasMemberTokens.js';
+
 // Content-object keys whose STRING values carry human-readable, on-page text.
 // Collected at ANY depth (arrays/objects are traversed), covering the fields the
 // Canvas block renderers surface to readers across every block type: text,
@@ -129,7 +131,13 @@ export function collectCanvasSymbolIds(design) {
  */
 export function extractCanvasPageText(design, symbolsById = {}) {
   const out = [];
-  walkSections(design, symbolsById, out, new Set());
+  // Index templates as the neutral audience, never as the indexing member.
+  walkSections(
+    projectCanvasMemberTokensForGuest(design),
+    projectCanvasMemberTokensForGuest(symbolsById),
+    out,
+    new Set(),
+  );
   const uniq = [];
   const seenText = new Set();
   for (const t of out) {

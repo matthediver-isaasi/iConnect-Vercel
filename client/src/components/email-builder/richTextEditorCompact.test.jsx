@@ -25,17 +25,31 @@ globalThis.window = window;
 globalThis.document = window.document;
 globalThis.navigator = window.navigator;
 globalThis.HTMLElement = window.HTMLElement;
+globalThis.HTMLInputElement = window.HTMLInputElement;
 globalThis.Element = window.Element;
 globalThis.Node = window.Node;
 globalThis.DOMParser = window.DOMParser;
 globalThis.MutationObserver = window.MutationObserver;
 globalThis.DocumentFragment = window.DocumentFragment;
+globalThis.Event = window.Event;
+globalThis.CustomEvent = window.CustomEvent;
+globalThis.MouseEvent = window.MouseEvent;
+globalThis.KeyboardEvent = window.KeyboardEvent;
+globalThis.PointerEvent = window.PointerEvent || window.MouseEvent;
 globalThis.getComputedStyle = window.getComputedStyle;
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 }
+window.HTMLElement.prototype.scrollIntoView = () => {};
+window.HTMLElement.prototype.hasPointerCapture = () => false;
+window.HTMLElement.prototype.setPointerCapture = () => {};
+window.HTMLElement.prototype.releasePointerCapture = () => {};
+window.Range.prototype.getClientRects = () => [];
+window.Range.prototype.getBoundingClientRect = () => ({
+  x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0,
+});
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const React = (await import('react')).default;
@@ -117,6 +131,7 @@ async function renderEditor(props) {
   return {
     host,
     q: (testid) => host.querySelector(`[data-testid="${testid}"]`),
+    editable: () => host.querySelector('[contenteditable="true"]'),
     unmount: async () => {
       await act(async () => { root.unmount(); });
       host.remove();
@@ -160,5 +175,173 @@ test('full mode still shows every control', async () => {
   for (const id of [...HIDDEN_IN_COMPACT, ...ALWAYS_SHOWN]) {
     assert.ok(r.q(id), `${id} must be visible in full mode`);
   }
+  await r.unmount();
+});
+
+const MEMBER_TOKENS = [
+  {
+    key: 'member.first_name',
+    label: 'First name',
+    token: '{{member.first_name}}',
+  },
+  {
+    key: 'member.organization.name',
+    label: 'Organisation name',
+    token: '{{member.organization.name}}',
+  },
+];
+
+async function placeCaret(editable, textOffset) {
+  const walker = document.createTreeWalker(editable.querySelector('p'), window.NodeFilter.SHOW_TEXT);
+  const text = walker.nextNode();
+  assert.ok(text, 'editor paragraph has a text node');
+  editable.focus();
+  const range = document.createRange();
+  range.setStart(text, textOffset);
+  range.collapse(true);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  document.dispatchEvent(new window.Event('selectionchange', { bubbles: true }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+}
+
+async function pointerOpenTokenPicker(trigger) {
+  await act(async () => {
+    trigger.dispatchEvent(new window.MouseEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 1,
+    }));
+    trigger.dispatchEvent(new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function chooseToken(option) {
+  await act(async () => {
+    option.dispatchEvent(new window.MouseEvent('pointermove', {
+      bubbles: true,
+      cancelable: true,
+    }));
+    option.dispatchEvent(new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test('token picker is opt-in and leaves the shared email toolbar unchanged by default', async () => {
+  const emailEditor = await renderEditor({});
+  assert.equal(emailEditor.q('rte-token-picker'), null);
+  assert.equal(document.querySelector('[data-testid="rte-token-menu"]'), null);
+  await emailEditor.unmount();
+});
+
+test('pointer token selection inserts literal token at the saved caret with active formatting and supports undo/redo', async () => {
+  const changes = [];
+  const r = await renderEditor({
+    content: '<p><strong>Hello world</strong></p>',
+    tokenOptions: MEMBER_TOKENS,
+    onChange: (html) => changes.push(html),
+  });
+  const trigger = r.q('rte-token-picker');
+  assert.ok(trigger, 'opt-in picker is rendered');
+  assert.equal(trigger.getAttribute('aria-label'), 'Insert member data');
+
+  await placeCaret(r.editable(), 5);
+  await pointerOpenTokenPicker(trigger);
+  const option = document.querySelector('[data-testid="rte-token-option-member.first_name"]');
+  assert.ok(option, 'pointer-opened menu exposes labelled token options');
+  assert.match(option.textContent, /First name/);
+  await chooseToken(option);
+
+  const inserted = r.editable().innerHTML;
+  assert.equal(
+    inserted,
+    '<p><strong>Hello{{member.first_name}} world</strong></p>',
+    'literal token is inserted at the pre-menu caret and inherits bold',
+  );
+
+  const undo = r.q('rte-btn-undo');
+  await act(async () => { undo.click(); });
+  assert.equal(r.editable().innerHTML, '<p><strong>Hello world</strong></p>');
+  const redo = r.q('rte-btn-redo');
+  await act(async () => { redo.click(); });
+  assert.equal(r.editable().innerHTML, inserted);
+  assert.equal(changes.at(-1), inserted, 'token round-trips through normal editor HTML');
+
+  await r.unmount();
+});
+
+test('token inserted after toggling bold at an empty caret keeps the stored mark', async () => {
+  const r = await renderEditor({
+    content: '<p>Hello world</p>',
+    tokenOptions: MEMBER_TOKENS,
+  });
+
+  await placeCaret(r.editable(), 5);
+  await act(async () => {
+    r.q('rte-btn-bold').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await pointerOpenTokenPicker(r.q('rte-token-picker'));
+  const option = document.querySelector('[data-testid="rte-token-option-member.first_name"]');
+  assert.ok(option);
+  await chooseToken(option);
+
+  assert.equal(
+    r.editable().innerHTML,
+    '<p>Hello<strong>{{member.first_name}}</strong> world</p>',
+    'the picker restores TipTap storedMarks after restoring the caret',
+  );
+  await r.unmount();
+});
+
+test('keyboard-opened picker restores a selected range and uses a custom accessible label', async () => {
+  const r = await renderEditor({
+    content: '<p>Hello world</p>',
+    tokenOptions: MEMBER_TOKENS,
+    tokenPickerLabel: 'Insert viewer field',
+  });
+  const editable = r.editable();
+  const text = editable.querySelector('p').firstChild;
+  editable.focus();
+  const range = document.createRange();
+  range.setStart(text, 6);
+  range.setEnd(text, 11);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  document.dispatchEvent(new window.Event('selectionchange', { bubbles: true }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+  const trigger = r.q('rte-token-picker');
+  assert.equal(trigger.textContent, 'Insert viewer field');
+  assert.equal(trigger.getAttribute('aria-label'), 'Insert viewer field');
+  await act(async () => {
+    trigger.focus();
+    trigger.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const option = document.querySelector('[data-testid="rte-token-option-member.organization.name"]');
+  assert.ok(option, 'keyboard-opened menu exposes options');
+  await chooseToken(option);
+
+  assert.equal(
+    editable.innerHTML,
+    '<p>Hello {{member.organization.name}}</p>',
+    'selection captured before keyboard focus moved is replaced by the token',
+  );
   await r.unmount();
 });

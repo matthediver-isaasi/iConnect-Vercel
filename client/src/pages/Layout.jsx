@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { createViewerRequestLease } from "@/lib/canvasViewerValues";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -1038,6 +1039,8 @@ export default function Layout({ children, currentPageName }) {
     const stored = localStorage.getItem('agcas_organization');
     return stored ? JSON.parse(stored) : null;
   });
+  const authGenerationRef = useRef(0);
+  const [authRevision, setAuthRevision] = useState(0);
 
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
 
@@ -1437,6 +1440,7 @@ const {
   setReloadMemberInfo: setContextReloadMemberInfo,
   setSessionValidated,
   setAuthResolved,
+  setCanvasMemberSnapshot,
 } = useLayoutContext();
 
 // Update the context whenever the portal banner changes
@@ -1655,6 +1659,12 @@ useEffect(() => {
 
   // Function to reload member info from sessionStorage
   const reloadMemberInfo = () => {
+    // Storage remains useful for the legacy UI, but never authorises Canvas
+    // values. Revalidate after profile/account changes.
+    authGenerationRef.current += 1;
+    setSessionValidated(false);
+    setAuthResolved(false);
+    setAuthRevision(value => value + 1);
     const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
       const member = JSON.parse(storedMember);
@@ -1732,6 +1742,10 @@ useEffect(() => {
   // Update context with reloadMemberInfo function
   useEffect(() => {
     const reloadFn = () => {
+      authGenerationRef.current += 1;
+      setSessionValidated(false);
+      setAuthResolved(false);
+      setAuthRevision(value => value + 1);
       const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
         const member = JSON.parse(storedMember);
@@ -1740,7 +1754,7 @@ useEffect(() => {
       }
     };
     setContextReloadMemberInfo(reloadFn);
-  }, [setContextReloadMemberInfo]);
+  }, [setContextReloadMemberInfo, setSessionValidated, setAuthResolved]);
 
   // Update context with refreshOrganizationInfo function
   useEffect(() => {
@@ -1826,8 +1840,31 @@ useEffect(() => {
     return false;
   };
 
+  // Account switches/logout in another tab invalidate the in-memory projection
+  // immediately, even if an earlier /auth/me response has not settled yet.
   useEffect(() => {
-    let cancelled = false;
+    const onStorage = (event) => {
+      if (event.key !== null && event.key !== 'agcas_member') return;
+      if (event.key === 'agcas_member' && event.oldValue && event.newValue) {
+        try {
+          const previous = JSON.parse(event.oldValue);
+          const next = JSON.parse(event.newValue);
+          if (previous.id === next.id && previous.tenant_id === next.tenant_id
+            && previous.organization_id === next.organization_id) return;
+        } catch { /* Malformed storage cannot retain a validated viewer. */ }
+      }
+      authGenerationRef.current += 1;
+      setSessionValidated(false);
+      setAuthResolved(false);
+      setAuthRevision(value => value + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [setSessionValidated, setAuthResolved]);
+
+  useEffect(() => {
+    const lease = createViewerRequestLease(authGenerationRef);
+    const isCancelled = () => !lease.isCurrent();
     const authController = new AbortController();
 
     // Check server session first for multi-tab persistence
@@ -1837,18 +1874,24 @@ useEffect(() => {
           credentials: 'include',
           signal: authController.signal,
         });
-        if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
+        if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
         if (response.ok) {
           const member = await response.json();
-          if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
+          if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
           // API returns member directly (not wrapped in data.member)
           if (member && member.id) {
             console.log('[Layout] Server session found:', member.email);
             // Sync server session to sessionStorage for backwards compatibility
             const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-            const memberData = { ...member, sessionExpiry };
+            const { canvasMemberSnapshot, ...publicMemberData } = member;
+            const memberData = { ...publicMemberData, sessionExpiry };
             localStorage.setItem('agcas_member', JSON.stringify(memberData));
             setMemberInfo(memberData);
+            // Commit member identity and the server-only projection together.
+            // Do not persist the projection to localStorage or derive it from
+            // the independently cached organizationInfo fetch.
+            setContextMemberInfo(memberData);
+            setCanvasMemberSnapshot(canvasMemberSnapshot || null);
             // SECURITY: Mark session as validated - this enables authenticated API access
             setSessionValidated(true);
             
@@ -1875,7 +1918,7 @@ useEffect(() => {
         }
         return { valid: false, serverResponded: false }; // Other server errors (500, network issues)
       } catch (error) {
-        if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
+        if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
         console.log('[Layout] Server session check failed, falling back to sessionStorage');
         return { valid: false, serverResponded: false };
       }
@@ -1898,7 +1941,7 @@ useEffect(() => {
 
       // Try server session first (for password-based auth with cross-tab persistence)
       const sessionResult = await checkServerSession();
-      if (cancelled || sessionResult.cancelled) return;
+      if (isCancelled() || sessionResult.cancelled) return;
       
       // If server explicitly said the session is invalid (e.g., member deleted/disabled)
       // and we have cached data in localStorage, we need to clear it and log out
@@ -2015,10 +2058,10 @@ useEffect(() => {
 
     handleAuth();
     return () => {
-      cancelled = true;
+      lease.cancel();
       authController.abort();
     };
-  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname]); // Run on visibility settings load AND on every navigation
+  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname, authRevision]); // Also revalidate after account/profile changes
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
   useEffect(() => {
@@ -2140,6 +2183,9 @@ useEffect(() => {
   }, [location.pathname]);
 
   const handleLogout = async () => {
+    authGenerationRef.current += 1;
+    setSessionValidated(false);
+    setAuthResolved(false);
     try {
       // Clear server session first
       await fetch('/api/auth/logout', { 
@@ -3217,6 +3263,9 @@ useEffect(() => {
                   size="sm"
                   className="bg-white/20 border-white/40 text-white"
                   onClick={async () => {
+                    authGenerationRef.current += 1;
+                    setSessionValidated(false);
+                    setAuthResolved(false);
                     try {
                       const response = await fetch('/api/auth/end-masquerade', {
                         method: 'POST',
@@ -3228,9 +3277,12 @@ useEffect(() => {
                         localStorage.removeItem('agcas_member');
                         localStorage.removeItem('agcas_organization');
                         window.location.href = data.returnUrl || '/members';
+                      } else {
+                        setAuthRevision(value => value + 1);
                       }
                     } catch (error) {
                       console.error('Failed to end masquerade:', error);
+                      setAuthRevision(value => value + 1);
                     }
                   }}
                   data-testid="button-end-masquerade"

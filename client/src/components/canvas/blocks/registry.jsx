@@ -115,6 +115,8 @@ import {
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml, isRichTextEmpty } from './sanitize';
+import { CANVAS_MEMBER_TOKENS } from '@shared/canvasMemberTokens.js';
+import { useCanvasRichText, CanvasRichTextTemplateContext } from '../useCanvasRichText';
 import {
   DEFAULT_MEMBER_ONLY_GUEST_MESSAGE,
   MAX_MEMBER_ONLY_GUEST_MESSAGE_LENGTH,
@@ -586,7 +588,7 @@ function RichTextField({ label, value, onChange, testId, breakpoint }) {
       <Label className="text-xs text-slate-600">{label}</Label>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <Suspense fallback={<div className="p-3 text-xs text-slate-500">Loading editor…</div>}>
-          <RichTextEditor content={value || ''} onChange={handleChange} breakpoint={breakpoint} anchorOptions={anchorOptions} />
+          <RichTextEditor content={value || ''} onChange={handleChange} breakpoint={breakpoint} anchorOptions={anchorOptions} tokenOptions={CANVAS_MEMBER_TOKENS} />
         </Suspense>
       </div>
     </div>
@@ -1962,10 +1964,11 @@ function applyBulletIconToHtml(html, iconClass, color, sizePx, pad) {
   return out;
 }
 
-function TextRender({ block, breakpoint }) {
+function TextRender({ block, breakpoint, asEditor }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   const safeHtml = applyBulletIconToHtml(
-    sanitizeRichText(stripTrailingEmptyParagraphs(c.html || '')),
+    richText(c.html),
     c.bulletIcon,
     c.bulletIconColor,
     c.bulletIconSize,
@@ -3542,7 +3545,8 @@ function buildColumnsCss(scope, items, widthsByBp, gap, stackOnMobile) {
   return desktop + tablet + mobile;
 }
 
-function ColumnsRender({ block, breakpoint }) {
+function ColumnsRender({ block, breakpoint, asEditor }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   const items = c.items || [];
   const gap = c.gap || 0;
@@ -3577,7 +3581,7 @@ function ColumnsRender({ block, breakpoint }) {
             <div key={i} style={forcedStyle} className="overflow-auto">
               <div
                 className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
-                dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(it.html || '')) }}
+                dangerouslySetInnerHTML={{ __html: richText(it.html) }}
               />
             </div>
           );
@@ -3780,6 +3784,7 @@ export function isDocumentAsset(asset) {
 }
 
 function AccordionRender({ block, asEditor, breakpoint }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   // Controlled open-state so we can enforce expandOne (only one item open at
   // a time). When expandOne is false the user can open as many as they like.
@@ -3890,7 +3895,7 @@ function AccordionRender({ block, asEditor, breakpoint }) {
                 className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
                 style={answerStyle || undefined}
                 data-tg-r="accordion-a"
-                dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(item.a || '')) }}
+                dangerouslySetInnerHTML={{ __html: richText(item.a) }}
               />
               {Array.isArray(item.links) && item.links.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-slate-200">
@@ -4322,6 +4327,7 @@ const CARD_SHADOW_PRESETS = {
 };
 
 function CardRender({ block, asEditor, priority, breakpoint }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   // Tenant typography style takes precedence for the card title — the
   // outer tag follows the style's `style_type` and inline styles carry
@@ -4508,7 +4514,7 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
             ...(headingBodyGapPx != null ? { marginTop: headingBodyGapPx } : null),
             ...(bodyInline || null),
           }}
-          dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
+          dangerouslySetInnerHTML={{ __html: richText(c.body) }}
         />
         {/* Flex spacer: absorbs any height beyond natural content (pushing the
             CTA to the bottom of a grown / equalised card) and serves as the
@@ -8262,7 +8268,9 @@ function SymbolChildPreview({ block, breakpoint, hostWidth }) {
         overflow: (isSection || def?.allowOverflow) ? 'visible' : 'hidden',
       }}
     >
-      {Renderer && <Renderer block={block} breakpoint={breakpoint || undefined} />}
+      <CanvasRichTextTemplateContext.Provider value>
+        {Renderer && <Renderer block={block} breakpoint={breakpoint || undefined} />}
+      </CanvasRichTextTemplateContext.Provider>
     </div>
   );
 }
@@ -8439,6 +8447,7 @@ export function resolveCardFlipGridBreakpoint(breakpoint, viewportBreakpoint) {
 }
 
 function CardFlipGridRender({ block, asEditor, breakpoint, viewportBreakpoint }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   const cards = Array.isArray(c.cards) ? c.cards : [];
   // Forced/editor previews pass `breakpoint`; legacy published v1 pages pass
@@ -8652,7 +8661,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint, viewportBreakpoint })
                       <div
                         className="text-sm leading-relaxed prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
                         style={summaryStyle}
-                        dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(summaryRaw)) }}
+                        dangerouslySetInnerHTML={{ __html: richText(summaryRaw) }}
                       />
                     );
                   }
@@ -8748,7 +8757,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint, viewportBreakpoint })
           </DialogHeader>
           <div
             className="prose prose-sm max-w-none [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
-            dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(modalCard?.content || '')) }}
+            dangerouslySetInnerHTML={{ __html: richText(modalCard?.content) }}
           />
         </DialogContent>
       </Dialog>
@@ -9105,6 +9114,7 @@ function HeroCarouselCta({ slide, asEditor }) {
 // value swaps. Visibility (mobile-only) is handled by the block's per-
 // breakpoint hidden flags, not by the renderer.
 function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
+  const richText = useCanvasRichText(asEditor);
   const c = block.content || {};
   const slides = c.slides || [];
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -9566,21 +9576,21 @@ function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
                 <div
                   className="hcc-title"
                   style={headerInlineStyle}
-                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.headerText) }}
+                  dangerouslySetInnerHTML={{ __html: richText(slide.headerText, { trim: false }) }}
                 />
               )}
               {slide.subheadingText && (
                 <div
                   className="hcc-subheading"
                   style={subheadingInlineStyle}
-                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.subheadingText) }}
+                  dangerouslySetInnerHTML={{ __html: richText(slide.subheadingText, { trim: false }) }}
                 />
               )}
               {slide.contentText && (
                 <div
                   className="hcc-body"
                   style={contentInlineStyle}
-                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.contentText) }}
+                  dangerouslySetInnerHTML={{ __html: richText(slide.contentText, { trim: false }) }}
                 />
               )}
               {slide.ctaText && slide.ctaLink && (

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { RouteLayoutContext } from './RouteLayoutContext';
+import { canvasSnapshotMatchesMember, EMPTY_CANVAS_MEMBER_VALUES, getCanvasMemberValues } from '../lib/canvasViewerValues';
 export { usePageLayoutDecision } from './RouteLayoutContext';
 
 const LayoutContext = createContext({
@@ -36,6 +37,8 @@ const LayoutContext = createContext({
   // This tells hooks that auth check is complete and they can safely gate queries
   authResolved: false,
   setAuthResolved: () => {},
+  canvasMemberValues: EMPTY_CANVAS_MEMBER_VALUES,
+  setCanvasMemberSnapshot: () => {},
 });
 
 export function LayoutProvider({ children }) {
@@ -58,6 +61,12 @@ export function LayoutProvider({ children }) {
   const [sessionValidated, setSessionValidatedState] = useState(false);
   // SECURITY: Auth resolution flag - true once /api/auth/me completes (success OR failure)
   const [authResolved, setAuthResolvedState] = useState(false);
+  // Deliberately separate from memberInfo/organizationInfo: those can be
+  // hydrated from localStorage. Only the successful /auth/me request sets this.
+  const [canvasMemberSnapshot, setCanvasMemberSnapshot] = useState(null);
+  const canvasMemberValues = useMemo(() => getCanvasMemberValues({
+    snapshot: canvasMemberSnapshot, member: memberInfo, sessionValidated, authResolved,
+  }), [canvasMemberSnapshot, memberInfo, sessionValidated, authResolved]);
   
   const setLayout = useCallback((value) => {
     setForcePublicLayout(value);
@@ -72,6 +81,7 @@ export function LayoutProvider({ children }) {
   }, []);
 
   const setMemberInfo = useCallback((value) => {
+    setCanvasMemberSnapshot(current => canvasSnapshotMatchesMember(current, value) ? current : null);
     setMemberInfoState(value);
   }, []);
 
@@ -98,10 +108,12 @@ export function LayoutProvider({ children }) {
   }, []);
 
   const setSessionValidated = useCallback((value) => {
+    if (!value) setCanvasMemberSnapshot(null);
     setSessionValidatedState(value);
   }, []);
 
   const setAuthResolved = useCallback((value) => {
+    if (!value) setCanvasMemberSnapshot(null);
     setAuthResolvedState(value);
   }, []);
 
@@ -150,6 +162,8 @@ export function LayoutProvider({ children }) {
       // SECURITY: Auth resolution flag
       authResolved,
       setAuthResolved,
+        canvasMemberValues,
+        setCanvasMemberSnapshot,
     }}>
       {children}
     </LayoutContext.Provider>

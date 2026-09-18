@@ -4,6 +4,7 @@ import { stripHtml } from '../_lib/searchTextBuilder.js';
 import { resolveMicrositeByPrefix, listActiveMicrosites, isMissingMicrositeSchema } from '../_lib/microsites.js';
 import { extractTextFromObject } from '../_lib/searchTextBuilder.js';
 import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
+import { projectCanvasMemberTokensForGuest } from '../../shared/canvasMemberTokens.js';
 import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
@@ -30,7 +31,7 @@ export function buildPublicPageSearchResult(page, searchTerm) {
   const titleMatch = page.title?.toLowerCase().includes(term);
   const descMatch = page.description?.toLowerCase().includes(term);
   const publicPageText = page.builder_type === 'canvas'
-    ? extractTextFromObject(projectCanvasDesignForGuest(page.canvas_design))
+    ? extractTextFromObject(projectCanvasMemberTokensForGuest(projectCanvasDesignForGuest(page.canvas_design)))
     : (page.search_text || '');
   const publicTextMatch = publicPageText.toLowerCase().includes(term);
 

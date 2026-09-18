@@ -14,6 +14,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Bold,
   Italic,
   Underline as UnderlineIcon,
@@ -254,7 +261,14 @@ const FONT_SIZES = [
 // underline / lists / link for small hosted surfaces (e.g. the dynamic
 // text slot popover on the campaign edit page). The full email builder
 // keeps every control.
-function MenuBar({ editor, breakpoint, anchorOptions, compact }) {
+function MenuBar({
+  editor,
+  breakpoint,
+  anchorOptions,
+  compact,
+  tokenOptions,
+  tokenPickerLabel,
+}) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   // Per-link "open in new tab" choice. New links default to same tab; existing
@@ -262,8 +276,65 @@ function MenuBar({ editor, breakpoint, anchorOptions, compact }) {
   const [linkNewTab, setLinkNewTab] = useState(false);
   const colorInputRef = useRef(null);
   const bgColorInputRef = useRef(null);
+  // Radix moves focus from the editor into its menu. Keep the last editor
+  // selection separately so both pointer and keyboard menu use insert at the
+  // author's caret (or replace their selected range), rather than at whichever
+  // ProseMirror position happens to remain after the focus transition.
+  const tokenSelectionRef = useRef(null);
+  const tokenInsertedRef = useRef(false);
 
   if (!editor) return null;
+
+  const usableTokenOptions = Array.isArray(tokenOptions)
+    ? tokenOptions.filter((option) => (
+      option &&
+      typeof option.label === 'string' &&
+      option.label.trim() &&
+      typeof option.token === 'string' &&
+      option.token
+    ))
+    : [];
+
+  const rememberTokenSelection = () => {
+    const { selection, storedMarks } = editor.state;
+    tokenSelectionRef.current = {
+      from: selection.from,
+      to: selection.to,
+      // Toolbar mark toggles at an empty caret live in storedMarks rather than
+      // on document text. setTextSelection clears those marks, so retain them
+      // explicitly alongside the range while the dropdown owns focus.
+      marks: [...(storedMarks || selection.$from.marks())],
+    };
+  };
+
+  const insertToken = (token) => {
+    const selection = tokenSelectionRef.current || (() => {
+      const { selection: currentSelection, storedMarks } = editor.state;
+      return {
+        from: currentSelection.from,
+        to: currentSelection.to,
+        marks: [...(storedMarks || currentSelection.$from.marks())],
+      };
+    })();
+    tokenInsertedRef.current = true;
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: selection.from, to: selection.to })
+      .command(({ tr }) => {
+        tr.setStoredMarks(selection.marks);
+        return true;
+      })
+      .insertContent(token)
+      .run();
+    // The menu portal finishes its own focus teardown after onSelect. Restore
+    // editor focus on the next frame so it wins that race in both pointer and
+    // keyboard flows and typing can continue immediately after the token.
+    requestAnimationFrame(() => {
+      if (!editor.isDestroyed) editor.commands.focus();
+    });
+    tokenSelectionRef.current = null;
+  };
 
   const handleSetLink = () => {
     if (linkUrl) {
@@ -404,6 +475,68 @@ function MenuBar({ editor, breakpoint, anchorOptions, compact }) {
         >
           <ListOrdered className="h-3.5 w-3.5" />
         </ToolbarButton>
+
+        {usableTokenOptions.length > 0 && (
+          <>
+            <div className="w-px bg-border mx-0.5 self-stretch" />
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) rememberTokenSelection();
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onPointerDown={rememberTokenSelection}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === 'Enter' ||
+                      event.key === ' ' ||
+                      event.key === 'ArrowDown'
+                    ) {
+                      rememberTokenSelection();
+                    }
+                  }}
+                  aria-label={tokenPickerLabel}
+                  data-testid="rte-token-picker"
+                >
+                  {tokenPickerLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                onCloseAutoFocus={(event) => {
+                  // After choosing a token, keep keyboard users in the editor at
+                  // the newly inserted content. Escape/dismiss keeps Radix's
+                  // normal focus return to the picker trigger.
+                  if (tokenInsertedRef.current) {
+                    event.preventDefault();
+                    editor.commands.focus();
+                    tokenInsertedRef.current = false;
+                  }
+                }}
+                data-testid="rte-token-menu"
+              >
+                <DropdownMenuLabel>{tokenPickerLabel}</DropdownMenuLabel>
+                {usableTokenOptions.map((option) => (
+                  <DropdownMenuItem
+                    key={option.key || option.token}
+                    onSelect={() => insertToken(option.token)}
+                    data-testid={`rte-token-option-${option.key || option.token}`}
+                  >
+                    <span>{option.label}</span>
+                    <span className="ml-auto font-mono text-xs text-muted-foreground">
+                      {option.token}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
 
         {!compact && (
           <ToolbarButton
@@ -675,7 +808,18 @@ export function buildRichTextExtensions() {
   ];
 }
 
-export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint, anchorOptions, compact }) {
+export default function RichTextEditor({
+  content,
+  onChange,
+  fontFamily,
+  color,
+  lineHeight,
+  breakpoint,
+  anchorOptions,
+  compact,
+  tokenOptions,
+  tokenPickerLabel = 'Insert member data',
+}) {
   const buildStyle = (ff, c, lh) => [
     ff ? `font-family: ${ff}` : '',
     c ? `color: ${c}` : '',
@@ -717,7 +861,14 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
 
   return (
     <div className="border rounded-md overflow-hidden bg-background" data-testid="rich-text-editor">
-      <MenuBar editor={editor} breakpoint={breakpoint} anchorOptions={anchorOptions} compact={compact} />
+      <MenuBar
+        editor={editor}
+        breakpoint={breakpoint}
+        anchorOptions={anchorOptions}
+        compact={compact}
+        tokenOptions={tokenOptions}
+        tokenPickerLabel={tokenPickerLabel}
+      />
       <EditorContent editor={editor} />
     </div>
   );

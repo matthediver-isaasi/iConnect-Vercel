@@ -4,6 +4,27 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractCanvasPageText, collectCanvasSymbolIds } from './canvasText.js';
 
+test('member tokens are neutral in page and symbol knowledge text, not other content', () => {
+  const token = '{{member.first_name}}';
+  const page = { root: { sections: [{ children: [
+    { type: 'text', content: { html: `<p>Welcome ${token}</p>` } },
+    { type: 'symbol', content: { symbolId: 's1' } },
+  ] }] } };
+  const symbols = {
+    s1: { design: { root: { sections: [{ children: [
+      { type: 'card', content: { body: `<p>Work at {{member.organization.name}}</p>` } },
+    ] }] } } },
+  };
+  const saved = JSON.stringify({ page, symbols });
+  assert.equal(extractCanvasPageText(page, symbols), 'Welcome\n\nWork at');
+  assert.equal(JSON.stringify({ page, symbols }), saved);
+  const literal = { root: { sections: [{ children: [
+    { type: 'custom-html', content: { html: `<p>${token}</p>` } },
+    { type: 'button', content: { label: token } },
+  ] }] } };
+  assert.equal(extractCanvasPageText(literal), token);
+});
+
 const design = (children) => ({
   version: 1,
   root: { sections: [{ id: 'root-section', children }] },

@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { projectCanvasMemberTokensForGuest } from '../../shared/canvasMemberTokens.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
   isImmediateEvent,
@@ -851,6 +852,8 @@ function resolveLandmarkRole(role) {
 
 export function renderCanvasDesignBody(design) {
   if (!design || typeof design !== 'object') return { sections: [], firstImage: null, allTexts: [] };
+  // Crawlers and metadata always see the neutral audience, regardless of cookies.
+  design = projectCanvasMemberTokensForGuest(design);
   const sections = [];
   const allTexts = [];
   let firstImage = null;

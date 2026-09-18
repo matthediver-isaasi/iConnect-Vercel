@@ -1,4 +1,5 @@
 import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
+import { projectCanvasMemberTokensForGuest } from '../../shared/canvasMemberTokens.js';
 
 const STYLE_KEY_SUFFIXES = [
   '_color', '_size', '_weight', '_family', '_spacing', '_height', '_type',
@@ -94,7 +95,7 @@ export async function buildPageSearchText(supabase, pageId) {
       && page.canvas_design
       && typeof page.canvas_design === 'object'
     ) {
-      const guestDesign = projectCanvasDesignForGuest(page.canvas_design);
+      const guestDesign = projectCanvasMemberTokensForGuest(projectCanvasDesignForGuest(page.canvas_design));
       const canvasText = extractTextFromObject(guestDesign);
       if (canvasText) parts.push(canvasText);
       return parts.join(' ').replace(/\s+/g, ' ').trim();
