@@ -579,3 +579,17 @@ mtime_ms = 1789724931012
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3bd17727-06f6-4fd3-9421-69d10f00cf3c/3319d7cb-fc4f-40ad-9bd7-a30e5cdbbad3"
 storage_version_token = "1789724942211040"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "M8nUlbaHNNgFnqeCGGUqQ"
+uri = "file://.agents/outputs/BNMS-Full-members-completion-dropdowns.xlsx"
+type = "table"
+title = "BNMS Full members — completion workbook with dropdowns"
+description = "Updated two-sheet Excel workbook. Includes dropdowns and cell guidance for payment method, frequency, status, currency, membership class, structure, billing period and import approval. All 167 member rows are unchanged; unknown payment values remain blank."
+logical_id = "de2039d8-0a91-40f9-b79f-74f4e826745f"
+content_hash = "sha256:1cd330ef805523edd6a5e717be3c45464844b34186c5699936c15af39a2351fc"
+size = 45325
+mtime_ms = 1789725413395
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/de2039d8-0a91-40f9-b79f-74f4e826745f/86df81a4-de65-402e-b6a8-0071b5b2b642"
+storage_version_token = "1789725431254643"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
