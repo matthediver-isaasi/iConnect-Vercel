@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -106,7 +107,7 @@ export default function HistoryPage({ hasBanner }) {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  const { data: transactions = [], isLoading: transactionsLoading } = useQuery({
+  const programQuery = useQuery({
     queryKey: ['program-transactions', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
@@ -118,10 +119,11 @@ export default function HistoryPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
+  const { data: transactions = [], isLoading: transactionsLoading } = programQuery;
   const hasOrg = !!organizationInfo?.id;
 
   // Fetch one-off event bookings for the organization or member
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+  const bookingsQuery = useQuery({
     queryKey: ['event-bookings', hasOrg ? organizationInfo.id : memberInfo?.id],
     queryFn: async () => {
       const filterKey = hasOrg ? { organization_id: organizationInfo.id } : { member_id: memberInfo.id };
@@ -135,6 +137,8 @@ export default function HistoryPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
+  const { data: bookings = [], isLoading: bookingsLoading } = bookingsQuery;
+
   // Fetch events for display info
   const { data: events = [] } = useQuery({
     queryKey: ['events'],
@@ -143,7 +147,7 @@ export default function HistoryPage({ hasBanner }) {
   });
 
   // Fetch training fund transactions for the organization
-  const { data: trainingFundTransactions = [], isLoading: trainingFundLoading } = useQuery({
+  const trainingFundQuery = useQuery({
     queryKey: ['training-fund-transactions', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
@@ -156,8 +160,10 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 0,
   });
 
+  const { data: trainingFundTransactions = [], isLoading: trainingFundLoading } = trainingFundQuery;
+
   // Fetch training fund purchases (top-ups) for the organization
-  const { data: trainingFundPurchases = [], isLoading: trainingFundPurchasesLoading } = useQuery({
+  const trainingFundPurchasesQuery = useQuery({
     queryKey: ['training-fund-purchases', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
@@ -170,8 +176,10 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 0,
   });
 
+  const { data: trainingFundPurchases = [], isLoading: trainingFundPurchasesLoading } = trainingFundPurchasesQuery;
+
   // Fetch voucher transactions for the organization
-  const { data: voucherTransactions = [], isLoading: voucherTransactionsLoading } = useQuery({
+  const vouchersQuery = useQuery({
     queryKey: ['voucher-transactions-org', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
@@ -184,12 +192,9 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 0,
   });
 
-  const {
-    data: membershipHistory = [],
-    isLoading: membershipHistoryLoading,
-    isError: membershipHistoryFailed,
-    refetch: retryMembershipHistory,
-  } = useQuery({
+  const { data: voucherTransactions = [], isLoading: voucherTransactionsLoading } = vouchersQuery;
+
+  const membershipQuery = useQuery({
     queryKey: [
       'membership-history',
       memberInfo?.tenant_id || memberInfo?.tenantId || null,
@@ -212,6 +217,12 @@ export default function HistoryPage({ hasBanner }) {
     refetchOnMount: true,
     retry: false,
   });
+  const {
+    data: membershipHistory = [],
+    isLoading: membershipHistoryLoading,
+    isError: membershipHistoryFailed,
+    refetch: retryMembershipHistory,
+  } = membershipQuery;
 
   // Group bookings by booking_group_reference for display
   const bookingGroups = useMemo(() => {
@@ -320,6 +331,32 @@ export default function HistoryPage({ hasBanner }) {
   const dedupedTrainingFundTransactions = useMemo(() => {
     return trainingFundTransactions.filter(t => !purchaseLedgerTransactionIds.has(t.id));
   }, [trainingFundTransactions, purchaseLedgerTransactionIds]);
+
+  // Navigation is based on eligible, unfiltered rows, never search results or
+  // the current page. Both Training Fund sources must confirm emptiness.
+  const historyCategories = [
+    { key: 'tickets', label: 'Standard Tickets', count: bookingGroups.length, eligible: true, queries: [bookingsQuery] },
+    { key: 'program', label: 'Program Tickets', count: transactions.length, eligible: hasOrg, queries: [programQuery] },
+    { key: 'training-fund', label: 'Training Fund', count: dedupedTrainingFundTransactions.length + trainingFundPurchases.length, eligible: hasOrg, queries: [trainingFundQuery, trainingFundPurchasesQuery] },
+    { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: hasOrg, queries: [vouchersQuery] },
+    { key: 'membership', label: 'Membership', count: membershipHistory.length, eligible: true, queries: [membershipQuery] },
+  ].map(category => ({
+    ...category,
+    confirmedEmpty: category.count === 0 && category.queries.every(query => query.isSuccess && !query.isFetching),
+  }));
+  const visibleCategories = historyCategories.filter(category => category.eligible && !category.confirmedEmpty);
+  const selectedCategoryUnavailable = activeTab !== 'all'
+    && !visibleCategories.some(category => category.key === activeTab);
+  const historyErrors = historyCategories.filter(category => category.eligible && category.queries.some(query => query.isError));
+
+  useEffect(() => {
+    if (selectedCategoryUnavailable) {
+      setActiveTab('all');
+      setSearchQuery('');
+      setTypeFilter('all');
+      setCurrentPage(1);
+    }
+  }, [selectedCategoryUnavailable]);
 
   // Filter training fund purchases (top-ups are always credits)
   const filteredTrainingFundPurchases = useMemo(() => {
@@ -1305,13 +1342,15 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   const MembershipHistoryCard = ({ record }) => {
+    const presentation = getMembershipHistorySchedule(record);
     const membershipSource = getMembershipSource(record);
     const invoiceId = getAccountingInvoiceId(record);
     const invoiceNumber = getAccountingInvoiceNumber(record);
     // A number alone is informational; only a provider invoice ID can be
     // passed through to the PDF endpoint.
     const hasInvoice = !!invoiceId;
-    const transactionDate = record.created_at ? new Date(record.created_at) : null;
+    const createdDate = record.created_at ? new Date(record.created_at) : null;
+    const transactionDate = createdDate && Number.isFinite(createdDate.getTime()) ? createdDate : null;
     const finalCost = parseFloat(record.final_cost || 0);
     const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : (record.vat_rate_percent != null ? parseFloat(record.vat_rate_percent) : 0);
     const vatAmount = record.vat_amount != null ? parseFloat(record.vat_amount) : (vatRate > 0 ? finalCost * (vatRate / 100) : 0);
@@ -1333,18 +1372,27 @@ export default function HistoryPage({ hasBanner }) {
           <div className="flex-1 min-w-0">
             <TransactionDateInline date={transactionDate} />
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h3 className="font-semibold text-slate-900">Membership {record.membership_year}</h3>
+              <h3 className="font-semibold text-slate-900">{presentation.heading}</h3>
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
                 {membershipSourceLabel(membershipSource)}
               </Badge>
-              {record.payment_method && (
+              {(presentation.paymentLabel || record.payment_method) && (
                 <Badge variant="outline" className="text-xs">
-                  {record.payment_method === 'stripe' ? 'Card Payment' : record.payment_method === 'invoice' ? 'Invoiced' : record.payment_method}
+                  {presentation.paymentLabel || record.payment_method}
                 </Badge>
               )}
             </div>
             
             <div className="space-y-1">
+              {presentation.schedule && (
+                <p className="text-sm text-slate-600">Schedule: {presentation.schedule}</p>
+              )}
+              {presentation.renewalDate && (
+                <p className="text-sm text-slate-600">Renewal date: {presentation.renewalDate}</p>
+              )}
+              {presentation.endDate && (
+                <p className="text-sm text-slate-600">End date: {presentation.endDate}</p>
+              )}
               {record.tier_label && (
                 <p className="text-sm text-slate-600">
                   {record.tier_label}{record.band_label ? ` - ${record.band_label}` : ''}
@@ -1535,7 +1583,7 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (!hasAnyHistory && !membershipHistoryFailed) ? (
+            ) : (!hasAnyHistory && visibleCategories.length === 0) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
@@ -1544,28 +1592,27 @@ export default function HistoryPage({ hasBanner }) {
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
                   <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
-                  <TabsTrigger value="tickets" data-testid="tab-tickets">
-                    Standard Tickets ({bookingGroups.length})
-                  </TabsTrigger>
-                  {hasOrg && (
-                    <TabsTrigger value="program" data-testid="tab-program">
-                      Program Tickets ({transactions.length})
+                  {visibleCategories.map(category => (
+                    <TabsTrigger key={category.key} value={category.key} data-testid={`tab-${category.key}`}>
+                      {category.label} ({category.count})
                     </TabsTrigger>
-                  )}
-                  {hasOrg && (
-                    <TabsTrigger value="training-fund" data-testid="tab-training-fund">
-                      Training Fund ({dedupedTrainingFundTransactions.length + trainingFundPurchases.length})
-                    </TabsTrigger>
-                  )}
-                  {hasOrg && (
-                    <TabsTrigger value="vouchers" data-testid="tab-vouchers">
-                      Vouchers ({voucherTransactions.length})
-                    </TabsTrigger>
-                  )}
-                  <TabsTrigger value="membership" data-testid="tab-membership">
-                    Membership ({membershipHistory.length})
-                  </TabsTrigger>
+                  ))}
                 </TabsList>
+
+                {historyErrors.filter(category => category.key !== 'membership').map(category => (
+                  <div key={category.key} role="alert" data-testid={`history-error-${category.key}`} className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+                    <p>{category.label} history could not be loaded. Please try again.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      disabled={category.queries.some(query => query.isFetching)}
+                      onClick={() => category.queries.forEach(query => query.refetch())}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ))}
 
                 {/* Search and Filter Bar */}
                 <SearchFilterBar />
@@ -1737,7 +1784,7 @@ export default function HistoryPage({ hasBanner }) {
                   {filteredBookingGroups.length === 0 && 
                    filteredMembershipHistory.length === 0 &&
                    (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 && filteredVoucherTransactions.length === 0)) &&
-                   !membershipHistoryFailed &&
+                   historyErrors.length === 0 &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">
                       <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />

@@ -212,6 +212,23 @@ async function installFixtures(page, {
     const method = request.method();
 
     if (!path.startsWith("/api/")) return route.continue();
+    if (method === "PATCH" && path === `/api/entities/Member/${fixtureMember.id}`) {
+      const body = request.postDataJSON();
+      const isLayoutActivity = body
+        && Object.keys(body).length === 1
+        && typeof body.last_activity === "string"
+        && Number.isFinite(Date.parse(body.last_activity));
+      const isTourAcknowledgement = body
+        && Object.keys(body).length === 1
+        && body.page_tours_seen?.History === true;
+      if (isLayoutActivity || isTourAcknowledgement) {
+        return json(route, { ...fixtureMember, ...body });
+      }
+    }
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+      state.escapedWrites.push(`${method} ${path}`);
+      return json(route, { error: `Unexpected mutation: ${method} ${path}` }, 599);
+    }
     if (path === "/api/auth/me") return json(route, fixtureMember);
     if (path === "/api/auth/tenant-user-me") {
       return json(route, { user: fixtureMember, tenant: { id: fixtureMember.tenant_id } });
@@ -249,10 +266,6 @@ async function installFixtures(page, {
       });
     }
 
-    if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-      state.escapedWrites.push(`${method} ${path}`);
-      return json(route, { error: `Unexpected mutation: ${method} ${path}` }, 599);
-    }
     return json(route, []);
   });
 

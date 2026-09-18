@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMembershipInvoiceHandler } from './[recordId].js';
-import { isResourceExcluded } from '../_lib/roleVisibility.js';
+import { __setRoleAccessOverlayForTests, isResourceExcluded } from '../_lib/roleVisibility.js';
+
+// Exercise the fixed permission hierarchy without starting a live DB refresh.
+__setRoleAccessOverlayForTests([]);
 
 function response() {
   return {
