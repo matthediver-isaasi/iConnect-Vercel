@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
-import { publicClient } from "@/api/publicClient";
+import { getTenantSlugFromLocation, publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
@@ -20,6 +20,31 @@ import ArticleEditor from "./ArticleEditor";
 import PublicArticles from "./PublicArticles";
 import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import {
+  createDynamicPageRequestScope,
+  getEarlyPublicPageRequest,
+  isRelevantAccountStorageTransition,
+  projectPublicPageDataForAudience,
+} from "./dynamicPageFirstLoad";
+
+function NeutralPageLoading({ testId, label = 'Loading page…' }) {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center bg-background"
+      data-testid={testId}
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+        <span
+          className="h-5 w-5 animate-spin rounded-full border-2 border-current border-r-transparent"
+          aria-hidden="true"
+        />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function DynamicPage() {
   // Task #2426: this component serves both /:slug (default site) and
@@ -60,6 +85,18 @@ export default function DynamicPage() {
   const effectiveMicrosite = isMicrositeRoute ? micrositeMatch : barePrefixHome;
   const effectivePrefix = effectiveMicrosite?.path_prefix || null;
   const effectiveSlug = isMicrositeHomeRoute ? barePrefixHome.home_slug : slug;
+  const earlyPublicRequest = useMemo(() => getEarlyPublicPageRequest({
+    slug,
+    routeMicrositePrefix,
+    micrositeHome: barePrefixHome,
+  }), [slug, routeMicrositePrefix, barePrefixHome]);
+  const [publicRequestScope] = useState(createDynamicPageRequestScope);
+  const publicTenantRequestIdentity = useMemo(() => {
+    if (typeof window === 'undefined') return 'server';
+    // Use the same tenant resolver as publicClient rather than snapshotting a
+    // possibly stale localStorage value independently.
+    return `${window.location.host}|${getTenantSlugFromLocation() || 'unresolved'}`;
+  }, [location.search]);
   // When the Canvas Page Editor opens the live preview iframe, it appends
   // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
   // (and the public endpoint, which only returns published pages) only after
@@ -95,6 +132,61 @@ export default function DynamicPage() {
     authResolved,
     sessionValidated,
   } = useMemberAccess();
+  // Start the public request with the same cookie context as the parallel
+  // session request. The first resolved audience adopts this generation, so
+  // checking→guest/member does not fetch twice. A later account transition
+  // closes result consumption and advances the generation, preventing cached
+  // member content from surviving logout or an account switch.
+  const resolvedAudienceIdentity = sessionValidated && memberInfo?.id
+    ? `member:${memberInfo.id}`
+    : 'guest';
+  const audienceGenerationRef = useRef({
+    initialized: false,
+    identity: null,
+    authResolved: false,
+  });
+  const [audienceGeneration, setAudienceGeneration] = useState(0);
+  const [storageInvalidationPending, setStorageInvalidationPending] = useState(false);
+  const audienceTransitionPending = authResolved
+    && audienceGenerationRef.current.initialized
+    && audienceGenerationRef.current.identity !== resolvedAudienceIdentity;
+  useEffect(() => {
+    const tracker = audienceGenerationRef.current;
+    // Any observed auth reset starts a fresh request generation, even when it
+    // ultimately resolves to the same member id. Cookie-backed sessions can
+    // change during revalidation, so the old raw response cannot cross it.
+    if (!authResolved) {
+      if (tracker.initialized && tracker.authResolved) {
+        tracker.authResolved = false;
+        setAudienceGeneration((current) => current + 1);
+      }
+      return;
+    }
+    setStorageInvalidationPending(false);
+    if (!tracker.initialized) {
+      tracker.initialized = true;
+      tracker.identity = resolvedAudienceIdentity;
+      tracker.authResolved = true;
+      return;
+    }
+    tracker.authResolved = true;
+    if (tracker.identity !== resolvedAudienceIdentity) {
+      tracker.identity = resolvedAudienceIdentity;
+      setAudienceGeneration((current) => current + 1);
+    }
+  }, [authResolved, resolvedAudienceIdentity]);
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (!isRelevantAccountStorageTransition(event)) return;
+      // This listener is deliberately independent of the auth provider. It
+      // fences both query keys immediately even when the storage switch occurs
+      // before the very first auth response has initialized our tracker.
+      setStorageInvalidationPending(true);
+      setAudienceGeneration((current) => current + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   // Preview mode is only honoured after a positive capability check. A bare
   // `?_canvasPreview=…` parameter is not an authorization signal: anonymous
   // visitors must stay on the public projection, and a member must have a
@@ -204,9 +296,47 @@ export default function DynamicPage() {
       (!tenantAdminAuthQuery.isFetched || tenantAdminAuthQuery.isFetching))
   );
   const routePrerequisitesReady = micrositesLoaded && !articleUrlLoading &&
-    !brandingLoading && authResolved && !previewAuthPending;
+    !brandingLoading && authResolved && !previewAuthPending &&
+    !audienceTransitionPending && !storageInvalidationPending;
   const routeMetadataError = micrositesError || brandingError;
-  const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError && !!slug && !dynamicArticleRoute &&
+
+  // This transport intentionally does not wait for auth, branding, article
+  // settings, or (for an explicit two-segment URL) the microsite catalogue.
+  // Its result remains unconsumed until all route/audience checks below settle.
+  const {
+    data: earlyPublicPageResult,
+    isFetched: earlyPublicPageFetched,
+  } = useQuery({
+    queryKey: [
+      'iedit-dynamic-page-public',
+      publicRequestScope,
+      publicTenantRequestIdentity,
+      earlyPublicRequest?.micrositePrefix || null,
+      earlyPublicRequest?.slug || null,
+      audienceGeneration,
+    ],
+    queryFn: async () => {
+      try {
+        const data = await publicClient.getPage(
+          earlyPublicRequest.slug,
+          earlyPublicRequest.micrositePrefix,
+        );
+        return { data: data || null };
+      } catch {
+        return { data: null };
+      }
+    },
+    enabled: !!earlyPublicRequest
+      && !audienceTransitionPending
+      && !storageInvalidationPending
+      && (!isCanvasPreview || (!previewAuthPending && !canPreviewDrafts)),
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError &&
+    !!slug && !dynamicArticleRoute && (canPreviewDrafts || earlyPublicPageFetched) &&
     (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
@@ -219,39 +349,25 @@ export default function DynamicPage() {
       ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
       : 'checking');
   const { data: pageData, isLoading: pageLoading, isFetching: pageFetching, isFetched: pageFetched, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', branding?.id, effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience, memberInfo?.id],
+    queryKey: ['iedit-dynamic-page', publicRequestScope, branding?.id, effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience, memberInfo?.id, audienceGeneration],
     queryFn: async () => {
+      if (!canPreviewDrafts && earlyPublicPageResult?.data) {
+        return projectPublicPageDataForAudience(
+          earlyPublicPageResult.data,
+          sessionValidated && !!memberInfo,
+        );
+      }
       // Task #2426/#2764: microsite pages (both /{prefix}/{slug} and the bare
       // /{prefix} home page) are public-only — resolve strictly via the public
       // endpoint scoped to the microsite prefix (no authenticated fallback:
       // bare-slug auth reads would leak pages across microsites).
       if (isAnyMicrositeRoute && !canPreviewDrafts) {
-        try {
-          const data = await publicClient.getPage(effectiveSlug, effectivePrefix);
-          if (data) {
-            return { page: data.page, elements: data.elements, symbols: data.symbols };
-          }
-        } catch (e) {
-          // Not found within the microsite
-        }
         return { page: null, elements: [] };
       }
       // Once a verified editor capability is available, skip the public
       // endpoint entirely — it only serves published pages, and the preview
       // iframe is explicitly authoring an unpublished draft. An unverified
       // `_canvasPreview` URL must stay on the public projection.
-      if (!canPreviewDrafts) {
-        // Try public endpoint first (works for unauthenticated users on public pages)
-        try {
-          const data = await publicClient.getPage(slug);
-          if (data) {
-            return { page: data.page, elements: data.elements, symbols: data.symbols };
-          }
-        } catch (e) {
-          // Fall through to authenticated endpoint
-        }
-      }
-      
       // Fall back to authenticated endpoints for protected pages or logged-in users
       const pages = await base44.entities.IEditPage.list({ 
         filter: {
@@ -420,7 +536,9 @@ export default function DynamicPage() {
   const isMemberPage = layoutType === 'member';
   const isHybridPage = layoutType === 'hybrid';
   const isPublicPage = layoutType === 'public';
-  const isLoggedIn = !!memberInfo;
+  // Never use retained member state as an audience signal after the session
+  // has become unresolved/invalid.
+  const isLoggedIn = authResolved && sessionValidated && !!memberInfo;
 
   // Check for redirect mappings when page is not found (default site only)
   const shouldCheckRedirect = routePrerequisitesReady && pageFetched && !pageFetching && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
@@ -574,11 +692,7 @@ export default function DynamicPage() {
   // Task #2426: microsite route gating. Wait for the microsites list, then
   // treat an unknown prefix as a plain 404 (same as the old catch-all).
   if (!routePrerequisitesReady) {
-    return (
-      <div className="min-h-screen" data-testid="loading-microsite" aria-busy="true">
-        <div className="sr-only">Loading content</div>
-      </div>
-    );
+    return <NeutralPageLoading testId="loading-microsite" />;
   }
   if (isMicrositeRoute && !micrositeMatch) {
     return (
@@ -600,21 +714,16 @@ export default function DynamicPage() {
     );
   }
 
-  if (pageLoading || elementsLoading || pageQueryPending) {
-    return (
-      <div className="min-h-screen" data-testid="loading-dynamic-page" aria-busy="true">
-        <div className="sr-only">Loading content</div>
-      </div>
-    );
+  if (
+    pageLoading || elementsLoading || pageQueryPending ||
+    (!canPreviewDrafts && !!earlyPublicRequest && !earlyPublicPageFetched)
+  ) {
+    return <NeutralPageLoading testId="loading-dynamic-page" />;
   }
 
   if (!page) {
     if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete) || formFallbackPending) {
-      return (
-        <div className="min-h-screen" data-testid="page-checking-redirect" aria-busy="true">
-          <div className="sr-only">Checking page...</div>
-        </div>
-      );
+      return <NeutralPageLoading testId="page-checking-redirect" label="Checking page…" />;
     }
 
     // Task #2785: an active form matching the top-level slug renders the full
@@ -660,11 +769,7 @@ export default function DynamicPage() {
   }
 
   if (isMemberPage && isLoggedIn && !isAccessReady) {
-    return (
-      <div className="min-h-screen" data-testid="loading-access-check" aria-busy="true">
-        <div className="sr-only">Loading content</div>
-      </div>
-    );
+    return <NeutralPageLoading testId="loading-access-check" label="Checking access…" />;
   }
 
   if (isMemberPage && !isLoggedIn) {

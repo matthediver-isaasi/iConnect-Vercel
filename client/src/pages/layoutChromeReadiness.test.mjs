@@ -16,6 +16,10 @@ test('chrome readiness never replaces or hides the public form parent', () => {
   assert.match(publicBranch, /fontFamily: portalRootFont,[\s\S]*?visibility: chromeReady \? 'visible' : 'hidden'/);
 });
 
+test('page-owned routes mount their stable public shell while visibility settings load', () => {
+  assert.match(source, /if \(!visibilitySettingsFetched && !pageOwned\)/);
+});
+
 test('every inbox popup is explicitly gated because portaled dialogs escape root visibility', () => {
   assert.doesNotMatch(publicBranch, /\{inboxUnreadPopupElement\}/);
   assert.equal(

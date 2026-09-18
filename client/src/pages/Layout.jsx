@@ -5,6 +5,12 @@ import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { createViewerRequestLease } from "@/lib/canvasViewerValues";
+import {
+  acquireViewerSessionRequest,
+  getViewerSessionScope,
+  invalidateViewerSessionRequest,
+  useViewerSessionPreload,
+} from "@/lib/viewerSessionPreload";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -1041,6 +1047,13 @@ export default function Layout({ children, currentPageName }) {
   });
   const authGenerationRef = useRef(0);
   const [authRevision, setAuthRevision] = useState(0);
+  const viewerSessionScope = getViewerSessionScope({
+    tenantSlug: tenantBranding?.tenantSlug,
+    hostname: window.location.hostname,
+    pathname: location.pathname,
+    authRevision,
+  });
+  useViewerSessionPreload(viewerSessionScope);
 
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
 
@@ -1662,6 +1675,7 @@ useEffect(() => {
     // Storage remains useful for the legacy UI, but never authorises Canvas
     // values. Revalidate after profile/account changes.
     authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
     setAuthResolved(false);
     setAuthRevision(value => value + 1);
@@ -1743,6 +1757,7 @@ useEffect(() => {
   useEffect(() => {
     const reloadFn = () => {
       authGenerationRef.current += 1;
+      invalidateViewerSessionRequest(viewerSessionScope);
       setSessionValidated(false);
       setAuthResolved(false);
       setAuthRevision(value => value + 1);
@@ -1754,7 +1769,7 @@ useEffect(() => {
       }
     };
     setContextReloadMemberInfo(reloadFn);
-  }, [setContextReloadMemberInfo, setSessionValidated, setAuthResolved]);
+  }, [setContextReloadMemberInfo, setSessionValidated, setAuthResolved, viewerSessionScope]);
 
   // Update context with refreshOrganizationInfo function
   useEffect(() => {
@@ -1854,30 +1869,29 @@ useEffect(() => {
         } catch { /* Malformed storage cannot retain a validated viewer. */ }
       }
       authGenerationRef.current += 1;
+      invalidateViewerSessionRequest(viewerSessionScope);
       setSessionValidated(false);
       setAuthResolved(false);
       setAuthRevision(value => value + 1);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [setSessionValidated, setAuthResolved]);
+  }, [setSessionValidated, setAuthResolved, viewerSessionScope]);
 
   useEffect(() => {
     const lease = createViewerRequestLease(authGenerationRef);
     const isCancelled = () => !lease.isCurrent();
-    const authController = new AbortController();
+    if (!visibilitySettingsFetched) {
+      return () => lease.cancel();
+    }
+    const sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
 
     // Check server session first for multi-tab persistence
     const checkServerSession = async () => {
       try {
-        const response = await fetch('/api/auth/me', {
-          credentials: 'include',
-          signal: authController.signal,
-        });
+        const { response, member } = await sessionRequest.promise;
         if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
         if (response.ok) {
-          const member = await response.json();
-          if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
           // API returns member directly (not wrapped in data.member)
           if (member && member.id) {
             console.log('[Layout] Server session found:', member.email);
@@ -1925,11 +1939,6 @@ useEffect(() => {
     };
 
     const handleAuth = async () => {
-      // Wait for visibility settings to be fetched before making auth decisions
-      if (!visibilitySettingsFetched) {
-        return; // Don't do anything until settings are loaded
-      }
-      
       // Get dynamic visibility for the current page
       const visibility = getPageVisibility(currentPageName);
       
@@ -2059,9 +2068,9 @@ useEffect(() => {
     handleAuth();
     return () => {
       lease.cancel();
-      authController.abort();
+      sessionRequest.cancel();
     };
-  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname, authRevision]); // Also revalidate after account/profile changes
+  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname, authRevision, viewerSessionScope]); // Also revalidate after account/profile changes
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
   useEffect(() => {
@@ -2184,6 +2193,7 @@ useEffect(() => {
 
   const handleLogout = async () => {
     authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
     setAuthResolved(false);
     try {
@@ -2506,7 +2516,7 @@ useEffect(() => {
 
   // EARLY RETURNS - must come AFTER all hooks to avoid React error #310
   // Wait for visibility settings to load before rendering layout
-  if (!visibilitySettingsFetched) {
+  if (!visibilitySettingsFetched && !pageOwned) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="animate-pulse text-slate-400">Loading...</div>
@@ -3264,6 +3274,7 @@ useEffect(() => {
                   className="bg-white/20 border-white/40 text-white"
                   onClick={async () => {
                     authGenerationRef.current += 1;
+                    invalidateViewerSessionRequest(viewerSessionScope);
                     setSessionValidated(false);
                     setAuthResolved(false);
                     try {

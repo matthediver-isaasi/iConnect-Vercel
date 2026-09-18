@@ -14,3 +14,9 @@ An optional custom login page's confirmed absence is a resolved built-in page, n
 **Why:** Applying the shared fail-closed error layout to an ordinary missing custom login page removed the tenant header/footer from the otherwise usable default login. Conversely, treating every 404 as absence would grant chrome on tenant-resolution failures.
 
 **How to apply:** Resolve the explicit missing/unpublished page response to the default login layout. Preserve genuine lookup failures as errors end-to-end, including at the API, rather than disguising them as missing content. Do not relax general missing-page or pending-route protections.
+
+Keep chrome authorization separate from starting network reads. Session and published-page requests can run alongside layout settings, but consuming page content still requires the resolved route and viewer.
+
+**Why:** Extending anti-flash readiness to the requests themselves serialized page loading behind settings and session validation, leaving a visually blank page. A prefetched cookie-backed response also cannot safely survive an account switch merely because the eventual viewer is authenticated.
+
+**How to apply:** Show neutral visible loading feedback; fence buffered responses across route, tenant, mount and account changes, including switches before the first auth result. Test request ordering with deliberately blocked settings/auth, as well as protected-content absence and header/footer insertion history.
