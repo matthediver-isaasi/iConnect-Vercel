@@ -19,6 +19,7 @@
 // double-confirmed client-side.
 
 import { supabase } from '../_lib/database.js';
+import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
@@ -264,12 +265,14 @@ async function listPlans(tenantId, query) {
       .map((h) => [h.billing_agreement_id, h.status]),
   );
 
-  let rows = (plans || []).map((p) => {
+  const evidencedPlans = await Promise.all((plans || []).map(plan => loadMigratedMandatePresentation(supabase, plan)));
+  let rows = evidencedPlans.map((p) => {
     const ag = p.membership_billing_agreements;
     const member = ag?.member_id ? memberMap.get(ag.member_id) : null;
     const org = ag?.organization_id ? orgMap.get(ag.organization_id) : null;
     return {
       ...p,
+      mandatePresentation: migratedMandatePresentation(p),
       membership_billing_agreements: undefined,
       agreement: ag ? { id: ag.id, status: ag.status, member_id: ag.member_id, organization_id: ag.organization_id, dd: ag.metadata?.dd || null } : null,
       activation_status: activationByAgreement.get(ag?.id) || null,
@@ -330,7 +333,12 @@ async function planDetail(tenantId, planId, res) {
   }
 
   return {
-    plan,
+    plan: {
+      ...plan,
+      mandatePresentation: migratedMandatePresentation(await loadMigratedMandatePresentation(supabase, {
+        ...plan, membership_billing_agreements: agreement,
+      })),
+    },
     agreement,
     payments,
     statusHistory: historyRes.data || [],

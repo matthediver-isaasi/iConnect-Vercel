@@ -237,6 +237,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
       </MonthlyCollectionTable>
       <p className="p-3 text-xs text-muted-foreground border-t">
         Imported historical records are read-only and never trigger a collection, retry, refund or accounting action.
+        {' '}They do not settle an upcoming term or establish current membership entitlement or its end date.
       </p>
       <Dialog open={!!preview} onOpenChange={(open) => { if (!open) revokePreview(); }}>
         <DialogContent className="max-w-4xl">

@@ -1,11 +1,12 @@
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
+export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
+  first_payment_pending: 'Awaiting first payment',
   active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
   failed: 'Payment failed', unavailable: 'Unavailable', none: 'No membership',
 };
@@ -24,11 +25,13 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
+  first_payment_pending: 'Direct Debit mandate active',
   active: 'Your payment method', paid: 'Membership paid', pending: 'Payment setup pending', paused: 'Payments paused',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
+  first_payment_pending: 'Your existing Direct Debit mandate is active. This membership term is awaiting its first payment. The mandate alone does not establish membership entitlement.',
   active: 'Your membership payment is set up',
   paid: 'Your current membership has been paid in full.',
   pending: 'Your payment setup is awaiting confirmation.',

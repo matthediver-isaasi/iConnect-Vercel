@@ -42,7 +42,7 @@ export function planStatusBadge(status) {
   const s = status || "pending";
   return (
     <Badge variant={PLAN_STATUS_VARIANTS[s] || "outline"} data-testid={`badge-dd-plan-${s}`}>
-      {s.replace(/_/g, " ")}
+      {s === "first_payment_pending" ? "Awaiting first payment" : s.replace(/_/g, " ")}
     </Badge>
   );
 }
@@ -143,10 +143,17 @@ export default function DirectDebitPlanCard({ memberId }) {
         <CardTitle className="text-base flex items-center gap-2 flex-wrap">
           <Landmark className="h-4 w-4" />
           {isCardPlan ? "Monthly Card Plan" : "Monthly Direct Debit"}
-          {planStatusBadge(plan.status)}
+          {planStatusBadge(plan.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : plan.status)}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {plan.mandatePresentation && (
+          <p className="text-sm text-muted-foreground" data-testid="text-dd-existing-mandate">
+            Existing Direct Debit mandate active.
+            {plan.mandatePresentation.awaitingFirstPayment && " This membership term is awaiting its first payment; the mandate alone does not activate membership."}
+            {plan.mandatePresentation.collectionHeld && " Collections remain on hold pending reviewed release."}
+          </p>
+        )}
         {(failed || selfState?.plan?.in_arrears) && (
           <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20" data-testid="alert-dd-payment-failed">
             <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -216,7 +223,7 @@ export default function DirectDebitPlanCard({ memberId }) {
           {plan.agreementStatus && (
             <>
               <span className="text-muted-foreground">Agreement status</span>
-              <span className="font-medium text-right capitalize" data-testid="text-dd-agreement-status">{String(plan.agreementStatus).replace(/_/g, " ")}</span>
+              <span className="font-medium text-right capitalize" data-testid="text-dd-agreement-status">{plan.mandatePresentation?.awaitingFirstPayment ? "Awaiting first payment" : String(plan.agreementStatus).replace(/_/g, " ")}</span>
             </>
           )}
 

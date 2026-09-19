@@ -75,10 +75,12 @@ export async function releasePilot(client,{evidence,proof,accounts,apply=false,r
     if(!verifiedDestination||reviewSha256!==hash||!schemaReady)fail('Verified destination, reviewed hash and release migration required');
     const inserted=await rows(`INSERT INTO bnms_dd_pilot_release(adoption_id,tenant_id,member_id,evidence_sha256,evidence)
       VALUES($1,$2,$3,$4,$5) RETURNING *`,[a.id,TENANT_ID,MEMBER_ID,hash,manifest]);
-    const agreement=await client.query(`UPDATE membership_billing_agreements SET status='mandate_pending',
+    // Fresh adoptionManifest evidence above confirms the existing mandate.
+    // Do not regress it to mandate_pending or claim first-payment settlement.
+    const agreement=await client.query(`UPDATE membership_billing_agreements SET status='first_payment_pending',
       needs_attention=false,attention_reason=NULL,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND member_id=$3`,
       [a.agreement_id,TENANT_ID,MEMBER_ID]);
-    const plan=await client.query(`UPDATE membership_payment_plans SET status='mandate_pending',collection_stopped_at=NULL,
+    const plan=await client.query(`UPDATE membership_payment_plans SET status='first_payment_pending',collection_stopped_at=NULL,
       metadata=jsonb_set(metadata,'{bnms_release_required}','false'),updated_at=now()
       WHERE id=$1 AND tenant_id=$2 AND member_id=$3 AND collection_stopped_at IS NOT NULL`,
       [a.plan_id,TENANT_ID,MEMBER_ID]);

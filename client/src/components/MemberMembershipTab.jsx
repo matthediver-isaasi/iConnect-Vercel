@@ -1383,6 +1383,13 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {commitment.mandatePresentation && (
+              <p className="mb-3 text-sm text-muted-foreground" data-testid={`text-commitment-mandate-${commitment.id}`}>
+                Existing Direct Debit mandate active.
+                {commitment.mandatePresentation.awaitingFirstPayment && ' This membership term is awaiting its first payment. The mandate alone does not establish membership entitlement.'}
+                {commitment.mandatePresentation.collectionHeld && ' Collections remain held pending reviewed release.'}
+              </p>
+            )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <div>
                 <dt className="text-muted-foreground">{isDynamicMonthlyCommitment(commitment) ? 'Management Period Start' : 'Membership Start Date'}</dt>
@@ -1730,10 +1737,18 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                         <td className="p-3">
                           <div className="flex items-center gap-1 flex-wrap">
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
-                              {record.status || 'active'}
+                              {record.mandatePresentation?.awaitingFirstPayment
+                                ? 'Awaiting first payment' : record.status || 'active'}
                             </Badge>
                             <PaymentStatusBadge paymentStatus={record.payment_status} />
                           </div>
+                            {record.mandatePresentation && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Existing Direct Debit mandate active.
+                                {record.mandatePresentation.awaitingFirstPayment && ' This term is awaiting its first payment. Historical collections are shown separately below and do not settle this term.'}
+                                {record.mandatePresentation.collectionHeld && ' Collections held pending reviewed release.'}
+                              </p>
+                            )}
                             {isMonthlyRecord && record.payment_status === 'partial' && (
                               <p className="mt-1 text-xs text-muted-foreground" data-testid={`text-member-history-partial-whole-term-${record.id}`}>
                                 Partial is the whole-term status; it does not mean a collected monthly payment failed.

@@ -1,6 +1,7 @@
 // Read-only presentation of retained collection evidence. A plan amount is an
 // agreed price, not proof that the provider has scheduled a payment.
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+import { migratedMandatePresentation } from './migratedMandatePresentation.js';
 
 const UPCOMING = new Set(['pending_customer_approval', 'pending_submission', 'submitted']);
 const COLLECTED = new Set(['confirmed', 'paid_out']);
@@ -21,9 +22,12 @@ export function shapeCollectionDetails({
   if (['cancelled', 'mandate_cancelled', 'payment_failed', 'suspended', 'in_arrears'].includes(agreement?.status)) {
     blockers.push(`Agreement is ${agreement.status.replaceAll('_', ' ')}`);
   }
-  if (['payment_setup_required', 'mandate_pending', 'pending_payment_setup'].includes(agreement?.status)) {
+  const mandate = migratedMandatePresentation(plan && { ...plan, membership_billing_agreements: agreement });
+  if (['payment_setup_required', 'mandate_pending', 'pending_payment_setup'].includes(agreement?.status)
+      && !mandate) {
     blockers.push('Direct Debit setup is awaiting an active mandate');
   }
+  if (mandate?.collectionHeld && !plan?.collection_stopped_at) blockers.push('Collections held pending reviewed release');
   if (plan?.membership_monthly_arrears_period?.some((row) => !row.settled_at)) {
     blockers.push('Unresolved arrears require collection review');
   }

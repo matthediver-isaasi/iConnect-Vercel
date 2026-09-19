@@ -243,7 +243,8 @@ function PlanDetail({ planId, onBack }) {
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-to-plans"><ArrowLeft /></Button>
         <h2 className="text-lg font-semibold">Plan detail</h2>
-        <StatusBadge status={plan.status} />
+        <StatusBadge status={plan.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : plan.status} />
+        {plan.mandatePresentation && <Badge variant="outline">Existing mandate active{plan.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{plan.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
       </div>
 
       {membershipActivation?.status === "pending_activation" && (
@@ -903,7 +904,8 @@ export default function DirectDebitAdmin() {
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{p.payer_name || "Unknown payer"}</span>
-                        <StatusBadge status={p.status} />
+                        <StatusBadge status={p.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : p.status} />
+                        {p.mandatePresentation && <Badge variant="outline">Existing mandate active{p.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{p.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
                         {p.activation_pending && <StatusBadge status="pending_activation" />}
                         {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
                       </div>

@@ -41,16 +41,39 @@ test('shapes an immutable rolling commitment without live pricing substitution',
   assert.equal(commitment.renewalDate, '2027-09-15');
 });
 
-function scheduleDb(agreement, plan) {
+function scheduleDb(agreement, plan, mandate = null) {
   return { from(table) {
     const chain = {
       select() { return chain; }, eq() { return chain; }, order() { return chain; }, limit() { return chain; },
-      async maybeSingle() { return { data: table === 'membership_billing_agreements' ? agreement : plan }; },
+      async maybeSingle() { return { data: table === 'gocardless_mandates' ? mandate : table === 'membership_billing_agreements' ? agreement : plan }; },
       then(resolve) { return Promise.resolve({ data: [] }).then(resolve); },
     };
     return chain;
   } };
 }
+
+test('migration history and scheduled commitment expose active mandate separately from unpaid term', async () => {
+  const record = { id: 'history', tenant_id: 'tenant', member_id: 'member', membership_source: 'personal',
+    billing_agreement_id: 'agreement', payment_method: 'direct_debit', term_key: 'term',
+    status: 'pending_payment_setup', payment_status: 'unpaid', term_start_date: '2026-10-01', term_end_date: '2027-09-30' };
+  const agreement = { id: 'agreement', tenant_id: 'tenant', member_id: 'member', provider: 'gocardless',
+    status: 'mandate_pending', metadata: { dd: { auto_renew: true,
+      billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment' } } };
+  const plan = { id: 'plan', tenant_id: 'tenant', member_id: 'member', billing_agreement_id: 'agreement',
+    provider: 'gocardless', environment: 'live', gocardless_mandate_id: 'mandate', status: 'mandate_pending' };
+  const mandate = { tenant_id: 'tenant', environment: 'live', gocardless_mandate_id: 'mandate', status: 'active' };
+  const commitment = shapePersistedCommitment(record, new Date('2026-09-18'));
+  await enrichDirectDebitCommitments({
+    db: scheduleDb(agreement, plan, mandate), tenantId: 'tenant', history: [record], commitments: [commitment],
+    loadSchedule: async () => ({ canEdit: false }),
+  });
+  assert.equal(commitment.lifecycle, 'scheduled');
+  assert.equal(record.status, 'pending_payment_setup');
+  assert.equal(record.payment_status, 'unpaid');
+  assert.equal(record.mandatePresentation.awaitingFirstPayment, true);
+  assert.equal(commitment.mandatePresentation.mandateStatus, 'active');
+  assert.ok(!commitment.collectionDetails.blockers.some(text => /awaiting an active mandate/.test(text)));
+});
 
 test('Stripe enrichment validates personal and organisation ownership before reading provider timing', async () => {
   for (const source of ['personal', 'organisation']) {

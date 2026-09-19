@@ -13,6 +13,7 @@ import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionP
 import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDetails.js';
 import { loadStripeCollectionSchedule, unavailableCollectionSchedule } from '../_lib/membershipCollectionSchedule.js';
 import { loadGoCardlessSchedule } from '../_lib/gocardlessCollectionScheduleChange.js';
+import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -180,9 +181,17 @@ export async function enrichDirectDebitCommitments({
         throw new Error('Plan ownership does not match');
       }
       const terms = agreement.metadata?.dd || {};
+      let evidencedPlan = planResult.data;
+      if (planResult.data) {
+        evidencedPlan = await loadMigratedMandatePresentation(db, {
+          ...planResult.data, membership_billing_agreements: agreement,
+        });
+        commitment.mandatePresentation = migratedMandatePresentation(evidencedPlan);
+        record.mandatePresentation = commitment.mandatePresentation;
+      }
       commitment.collectionPolicy = resolveSavedCollectionPolicy(terms);
       commitment.collectionDetails = await loadGoCardlessCollectionDetails({
-        db, tenantId, agreement, plan: planResult.data, paused,
+        db, tenantId, agreement, plan: evidencedPlan, paused,
       });
       commitment.collectionSchedule = await loadSchedule({
         db, tenantId, agreement, plan: planResult.data, paused,

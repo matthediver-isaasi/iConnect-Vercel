@@ -12,6 +12,21 @@ const plan = { id: 'plan', tenant_id: 'tenant', billing_agreement_id: 'agreement
   amount_minor: 1066, currency: 'GBP', status: 'active' };
 const shape = (extra = {}) => shapeCollectionDetails({ agreement, plan, now, ...extra });
 
+test('proven migrated mandate removes misleading setup blocker without authorising a charge', () => {
+  const migratedAgreement = { ...agreement, status: 'mandate_pending', metadata: { dd: {
+    ...agreement.metadata.dd, billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment',
+  } } };
+  const migratedPlan = { ...plan, provider: 'gocardless', status: 'mandate_pending', migratedMandateStatus: 'active' };
+  const details = shape({ agreement: migratedAgreement, plan: migratedPlan });
+  assert.ok(!details.blockers.some(text => /awaiting an active mandate/.test(text)));
+  assert.equal(details.upcomingCollection, null);
+  assert.equal(details.dueDate, null);
+  assert.ok(shape({ agreement: migratedAgreement, plan: { ...migratedPlan, migratedMandateStatus: null } })
+    .blockers.some(text => /awaiting an active mandate/.test(text)));
+  assert.ok(shape({ agreement: migratedAgreement, plan: { ...migratedPlan, metadata: { bnms_release_required: true } } })
+    .blockers.some(text => /held pending reviewed release/.test(text)));
+});
+
 test('fixed agreed price is not described as a provider charge', () => {
   const details = shape();
   assert.equal(details.state, 'agreed');

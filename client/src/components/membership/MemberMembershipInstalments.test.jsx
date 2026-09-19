@@ -58,7 +58,8 @@ test("scheduled dynamic monthly plans use normal collection history without annu
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     client.setQueryData(["member-membership", memberId], {
       config: { name: "Test structure", billing_period: "annual", currency: "GBP" },
-      currentCommitments: [{ ...commitment, collectionPolicy: policy }],
+      currentCommitments: [{ ...commitment, collectionPolicy: policy,
+        mandatePresentation: { mandateStatus: "active", awaitingFirstPayment: true, collectionHeld: false } }],
       currentYearCost: { membershipYear: "2026/2027", yearNumber: 1, annualCost: 120 },
       history: [],
     });
@@ -73,6 +74,7 @@ test("scheduled dynamic monthly plans use normal collection history without annu
       xero_invoice_number: `INV-TEST-${index}`,
       xero_invoice_url: `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=test-${index}`,
       historical_only: true,
+      invoice_available: true,
     })));
     const html = renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
       React.createElement(MemberMembershipTab, { memberId }),
@@ -87,12 +89,16 @@ test("scheduled dynamic monthly plans use normal collection history without annu
   assert.match(monthly, /30 Sept? 2027/);
   assert.match(monthly, /Monthly instalment history/);
   assert.equal((monthly.match(/data-testid="row-historical-dd-/g) || []).length, 9);
-  assert.equal((monthly.match(/href="https:\/\/go.xero.com/g) || []).length, 9);
+  assert.equal((monthly.match(/data-testid="button-view-historical-dd-invoice-/g) || []).length, 9);
+  assert.equal((monthly.match(/data-testid="button-download-historical-dd-invoice-/g) || []).length, 9);
   assert.match(monthly, /January 2026/);
   assert.match(monthly, /September 2026/);
   assert.match(monthly, /£13\.04/);
   assert.match(monthly, /Paid out/);
   assert.match(monthly, /Imported historical payment/);
+  assert.match(monthly, /Existing Direct Debit mandate active/);
+  assert.match(monthly, /awaiting its first payment/);
+  assert.match(monthly, /do not settle an upcoming term or establish current membership entitlement/);
   assert.doesNotMatch(monthly, /card-historical-dd/);
   const annual = render({ pricing_policy: "fixed", end_policy: "stop" });
   assert.match(annual, />Year 1</);

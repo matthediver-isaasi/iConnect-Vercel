@@ -4,7 +4,7 @@ import { mkdtemp,readFile,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import pg from 'pg';
-import { adoptionManifest,adoptPilot,buildPilotSnapshot,ACCOUNTING } from './bnms-dd-pilot-adoption.mjs';
+import { adoptionManifest,adoptPilot,buildPilotSnapshot,ACCOUNTING,CUTOVER } from './bnms-dd-pilot-adoption.mjs';
 import { parseAdoptionArgs } from './run-bnms-dd-pilot-adoption.mjs';
 import { MEMBER_ID,TENANT_ID,MANDATE_ID,CUSTOMER_ID } from './bnms-dd-pilot.mjs';
 import { STRUCTURE_ID,fingerprint } from './bnms-dd-pilot-history.mjs';
@@ -54,8 +54,10 @@ test('identity, effective scope, amount, future duplicates and lead-time fail cl
 test('held dynamic plan refuses provider/accounting effects even if webhook transitions status to active',async()=>{
   let mutations=0;
   const agreement={id:uuid(1),tenant_id:TENANT_ID,member_id:MEMBER_ID,status:'active',metadata:{dd:buildPilotSnapshot(fixture().config)}};
-  const db={from(table){assert.equal(table,'membership_billing_agreements');return {
-    select(){return this;},eq(){return this;},async single(){return {data:agreement};},
+  const heldPlan={id:uuid(2),tenant_id:TENANT_ID,billing_agreement_id:agreement.id,
+    status:'active',collection_stopped_at:'2026-09-19T00:00:00Z',metadata:{collection_mode:'dynamic'}};
+  const db={from(table){assert.ok(['membership_billing_agreements','membership_payment_plans'].includes(table));return {
+    select(){return this;},eq(){return this;},async single(){return {data:table==='membership_payment_plans'?heldPlan:agreement};},
     insert(){mutations++;throw Error('unexpected mutation');},update(){mutations++;throw Error('unexpected mutation');},
   };},rpc(){mutations++;throw Error('unexpected RPC');}};
   const gc={getMandate(){throw Error('provider should not be contacted');},createPayment(){mutations++;},createSubscription(){mutations++;}};
@@ -153,7 +155,10 @@ test('isolated PostgreSQL atomic held adoption, rollback/resume, concurrency and
     const replay=await adoptPilot(client,e,opts);assert.equal(replay.writes,0);
     assert.equal((await client.query('SELECT count(*)::integer AS n FROM bnms_dd_pilot_adoption')).rows[0].n,1);
     const plan=(await client.query('SELECT * FROM membership_payment_plans')).rows[0];
-    assert.ok(plan.collection_stopped_at);assert.equal(plan.status,'payment_setup_required');assert.equal(plan.gocardless_subscription_id,null);
+    assert.ok(plan.collection_stopped_at);assert.equal(plan.status,'first_payment_pending');assert.equal(plan.gocardless_subscription_id,null);
+    assert.equal((await client.query('SELECT status FROM membership_billing_agreements')).rows[0].status,'first_payment_pending');
+    const history=(await client.query('SELECT status,payment_status FROM member_membership_history')).rows[0];
+    assert.deepEqual(history,{status:'pending_payment_setup',payment_status:'unpaid'});
     assert.equal((await client.query('SELECT count(*)::integer AS n FROM bnms_dd_historical_payment')).rows[0].n,9);
     assert.equal((await client.query('SELECT count(*)::integer AS n FROM gocardless_payments')).rows[0].n,0);
     await assert.rejects(client.query("UPDATE bnms_dd_pilot_adoption SET evidence='{}'"),/immutable/);
@@ -181,6 +186,11 @@ test('isolated PostgreSQL atomic held adoption, rollback/resume, concurrency and
     assert.equal(releaseResults.filter(r=>r.status==='fulfilled'&&r.value.mode==='released_to_dynamic_worker').length,1);
     for(const r of releaseResults.filter(r=>r.status==='rejected'))assert.ok(['40001','23505'].includes(r.reason.code),r.reason.message);
     const releasedReplay=await releasePilot(client,{apply:true,verifiedDestination:true,reviewSha256:releaseDry.hash});
+    const releasedPlan=(await client.query('SELECT * FROM membership_payment_plans')).rows[0];
+    assert.equal(releasedPlan.status,'first_payment_pending');
+    assert.equal(releasedPlan.collection_stopped_at,null);
+    assert.equal(releasedPlan.metadata.bnms_release_required,false);
+    assert.equal(new Date(releasedPlan.dynamic_next_collection_date).toISOString().slice(0,10),CUTOVER);
     assert.equal(releasedReplay.writes,0);assert.equal(releasedReplay.readinessRevalidated,false);
     assert.equal((await client.query('SELECT collection_stopped_at FROM membership_payment_plans')).rows[0].collection_stopped_at,null);
     await assert.rejects(reserve('2026-10-02'),/exactly October 1/);

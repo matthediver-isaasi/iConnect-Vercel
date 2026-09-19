@@ -3,6 +3,7 @@ import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { shapePersistedCommitment } from './member-membership.js';
 import { shapePlan } from './payment-plan.js';
+import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments, never live pricing, provider APIs or simulations.
@@ -131,8 +132,11 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
   else if (status === 'expired' || status === 'completed') state = 'expired';
   else if (pending.has(status)) state = 'pending';
   else if (status === 'active') state = 'active';
+  const mandate = migratedMandatePresentation(plan);
+  if (mandate?.collectionHeld && state === 'pending') state = 'paused';
+  if (state === 'pending' && mandate?.awaitingFirstPayment) state = 'first_payment_pending';
   let nextPayment = null;
-  if (plan && ['active', 'pending', 'failed'].includes(state)) {
+  if (plan && ['active', 'pending', 'first_payment_pending', 'failed'].includes(state)) {
     const next = canvasDate(shapePlan(plan).nextPlannedCollectionDate);
     if (next && next >= today) nextPayment = next;
   }
@@ -178,7 +182,7 @@ async function matchingPlan(db, selected, tenantId, memberId) {
   if ((key && selectedKey && key !== selectedKey) || (start && selected.start && start !== selected.start)) return null;
   if (!(key && selectedKey === key) && !(start && start === selected.start)) return null;
   const { data: plans, error: planError } = await db.from('membership_payment_plans')
-    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, interval_unit, membership_year, next_charge_date, last_payment_status, collection_stopped_at, metadata')
+    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, environment, gocardless_mandate_id, interval_unit, membership_year, next_charge_date, last_payment_status, collection_stopped_at, metadata')
     .eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('billing_agreement_id', agreement.id)
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
@@ -194,7 +198,9 @@ async function matchingPlan(db, selected, tenantId, memberId) {
     .eq('tenant_id', tenantId).eq('plan_id', plan.id).is('settled_at', null).limit(1);
   if (arrearsError) throw arrearsError;
   if ((arrears || []).some(row => !belongsTo(row, tenantId, 'plan_id', plan.id))) throw new Error('Arrears ownership mismatch');
-  return { ...plan, membership_billing_agreements: agreement, membership_monthly_arrears_period: arrears || [] };
+  return loadMigratedMandatePresentation(db, {
+    ...plan, membership_billing_agreements: agreement, membership_monthly_arrears_period: arrears || [],
+  });
 }
 
 export function createCanvasSummaryHandler(dependencies = {}) {

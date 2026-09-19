@@ -132,14 +132,17 @@ export async function adoptPilot(client, evidence, { apply=false, reviewSha256, 
     if(!customers.length){await insert(client,'gocardless_customers',{tenant_id:TENANT_ID,member_id:MEMBER_ID,gocardless_customer_id:CUSTOMER_ID,environment:'live',metadata:{source:'bnms_pilot_adoption'}});writes++;}
     if(!mandates.length){await insert(client,'gocardless_mandates',{tenant_id:TENANT_ID,gocardless_customer_id:CUSTOMER_ID,gocardless_mandate_id:MANDATE_ID,status:'active',environment:'live',next_possible_charge_date:evidence.mandate.next_possible_charge_date,metadata:{source:'bnms_pilot_adoption'}});writes++;}
     const dd=manifest.dd, term=dd.commitment;
+    // Provider evidence already proves an active existing mandate. This is a
+    // first-payment wait, not new mandate setup. The stop/release fences below
+    // still prohibit collection; history remains unpaid and unactivated.
     const agreement=await insert(client,'membership_billing_agreements',{...term,tenant_id:TENANT_ID,member_id:MEMBER_ID,
       agreement_type:'member',provider:'gocardless',gocardless_customer_id:CUSTOMER_ID,gocardless_mandate_id:MANDATE_ID,
-      status:'payment_setup_required',environment:'live',needs_attention:true,attention_reason:'BNMS pilot imported: separate reviewed collection release required',
+      status:'first_payment_pending',environment:'live',needs_attention:true,attention_reason:'BNMS pilot imported: separate reviewed collection release required',
       idempotency_key:buildIdempotencyKey('bnms-pilot-adoption',TENANT_ID,MEMBER_ID,CUTOVER),
       metadata:{dd,commitment:term,bnms_pilot_approval:APPROVAL}});
     const plan=await insert(client,'membership_payment_plans',{tenant_id:TENANT_ID,member_id:MEMBER_ID,billing_agreement_id:agreement.id,
       provider:'gocardless',gocardless_mandate_id:MANDATE_ID,amount_minor:1300,currency:'GBP',interval_unit:'monthly',
-      day_of_month:1,status:'payment_setup_required',membership_year:dd.membership_year,start_date:CUTOVER,instalments_total:12,
+      day_of_month:1,status:'first_payment_pending',membership_year:dd.membership_year,start_date:CUTOVER,instalments_total:12,
       environment:'live',dynamic_next_collection_date:CUTOVER,
       // Existing domain/RPC lifecycle guard: import cannot authorize collection.
       collection_stopped_at:new Date().toISOString(),

@@ -20,6 +20,23 @@ const summary = (personal, organisation = [], options = {}) => buildCanvasSummar
   selected: selectCanvasCommitment(personal, organisation, today), today, ...options,
 });
 
+test('existing migrated mandate is active while upcoming term remains unpaid and pending', () => {
+  const history = term({ status: 'pending_payment_setup', payment_status: 'unpaid',
+    term_start_date: '2026-10-01', payment_method: 'direct_debit', billing_period: 'monthly_direct_debit' });
+  const plan = { provider: 'gocardless', status: 'mandate_pending', migratedMandateStatus: 'active',
+    membership_billing_agreements: { metadata: { dd: {
+      billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment',
+    } } } };
+  const value = summary([history], [], { plan });
+  assert.equal(value.membership.state, 'pending');
+  assert.equal(value.membership.memberSince, null);
+  assert.equal(value.payment.state, 'first_payment_pending');
+  assert.equal(value.payment.nextPayment, null, 'a cutover is not a provider-scheduled charge');
+  assert.equal(history.payment_status, 'unpaid');
+  assert.equal(summary([history], [], { plan: { ...plan, collection_stopped_at: today } }).payment.state, 'paused');
+  assert.equal(summary([history], [], { plan: { ...plan, migratedMandateStatus: 'cancelled' } }).payment.state, 'pending');
+});
+
 function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
   const calls = [];
   return {
@@ -373,6 +390,36 @@ const billingRows = (patch = {}) => ({
   membership_billing_agreements: [{ id: 'agreement-a', tenant_id: 'tenant-a', member_id: 'member-a', term_key: '2026-term', provider: 'stripe' }],
   membership_payment_plans: [{ id: 'plan-a', tenant_id: 'tenant-a', member_id: 'member-a', billing_agreement_id: 'agreement-a', status: 'active', interval_unit: 'monthly', provider: 'stripe', next_charge_date: '2026-10-01' }],
   ...patch,
+});
+
+test('self API reads scoped migration mandate evidence and preserves upcoming term boundaries', async () => {
+  const rows = billingRows();
+  Object.assign(rows.member_membership_history[0], {
+    payment_method: 'direct_debit', status: 'pending_payment_setup', payment_status: 'unpaid',
+    term_start_date: '2026-10-01',
+  });
+  Object.assign(rows.membership_billing_agreements[0], {
+    provider: 'gocardless', metadata: { dd: {
+      billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment',
+    } },
+  });
+  Object.assign(rows.membership_payment_plans[0], {
+    provider: 'gocardless', environment: 'live', gocardless_mandate_id: 'mandate-a',
+    status: 'mandate_pending', next_charge_date: null,
+  });
+  rows.gocardless_mandates = [{
+    tenant_id: 'tenant-a', environment: 'live', gocardless_mandate_id: 'mandate-a', status: 'active',
+  }];
+  const result = await harness({ rows }).request();
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.payment.state, 'first_payment_pending');
+  assert.equal(result.payload.membership.state, 'pending');
+  assert.equal(result.payload.membership.memberSince, null);
+  assert.equal(result.payload.payment.nextPayment, null);
+  assert.ok(!JSON.stringify(result.payload).includes('mandate-a'));
+  rows.gocardless_mandates[0].status = 'cancelled';
+  assert.equal((await harness({ rows }).request()).payload.payment.state, 'pending');
+  assert.equal((await harness({ rows, errors: { gocardless_mandates: new Error('unavailable') } }).request()).statusCode, 500);
 });
 
 test('matching agreement/plan supplies collection and never returns billing identifiers', async () => {

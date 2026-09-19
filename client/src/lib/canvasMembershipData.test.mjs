@@ -6,6 +6,19 @@ import {
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } from './canvasMembershipData.js';
 
+test('active existing mandate wording remains distinct from paid membership and new setup', () => {
+  const defaults = getCanvasMembershipDefaults('payment-details');
+  assert.equal(defaults.states.first_payment_pending.heading, 'Direct Debit mandate active');
+  assert.equal(defaults.states.first_payment_pending.status, 'Awaiting first payment');
+  assert.match(defaults.states.first_payment_pending.supporting, /does not establish membership entitlement/);
+  assert.equal(defaults.states.pending.heading, 'Payment setup pending');
+  const normalized = normalizeCanvasMembershipSummary({
+    membership: { state: 'pending' }, payment: { state: 'first_payment_pending', method: 'direct_debit' },
+  });
+  assert.equal(normalized.membership.state, 'pending');
+  assert.equal(normalized.payment.state, 'first_payment_pending');
+});
+
 test('presentation normalization excludes private records and preview samples', () => {
   const content = normalizeCanvasMembershipContent({
     memberId: 'private', sample: { name: 'Example' }, membership: { state: 'active' },

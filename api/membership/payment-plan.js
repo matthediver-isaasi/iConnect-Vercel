@@ -11,6 +11,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getSessionMember } from '../_lib/session.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDetails.js';
+import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 
 // The member view is authorized only for the member themself (session
 // member matches memberId) or a tenant admin — never by memberId alone.
@@ -63,6 +64,7 @@ export function shapePlan(plan) {
   return {
     id: plan.id,
     status: plan.status,
+    mandatePresentation: migratedMandatePresentation(plan),
     provider: plan.provider || 'gocardless',
     instalmentsPaid: plan.instalments_paid ?? null,
     membershipYear: plan.membership_year,
@@ -179,7 +181,8 @@ async function handleMemberView(req, res) {
     .limit(3);
   if (error) return res.status(500).json({ error: 'Failed to load payment plan' });
 
-  const shaped = (plans || []).map((plan) => ({
+  const evidencedPlans = await Promise.all((plans || []).map(plan => loadMigratedMandatePresentation(supabase, plan)));
+  const shaped = evidencedPlans.map((plan) => ({
     ...shapePlan(plan),
     agreementStatus: plan.membership_billing_agreements?.status || null,
     terms: plan.membership_billing_agreements?.metadata?.dd
@@ -191,7 +194,7 @@ async function handleMemberView(req, res) {
   // own accounting invoice (number + sync status) on the plan.
   for (const plan of shaped) {
     if (plan.provider === 'gocardless') {
-      const stored = plans.find((row) => row.id === plan.id);
+      const stored = evidencedPlans.find((row) => row.id === plan.id);
       plan.collectionDetails = await loadGoCardlessCollectionDetails({
         db: supabase, tenantId: member.tenant_id, plan: stored,
         agreement: stored.membership_billing_agreements,
@@ -235,8 +238,9 @@ async function handleAdminList(req, res) {
     .limit(200);
   if (error) return res.status(500).json({ error: 'Failed to load payment plans' });
 
+  const evidencedPlans = await Promise.all((plans || []).map(plan => loadMigratedMandatePresentation(supabase, plan)));
   return res.json({
-    plans: (plans || []).map((plan) => ({
+    plans: evidencedPlans.map((plan) => ({
       ...shapePlan(plan),
       planType: plan.organization_id ? 'organization' : 'member',
       member: plan.member ? {
