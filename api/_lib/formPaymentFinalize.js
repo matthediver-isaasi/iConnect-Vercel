@@ -62,6 +62,26 @@ function completionLeaseIsFresh(completion, now = Date.now()) {
   return Number.isFinite(claimedAt) && now - claimedAt < FORM_PAYMENT_COMPLETION_CLAIM_TTL_MS;
 }
 
+async function claimFormPaymentFinalization(
+  supabase,
+  submission,
+  expectedPaymentMeta,
+  { ownerToken = null, claimedAt },
+) {
+  const { data, error } = await supabase.rpc('claim_form_payment_finalization', {
+    p_tenant_id: submission.tenant_id,
+    p_submission_id: submission.id,
+    p_expected_payment_meta: expectedPaymentMeta,
+    p_claimed_at: claimedAt,
+    p_owner_token: ownerToken,
+  });
+  // This RPC is intentionally mandatory. Falling back to a PostgREST update
+  // would put a large JSONB equality predicate in the URL and can turn a valid
+  // paid submission into an HTTP 400 before PostgreSQL evaluates the CAS.
+  if (error) throw error;
+  return data || null;
+}
+
 async function recordCompletionOutcome(supabase, submission, completion, status, details = {}) {
   try {
     const { data, error } = await supabase.rpc('finish_form_payment_completion', {
@@ -232,39 +252,22 @@ export async function finalizeFormSubmission({
       return { finalized: false, inProgress: true };
     }
     const claimedAt = new Date().toISOString();
-    const nextCompletion = {
-      ...completion,
-      status: 'processing',
-      claimed_at: claimedAt,
-      owner_token: randomUUID(),
-      attempts: Number(completion.attempts || 0) + 1,
-    };
-    const { data: claimed, error: claimErr } = await supabase
-      .from('form_submission')
-      .update({
-        payment_meta: {
-          ...meta,
-          finalized: true,
-          finalized_at: meta.finalized_at || claimedAt,
-          completion: nextCompletion,
-        },
-      })
-      .eq('id', submission.id)
-      .eq('payment_status', 'paid')
-      .eq('payment_meta', JSON.stringify(meta))
-      .select('*')
-      .maybeSingle();
-    if (claimErr) {
-      console.error('[formPaymentFinalize] Completion claim failed:', claimErr);
-      return { finalized: false };
-    }
+    const ownerToken = randomUUID();
+    const claimed = await claimFormPaymentFinalization(supabase, submission, meta, {
+      claimedAt,
+      ownerToken,
+    });
     if (!claimed) {
       const { data: fresh, error: freshErr } = await supabase
         .from('form_submission').select('*').eq('id', submission.id).maybeSingle();
-      if (freshErr || !fresh) return { finalized: false };
+      if (freshErr) throw freshErr;
+      if (!fresh) return { finalized: false };
       return finalizeFormSubmission({ supabase, submission: fresh, form, baseUrl, deadlineAt });
     }
-    claimedCompletion = nextCompletion;
+    claimedCompletion = claimed.payment_meta?.completion;
+    if (!claimedCompletion || claimedCompletion.owner_token !== ownerToken) {
+      throw new Error('Payment finalization claim returned an invalid owner');
+    }
   } else if (meta.finalized) {
     // A prior worker may have completed financial finalization before the DD
     // obligation was introduced. A ready row only needs DD recovery; an
@@ -277,26 +280,17 @@ export async function finalizeFormSubmission({
     resumingUnreadyFinalization = true;
   }
   if (!completion && !resumingUnreadyFinalization) {
-    const { data: claimed, error: claimErr } = await supabase
-      .from('form_submission')
-      .update({ payment_meta: { ...meta, finalized: true, finalized_at: new Date().toISOString() } })
-      .eq('id', submission.id)
-      .eq('payment_status', 'paid')
-      .eq('payment_meta', JSON.stringify(meta))
-      .filter('payment_meta->finalized', 'is', null)
-      .select('id')
-      .maybeSingle();
-    if (claimErr) {
-      console.error('[formPaymentFinalize] Finalize claim failed:', claimErr);
-      return { finalized: false };
-    }
+    const claimed = await claimFormPaymentFinalization(supabase, submission, meta, {
+      claimedAt: new Date().toISOString(),
+    });
     if (!claimed) {
       const { data: fresh, error: freshErr } = await supabase
         .from('form_submission')
         .select('*')
         .eq('id', submission.id)
         .maybeSingle();
-      if (freshErr || !fresh) return { finalized: false };
+      if (freshErr) throw freshErr;
+      if (!fresh) return { finalized: false };
       if (fresh.payment_meta?.finalized) {
         return { finalized: true, alreadyFinalized: true };
       }

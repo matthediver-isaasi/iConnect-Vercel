@@ -31,6 +31,29 @@ function oneOffFinalizationDb({
     fromCalls,
     async rpc(name, args) {
       rpcNames.push(name);
+      if (name === 'claim_form_payment_finalization') {
+        if (JSON.stringify(row.payment_meta) !== JSON.stringify(args.p_expected_payment_meta)
+            || row.payment_status !== 'paid'
+            || row.tenant_id !== args.p_tenant_id) {
+          return { data: null, error: null };
+        }
+        const nextMeta = {
+          ...structuredClone(row.payment_meta),
+          finalized: true,
+          finalized_at: row.payment_meta.finalized_at || args.p_claimed_at,
+        };
+        if (args.p_owner_token) {
+          nextMeta.completion = {
+            ...nextMeta.completion,
+            status: 'processing',
+            claimed_at: args.p_claimed_at,
+            owner_token: args.p_owner_token,
+            attempts: Number(nextMeta.completion?.attempts || 0) + 1,
+          };
+        }
+        row.payment_meta = nextMeta;
+        return { data: structuredClone(row), error: null };
+      }
       if (name === 'observe_or_begin_form_paid_pipeline_operation' && pipelineOperation) {
         return { data: pipelineOperation, error: null };
       }
@@ -104,6 +127,156 @@ function oneOffFinalizationDb({
     },
   };
 }
+
+function bodyCasDb(initialRow, { mutateBeforeFirstClaim = null, claimError = null } = {}) {
+  const row = structuredClone(initialRow);
+  const claims = [];
+  let first = true;
+  return {
+    row,
+    claims,
+    async rpc(name, args) {
+      if (name === 'claim_form_payment_finalization') {
+        claims.push(structuredClone(args));
+        if (claimError) return { data: null, error: claimError };
+        if (first && mutateBeforeFirstClaim) mutateBeforeFirstClaim(row);
+        first = false;
+        if (row.payment_status !== 'paid'
+            || row.tenant_id !== args.p_tenant_id
+            || JSON.stringify(row.payment_meta) !== JSON.stringify(args.p_expected_payment_meta)) {
+          return { data: null, error: null };
+        }
+        row.payment_meta = {
+          ...row.payment_meta,
+          finalized: true,
+          finalized_at: row.payment_meta.finalized_at || args.p_claimed_at,
+          ...(args.p_owner_token ? {
+            completion: {
+              ...row.payment_meta.completion,
+              status: 'processing',
+              claimed_at: args.p_claimed_at,
+              owner_token: args.p_owner_token,
+              attempts: Number(row.payment_meta.completion?.attempts || 0) + 1,
+            },
+          } : {}),
+        };
+        return { data: structuredClone(row), error: null };
+      }
+      if (name === 'finish_form_payment_completion') {
+        row.payment_meta.completion = {
+          ...row.payment_meta.completion,
+          status: args.p_status,
+          stage: args.p_stage,
+        };
+        return { data: true, error: null };
+      }
+      if (name === 'finish_form_payment_completion_retry') return { data: true, error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    },
+    from(table) {
+      assert.equal(table, 'form_submission');
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        maybeSingle: async () => ({ data: structuredClone(row), error: null }),
+      };
+      return query;
+    },
+  };
+}
+
+test('Stripe and GoCardless completion claims keep large payment_meta CAS values in the RPC body', async () => {
+  for (const payment_provider of ['stripe', 'gocardless']) {
+    const db = bodyCasDb({
+      id: `${payment_provider}-submission`,
+      tenant_id: '11111111-1111-4111-8111-111111111111',
+      payment_provider,
+      payment_status: 'paid',
+      payment_meta: {
+        provider_payload: 'x'.repeat(20 * 1024),
+        completion: { version: 1, status: 'queued', attempts: 0 },
+      },
+    });
+    const result = await finalizeFormSubmission({
+      supabase: db,
+      submission: structuredClone(db.row),
+      form: { id: 'form', fields: [] },
+      deadlineAt: Date.now() + 1,
+    });
+    assert.equal(result.retryable, true);
+    assert.equal(db.claims.length, 1);
+    assert.equal(db.claims[0].p_expected_payment_meta.provider_payload.length, 20 * 1024);
+    assert.equal(db.row.payment_meta.provider_payload.length, 20 * 1024);
+  }
+});
+
+test('completion CAS rereads changed metadata, preserves it, and lets only one concurrent snapshot win', async () => {
+  const base = {
+    id: 'concurrent-submission',
+    tenant_id: '11111111-1111-4111-8111-111111111111',
+    payment_status: 'paid',
+    payment_meta: { completion: { version: 1, status: 'queued', attempts: 0 } },
+  };
+  const changed = bodyCasDb(base, {
+    mutateBeforeFirstClaim(row) {
+      row.payment_meta.provider_checkpoint = { immutable: true };
+    },
+  });
+  await finalizeFormSubmission({
+    supabase: changed, submission: structuredClone(base),
+    form: { id: 'form', fields: [] }, deadlineAt: Date.now() + 1,
+  });
+  assert.equal(changed.claims.length, 2);
+  assert.deepEqual(changed.row.payment_meta.provider_checkpoint, { immutable: true });
+
+  const shared = bodyCasDb(base);
+  const [winner, loser] = await Promise.all([
+    finalizeFormSubmission({
+      supabase: shared, submission: structuredClone(base),
+      form: { id: 'form', fields: [] }, deadlineAt: Date.now() + 1,
+    }),
+    finalizeFormSubmission({
+      supabase: shared, submission: structuredClone(base),
+      form: { id: 'form', fields: [] }, deadlineAt: Date.now() + 1,
+    }),
+  ]);
+  assert.equal(
+    shared.claims.filter(claim =>
+      JSON.stringify(claim.p_expected_payment_meta) === JSON.stringify(base.payment_meta)).length,
+    2,
+    'both contenders submit the same snapshot, but the database CAS accepts it once',
+  );
+  assert.equal(shared.row.payment_meta.attempts, undefined);
+  assert.ok([winner, loser].some(result => result.retryable || result.inProgress));
+});
+
+test('legacy finalization uses the body CAS and surfaces database errors', async () => {
+  const legacy = {
+    id: 'legacy-submission',
+    tenant_id: '11111111-1111-4111-8111-111111111111',
+    payment_provider: 'gocardless',
+    payment_status: 'paid',
+    payment_meta: { provider_payload: 'z'.repeat(20 * 1024) },
+    submission_data: {},
+  };
+  const db = bodyCasDb(legacy);
+  await finalizeFormSubmission({
+    supabase: db, submission: structuredClone(legacy),
+    form: { id: 'form', fields: [], entity_pipelines: {}, submission_emails: [] },
+  });
+  assert.equal(db.claims[0].p_owner_token, null);
+  assert.equal(db.row.payment_meta.provider_payload.length, 20 * 1024);
+
+  const failure = new Error('database claim unavailable');
+  const broken = bodyCasDb(legacy, { claimError: failure });
+  await assert.rejects(
+    finalizeFormSubmission({
+      supabase: broken, submission: structuredClone(legacy),
+      form: { id: 'form', fields: [] },
+    }),
+    error => error === failure,
+  );
+});
 
 test('queued Stripe completion has a truthful non-terminal receipt and does not reopen historical payments', async () => {
   const db = oneOffFinalizationDb();
@@ -255,7 +428,7 @@ test('a different active pipeline owner fences completion before membership, DD,
     assert.equal(db.rpcNames.includes('claim_form_due_diligence_initialization'), false);
     // Only the completion claim/result writes are allowed; an email guard or
     // membership path would issue additional submission table work.
-    assert.equal(db.fromCalls.length, 1);
+    assert.equal(db.fromCalls.length, 0);
   } finally {
     if (previousAppUrl === undefined) delete process.env.APP_URL;
     else process.env.APP_URL = previousAppUrl;
@@ -281,7 +454,7 @@ test('a bounded operation wait stays on the retry queue and fences all downstrea
     assert.equal(db.row.payment_meta.completion.status, 'retryable');
     assert.equal(db.rpcNames.includes('finish_form_payment_completion_retry'), true);
     assert.equal(db.rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
-    assert.equal(db.fromCalls.length, 1, 'no membership or email writes during observation');
+    assert.equal(db.fromCalls.length, 0, 'no membership or email writes during observation');
   } finally {
     if (previousAppUrl === undefined) delete process.env.APP_URL;
     else process.env.APP_URL = previousAppUrl;
@@ -326,7 +499,7 @@ test('a known partial entity result stops downstream effects and remains retryab
     assert.equal(db.row.payment_meta.completion.status, 'retryable');
     assert.equal(db.rpcNames.includes('mark_one_off_form_due_diligence_ready'), false);
     assert.equal(db.rpcNames.includes('claim_form_due_diligence_initialization'), false);
-    assert.equal(db.fromCalls.length, 2); // completion claim plus authoritative membership diagnostic reload
+    assert.equal(db.fromCalls.length, 1); // authoritative membership diagnostic reload
   } finally {
     globalThis.fetch = previousFetch;
     if (previousAppUrl === undefined) delete process.env.APP_URL;
@@ -518,6 +691,7 @@ test('one-off DD failures do not undo the paid finalization claim', async () => 
   assert.equal(result.finalized, true);
   assert.equal(db.row.payment_meta.finalized, true);
   assert.deepEqual(db.rpcNames, [
+    'claim_form_payment_finalization',
     'mark_one_off_form_due_diligence_ready',
     'claim_form_due_diligence_initialization',
     'record_form_due_diligence_claim_failure',
@@ -611,6 +785,24 @@ test('a slow pending-provider row cannot starve Stripe address capture or its pa
   let managedCompletionClaimed = false;
   const db = {
     async rpc(name, args) {
+      if (name === 'claim_form_payment_finalization') {
+        if (JSON.stringify(completionRow.payment_meta) !== JSON.stringify(args.p_expected_payment_meta)) {
+          return { data: null, error: null };
+        }
+        completionRow.payment_meta = {
+          ...completionRow.payment_meta,
+          finalized: true,
+          finalized_at: completionRow.payment_meta.finalized_at || args.p_claimed_at,
+          completion: {
+            ...completionRow.payment_meta.completion,
+            status: 'processing',
+            claimed_at: args.p_claimed_at,
+            owner_token: args.p_owner_token,
+            attempts: Number(completionRow.payment_meta.completion.attempts || 0) + 1,
+          },
+        };
+        return { data: structuredClone(completionRow), error: null };
+      }
       if (name === 'claim_form_payment_reconciliation_work') {
         if (managedAddressClaimed) {
           if (managedCompletionClaimed) return { data: [], error: null };
