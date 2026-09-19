@@ -1783,6 +1783,24 @@ test('optional organization no-op is fail-closed for required/static/unknown/pop
       statusCode: 400,
     },
     {
+      label: 'hidden required blank',
+      fields: [{
+        id: 'org-name',
+        type: 'text',
+        required: true,
+        starts_hidden: true,
+      }],
+      form_values: { 'org-name': '' },
+      mappings: [{
+        source_type: 'field',
+        source_field_id: 'org-name',
+        target_type: 'core',
+        target_entity: 'organization',
+        target_field: 'name',
+      }],
+      statusCode: 400,
+    },
+    {
       label: 'static blank',
       fields: [],
       form_values: {},

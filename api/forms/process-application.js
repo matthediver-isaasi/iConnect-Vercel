@@ -2258,9 +2258,13 @@ export default async function handler(req, res, {
         if (mapping?.transformation === 'current_date') return false;
         if (!mapping?.source_field_id) return false;
         const sourceField = fieldsById.get(String(mapping.source_field_id));
-        if (!sourceField
-          || isRequired(sourceField)
-          || hiddenSubmissionFieldIds.has(String(mapping.source_field_id))) {
+        // Visibility is not creation intent. Rule-derived/locked fields may be
+        // hidden and intentionally blank for applicants who join directly as
+        // group members. A non-blank hidden value still fails the all-blank
+        // check below and is processed normally. `ignore_if_hidden` mappings
+        // were already excluded by the mapping-selection layer and use the
+        // separate hidden-identity no-op above.
+        if (!sourceField || isRequired(sourceField)) {
           return false;
         }
         let value = extractMappingSourceComponent(

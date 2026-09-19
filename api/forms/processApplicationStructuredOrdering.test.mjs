@@ -798,14 +798,25 @@ test('GroupUPSERT assigns existing groups once and leaves organisation-backed me
   }
 });
 
-test('monthly setup waits for optional organisation settlement, creates the member/group, and one-off paid retry stays idempotent', async () => {
+test('hidden blank optional organisation settles while member GroupUPSERT completes and paid retry stays idempotent', async () => {
   invokeOrderingProcessor.ledger = new Map();
   const payload = relationshipPayload({
     structuredActions: optionalOrganizationGroupAction(),
   });
   payload.fields = [
     ...payload.fields,
-    { id: 'optional-org-name', type: 'text', required: false },
+    {
+      // Production regression: a rule-derived locked field is intentionally
+      // blank when the applicant joins as a direct group member. Hidden is
+      // presentation state, not evidence that organisation creation is
+      // required when the persisted optional source has no value.
+      id: 'optional-org-name',
+      type: 'text',
+      label: 'Organisation for submission',
+      locked: true,
+      required: false,
+      starts_hidden: true,
+    },
     { id: 'optional-group-name', type: 'text', required: false },
   ];
   payload.form_values = {
@@ -814,7 +825,9 @@ test('monthly setup waits for optional organisation settlement, creates the memb
     'optional-org-name': '',
     'optional-group-name': 'Configured group',
   };
-  payload.organization_entity_action = 'upsert';
+  // Modern pipelines own action inference; the legacy top-level action is
+  // deliberately none in the affected production configuration.
+  payload.organization_entity_action = 'none';
   payload.entity_pipelines = {
     members: payload.entity_pipelines.members,
     organisations: [{
