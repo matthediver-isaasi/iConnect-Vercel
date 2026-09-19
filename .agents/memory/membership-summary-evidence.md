@@ -20,3 +20,9 @@ Variable monthly prices and annual financial commitments are separate evidence.
 **Why:** Imported dynamic terms deliberately retain null annual totals while preserving an initial monthly quote. Neither that quote nor a saved reservation proves today's applicable price, and multiplying a current monthly amount by twelve invents a commitment.
 
 **How to apply:** Resolve display estimates read-only for an evidenced date and purchased scope; use provider evidence alone for scheduled-charge wording. Keep annual nulls uncommitted and preserve existing financial totals. Do not let a UI fallback turn an old reservation into a fresh price estimate.
+
+Provider-only historical evidence can coexist with a held future adoption before accounting reconciliation.
+
+**Why:** BNMS beta candidates had verified settled provider payments but expired accounting access and no evidenced source entitlement dates. Blocking collection and keeping evidence separate allowed safe held adoption without inventing invoice links or current membership access.
+
+**How to apply:** Label provider-only history as accounting-unreconciled, leave nominal coverage periods and invoice links absent, and preserve the historical mutable-ledger barrier. Do not inherit the original pilot's accounting approval, disabled-legacy-scheduler claim or entitlement from similar mandates. Member/admin projections using real DEST data and injected auth collaborators are service evidence only—not deployed login or visual proof.

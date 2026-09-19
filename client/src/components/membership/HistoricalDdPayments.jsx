@@ -177,6 +177,8 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
       <MonthlyCollectionTable testId="table-historical-dd">
           {payments.map((payment) => {
             const invoiceAvailable = isHistoricalDdInvoiceAvailable(payment);
+            const providerOnly = payment.provider_only
+              || payment.provenance === "provider_evidence_only";
             return (
               <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
               <td className="p-2">
@@ -186,15 +188,19 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                   <Badge variant="secondary">{payment.provider_status === "paid_out" ? "Paid out" : payment.provider_status}</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Nominal period: {formatHistoricalDdDate(payment.period, { monthOnly: true })}
-                  {" · "}Imported historical payment
+                  {payment.period
+                    ? <>Nominal period: {formatHistoricalDdDate(payment.period, { monthOnly: true })}{" · "}</>
+                    : null}
+                  {providerOnly ? "Provider history only" : "Imported historical payment"}
                 </p>
               </td>
               <td className="p-2 text-right whitespace-nowrap">
                 {formatHistoricalDdAmount(payment.amount_minor, payment.currency)}
               </td>
               <td className="p-2">
-                <Badge variant="outline">Imported evidence</Badge>
+                <Badge variant="outline">
+                  {providerOnly ? "Provider evidence · unreconciled" : "Imported evidence"}
+                </Badge>
               </td>
               <td className="p-2">
                 <div className="space-y-2">
@@ -242,7 +248,9 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                     >
                       {payment.invoice_unavailable_reason === "permission_denied"
                         ? "Invoice access denied"
-                        : "Invoice unavailable"}
+                        : payment.invoice_unavailable_reason === "accounting_unreconciled"
+                          ? "No accounting invoice — provider evidence only"
+                          : "Invoice unavailable"}
                     </p>
                   )}
                   {invoiceErrorMessage?.id === payment.id && (
@@ -274,7 +282,8 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
       </MonthlyCollectionTable>
       <p className="p-3 text-xs text-muted-foreground border-t">
         Imported historical records are read-only and never trigger a collection, retry, refund or accounting action.
-        {' '}They do not settle an upcoming term or establish current membership entitlement or its end date.
+        {' '}Provider-only records are not accounting reconciliations and have no invoice or download.
+        {' '}They do not settle an upcoming term, activate payment, or establish current membership entitlement or its end date.
       </p>
       <Dialog open={!!preview} onOpenChange={(open) => { if (!open) revokePreview(); }}>
         <DialogContent className="max-w-4xl">

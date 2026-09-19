@@ -18,6 +18,7 @@ export function createHistoricalDdHandler(dependencies = {}) {
   const checkFeature = dependencies.hasFeatureAccess || hasFeatureAccess;
 
   return async function handler(req, res) {
+    res.setHeader?.('Cache-Control', 'private, no-store');
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     if (!db) return res.status(503).json({ error: 'Database not configured' });
     const requestedMemberId = Array.isArray(req.query?.memberId) ? null : req.query?.memberId;
@@ -90,41 +91,84 @@ export function createHistoricalDdHandler(dependencies = {}) {
     }
     if (!member) return res.status(404).json({ error: 'Member not found' });
 
-    const { data, error } = await db
+    const { data: pilotData, error: pilotError } = await db
       .from('bnms_dd_historical_payment')
       .select('id, tenant_id, member_id, period, charge_date, amount_minor, currency, provider_payment_id, provider_status, xero_invoice_id, xero_invoice_number, historical_only')
       .eq('tenant_id', tenantId)
       .eq('member_id', requestedMemberId)
       .eq('historical_only', true)
       .order('period', { ascending: false });
-    if (error) {
-      if (MIGRATION_ERROR_CODES.has(error.code)) {
+    if (pilotError) {
+      if (MIGRATION_ERROR_CODES.has(pilotError.code)) {
         return res.status(503).json({
           error: 'Historical Direct Debit storage is not installed',
           code: 'HISTORICAL_DD_MIGRATION_NOT_INSTALLED',
         });
       }
-      console.error('[historical-dd] Payment lookup failed:', error);
+      console.error('[historical-dd] Pilot payment lookup failed:', pilotError);
       return res.status(500).json({ error: 'Failed to load historical Direct Debit payments' });
     }
 
+    const { data: betaData, error: betaError } = await db
+      .from('bnms_dd_beta_provider_history')
+      .select('id, tenant_id, member_id, charge_date, amount_minor, currency, provider_payment_id, provider_status, accounting_reconciled')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', requestedMemberId)
+      .eq('accounting_reconciled', false)
+      .order('charge_date', { ascending: false });
+    if (betaError) {
+      if (MIGRATION_ERROR_CODES.has(betaError.code)) {
+        return res.status(503).json({
+          error: 'Beta historical Direct Debit storage is not installed',
+          code: 'HISTORICAL_DD_BETA_MIGRATION_NOT_INSTALLED',
+        });
+      }
+      console.error('[historical-dd] Beta provider history lookup failed:', betaError);
+      return res.status(500).json({ error: 'Failed to load historical Direct Debit payments' });
+    }
+
+    const pilotPayments = (pilotData || []).map((row) => ({
+      id: row.id,
+      period: row.period,
+      charge_date: row.charge_date,
+      amount_minor: row.amount_minor,
+      currency: row.currency,
+      provider_payment_id: row.provider_payment_id,
+      provider_status: row.provider_status,
+      xero_invoice_id: canAccessInvoices ? row.xero_invoice_id : null,
+      xero_invoice_number: canAccessInvoices ? row.xero_invoice_number : null,
+      invoice_available: canAccessInvoices && !!row.xero_invoice_id,
+      invoice_unavailable_reason: !canAccessInvoices
+        ? 'permission_denied'
+        : (row.xero_invoice_id ? null : 'not_linked'),
+      historical_only: true,
+      source: 'pilot_historical_ledger',
+      provenance: 'provider_and_accounting_evidence',
+      provider_only: false,
+      accounting_reconciled: true,
+    }));
+    const betaPayments = (betaData || []).map((row) => ({
+      id: row.id,
+      period: null,
+      charge_date: row.charge_date,
+      amount_minor: row.amount_minor,
+      currency: row.currency,
+      provider_payment_id: row.provider_payment_id,
+      provider_status: row.provider_status,
+      xero_invoice_id: null,
+      xero_invoice_number: null,
+      invoice_available: false,
+      invoice_unavailable_reason: 'accounting_unreconciled',
+      historical_only: true,
+      source: 'beta_provider_history',
+      provenance: 'provider_evidence_only',
+      provider_only: true,
+      accounting_reconciled: false,
+    }));
+
     return res.json({
-      payments: (data || []).map((row) => ({
-        id: row.id,
-        period: row.period,
-        charge_date: row.charge_date,
-        amount_minor: row.amount_minor,
-        currency: row.currency,
-        provider_payment_id: row.provider_payment_id,
-        provider_status: row.provider_status,
-        xero_invoice_id: canAccessInvoices ? row.xero_invoice_id : null,
-        xero_invoice_number: canAccessInvoices ? row.xero_invoice_number : null,
-        invoice_available: canAccessInvoices && !!row.xero_invoice_id,
-        invoice_unavailable_reason: !canAccessInvoices
-          ? 'permission_denied'
-          : (row.xero_invoice_id ? null : 'not_linked'),
-        historical_only: true,
-      })),
+      payments: [...pilotPayments, ...betaPayments].sort((a, b) =>
+        String(b.charge_date || b.period || '').localeCompare(String(a.charge_date || a.period || ''))),
     });
   };
 }

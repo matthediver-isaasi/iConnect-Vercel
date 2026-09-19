@@ -10,16 +10,33 @@ function response() {
   };
 }
 
-function dbMock({ member = { id: 'member-1', tenant_id: 'tenant-1' }, payments = [], paymentError = null } = {}) {
+function dbMock({
+  member = { id: 'member-1', tenant_id: 'tenant-1' },
+  payments = [],
+  betaPayments = [],
+  paymentError = null,
+  betaPaymentError = null,
+  queryLog = [],
+} = {}) {
   return {
     from(table) {
+      queryLog.push({ table, filters: [] });
+      const call = queryLog.at(-1);
       const query = {
-        eq() { return query; },
+        eq(column, value) { call.filters.push([column, value]); return query; },
         select() { return query; },
-        order() { return Promise.resolve({ data: payments, error: paymentError }); },
+        order() {
+          return table === 'bnms_dd_beta_provider_history'
+            ? Promise.resolve({ data: betaPayments, error: betaPaymentError })
+            : Promise.resolve({ data: payments, error: paymentError });
+        },
         maybeSingle() { return Promise.resolve({ data: member, error: null }); },
       };
-      assert.ok(['member', 'bnms_dd_historical_payment'].includes(table));
+      assert.ok([
+        'member',
+        'bnms_dd_historical_payment',
+        'bnms_dd_beta_provider_history',
+      ].includes(table));
       return query;
     },
   };
@@ -206,4 +223,121 @@ test('a display invoice number alone is not a PDF reference', async () => {
   assert.equal(res.body.payments[0].invoice_available, false);
   assert.equal(res.body.payments[0].invoice_unavailable_reason, 'not_linked');
   assert.equal(res.body.payments[0].xero_invoice_number, 'INV-1');
+});
+
+test('beta member history is tenant scoped, provider-only and never claims an invoice or activation', async () => {
+  const queryLog = [];
+  const handler = createHistoricalDdHandler({
+    db: dbMock({
+      queryLog,
+      betaPayments: [{
+        id: 'beta-1',
+        charge_date: '2026-09-09',
+        amount_minor: 1425,
+        currency: 'GBP',
+        provider_payment_id: 'PM-BETA',
+        provider_status: 'paid_out',
+        accounting_reconciled: false,
+      }],
+    }),
+    getSessionMember: async () => ({
+      id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-1',
+      member_excluded_features: [],
+    }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+  });
+  const res = response();
+  await handler(request(), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.payments, [{
+    id: 'beta-1',
+    period: null,
+    charge_date: '2026-09-09',
+    amount_minor: 1425,
+    currency: 'GBP',
+    provider_payment_id: 'PM-BETA',
+    provider_status: 'paid_out',
+    xero_invoice_id: null,
+    xero_invoice_number: null,
+    invoice_available: false,
+    invoice_unavailable_reason: 'accounting_unreconciled',
+    historical_only: true,
+    source: 'beta_provider_history',
+    provenance: 'provider_evidence_only',
+    provider_only: true,
+    accounting_reconciled: false,
+  }]);
+  const betaQuery = queryLog.find(({ table }) => table === 'bnms_dd_beta_provider_history');
+  assert.deepEqual(betaQuery.filters, [
+    ['tenant_id', 'tenant-1'],
+    ['member_id', 'member-1'],
+    ['accounting_reconciled', false],
+  ]);
+  assert.equal('payment_status' in res.body.payments[0], false);
+  assert.equal('entitlement' in res.body.payments[0], false);
+});
+
+test('tenant admin receives the same beta projection without weakening tenant ownership checks', async () => {
+  const handler = createHistoricalDdHandler({
+    db: dbMock({
+      member: { id: 'member-1', tenant_id: 'tenant-admin' },
+      betaPayments: [{
+        id: 'beta-admin', charge_date: '2026-08-01', amount_minor: 1500,
+        currency: 'GBP', provider_payment_id: 'PM-ADMIN',
+        provider_status: 'paid_out', accounting_reconciled: false,
+      }],
+    }),
+    getSessionMember: async () => null,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-admin' }),
+    hasAdminAccess: async () => true,
+    hasFeatureAccess: async () => { throw new Error('admin must bypass feature gates'); },
+  });
+  const res = response();
+  await handler(request(), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.payments[0].source, 'beta_provider_history');
+  assert.equal(res.body.payments[0].invoice_available, false);
+  assert.equal(res.body.payments[0].invoice_unavailable_reason, 'accounting_unreconciled');
+});
+
+test('pilot rows retain invoice parity when beta history is also queried', async () => {
+  const pilot = {
+    id: 'pilot-1', period: '2026-01-01', charge_date: '2026-01-06',
+    amount_minor: 1304, currency: 'GBP', provider_payment_id: 'PM-PILOT',
+    provider_status: 'paid_out', xero_invoice_id: 'invoice-1',
+    xero_invoice_number: 'INV-1', historical_only: true,
+  };
+  const handler = createHistoricalDdHandler({
+    db: dbMock({ payments: [pilot] }),
+    getSessionMember: async () => ({
+      id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-1',
+      member_excluded_features: [],
+    }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+  });
+  const res = response();
+  await handler(request(), res);
+  assert.equal(res.body.payments.length, 1);
+  assert.equal(res.body.payments[0].source, 'pilot_historical_ledger');
+  assert.equal(res.body.payments[0].provenance, 'provider_and_accounting_evidence');
+  assert.equal(res.body.payments[0].invoice_available, true);
+  assert.equal(res.body.payments[0].xero_invoice_number, 'INV-1');
+});
+
+test('missing beta migration is explicit rather than silently dropping authorized history', async () => {
+  const handler = createHistoricalDdHandler({
+    db: dbMock({ betaPaymentError: { code: '42P01', message: 'missing' } }),
+    getSessionMember: async () => ({ id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-1' }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+  });
+  const res = response();
+  await handler(request(), res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'HISTORICAL_DD_BETA_MIGRATION_NOT_INSTALLED');
 });

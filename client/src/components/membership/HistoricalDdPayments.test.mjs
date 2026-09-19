@@ -140,6 +140,33 @@ test('projects invoice availability compatibly across current and historical API
   assert.match(html, /historical-dd-invoice-denied-permission-denied/);
 });
 
+test('beta provider history is clearly unreconciled and exposes no invoice actions or activation claim', () => {
+  const html = renderToStaticMarkup(React.createElement(HistoricalDdPaymentsTable, {
+    request: async () => { throw new Error('not called during render'); },
+    payments: [{
+      id: 'beta-provider',
+      period: null,
+      charge_date: '2026-09-09',
+      amount_minor: 1425,
+      currency: 'GBP',
+      provider_status: 'paid_out',
+      provider_only: true,
+      provenance: 'provider_evidence_only',
+      accounting_reconciled: false,
+      invoice_available: false,
+      invoice_unavailable_reason: 'accounting_unreconciled',
+    }],
+  }));
+  assert.match(html, /Provider history only/);
+  assert.match(html, /Provider evidence · unreconciled/);
+  assert.match(html, /No accounting invoice — provider evidence only/);
+  assert.match(html, /have no invoice or download/);
+  assert.match(html, /do not[\s\S]*activate payment/);
+  assert.doesNotMatch(html, /button-view-historical-dd-invoice-beta-provider/);
+  assert.doesNotMatch(html, /button-download-historical-dd-invoice-beta-provider/);
+  assert.doesNotMatch(html, /Nominal period: Unknown/);
+});
+
 test('both existing member surfaces include historical DD records', () => {
   const admin = readFileSync(new URL('../MemberMembershipTab.jsx', import.meta.url), 'utf8');
   const portal = readFileSync(new URL('../../pages/History.jsx', import.meta.url), 'utf8');
