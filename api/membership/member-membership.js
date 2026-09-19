@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import {
   findHistoricalMemberConfigs,
   getAllActiveConfigsStrict,
@@ -11,6 +11,8 @@ import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDetails.js';
+import { loadStripeCollectionSchedule, unavailableCollectionSchedule } from '../_lib/membershipCollectionSchedule.js';
+import { loadGoCardlessSchedule } from '../_lib/gocardlessCollectionScheduleChange.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -120,20 +122,52 @@ export function shapePersistedCommitments(history, now = new Date()) {
     });
 }
 
+export async function enrichStripeCommitmentSchedules({
+  db, tenantId, history, commitments, loadSchedule = loadStripeCollectionSchedule,
+}) {
+  const visible = commitments.filter((item) => ['current', 'scheduled', 'unknown'].includes(item.lifecycle)
+    && ['stripe_monthly_card', 'card_monthly', 'monthly_card'].includes(item.paymentMethod)).slice(0, 20);
+  for (const commitment of visible) {
+    commitment.collectionSchedule = unavailableCollectionSchedule('stripe', 'Stripe schedule evidence is unavailable.');
+    const record = history.find((row) => row.id === commitment.id
+      && (row.membership_source || 'personal') === commitment.source);
+    if (!record?.billing_agreement_id) continue;
+    try {
+      const result = await db.from('membership_billing_agreements').select('*')
+        .eq('tenant_id', tenantId).eq('id', record.billing_agreement_id).maybeSingle();
+      const agreement = result.data;
+      if (result.error || agreement?.provider !== 'stripe'
+        || !agreementMatchesHistory(agreement, record, commitment.source)) continue;
+      const plans = await db.from('membership_payment_plans').select('*')
+        .eq('tenant_id', tenantId).eq('billing_agreement_id', agreement.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (plans.error || !planMatchesAgreement(plans.data, agreement, record)) continue;
+      commitment.collectionSchedule = await loadSchedule({ tenantId, agreement, plan: plans.data });
+    } catch {
+      commitment.collectionSchedule = unavailableCollectionSchedule('stripe', 'The Stripe schedule could not be loaded.');
+    }
+  }
+  return commitments;
+}
+
 /**
  * Enrich only an already-authorized owner's displayed terms. Neither a live
  * structure nor an unrelated agreement may supply consent for this read.
  */
-export async function enrichDirectDebitCommitments({ db, tenantId, history, commitments, paused = false }) {
+export async function enrichDirectDebitCommitments({
+  db, tenantId, history, commitments, paused = false, canEditSchedule = false,
+  loadSchedule = loadGoCardlessSchedule,
+}) {
   const visible = commitments.filter((item) => ['current', 'scheduled', 'unknown'].includes(item.lifecycle)).slice(0, 20);
   for (const commitment of visible) {
     const record = history.find((row) => row.id === commitment.id
       && (row.membership_source || 'personal') === commitment.source);
-    if (!record?.billing_agreement_id
-      || !['direct_debit', 'gocardless'].includes(commitment.paymentMethod)) continue;
+    if (!['direct_debit', 'gocardless'].includes(commitment.paymentMethod)) continue;
+    commitment.collectionSchedule = unavailableCollectionSchedule('gocardless', 'Collection schedule evidence is unavailable.');
+    if (!record?.billing_agreement_id) continue;
     try {
       const { data: agreement, error } = await db.from('membership_billing_agreements')
-        .select('id,tenant_id,member_id,organization_id,provider,status,metadata')
+        .select('*')
         .eq('tenant_id', tenantId).eq('id', record.billing_agreement_id).maybeSingle();
       if (error || !agreementMatchesHistory(agreement, record, commitment.source)
         || (agreement.provider && agreement.provider !== 'gocardless')) throw new Error('Agreement evidence unavailable');
@@ -149,6 +183,10 @@ export async function enrichDirectDebitCommitments({ db, tenantId, history, comm
       commitment.collectionPolicy = resolveSavedCollectionPolicy(terms);
       commitment.collectionDetails = await loadGoCardlessCollectionDetails({
         db, tenantId, agreement, plan: planResult.data, paused,
+      });
+      commitment.collectionSchedule = await loadSchedule({
+        db, tenantId, agreement, plan: planResult.data, paused,
+        canEdit: canEditSchedule,
       });
       if (!commitment.startDate || !commitment.endDate) {
         commitment.collectionDetails.blockers.push('Membership term dates are not evidenced; administrator review is required');
@@ -727,6 +765,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const getContext = dependencies.getTenantContext || getTenantContext;
   const getMember = dependencies.getSessionMember || getSessionMember;
   const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
+  const checkFeature = dependencies.hasFeatureAccess || hasFeatureAccess;
   const resolveConfig = dependencies.getConfigForMember || getConfigForMember;
   const resolveConfigById = dependencies.getConfigByIdDirect || getConfigByIdDirect;
   const resolveActiveConfigs = dependencies.getAllActiveConfigs || getAllActiveConfigsStrict;
@@ -762,6 +801,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
           tenantContext,
           getMember,
           checkAdmin,
+          checkFeature,
           resolveConfig,
           resolveConfigById,
           resolveActiveConfigs,
@@ -899,6 +939,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   tenantContext = null,
   getMember = getSessionMember,
   checkAdmin = hasAdminAccess,
+  checkFeature = hasFeatureAccess,
   resolveConfig = getConfigForMember,
   resolveConfigById = getConfigByIdDirect,
   resolveActiveConfigs = getAllActiveConfigsStrict,
@@ -1040,7 +1081,14 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
   const commitments = shapePersistedCommitments(history);
-  await enrichDirectDebitCommitments({ db, tenantId, history, commitments, paused: pause?.paused });
+  const canEditSchedule = isAdmin && (!adminContext?.roleId || (
+    await checkFeature(adminContext.roleId, 'commerce.gocardless-dd')
+    && await checkFeature(adminContext.roleId, 'commerce.monthly-finance-report')
+  ));
+  await enrichDirectDebitCommitments({
+    db, tenantId, history, commitments, paused: pause?.paused, canEditSchedule,
+  });
+  await enrichStripeCommitmentSchedules({ db, tenantId, history, commitments });
   const currentCommitments = commitments.filter((commitment) => (
     commitment.lifecycle === 'current' || commitment.lifecycle === 'scheduled'
     || (commitment.lifecycle === 'unknown'

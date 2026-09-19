@@ -12,6 +12,7 @@ export const MIGRATIONS = [
   '20261108_direct_debit_dated_commitments.sql',
   MIGRATION,
   '20261109_gocardless_dynamic_term_completion.sql',
+  '20261109_manage_monthly_collection_days.sql',
 ];
 export async function main(args = process.argv.slice(2), env = process.env) {
   if (args.some(arg => arg !== '--apply' && !/^--review-sha256=[a-f0-9]{64}$/.test(arg))
@@ -56,9 +57,11 @@ export async function main(args = process.argv.slice(2), env = process.env) {
         'public.prepare_gocardless_dynamic_completion_notice(uuid,uuid,jsonb)'::regprocedure,
         'public.claim_gocardless_dynamic_completion_delivery(uuid,uuid,text,jsonb)'::regprocedure,
         'public.finish_gocardless_dynamic_completion_delivery(uuid,uuid,uuid,text,jsonb)'::regprocedure,
-        'public.resolve_gocardless_dynamic_completion_delivery(uuid,uuid,boolean,jsonb)'::regprocedure)
+        'public.resolve_gocardless_dynamic_completion_delivery(uuid,uuid,boolean,jsonb)'::regprocedure,
+        'public.change_gocardless_collection_day(uuid,uuid,uuid,integer,boolean,date,text)'::regprocedure,
+        'public.gocardless_dynamic_collection_due_date(uuid,integer)'::regprocedure)
     `);
-    if (verification.rowCount !== 7 || verification.rows.some(row => !row.valid)) throw new Error('Dynamic collection RPC privilege verification failed');
+    if (verification.rowCount !== 9 || verification.rows.some(row => !row.valid)) throw new Error('Dynamic collection RPC privilege verification failed');
     await client.query('COMMIT');
     console.log(JSON.stringify({ destination: 'DEST', applied: true, migration: MIGRATION, migrations: MIGRATIONS, sha256 }));
   } catch (error) {

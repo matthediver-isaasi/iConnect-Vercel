@@ -36,6 +36,9 @@ import { getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client
 import { adminFetch } from "@/lib/adminFetch";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import DirectDebitCommitmentDetails from "@/components/membership/DirectDebitCommitmentDetails";
+import MonthlyCollectionSchedule, {
+  isMonthlyCollectionCommitment,
+} from "@/components/membership/MonthlyCollectionSchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MemberMembershipInstalments, {
   getMembershipSource,
@@ -604,6 +607,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
   const [expandedInstalmentHistoryId, setExpandedInstalmentHistoryId] = useState(null);
+  const [instalmentRefreshVersion, setInstalmentRefreshVersion] = useState(0);
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [pauseReason, setPauseReason] = useState('');
   const [pauseRestartDate, setPauseRestartDate] = useState('');
@@ -1432,6 +1436,17 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             {['direct_debit', 'gocardless'].includes(commitment.paymentMethod)
               ? <DirectDebitCommitmentDetails commitment={commitment} />
               : <p className="text-xs text-muted-foreground mt-4">Persisted commitment · pricing remains fixed for this term.</p>}
+            {isMonthlyCollectionCommitment(commitment) && (
+              <MonthlyCollectionSchedule
+                commitment={commitment}
+                onChanged={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] });
+                  await queryClient.invalidateQueries({ queryKey: ['member-membership-instalments'] });
+                  setExpandedInstalmentHistoryId(null);
+                  setInstalmentRefreshVersion((version) => version + 1);
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       ))}
@@ -1834,6 +1849,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       </tr>
                       {isMonthlyRecord && (
                         <MemberMembershipInstalments
+                          key={`${record.id}:${instalmentRefreshVersion}`}
                           record={record}
                           source={membershipSource}
                           expanded={isInstalmentsExpanded}

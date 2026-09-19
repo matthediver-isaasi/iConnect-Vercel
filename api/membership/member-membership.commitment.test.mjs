@@ -4,6 +4,7 @@ import {
   shapePersistedCommitment,
   shapePersistedCommitments,
   enrichDirectDebitCommitments,
+  enrichStripeCommitmentSchedules,
 } from './member-membership.js';
 
 test('shapes an immutable rolling commitment without live pricing substitution', () => {
@@ -38,6 +39,60 @@ test('shapes an immutable rolling commitment without live pricing substitution',
   assert.equal(commitment.billingPeriod, 'annual');
   assert.equal(commitment.paymentFrequency, 'monthly');
   assert.equal(commitment.renewalDate, '2027-09-15');
+});
+
+function scheduleDb(agreement, plan) {
+  return { from(table) {
+    const chain = {
+      select() { return chain; }, eq() { return chain; }, order() { return chain; }, limit() { return chain; },
+      async maybeSingle() { return { data: table === 'membership_billing_agreements' ? agreement : plan }; },
+      then(resolve) { return Promise.resolve({ data: [] }).then(resolve); },
+    };
+    return chain;
+  } };
+}
+
+test('Stripe enrichment validates personal and organisation ownership before reading provider timing', async () => {
+  for (const source of ['personal', 'organisation']) {
+    for (const mismatch of [false, true]) {
+      const owner = source === 'personal' ? { member_id: 'member' } : { organization_id: 'org' };
+      const record = { id: 'history', tenant_id: 'tenant', ...owner, membership_source: source,
+        billing_agreement_id: 'agreement', payment_method: 'card_monthly', term_key: 'term' };
+      const agreement = { id: 'agreement', tenant_id: 'tenant', ...owner, provider: 'stripe',
+        ...(mismatch ? source === 'personal' ? { member_id: 'other' } : { organization_id: 'other' } : {}) };
+      const plan = { id: 'plan', tenant_id: 'tenant', ...owner, billing_agreement_id: 'agreement', provider: 'stripe' };
+      const commitment = { ...shapePersistedCommitment(record), lifecycle: 'current' };
+      let reads = 0;
+      await enrichStripeCommitmentSchedules({
+        db: scheduleDb(agreement, plan), tenantId: 'tenant', history: [record], commitments: [commitment],
+        loadSchedule: async (args) => { reads++; assert.equal(args.plan.id, 'plan'); return { regularDay: 19, canEdit: false }; },
+      });
+      assert.equal(reads, mismatch ? 0 : 1);
+      assert.equal(commitment.collectionSchedule.regularDay, mismatch ? null : 19);
+    }
+  }
+});
+
+test('GoCardless enrichment passes explicit server eligibility, never derives it from a payment record', async () => {
+  for (const canEditSchedule of [false, true]) {
+    const record = { id: 'history', tenant_id: 'tenant', member_id: 'member', membership_source: 'personal',
+      billing_agreement_id: 'agreement', payment_method: 'direct_debit', term_key: 'term' };
+    const agreement = { id: 'agreement', tenant_id: 'tenant', member_id: 'member', provider: 'gocardless',
+      metadata: { dd: { auto_renew: true } } };
+    const plan = { id: 'plan', tenant_id: 'tenant', member_id: 'member', billing_agreement_id: 'agreement' };
+    const commitment = { ...shapePersistedCommitment(record), lifecycle: 'current' };
+    await enrichDirectDebitCommitments({
+      db: scheduleDb(agreement, plan), tenantId: 'tenant', history: [record], commitments: [commitment],
+      canEditSchedule, paused: true,
+      loadSchedule: async (args) => {
+        assert.equal(args.canEdit, canEditSchedule);
+        assert.equal(args.paused, true);
+        return { regularDay: 10, canEdit: false, reason: 'Paused' };
+      },
+    });
+    assert.equal(commitment.collectionSchedule.regularDay, 10);
+    assert.equal(commitment.collectionSchedule.canEdit, false);
+  }
 });
 
 test('distinguishes scheduled terms and ignores ambiguous legacy rows', () => {

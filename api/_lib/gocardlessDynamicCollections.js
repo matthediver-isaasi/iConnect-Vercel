@@ -174,6 +174,10 @@ export async function ensureDynamicPlanForAgreement(agreement, deps = {}) {
 }
 
 export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => new Date() } = {}) {
+  // A cron batch may have loaded this plan before an administrator amended its
+  // operational cadence. SQL reservation still checks the locked latest plan.
+  plan = checked(await db.from('membership_payment_plans').select('*')
+    .eq('tenant_id', plan.tenant_id).eq('id', plan.id).single(), 'Reload dynamic schedule');
   const agreement = checked(await db.from('membership_billing_agreements').select('*')
     .eq('tenant_id', plan.tenant_id).eq('id', plan.billing_agreement_id).single(), 'Load dynamic agreement');
   assertCollectible(agreement, plan);
@@ -191,7 +195,8 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
   const intendedDate = reservation?.due_date || dynamicCollectionDate(plan.metadata.dynamic_first_date, number);
   if (number > terms.instalment_count || intendedDate > term.term_end_date) {
     checked(await db.from('membership_payment_plans').update({ dynamic_next_collection_date: null })
-      .eq('tenant_id', plan.tenant_id).eq('id', plan.id), 'Complete dynamic schedule');
+      .eq('tenant_id', plan.tenant_id).eq('id', plan.id)
+      .eq('dynamic_next_collection_date', plan.dynamic_next_collection_date), 'Complete dynamic schedule');
     return { plan, detail: 'All collections for this term are reserved; renewal is separate' };
   }
   const client = gc || await gocardlessForTenant(plan.tenant_id);

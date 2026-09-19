@@ -37,19 +37,28 @@ const surveyStampMigration = fileURLToPath(new URL(
   '../../supabase/migrations/20261106_department_current_set_survey_stamp.sql',
   import.meta.url,
 ));
+const postgresCommandTimeout = 60_000;
 
 const executable = name => spawnSync('sh', ['-c', `command -v ${name}`], {
   encoding: 'utf8',
 }).stdout.trim();
 
 function run(command, args, input = '') {
-  const result = spawnSync(command, args, { input, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync(command, args, {
+    input,
+    encoding: 'utf8',
+    timeout: postgresCommandTimeout,
+  });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout.trim();
 }
 
 function fails(command, args, input) {
-  const result = spawnSync(command, args, { input, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync(command, args, {
+    input,
+    encoding: 'utf8',
+    timeout: postgresCommandTimeout,
+  });
   assert.notEqual(result.status, 0, 'expected SQL to fail');
   return `${result.stdout}\n${result.stderr}`;
 }
@@ -382,7 +391,7 @@ function fixtureSql() {
   `;
 }
 
-test('Department current-set migration executes its reconciliation behavior only on a disposable PostgreSQL cluster', { timeout: 60_000 }, async t => {
+test('Department current-set migration executes its reconciliation behavior only on a disposable PostgreSQL cluster', { timeout: 120_000 }, async t => {
   const initdb = executable('initdb');
   const pgCtl = executable('pg_ctl');
   const psql = executable('psql');

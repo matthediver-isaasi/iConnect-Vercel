@@ -170,6 +170,30 @@ test('network uncertainty retries identical reserved amount/date/key, despite ac
   assert.deepEqual(f.calls[0], failedRequest);
 });
 
+test('provider success followed by local attachment failure leaves a durable fence and replays one provider identity', async () => {
+  const f = fixture();
+  const realRpc = f.db.rpc.bind(f.db);
+  let failAttachment = true;
+  f.db.rpc = async (name, params) => {
+    if (name === 'attach_gocardless_dynamic_payment' && failAttachment) {
+      return { error: { message: 'local attachment transaction failed' } };
+    }
+    return realRpc(name, params);
+  };
+  await assert.rejects(collectDynamicPlan(f.plan, f), /local attachment transaction failed/);
+  const reservation = f.rows.gocardless_collection_reservations[0];
+  assert.equal(reservation.status, 'reserved');
+  assert.equal(f.calls.length, 1);
+  failAttachment = false;
+  f.config.dd_monthly_amount = 99;
+  await collectDynamicPlan(f.plan, f);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 1);
+  assert.equal(f.calls.length, 2);
+  assert.deepEqual(f.calls[1], f.calls[0], 'Replayed provider request must retain the identical idempotency key, date and amount');
+  assert.equal(reservation.status, 'submitted');
+  assert.equal(reservation.gocardless_payment_id, 'PM_TEST');
+});
+
 test('subscription-less webhook repairs provider-success/local-attach gap using exact reservation identity', async () => {
   const f = fixture();
   f.gc.createPayment = async () => { throw new Error('crash'); };

@@ -9,6 +9,7 @@ test('DD migration bundle includes dated commitments and organisation renewal ow
     '20261108_direct_debit_dated_commitments.sql',
     '20261108_explicit_direct_debit_collection_policy.sql',
     '20261109_gocardless_dynamic_term_completion.sql',
+    '20261109_manage_monthly_collection_days.sql',
   ]);
   const old = console.log;
   const messages = [];

@@ -43,8 +43,12 @@ import { sendDdMigrationInviteEmail } from '../_lib/gocardlessDdEmails.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
+import { changeGoCardlessCollectionDay } from '../_lib/gocardlessCollectionScheduleChange.js';
 
 export default async function handler(req, res) {
+  if (req.method === 'POST' && ['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
+    return handleCollectionDayAction(req, res);
+  }
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
   let context;
   try {
@@ -69,7 +73,7 @@ export default async function handler(req, res) {
       // Refunds move money — restrict to finance-authorized admins.
       if (req.body?.action === 'refund' && context.roleId
           && !(await hasFeatureAccess(context.roleId, 'commerce.monthly-finance-report'))) {
-        return res.status(403).json({ error: 'Refunds require finance permission' });
+        return res.status(403).json({ error: 'This action requires finance permission' });
       }
       return await handlePost(req, res, tenantId, actorEmail);
     }
@@ -77,6 +81,45 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[admin/gocardless-dd] error:', err);
     return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+}
+
+// This is the actual route used by collection-day requests. Dependencies are
+// injectable for authorization/tenant-boundary tests without real credentials.
+export async function handleCollectionDayAction(req, res, {
+  db = supabase, getContext = getTenantContext, adminAccess = hasAdminAccess,
+  featureAccess = hasFeatureAccess, gc,
+} = {}) {
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
+  if (req.method !== 'POST' || !['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  let context;
+  try { context = await getContext(req); } catch {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  if (!context?.tenantId || !(await adminAccess(context))) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  if (context.roleId && (!(await featureAccess(context.roleId, 'commerce.gocardless-dd'))
+    || !(await featureAccess(context.roleId, 'commerce.monthly-finance-report')))) {
+    return res.status(403).json({ error: 'Direct Debit and finance permissions are required' });
+  }
+  if (!req.body.planId) return res.status(400).json({ error: 'planId required' });
+  try {
+    const { data: plan, error } = await db.from('membership_payment_plans').select('*')
+      .eq('tenant_id', context.tenantId).eq('id', req.body.planId).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    const result = await db.from('membership_billing_agreements').select('*')
+      .eq('tenant_id', context.tenantId).eq('id', plan.billing_agreement_id).maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    return res.json(await changeGoCardlessCollectionDay({
+      db, tenantId: context.tenantId, agreement: result.data, plan,
+      actorEmail: context.member?.email || context.email || null, body: req.body, gc,
+    }));
+  } catch (error) {
+    return res.status(409).json({ error: error.message });
   }
 }
 

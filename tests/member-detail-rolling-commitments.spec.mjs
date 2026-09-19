@@ -258,8 +258,17 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixtures(page, { membershipStatus = 200, commitmentOverrides = null } = {}) {
-  const state = { writes: [], providerRequests: [], membershipRequests: 0 };
+async function installFixtures(page, {
+  membershipStatus = 200,
+  commitmentOverrides = null,
+  collectionDayFlow = false,
+} = {}) {
+  const state = {
+    writes: [],
+    providerRequests: [],
+    membershipRequests: 0,
+    collectionDay: commitmentOverrides?.collectionSchedule?.regularDay || null,
+  };
   await page.context().route(/\/(?:rest|auth)\/v1\//, async (route) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(route.request().method())) {
       state.writes.push(`${route.request().method()} ${route.request().url()}`);
@@ -296,7 +305,18 @@ async function installFixtures(page, { membershipStatus = 200, commitmentOverrid
             const fixture = membershipFixture();
             if (commitmentOverrides) {
               fixture.currentCommitments = fixture.currentCommitments.map((entry, index) => (
-                index === 0 ? { ...entry, ...commitmentOverrides } : entry
+                index === 0
+                  ? {
+                      ...entry,
+                      ...commitmentOverrides,
+                      ...(collectionDayFlow ? {
+                        collectionSchedule: {
+                          ...commitmentOverrides.collectionSchedule,
+                          regularDay: state.collectionDay,
+                        },
+                      } : {}),
+                    }
+                  : entry
               ));
             }
             return fixture;
@@ -307,6 +327,32 @@ async function installFixtures(page, { membershipStatus = 200, commitmentOverrid
     if (path === "/api/membership/member-membership-invoicing") return json(route, { settings: {} });
     if (path === "/api/membership/member-membership-configs") return json(route, []);
     if (path === "/api/membership/member-membership-override") return json(route, null);
+    if (collectionDayFlow && path === "/api/admin/gocardless-dd" && method === "POST") {
+      const body = request.postDataJSON();
+      state.writes.push(`${method} ${path} ${body.action}`);
+      if (body.planId !== "dynamic-plan-fixture" || body.day !== 20) {
+        return json(route, { error: "Unexpected collection day request" }, 400);
+      }
+      if (body.action === "preview_collection_day") {
+        return json(route, {
+          preview: {
+            day: 20,
+            requestId: "11111111-1111-4111-8111-111111111111",
+            effectiveDate: "2026-11-20",
+            version: 4,
+            nextConfirmedDate: "2026-10-12",
+            noticeDate: "2026-10-05",
+            message: "Applies to the next unreserved monthly collection. Already scheduled payments remain unchanged.",
+          },
+        });
+      }
+      if (body.action === "change_collection_day"
+          && body.preview?.requestId === "11111111-1111-4111-8111-111111111111") {
+        state.collectionDay = 20;
+        return json(route, { ok: true, amendment: { day: 20, version: 4 } });
+      }
+      return json(route, { error: "Saved preview required" }, 400);
+    }
 
     if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
       state.writes.push(`${method} ${path}`);
@@ -322,6 +368,75 @@ async function openMembership(page) {
   await expect(page.getByTestId("tab-member-membership")).toBeVisible();
   await expect(page.getByTestId("tab-member-membership")).toHaveAttribute("data-state", "active");
 }
+
+test("admin previews and saves a dynamic monthly collection day without live provider traffic", async ({ page }) => {
+  const state = await installFixtures(page, {
+    collectionDayFlow: true,
+    commitmentOverrides: {
+      paymentMethod: "direct_debit",
+      paymentFrequency: "monthly",
+      agreedPrice: null,
+      monthlyAmount: null,
+      collectionPolicy: { version: 1, end_policy: "continue", pricing_policy: "dynamic" },
+      collectionDetails: {
+        state: "provider_scheduled",
+        amount: 24,
+        currency: "GBP",
+        dueDate: "2026-10-12",
+        providerStatus: "pending_submission",
+        blockers: [],
+      },
+      collectionSchedule: {
+        provider: "gocardless",
+        regularDay: 12,
+        nextConfirmedDate: "2026-10-12",
+        evidence: "application_schedule",
+        canEdit: true,
+        reason: null,
+        planId: "dynamic-plan-fixture",
+        version: 3,
+      },
+    },
+  });
+  await openMembership(page);
+
+  const schedule = page.getByTestId("monthly-collection-schedule-personal-current");
+  await expect(schedule).toContainText("Day 12 of each month");
+  await expect(schedule).toContainText("12 Oct 2026");
+  await schedule.getByRole("button", { name: "Change day" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Change monthly collection day" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Day of month").fill("20");
+  await dialog.getByRole("button", { name: "Preview change" }).click();
+  await expect(dialog.getByTestId("collection-day-preview")).toContainText("20 Nov 2026");
+  await expect(dialog.getByTestId("collection-day-preview")).toContainText(
+    "already pending collection on 12 Oct 2026 will not change",
+  );
+
+  await page.screenshot({
+    path: "screenshots/member-monthly-collection-day-dialog.jpg",
+    fullPage: true,
+    type: "jpeg",
+    quality: 85,
+  });
+
+  await dialog.getByRole("button", { name: "Confirm change" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(schedule).toContainText("Day 20 of each month");
+  await expect.poll(() => state.membershipRequests).toBeGreaterThan(1);
+  expect(state.writes).toEqual([
+    "POST /api/admin/gocardless-dd preview_collection_day",
+    "POST /api/admin/gocardless-dd change_collection_day",
+  ]);
+  expect(state.providerRequests.every((url) => url.startsWith("https://js.stripe.com/"))).toBe(true);
+
+  await schedule.screenshot({
+    path: "screenshots/member-monthly-collection-day-saved.jpg",
+    type: "jpeg",
+    quality: 90,
+  });
+});
 
 test("Member Detail renders persisted current, scheduled, past, personal and inherited commitments", async ({ page }) => {
   const state = await installFixtures(page);
