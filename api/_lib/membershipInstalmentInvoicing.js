@@ -501,6 +501,8 @@ export function invoicePaymentRecorded(result) {
  */
 export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, stripePaymentIntentId = null, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, ddAccountingMigration = null, db }) {
   if (existingInvoiceId) {
+    const pilotContext = ddAccountingMigration
+      ? await resolveInstalmentInvoiceContext({ agreement, snapshot, db }) : null;
     const result = await provider.applyStripePaymentToInvoice({
       appTenantId: agreement.tenant_id,
       invoiceId: existingInvoiceId,
@@ -512,6 +514,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
       bankAccountSettingKey,
       strictBankAccount,
       ddAccountingMigration,
+      expectedContact: pilotContext ? { name: pilotContext.contactName, email: pilotContext.invoicingEmail } : null,
       // Same deterministic per-collection payment key as the create path —
       // retries after a crash-after-payment replay instead of double-paying.
       idempotencyKey: idempotencyKey ? `${idempotencyKey}-pay` : null,
