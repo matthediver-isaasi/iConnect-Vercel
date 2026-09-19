@@ -31,3 +31,9 @@ test("Department current-set prefill is discoverable through the Vercel API adap
   assert.equal(typeof result?.handler, "function");
   assert.deepEqual(result?.params, {});
 });
+
+test("historical Direct Debit endpoint is discoverable through the Vercel API adapter", async () => {
+  const result = await findHandler("/api/membership/historical-dd");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, {});
+});

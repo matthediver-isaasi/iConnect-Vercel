@@ -9,6 +9,7 @@ import MemberMembershipInstalments, {
   MemberMembershipInstalmentsToggle,
   getMembershipSource,
   isMonthlyMembershipRecord,
+  isDynamicMonthlyCommitment,
   normalizeCollection,
 } from "./MemberMembershipInstalments.jsx";
 
@@ -29,6 +30,74 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { act } = React;
+
+test("scheduled dynamic monthly plans use normal collection history without annual fee cards", () => {
+  const memberId = "dynamic-monthly-test";
+  const commitment = {
+    id: "management-period",
+    source: "personal",
+    lifecycle: "scheduled",
+    startDate: "2026-10-01",
+    endDate: "2027-09-30",
+    renewalDate: "2027-10-01",
+    durationMonths: 12,
+    paymentMethod: "direct_debit",
+    paymentFrequency: "monthly",
+    collectionPolicy: { pricing_policy: "dynamic", end_policy: "continue" },
+  };
+  assert.equal(isDynamicMonthlyCommitment(commitment), true);
+  assert.equal(isDynamicMonthlyCommitment({ ...commitment, paymentFrequency: "annual" }), false);
+  assert.equal(isMonthlyMembershipRecord({
+    payment_method: "direct_debit",
+    billing_agreement_id: "test-agreement",
+    billing_period: "annual",
+    commitment_snapshot: { collection_frequency: "monthly" },
+  }), true);
+
+  function render(policy) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["member-membership", memberId], {
+      config: { name: "Test structure", billing_period: "annual", currency: "GBP" },
+      currentCommitments: [{ ...commitment, collectionPolicy: policy }],
+      currentYearCost: { membershipYear: "2026/2027", yearNumber: 1, annualCost: 120 },
+      history: [],
+    });
+    // Test fixtures only; production renders only authenticated API evidence.
+    client.setQueryData(["historical-dd-payments", null, memberId], Array.from({ length: 9 }, (_, index) => ({
+      id: `import-${index}`,
+      period: `2026-${String(index + 1).padStart(2, "0")}-01`,
+      charge_date: `2026-${String(index + 1).padStart(2, "0")}-06`,
+      amount_minor: 1304,
+      currency: "GBP",
+      provider_status: "paid_out",
+      xero_invoice_number: `INV-TEST-${index}`,
+      xero_invoice_url: `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=test-${index}`,
+      historical_only: true,
+    })));
+    const html = renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+      React.createElement(MemberMembershipTab, { memberId }),
+    ));
+    client.clear();
+    return html;
+  }
+  const monthly = render(commitment.collectionPolicy);
+  assert.doesNotMatch(monthly, /Current Year|Next Year|>Year 1</);
+  assert.match(monthly, /Management Period Start/);
+  assert.match(monthly, /1 Oct 2026/);
+  assert.match(monthly, /30 Sept? 2027/);
+  assert.match(monthly, /Monthly instalment history/);
+  assert.equal((monthly.match(/data-testid="row-historical-dd-/g) || []).length, 9);
+  assert.equal((monthly.match(/href="https:\/\/go.xero.com/g) || []).length, 9);
+  assert.match(monthly, /January 2026/);
+  assert.match(monthly, /September 2026/);
+  assert.match(monthly, /£13\.04/);
+  assert.match(monthly, /Paid out/);
+  assert.match(monthly, /Imported historical payment/);
+  assert.doesNotMatch(monthly, /card-historical-dd/);
+  const annual = render({ pricing_policy: "fixed", end_policy: "stop" });
+  assert.match(annual, />Year 1</);
+  assert.match(annual, /Next Year/);
+});
 
 test("monthly history predicate recognizes canonical card and Direct Debit records", () => {
   const records = [

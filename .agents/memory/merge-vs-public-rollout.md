@@ -19,4 +19,10 @@ Custom development domains can serve the latest preview while scheduled jobs sti
 
 **Why:** The development-domain aliases served updated payment acknowledgements, but all queued completion receipts remained unattempted because the registered cron target had not changed.
 
-**How to apply:** Verify alias-to-deployment routing alongside the cron target. A successful browser test on a development domain does not verify background execution. Do not promote an entire preview or run production recovery without accounting for its wider effects.
+**How to apply:** Verify the exact user-supplied hostname's alias-to-deployment routing alongside the cron target. Production can also be newer than a branch-pinned development domain: check its actual API route and bundle rather than substituting the tenant's public domain. A successful browser test on a development domain does not verify background execution. Do not promote an entire preview or run production recovery without accounting for its wider effects.
+
+Vercel's deployment `source` describes how deployment was invoked, not whether its content came from Git.
+
+**Why:** Git-backed deployments can report `source: "redeploy"` or omit it for API requests. Requiring `"git"` incorrectly rejects valid production proof.
+
+**How to apply:** Pin `gitSource.type`, repository ID and commit SHA, then independently check the active production target, READY status and deployed commit's source hashes. Do not weaken those checks to accommodate the invocation label.

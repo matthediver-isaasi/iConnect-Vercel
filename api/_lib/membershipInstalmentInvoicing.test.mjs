@@ -18,6 +18,7 @@ import {
   claimableStatuses,
 } from './membershipInstalmentInvoicing.js';
 import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
+import { BNMS_PILOT_ACCOUNTING } from './xero.js';
 import { resolveDdOffer, buildAgreementSnapshot } from './gocardlessDirectDebit.js';
 import { resolveCardMonthlyOffer, buildCardAgreementSnapshot } from './stripeMonthlyCard.js';
 
@@ -225,6 +226,119 @@ const contextHandlers = {
   membership_tier_config: () => ({ data: { id: 'cfg1', pricing_model: 'flat', flat_vat_rate: '20% (VAT on Income)', nominal_code: '4000' }, error: null }),
   system_settings: () => ({ data: null, error: null }),
 };
+
+function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonical = false, missingReservation = false } = {}) {
+  const agreement = perInstalmentAgreement({
+    tenant_id: 'ff2df806-b321-4254-b651-3af11fccf1db',
+    member_id: '33e5d54d-162e-436d-9bff-ec6676d198f9',
+    provider: 'gocardless', environment: 'live', gocardless_mandate_id: 'MDpilot',
+  });
+  agreement.metadata.dd = { ...agreement.metadata.card,
+    commitment: { term_key: 'pilot:2026', term_start_date: '2026-10-01', term_end_date: '2027-09-30' },
+    accounting_migration: { ...BNMS_PILOT_ACCOUNTING },
+    collection_policy: { version: 1, pricing_policy: 'dynamic', end_policy: 'continue' },
+  };
+  delete agreement.metadata.card;
+  const payment = {
+    id: 'pay-pilot', tenant_id: agreement.tenant_id, plan_id: 'plan-pilot',
+    gocardless_payment_id: 'PMpilot', gocardless_mandate_id: 'MDpilot',
+    environment: 'live', status: 'confirmed', amount_minor: 1300, currency: 'GBP',
+    charge_date: '2026-10-01', accounting_sync_status: null, ...paymentPatch,
+  };
+  const reservation = {
+    plan_id: payment.plan_id, amount_minor: 1300, currency: 'GBP', due_date: '2026-10-01',
+    term_key: 'pilot:2026', requested_charge_date: '2026-10-01',
+    price_snapshot: { currency: 'GBP', vat_rate: null, nominal_code: '4000', config: { pricing_model: 'flat' } }, ...reservationPatch,
+  };
+  const db = fakeDb({
+    ...contextHandlers,
+    gocardless_payments: state => {
+      if (state.op === 'select') return { data: missingCanonical ? null : { ...payment } };
+      Object.assign(payment, state.payload);
+      return { data: state.selectAfterWrite ? [{ ...payment }] : null };
+    },
+    gocardless_collection_reservations: () => ({ data: missingReservation ? null : reservation }),
+  });
+  return { agreement, payment, db };
+}
+
+test('BNMS pilot passes exact immutable mapping and revenue 200 only for canonical future collection', async () => {
+  const { agreement, payment, db } = pilotFixture();
+  const calls = [];
+  const provider = fakeProvider(calls);
+  const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, { db, getProvider: async () => provider });
+  assert.equal(result.status, 'posted');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].ddAccountingMigration.snapshot, BNMS_PILOT_ACCOUNTING);
+  assert.equal(calls[0].nominalCode, '200');
+  assert.equal(calls[0].idempotencyKey, 'mii-gc-PMpilot');
+  assert.equal(calls[0].paymentIdempotencyKey, 'mii-gc-PMpilot-pay');
+  const replay = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, { db, getProvider: async () => provider });
+  assert.equal(replay.status, 'skipped');
+  assert.equal(calls.length, 1);
+});
+
+test('BNMS pilot linked unpaid retry retains mapping and payment idempotency without minting', async () => {
+  const { agreement, payment, db } = pilotFixture({
+    paymentPatch: { accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'existing' },
+  });
+  const calls = [], applyCalls = [];
+  const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, {
+    db, getProvider: async () => fakeProvider(calls, { applyCalls }),
+  });
+  assert.equal(result.status, 'posted');
+  assert.equal(calls.length, 0);
+  assert.equal(applyCalls.length, 1);
+  assert.equal(applyCalls[0].xeroInvoiceId, 'existing');
+  assert.equal(applyCalls[0].idempotencyKey, 'mii-gc-PMpilot-pay');
+  assert.deepEqual(applyCalls[0].ddAccountingMigration.snapshot, BNMS_PILOT_ACCOUNTING);
+});
+
+for (const [label, options] of [
+  ['historical date', { paymentPatch: { charge_date: '2026-09-01' } }],
+  ['unconfirmed', { paymentPatch: { status: 'submitted' } }],
+  ['wrong mandate', { paymentPatch: { gocardless_mandate_id: 'other' } }],
+  ['wrong currency', { paymentPatch: { currency: 'EUR' } }],
+  ['wrong environment', { paymentPatch: { environment: 'sandbox' } }],
+  ['no canonical row (history import)', { missingCanonical: true }],
+  ['no managed reservation', { missingReservation: true }],
+  ['wrong reservation plan', { reservationPatch: { plan_id: 'other' } }],
+  ['historical reservation', { reservationPatch: { due_date: '2026-09-01' } }],
+  ['next term reservation', { reservationPatch: { term_key: 'pilot:2027' } }],
+  ['charge after current term', { paymentPatch: { charge_date: '2027-10-01' }, reservationPatch: { requested_charge_date: '2027-10-01' } }],
+  ['charge date differs from reservation', { paymentPatch: { charge_date: '2026-10-02' } }],
+]) {
+  test(`BNMS pilot rejects ${label} without accounting writes`, async () => {
+    const { agreement, payment, db } = pilotFixture(options);
+    const calls = [], applyCalls = [];
+    const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, {
+      db, getProvider: async () => fakeProvider(calls, { applyCalls }),
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(calls.length + applyCalls.length, 0);
+  });
+}
+
+test('BNMS pilot renewed term accepts its own future payment/reservation but rejects previous-term evidence', async () => {
+  for (const wrongTerm of [false, true]) {
+    const { agreement, payment, db } = pilotFixture({
+      paymentPatch: { charge_date: '2027-10-01' },
+      reservationPatch: {
+        term_key: wrongTerm ? 'pilot:2026' : 'pilot:2027',
+        due_date: '2027-10-01', requested_charge_date: '2027-10-01',
+      },
+    });
+    agreement.metadata.dd.commitment = {
+      term_key: 'pilot:2027', term_start_date: '2027-10-01', term_end_date: '2028-09-30',
+    };
+    const calls = [];
+    const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, {
+      db, getProvider: async () => fakeProvider(calls),
+    });
+    assert.equal(result.status, wrongTerm ? 'failed' : 'posted');
+    assert.equal(calls.length, wrongTerm ? 0 : 1);
+  }
+});
 
 // Provider whose invoice creation records the payment (the happy path).
 function fakeProvider(calls, { paymentRecorded = true, applyCalls = [] } = {}) {

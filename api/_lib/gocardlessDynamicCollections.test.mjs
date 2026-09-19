@@ -217,3 +217,24 @@ test('scheduler persists fair retry backoff and respects elapsed-time budget', a
   const noTime = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc, clock: () => clockCalls++ * 50000 });
   assert.equal(noTime.processed + noTime.blocked, 0);
 });
+
+test('BNMS pilot first October collection waits for exact window and never uses generic seven-day movement',async()=>{
+  for(const providerDate of ['2026-09-30','2026-10-01','2026-10-02']){
+    const f=fixture({amount:13,firstDate:'2026-10-01',providerDate,end:'2027-09-30'});
+    f.agreement.tenant_id='ff2df806-b321-4254-b651-3af11fccf1db';
+    f.agreement.member_id='33e5d54d-162e-436d-9bff-ec6676d198f9';
+    f.agreement.metadata.bnms_pilot_approval={source:'task-4533-explicit-user-approval'};
+    f.agreement.metadata.dd.commitment.term_start_date='2026-10-01';
+    // Match the existing fixture's tenant filters to the pinned pilot.
+    f.plan.tenant_id=f.agreement.tenant_id;
+    f.config.tenant_id=f.agreement.tenant_id;
+    if(providerDate==='2026-10-02'){
+      await assert.rejects(collectDynamicPlan(f.plan,f),/exact October 1 cutover missed/);
+      assert.equal(f.calls.length,0);
+    }else{
+      await collectDynamicPlan(f.plan,f);
+      assert.equal(f.calls.length,providerDate==='2026-10-01'?1:0);
+      if(f.calls.length)assert.equal(f.calls[0].chargeDate,'2026-10-01');
+    }
+  }
+});

@@ -4,6 +4,58 @@ import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
 
+// Task #4533: code-less historical BANK account, approved for this pilot only.
+// This is an allowlist, NOT a generic metadata-provided AccountID override.
+export const BNMS_PILOT_ACCOUNTING = Object.freeze({
+  version: 1, provider: 'xero',
+  xero_tenant_id: '3d57dce6-2205-462f-abf6-9c7cbf00be23',
+  bank_account_id: 'd115eacc-1fa7-476d-844e-d3d7f07f5db5',
+  revenue_account_code: '200',
+  source: 'bnms_pilot_existing_payment_evidence',
+});
+
+export function assertBnmsPilotAccountingContext(appTenantId, context) {
+  const mapping = context?.snapshot;
+  if (appTenantId !== 'ff2df806-b321-4254-b651-3af11fccf1db'
+    || context?.memberId !== '33e5d54d-162e-436d-9bff-ec6676d198f9'
+    || context?.environment !== 'live' || context?.provider !== 'gocardless'
+    || !mapping || Object.keys(mapping).length !== Object.keys(BNMS_PILOT_ACCOUNTING).length
+    || Object.entries(BNMS_PILOT_ACCOUNTING).some(([key, value]) => mapping[key] !== value)) {
+    throw new Error('Invalid pinned BNMS pilot accounting migration context');
+  }
+  return BNMS_PILOT_ACCOUNTING;
+}
+
+export async function validateBnmsPilotXeroAccount({
+  appTenantId, context, xeroTenantId, accessToken, fetch: request = fetch,
+}) {
+  const mapping = assertBnmsPilotAccountingContext(appTenantId, context);
+  if (xeroTenantId !== mapping.xero_tenant_id) {
+    throw new Error('BNMS pilot connected Xero organisation mismatch');
+  }
+  const get = async (path) => safeXeroJson(await request(`https://api.xero.com/api.xro/2.0/${path}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  }), 'bnms-pilot-account-validation');
+  const organisations = (await get('Organisation'))?.Organisations;
+  if (organisations?.length !== 1 || organisations[0].OrganisationID !== mapping.xero_tenant_id
+    || organisations[0].BaseCurrency !== 'GBP') {
+    throw new Error('BNMS pilot live Xero organisation/currency mismatch');
+  }
+  const accounts = (await get(`Accounts/${mapping.bank_account_id}`))?.Accounts;
+  const bank = accounts?.[0];
+  // Xero permits BANK payments even when EnablePaymentsToAccount is false.
+  if (accounts?.length !== 1 || bank.AccountID !== mapping.bank_account_id
+    || bank.Status !== 'ACTIVE' || bank.Type !== 'BANK' || bank.CurrencyCode !== 'GBP') {
+    throw new Error('BNMS pilot Xero bank must be the pinned ACTIVE GBP BANK');
+  }
+  const revenues = (await get('Accounts?where=Code=="200"'))?.Accounts;
+  if (revenues?.length !== 1 || revenues[0].Code !== '200' || revenues[0].Status !== 'ACTIVE') {
+    throw new Error('BNMS pilot Xero revenue account 200 must be ACTIVE');
+  }
+  return bank;
+}
+
 export function buildXeroMembershipReference(reference) {
   return resolveMembershipInvoiceReference(reference);
 }
@@ -392,11 +444,40 @@ export async function createXeroSalesInvoice(appTenantId, invoice, dependencies 
     status: verified.Status, createdAt: verified.DateString || null };
 }
 
+function assertPilotInvoice(invoice, contactId, amount, invoiceId, settled = false) {
+  const expected = settlementMoney(amount, 'BNMS pilot canonical amount');
+  if (!contactId || !invoice?.InvoiceID || (invoiceId && invoice.InvoiceID !== invoiceId)
+    || invoice.Contact?.ContactID !== contactId || invoice.CurrencyCode !== 'GBP'
+    || !invoice.LineItems?.length || invoice.LineItems.some(line => line.AccountCode !== '200')
+    || invoice.Total !== expected || invoice.AmountDue !== (settled ? 0 : expected)
+    || (settled ? invoice.Status !== 'PAID' || invoice.AmountPaid !== expected
+      : !['DRAFT', 'SUBMITTED', 'AUTHORISED'].includes(invoice.Status)
+        || (invoice.AmountPaid != null && invoice.AmountPaid !== 0))
+    || (invoice.AmountCredited != null && invoice.AmountCredited !== 0)) {
+    throw new Error('BNMS pilot invoice contact, currency or revenue, total or settlement mismatch');
+  }
+}
+
+async function verifyPilotPayment(data, { fetch, accessToken, xeroTenantId, invoiceId, contactId, amount }) {
+  const payment = data?.Payments?.[0];
+  if (data?.Payments?.length !== 1 || !payment?.PaymentID || payment.Amount !== amount
+    || payment.Invoice?.InvoiceID !== invoiceId || payment.Status !== 'AUTHORISED'
+    || payment.Account?.AccountID !== BNMS_PILOT_ACCOUNTING.bank_account_id) {
+    throw new Error('BNMS pilot payment response mismatch; reconciliation required');
+  }
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  });
+  const verified = await safeXeroJson(response, 'bnms-pilot-settlement-verify');
+  assertPilotInvoice(verified?.Invoices?.[0], contactId, amount, invoiceId, true);
+}
+
 export async function createXeroMembershipInvoice({
   appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
   tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
   deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
-  extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount,
+  extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
   transportTimeoutMs, deadlineAt, signal,
 }, dependencies = {}) {
@@ -427,6 +508,18 @@ export async function createXeroMembershipInvoice({
     : expectedProviderContext?.xero_tenant_id;
   if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
     throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const pilotBankAccount = ddAccountingMigration ? await validateBnmsPilotXeroAccount({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch: transportFetch,
+  }) : null;
+  if (pilotBankAccount && (currency !== 'GBP' || String(nominalCode) !== '200'
+    || strictBankAccount !== true || bankAccountSettingKey !== 'xero_gocardless_bank_account_code'
+    || extraLineItems?.length || stripePaymentIntentId || deferStripeSettlement)) {
+    throw new Error('BNMS pilot invoice currency, revenue or payment rail mismatch');
+  }
+  if (pilotBankAccount) {
+    settlementMoney(finalCost, 'BNMS pilot canonical amount');
+    if (!idempotencyKey || !paymentIdempotencyKey) throw new Error('BNMS pilot invoice and payment idempotency keys required');
   }
   const contactId = await contactResolver(accessToken, xeroTenantId, {
     name: organizationName,
@@ -519,6 +612,7 @@ export async function createXeroMembershipInvoice({
       Contact: { ContactID: contactId },
       Reference: buildXeroMembershipReference(reference),
       Status: xeroInvoiceStatus,
+      ...(pilotBankAccount ? { CurrencyCode: 'GBP' } : {}),
       DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       LineItems: lineItems
     }]
@@ -555,6 +649,10 @@ export async function createXeroMembershipInvoice({
   }
 
   const invoice = invoiceData.Invoices[0];
+  if (pilotBankAccount) {
+    assertPilotInvoice(invoice, contactId, finalCost);
+    if (!paymentIdempotencyKey) throw new Error('BNMS pilot payment idempotency key required');
+  }
   console.log(`[Xero] Membership invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID}) - Status: ${invoice.Status}`);
 
   let paymentRecorded = false;
@@ -627,8 +725,8 @@ export async function createXeroMembershipInvoice({
         stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
       }
 
-      if (stripeBankAccountCode) {
-        const accountsResponse = await transportFetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+      if (stripeBankAccountCode || pilotBankAccount) {
+        const accountsResponse = pilotBankAccount ? null : await transportFetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -637,15 +735,15 @@ export async function createXeroMembershipInvoice({
           }
         });
 
-        const accountsData = await safeXeroJson(accountsResponse, 'accounts-lookup');
-        const bankAccount = accountsData?.Accounts?.[0];
+        const accountsData = accountsResponse ? await safeXeroJson(accountsResponse, 'accounts-lookup') : null;
+        const bankAccount = pilotBankAccount || accountsData?.Accounts?.[0];
 
         if (bankAccount?.AccountID) {
           const paymentPayload = {
             Invoice: { InvoiceID: invoice.InvoiceID },
             Account: { AccountID: bankAccount.AccountID },
             Date: new Date().toISOString().split('T')[0],
-            Amount: parseFloat(invoice.Total),
+            Amount: pilotBankAccount ? settlementMoney(finalCost, 'BNMS pilot canonical amount') : parseFloat(invoice.Total),
             Reference: paymentReference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment')
           };
 
@@ -668,6 +766,10 @@ export async function createXeroMembershipInvoice({
           });
 
           const paymentData = await safeXeroJson(paymentResponse, 'payment-create');
+          if (pilotBankAccount) await verifyPilotPayment(paymentData, {
+            fetch: transportFetch, accessToken, xeroTenantId, invoiceId: invoice.InvoiceID,
+            contactId, amount: settlementMoney(finalCost, 'BNMS pilot canonical amount'),
+          });
 
           if (paymentData?.Payments?.[0]?.PaymentID) {
             paymentRecorded = true;
@@ -948,15 +1050,25 @@ export async function applyStripePaymentToXeroInvoice({
   paymentReference = null,
   bankAccountSettingKey = 'xero_stripe_bank_account_code',
   strictBankAccount = false,
+  ddAccountingMigration = null,
+  expectedContact = null,
   idempotencyKey = null,
-}) {
+}, dependencies = {}) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
   if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
     throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
   }
 
-  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+  const { accessToken, tenantId: xeroTenantId } = await (dependencies.getValidXeroAccessToken || getValidXeroAccessToken)(appTenantId);
+  const fetch = dependencies.fetch || globalThis.fetch;
+  const pilotBankAccount = ddAccountingMigration ? await validateBnmsPilotXeroAccount({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch,
+  }) : null;
+  if (pilotBankAccount && (strictBankAccount !== true || bankAccountSettingKey !== 'xero_gocardless_bank_account_code'
+    || stripePaymentIntentId)) {
+    throw new Error('BNMS pilot payment rail mismatch');
+  }
 
   const invResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
     method: 'GET',
@@ -969,6 +1081,22 @@ export async function applyStripePaymentToXeroInvoice({
   const invData = await safeXeroJson(invResp, 'invoice-retrieve');
   const invoice = invData?.Invoices?.[0];
   if (!invoice) throw new Error(`Xero invoice ${xeroInvoiceId} not found`);
+  let pilotContactId = null;
+  if (pilotBankAccount) {
+    if (!expectedContact?.name || !idempotencyKey) throw new Error('BNMS pilot expected contact and payment key required');
+    const escaped = String(expectedContact.name).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+    });
+    const contacts = (await safeXeroJson(response, 'bnms-pilot-contact-check'))?.Contacts;
+    if (contacts?.length !== 1 || contacts[0].Name !== expectedContact.name
+      || (expectedContact.email && contacts[0].EmailAddress?.toLowerCase() !== expectedContact.email.toLowerCase())) {
+      throw new Error('BNMS pilot expected contact is ambiguous or mismatched');
+    }
+    pilotContactId = contacts[0].ContactID;
+    assertPilotInvoice(invoice, pilotContactId, amount, xeroInvoiceId);
+  }
 
   if (invoice.Status === 'DRAFT' || invoice.Status === 'SUBMITTED') {
     const authResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
@@ -981,13 +1109,17 @@ export async function applyStripePaymentToXeroInvoice({
       },
       body: JSON.stringify({ Invoices: [{ InvoiceID: xeroInvoiceId, Status: 'AUTHORISED' }] }),
     });
-    await safeXeroJson(authResp, 'invoice-authorise');
+    const authorised = await safeXeroJson(authResp, 'invoice-authorise');
+    if (pilotBankAccount) {
+      assertPilotInvoice(authorised?.Invoices?.[0], pilotContactId, amount, xeroInvoiceId);
+      if (authorised.Invoices[0].Status !== 'AUTHORISED') throw new Error('BNMS pilot invoice authorisation not confirmed');
+    }
   }
 
   let paymentRecorded = false;
   let paymentId = null;
   try {
-    const { data: stripeBankCodeSetting } = await supabase
+    const { data: stripeBankCodeSetting } = await (dependencies.supabase || supabase)
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', bankAccountSettingKey)
@@ -1005,13 +1137,13 @@ export async function applyStripePaymentToXeroInvoice({
         .maybeSingle();
       bankCode = fallbackSetting?.setting_value;
     }
-    if (bankCode) {
-      const accountsResp = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${bankCode}"`, {
+    if (bankCode || pilotBankAccount) {
+      const accountsResp = pilotBankAccount ? null : await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${bankCode}"`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
       });
-      const accountsData = await safeXeroJson(accountsResp, 'accounts-lookup');
-      const bankAccount = accountsData?.Accounts?.[0];
+      const accountsData = accountsResp ? await safeXeroJson(accountsResp, 'accounts-lookup') : null;
+      const bankAccount = pilotBankAccount || accountsData?.Accounts?.[0];
       if (bankAccount?.AccountID) {
         const paymentPayload = {
           Invoice: { InvoiceID: xeroInvoiceId },
@@ -1035,6 +1167,10 @@ export async function applyStripePaymentToXeroInvoice({
           body: JSON.stringify({ Payments: [paymentPayload] }),
         });
         const payData = await safeXeroJson(payResp, 'payment-create');
+        if (pilotBankAccount) await verifyPilotPayment(payData, {
+          fetch, accessToken, xeroTenantId, invoiceId: xeroInvoiceId, contactId: pilotContactId,
+          amount: settlementMoney(amount, 'BNMS pilot canonical amount'),
+        });
         if (payData?.Payments?.[0]?.PaymentID) {
           paymentRecorded = true;
           paymentId = payData.Payments[0].PaymentID;

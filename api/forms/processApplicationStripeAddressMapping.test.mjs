@@ -338,6 +338,14 @@ function createHandlerDatabase({
 
     rpc(name, args) {
       calls.push({ name, args });
+      if (name === 'claim_form_payment_finalization') {
+        submission.payment_meta = {
+          ...args.p_expected_payment_meta,
+          finalized: true,
+          finalized_at: args.p_claimed_at,
+        };
+        return { data: { ...submission }, error: null };
+      }
       if (name === 'claim_form_stripe_address_mapping_processing') {
         leaseToken = args.p_token;
         return { data: true, error: null };
@@ -599,7 +607,6 @@ test(`paid finalization runs Stripe mapping, real pipeline processing, and DD re
     payment_provider: 'stripe',
     payment_status: 'paid',
     payment_meta: {
-      finalized: false,
       verified_submitter_member_id: null,
       verified_admin_access: true,
       stripe_address_mapping_config: {

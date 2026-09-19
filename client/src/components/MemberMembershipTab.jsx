@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,11 +32,15 @@ import {
   Eye, Download, PauseCircle
 } from "lucide-react";
 import { toast } from "sonner";
+import { getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import DirectDebitCommitmentDetails from "@/components/membership/DirectDebitCommitmentDetails";
+import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MemberMembershipInstalments, {
   getMembershipSource,
   isMonthlyMembershipRecord,
+  isDynamicMonthlyCommitment,
   MemberMembershipInstalmentsToggle,
 } from "@/components/membership/MemberMembershipInstalments";
 
@@ -569,6 +573,11 @@ function MemberYearCostSection({
 
 export default function MemberMembershipTab({ memberId, memberEmail }) {
   const queryClient = useQueryClient();
+  const activeTenantId = useSyncExternalStore(
+    subscribeToActiveTenantId,
+    getActiveTenantId,
+    () => null,
+  );
   const [invoicingModes, setInvoicingModes] = useState({});
   const [invoiceDates, setInvoiceDates] = useState({});
   const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});
@@ -1248,6 +1257,11 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const hasCurrentPersistedCommitment = currentCommitments.some((commitment) => (
     commitment.lifecycle === 'current' && commitment.source === 'personal'
   ));
+  // A scheduled dynamic DD management period is not an annual fee quote.
+  // Keep its persisted dates, but do not offer synthetic yearly fee actions.
+  const hasDynamicMonthlyCommitment = currentCommitments.some((commitment) => (
+    commitment.source === 'personal' && isDynamicMonthlyCommitment(commitment)
+  ));
   // The summary/current-year cards are member-scoped. Organisation rows are
   // displayed in the shared history ledger, but must not make a personal
   // simulation appear recorded for the member.
@@ -1367,7 +1381,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           <CardContent>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <div>
-                <dt className="text-muted-foreground">Membership Start Date</dt>
+                <dt className="text-muted-foreground">{isDynamicMonthlyCommitment(commitment) ? 'Management Period Start' : 'Membership Start Date'}</dt>
                 <dd className="font-medium" data-testid={`text-commitment-start-${commitment.id}`}>
                   {formatMembershipDate(commitment.startDate)}
                 </dd>
@@ -1379,12 +1393,14 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 </dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Current Term End</dt>
+                <dt className="text-muted-foreground">{isDynamicMonthlyCommitment(commitment) ? 'Management Period End' : 'Current Term End'}</dt>
                 <dd className="font-medium">{formatMembershipDate(commitment.endDate)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Billing Period</dt>
-                <dd className="font-medium">{formatBillingDuration(commitment)}</dd>
+                <dt className="text-muted-foreground">{isDynamicMonthlyCommitment(commitment) ? 'Management Period' : 'Billing Period'}</dt>
+                <dd className="font-medium">{isDynamicMonthlyCommitment(commitment) && commitment.durationMonths
+                  ? `${commitment.durationMonths} months · collected monthly`
+                  : formatBillingDuration(commitment)}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Membership Structure</dt>
@@ -1441,7 +1457,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           </CardContent>
         </Card>
       )}
-      {config && !hasCurrentPersistedCommitment && (
+      {config && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -1488,7 +1504,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         </Card>
       )}
 
-      {config && !hasCurrentPersistedCommitment && (
+      {config && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
             <CardHeader>
@@ -1591,6 +1607,13 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <HistoricalDdPayments
+            memberId={memberId}
+            activeTenantId={activeTenantId}
+            request={adminFetch}
+            embedded
+            monthlyHistory
+          />
           {!history || history.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground" data-testid="text-member-no-history">
               <History className="w-10 h-10 mx-auto mb-2 opacity-50" />

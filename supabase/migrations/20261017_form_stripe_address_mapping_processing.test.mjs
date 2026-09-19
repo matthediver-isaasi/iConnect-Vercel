@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
 
 const migrationUrl = new URL('./20261017_form_stripe_address_mapping_processing.sql', import.meta.url);
 const migrationPath = fileURLToPath(migrationUrl);
@@ -50,11 +49,9 @@ test('RPC executes atomically, skips absent components, and replays from ledger'
   const psql = executable('psql');
   if (!initdb || !pgCtl || !psql) return t.skip('PostgreSQL command-line tools are unavailable');
 
-  const root = await mkdtemp(path.join(tmpdir(), 'stripe-address-rpc-'));
-  const data = path.join(root, 'data');
-  const socket = path.join(root, 'socket');
-  run('mkdir', ['-p', socket]);
-  const port = String(24000 + (process.pid % 10000));
+  const harness = await createLocalPostgresHarness('stripe-address-rpc-');
+  const { root, data, socket } = harness;
+  const port = String(harness.port);
   const conn = ['-h', socket, '-p', port, '-U', 'postgres', '-d', 'postgres', '--no-psqlrc', '-v', 'ON_ERROR_STOP=1', '-q'];
   let started = false;
   try {
@@ -342,6 +339,6 @@ test('RPC executes atomically, skips absent components, and replays from ledger'
     assert.equal(scalar(`SELECT count(*) FROM form_stripe_address_mapping_ledger WHERE form_submission_id='${failedSubmission}'`), '0');
   } finally {
     if (started) spawnSync(pgCtl, ['-D', data, '-m', 'immediate', '-w', 'stop'], { encoding: 'utf8' });
-    await rm(root, { recursive: true, force: true });
+    await harness.cleanup();
   }
 });

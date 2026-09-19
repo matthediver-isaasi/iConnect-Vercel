@@ -649,3 +649,17 @@ mtime_ms = 1789739365677
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cb440365-4d8e-43bc-94e5-ae31e6c82099/57572144-cfb5-462f-8d28-b0bbd9874d93"
 storage_version_token = "1789739501269066"
 content_type = "image/png"
+
+[[outputs]]
+id = "LgRI1EcWsP9_75txXB37u"
+uri = "file://reports/bnms-dd-pilot-preflight.html"
+type = "html"
+title = "BNMS pilot — monthly history and October readiness"
+description = "Verified historical invoice links, corrected monthly admin view, released October plan, production exact-invoice safeguards, migrations and remaining future collection checks."
+logical_id = "b13fbce8-f00f-4c3a-a8d3-73ca1899231b"
+content_hash = "sha256:ad7758ae48d65a942182142cdc95a913e43e7d7e8abe86e246ae94321d65d1bb"
+size = 18907
+mtime_ms = 1789815223539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b13fbce8-f00f-4c3a-a8d3-73ca1899231b/fbc1fa1c-2ef0-4155-bf5c-8af3b2731fa9"
+storage_version_token = "1789815345222946"
+content_type = "text/html"

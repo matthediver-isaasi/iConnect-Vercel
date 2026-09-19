@@ -240,6 +240,20 @@ function makeOrderingDb({
       from(table) { return new Query(table); },
       async rpc(name, args) {
         rpcCalls.push({ name, args });
+        if (name === 'claim_form_payment_finalization') {
+          const claimed = rows.form_submission.find(row =>
+            row.id === args.p_submission_id && row.tenant_id === args.p_tenant_id);
+          if (!claimed
+            || JSON.stringify(claimed.payment_meta || {}) !== JSON.stringify(args.p_expected_payment_meta)) {
+            return { data: null, error: null };
+          }
+          claimed.payment_meta = {
+            ...args.p_expected_payment_meta,
+            finalized: true,
+            finalized_at: args.p_claimed_at,
+          };
+          return { data: { ...claimed }, error: null };
+        }
         if (name === 'begin_form_paid_pipeline_operation') return { data: { status: 'claimed' }, error: null };
         if (name === 'finish_form_paid_pipeline_operation') return { data: true, error: null };
         if (name === 'claim_form_stripe_address_mapping_processing') return { data: true, error: null };

@@ -203,6 +203,15 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
     // unverified weekend/holiday date lets GC roll it forward AFTER the effect.
     // Keep the intended monthly cadence separately and never cross term end.
     if (mandate.next_possible_charge_date < intendedDate) return { plan, detail: 'Waiting for provider submission window' };
+    // The approved BNMS cutover is exact, not the generic seven-day grace
+    // window below. A missed submission slot requires explicit review.
+    if (agreement.tenant_id === 'ff2df806-b321-4254-b651-3af11fccf1db'
+      && agreement.member_id === '33e5d54d-162e-436d-9bff-ec6676d198f9'
+      && agreement.metadata?.bnms_pilot_approval?.source === 'task-4533-explicit-user-approval'
+      && number === 1 && term.term_start_date === '2026-10-01'
+      && (intendedDate !== '2026-10-01' || mandate.next_possible_charge_date !== '2026-10-01')) {
+      throw new Error('BNMS pilot exact October 1 cutover missed; automatic date movement is forbidden');
+    }
     const latest = day(new Date(Date.parse(`${intendedDate}T00:00:00Z`) + 7 * 86_400_000));
     if (mandate.next_possible_charge_date > term.term_end_date
       || mandate.next_possible_charge_date > latest) throw new Error(`Provider notice deadline leaves no safe charge date for ${intendedDate}; review required`);

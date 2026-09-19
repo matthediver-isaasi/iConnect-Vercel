@@ -7,8 +7,86 @@ import {
   computeRenewalWindow,
   decideRenewalAction,
   RENEWAL_NOTICE_DAYS,
+  buildDdRenewalSnapshot,
 } from './gocardlessDdRenewals.js';
 import { STATUS } from './gocardlessState.js';
+import { BNMS_PILOT_ACCOUNTING } from './xero.js';
+import { buildAgreementSnapshot } from './gocardlessDirectDebit.js';
+
+function pilotRenewalFixture() {
+  return {
+    previousAgreement: {
+      tenant_id: 'ff2df806-b321-4254-b651-3af11fccf1db',
+      member_id: '33e5d54d-162e-436d-9bff-ec6676d198f9', provider: 'gocardless', environment: 'live',
+      metadata: { dd: {
+        accounting_migration: { ...BNMS_PILOT_ACCOUNTING },
+        first_collection_rule: 'nominated_day', collection_day: 1,
+        currency: 'GBP', invoicing_mode: 'per_instalment',
+        collection_policy: { version: 1, pricing_policy: 'dynamic', end_policy: 'continue' },
+      } },
+    },
+    offer: {
+      collectionPolicy: { version: 1, pricing_policy: 'dynamic', end_policy: 'continue' },
+      monthlyAmount: 15, monthlyAmountMinor: 1500, instalmentCount: 12, planTotal: 180,
+      currency: 'GBP', firstCollectionRule: 'earliest', collectionDay: null, invoicingMode: 'per_instalment',
+    },
+    simResult: {
+      config: { id: 'structure', start_mode: 'immediate', billing_period: 'annual',
+        dd_first_collection_rule: 'earliest', dd_collection_day: null },
+      membershipYear: { start: '2027-10-01', end: '2028-09-30', label: 'rolling:2027-10-01' },
+      annualCost: 180, vatRatePercent: 0,
+    },
+    acceptedAt: '2027-10-01T00:00:00.000Z',
+  };
+}
+
+test('pilot renewal preserves exact mapping and nominated day 1 while restamping dynamic price and term', () => {
+  const args = pilotRenewalFixture();
+  const original = structuredClone(args);
+  const snapshot = buildDdRenewalSnapshot(args);
+  assert.deepEqual(snapshot.accounting_migration, BNMS_PILOT_ACCOUNTING);
+  assert.notEqual(snapshot.accounting_migration, args.previousAgreement.metadata.dd.accounting_migration);
+  assert.equal(snapshot.first_collection_rule, 'nominated_day');
+  assert.equal(snapshot.collection_day, 1);
+  assert.equal(snapshot.monthly_amount_minor, 1500);
+  assert.equal(snapshot.commitment.term_start_date, '2027-10-01');
+  assert.equal(snapshot.commitment.term_end_date, '2028-09-30');
+  assert.equal(snapshot.collection_policy.pricing_policy, 'dynamic');
+  assert.equal(snapshot.collection_policy.end_policy, 'continue');
+  assert.deepEqual(args, original, 'shared config/offer and prior snapshot stay untouched');
+  args.previousAgreement.metadata.dd = snapshot;
+  const second = buildDdRenewalSnapshot(args);
+  assert.deepEqual(second.accounting_migration, BNMS_PILOT_ACCOUNTING);
+  assert.equal(second.collection_day, 1);
+});
+
+test('nonpilot renewal keeps existing shared configuration behaviour unchanged', () => {
+  const args = pilotRenewalFixture();
+  delete args.previousAgreement.metadata.dd.accounting_migration;
+  assert.deepEqual(buildDdRenewalSnapshot(args), buildAgreementSnapshot(args));
+  assert.equal(buildDdRenewalSnapshot(args).first_collection_rule, 'earliest');
+  assert.equal(buildDdRenewalSnapshot(args).collection_day, null);
+});
+
+for (const [label, change] of [
+  ['tenant', a => { a.previousAgreement.tenant_id = 'other'; }],
+  ['member', a => { a.previousAgreement.member_id = 'other'; }],
+  ['environment', a => { a.previousAgreement.environment = 'sandbox'; }],
+  ['provider', a => { a.previousAgreement.provider = 'stripe'; }],
+  ['mapping', a => { a.previousAgreement.metadata.dd.accounting_migration.bank_account_id = 'other'; }],
+  ['day', a => { a.previousAgreement.metadata.dd.collection_day = 2; }],
+  ['rule', a => { a.previousAgreement.metadata.dd.first_collection_rule = 'earliest'; }],
+  ['prior policy', a => { a.previousAgreement.metadata.dd.collection_policy.pricing_policy = 'fixed'; }],
+  ['new policy', a => { a.offer.collectionPolicy.end_policy = 'stop'; }],
+  ['new currency', a => { a.offer.currency = 'EUR'; }],
+  ['new invoice mode', a => { a.offer.invoicingMode = 'annual'; }],
+]) {
+  test(`pilot renewal fails closed for invalid ${label}`, () => {
+    const args = pilotRenewalFixture();
+    change(args);
+    assert.throws(() => buildDdRenewalSnapshot(args), /BNMS pilot/);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // deriveNextYearLabel

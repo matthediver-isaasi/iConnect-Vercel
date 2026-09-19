@@ -786,7 +786,27 @@ test('receiptless paid GoCardless and historical Stripe crashes recover only whe
     }
     const db = {
       from: table => new Query(table),
-      rpc: async () => ({ data: [], error: null }),
+      rpc: async (name, args) => {
+        if (name === 'claim_form_payment_reconciliation_work') {
+          return { data: [], error: null };
+        }
+        if (name === 'claim_form_payment_finalization') {
+          row.payment_meta = {
+            ...args.p_expected_payment_meta,
+            finalized: true,
+            finalized_at: args.p_claimed_at,
+          };
+          updates.push({ payment_meta: row.payment_meta });
+          return { data: { ...row }, error: null };
+        }
+        if (name === 'mark_one_off_form_due_diligence_ready') {
+          return { data: true, error: null };
+        }
+        if (name === 'claim_form_due_diligence_initialization') {
+          return { data: { claimed: false, code: 'NOT_ELIGIBLE' }, error: null };
+        }
+        return { data: null, error: null };
+      },
     };
     const outcome = await reconcileFormPayments(db, {
       baseUrl: 'https://tenant.example.test',

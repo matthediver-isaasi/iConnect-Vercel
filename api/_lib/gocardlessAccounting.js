@@ -19,6 +19,7 @@
 // Dependencies injectable for tests: { db, getProvider }.
 
 import { supabase } from './database.js';
+import { assertBnmsPilotAccountingContext } from './xero.js';
 import {
   getAccountingProvider,
   PROVIDER_NONE,
@@ -48,6 +49,9 @@ export async function postDdArrearsPeriodToAccounting({
   const provider = await (deps.getProvider || getAccountingProvider)(agreement.tenant_id);
   if (!provider || provider.name === PROVIDER_NONE) return { status: 'skipped', reason: 'no accounting provider connected' };
   const snapshot = agreement.metadata?.dd;
+  if (snapshot?.accounting_migration) {
+    throw new Error('BNMS pilot accounting requires a confirmed canonical dynamic payment, not arrears/history');
+  }
   const outcome = await mintOrPayInstalmentInvoice({
     provider, agreement, snapshot, amountMinor,
     reference: `Membership ${snapshot?.membership_year || ''} - DD arrears ${externalReference}`.trim(),
@@ -89,7 +93,37 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
   }
 
   try {
+    const migration = agreement.metadata?.dd?.accounting_migration;
+    const ddAccountingMigration = migration ? {
+      snapshot: migration, memberId: agreement.member_id,
+      environment: agreement.environment, provider: agreement.provider,
+    } : null;
+    if (ddAccountingMigration) {
+      assertBnmsPilotAccountingContext(agreement.tenant_id, ddAccountingMigration);
+      if (!isPerInstalmentAgreement(agreement)
+        || agreement.metadata.dd.collection_policy?.version !== 1
+        || agreement.metadata.dd.collection_policy.pricing_policy !== 'dynamic') {
+        throw new Error('BNMS pilot accounting requires dynamic per-instalment collections');
+      }
+      // Re-read canonical evidence; caller metadata and historical imports
+      // cannot authorize new invoices. This is deliberately pilot-only.
+      const { data: canonical, error } = await db.from('gocardless_payments').select('*')
+        .eq('id', paymentRow.id).eq('tenant_id', agreement.tenant_id).maybeSingle();
+      if (error || !canonical || !['confirmed', 'paid_out'].includes(canonical.status)
+        || canonical.environment !== 'live' || canonical.currency !== 'GBP'
+        || !canonical.charge_date || canonical.charge_date < '2026-10-01'
+        || canonical.gocardless_mandate_id !== agreement.gocardless_mandate_id
+        || canonical.gocardless_payment_id !== paymentRow.gocardless_payment_id
+        || canonical.amount_minor !== paymentRow.amount_minor) {
+        throw new Error('BNMS pilot accounting requires a future confirmed canonical payment');
+      }
+      paymentRow = canonical;
+      if (paymentRow.accounting_sync_status === 'posted') return { status: 'skipped', reason: 'already posted' };
+    }
     const provider = await getProvider(agreement.tenant_id);
+    if (ddAccountingMigration && provider?.name !== 'xero') {
+      throw new Error('BNMS pilot accounting provider must be Xero');
+    }
     if (!provider || provider.name === PROVIDER_NONE) {
       await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'skipped', accounting_sync_error: 'no accounting provider connected' });
       return { status: 'skipped', reason: 'no accounting provider connected' };
@@ -128,6 +162,17 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
             || reservation.currency !== paymentRow.currency) {
             throw new Error('Dynamic instalment has no matching immutable collection/tax evidence');
           }
+          const pilotTerm = agreement.metadata?.dd?.commitment;
+          if (ddAccountingMigration && (reservation.plan_id !== paymentRow.plan_id
+            || !reservation.due_date || reservation.due_date < '2026-10-01'
+            || reservation.currency !== 'GBP'
+            || !pilotTerm?.term_key || reservation.term_key !== pilotTerm.term_key
+            || !pilotTerm.term_start_date || !pilotTerm.term_end_date
+            || reservation.due_date < pilotTerm.term_start_date || reservation.due_date > pilotTerm.term_end_date
+            || paymentRow.charge_date < reservation.due_date || paymentRow.charge_date > pilotTerm.term_end_date
+            || reservation.requested_charge_date !== paymentRow.charge_date)) {
+            throw new Error('BNMS pilot payment has no matching future managed reservation');
+          }
           snapshot = { ...snapshot, ...reservation.price_snapshot, collection_price_snapshot: reservation.price_snapshot };
         }
         const outcome = await mintOrPayInstalmentInvoice({
@@ -144,6 +189,7 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
           // The GC rail must use ITS OWN bank account — never fall back to
           // the Stripe one; a missing setting surfaces as invoice_unpaid.
           strictBankAccount: true,
+          ddAccountingMigration,
           db,
         });
         await setSyncStatus(db, paymentRow.id, buildInstalmentOutcomePatch({ providerName: provider.name, ...outcome }));

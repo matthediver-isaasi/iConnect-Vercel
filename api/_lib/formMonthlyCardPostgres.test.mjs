@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import pg from 'pg';
+import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const MEMBER_ID = '10000000-0000-4000-8000-000000000001';
@@ -13,6 +13,7 @@ const FORM_ID = '20000000-0000-4000-8000-000000000001';
 
 let directory;
 let cluster;
+let harness;
 let client;
 let running = false;
 let toolsAvailable = true;
@@ -30,9 +31,10 @@ test.before(async () => {
     return;
   }
 
-  directory = await mkdtemp(join(tmpdir(), 'form-monthly-card-pg-'));
-  cluster = join(directory, 'data');
-  const port = 25000 + (process.pid % 10000);
+  harness = await createLocalPostgresHarness('form-monthly-card-pg-');
+  directory = harness.socket;
+  cluster = harness.data;
+  const { port } = harness;
   execFileSync(initdb, [
     '-D', cluster, '-A', 'trust', '-U', 'runner', '--no-locale', '--no-instructions',
   ], { stdio: 'pipe' });
@@ -131,7 +133,7 @@ test.after(async () => {
   if (running) {
     execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });
   }
-  if (directory) await rm(directory, { recursive: true, force: true });
+  if (harness) await harness.cleanup();
 });
 
 test('PostgreSQL distinguishes an absent JSONB lease key from JSON null', async (t) => {

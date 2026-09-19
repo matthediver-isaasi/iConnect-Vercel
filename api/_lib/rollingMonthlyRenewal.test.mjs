@@ -8,6 +8,7 @@ import { buildCardAgreementSnapshot, resolveCardMonthlyOffer, ensureStripeCardCa
 import { buildAgreementSnapshot, resolveDdOffer, ensureSubscriptionForAgreement, computeSubscriptionCollectionDate } from './gocardlessDirectDebit.js';
 import { computeRenewalWindow, decideRenewalAction, executeAutoRenewal } from './gocardlessDdRenewals.js';
 import { resolveCardAutoRenew, executeCardAutoRenewal } from './stripeCardRenewals.js';
+import { BNMS_PILOT_ACCOUNTING } from './xero.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 function fixture({ period = 'annual', start = '2026-09-15', price = 20, vat = 0, id = 'config-original' } = {}) {
@@ -44,6 +45,9 @@ function memoryDb(seed = {}) {
       const query = {
         select() { return query; },
         eq(key, value) { filters.push((row) => row[key] === value); return query; },
+        is(key, value) { filters.push((row) => (row[key] ?? null) === value); return query; },
+        order() { return query; },
+        limit() { return query; },
         or(expression) {
           const match = expression.match(/(effective_from|effective_to)\.(lte|gte)\.(.+)$/);
           if (match) filters.push((row) => !row[match[1]] || (match[2] === 'lte' ? row[match[1]] <= match[3] : row[match[1]] >= match[3]));
@@ -212,6 +216,148 @@ function renewalFixture(provider) {
   const successor = fixture({ price: 25, start: '2027-09-15', id: 'next-config' });
   successor.previousTerm = prior.commitment;
   return { db, prior, previousAgreement, successor, rail };
+}
+
+// Real renewal -> default DD setup -> dynamic plan -> collection orchestration.
+// Only persistence/provider boundaries are in-memory; no provider/network writes.
+function dynamicPilotRenewalFixture() {
+  const tenantId = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  const memberId = '33e5d54d-162e-436d-9bff-ec6676d198f9';
+  const sim = fixture({ start: '2026-10-01' });
+  Object.assign(sim.config, {
+    dd_policy_version: 1, dd_collection_end_policy: 'continue', dd_pricing_policy: 'dynamic',
+    dd_invoicing_mode: 'per_instalment', dd_first_collection_rule: 'nominated_day', dd_collection_day: 1,
+  });
+  const prior = snapshotFor('gocardless', sim);
+  prior.accounting_migration = { ...BNMS_PILOT_ACCOUNTING };
+  const previousAgreement = {
+    id: 'prior', tenant_id: tenantId, member_id: memberId, provider: 'gocardless',
+    environment: 'live', status: 'expired', metadata: { dd: prior },
+  };
+  const successor = fixture({ start: '2027-10-01', price: 25, id: 'successor-config' });
+  Object.assign(successor.config, {
+    tenant_id: tenantId, dd_invoicing_mode: 'per_instalment',
+    dd_first_collection_rule: 'earliest', dd_collection_day: null,
+  });
+  const db = memoryDb({
+    membership_billing_agreements: [previousAgreement],
+    member_membership_history: [{
+      id: 'prior-history', tenant_id: tenantId, member_id: memberId,
+      membership_year: prior.membership_year, billing_agreement_id: previousAgreement.id,
+    }],
+    membership_tier_config: [successor.config],
+    member: [{ id: memberId, tenant_id: tenantId, membership_paused: false }],
+    gocardless_collection_reservations: [],
+  });
+  const calls = [];
+  const authorizations = [];
+  // Models the serialized SQL boundary's pause check, including reauthorization.
+  db.rpc = async (name, p) => {
+    if (name === 'reserve_gocardless_dynamic_collection') {
+      authorizations.push(p);
+      if (db.tables.member[0].membership_paused) return { error: { message: 'Membership paused' } };
+      let row = db.tables.gocardless_collection_reservations[0];
+      if (!row) {
+        row = {
+          id: 'reservation', tenant_id: tenantId, plan_id: p.p_plan_id,
+          collection_number: p.p_collection_number, due_date: p.p_due_date,
+          requested_charge_date: p.p_provider_evidence.next_possible_charge_date,
+          amount_minor: p.p_price_snapshot.monthly_amount_minor, currency: 'GBP',
+          price_snapshot: p.p_price_snapshot, provider_evidence: p.p_provider_evidence,
+          idempotency_key: p.p_idempotency_key, status: 'reserved',
+        };
+        db.tables.gocardless_collection_reservations.push(row);
+      }
+      return { data: row };
+    }
+    if (name === 'attach_gocardless_dynamic_payment') {
+      const row = db.tables.gocardless_collection_reservations[0];
+      Object.assign(row, { status: 'submitted', gocardless_payment_id: p.p_payment.id });
+      return { data: row };
+    }
+    assert.fail(`Unexpected RPC ${name}`);
+  };
+  const deps = {
+    db, now: () => new Date('2027-10-01T00:00:00Z'),
+    simulate: async () => successor, resolveConfig: async () => successor.config,
+    findMandate: async () => ({ mandateId: 'MD_TEST', customerId: 'CU_TEST' }),
+    gc: {
+      getMandate: async () => ({ status: 'active', next_possible_charge_date: '2027-10-01' }),
+      createPayment: async request => {
+        calls.push(request);
+        return { id: 'PM_TEST', amount: request.amountMinor, currency: request.currency,
+          charge_date: request.chargeDate, links: { mandate: request.mandateId } };
+      },
+    },
+    sendEmail: async () => {},
+  };
+  return { db, calls, authorizations, args: {
+    tenantId, memberId, previousAgreement, renewalRow: { mode: 'auto', status: 'notice_sent' }, deps,
+  } };
+}
+
+test('executeAutoRenewal default dynamic setup creates a collectible pilot successor before completing setup', async () => {
+  const f = dynamicPilotRenewalFixture();
+  const prior = clone(f.args.previousAgreement);
+  const result = await executeAutoRenewal(f.args);
+  assert.equal(result.renewed, true);
+  const agreement = f.db.tables.membership_billing_agreements.find(row => row.id === result.agreement.id);
+  assert.equal(agreement.status, 'mandate_pending');
+  assert.equal(agreement.metadata.renewal_setup_pending, false);
+  assert.deepEqual(agreement.metadata.dd.accounting_migration, BNMS_PILOT_ACCOUNTING);
+  assert.equal(agreement.metadata.dd.first_collection_rule, 'nominated_day');
+  assert.equal(agreement.metadata.dd.collection_day, 1);
+  assert.equal(agreement.metadata.dd.commitment.term_start_date, '2027-10-01');
+  const [plan] = f.db.tables.membership_payment_plans;
+  assert.equal(plan.billing_agreement_id, agreement.id);
+  assert.equal(plan.metadata.collection_mode, 'dynamic');
+  assert.equal(plan.day_of_month, 1);
+  assert.equal(plan.start_date, '2027-10-01');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].amountMinor, 2500);
+  assert.equal(f.calls[0].chargeDate, '2027-10-01');
+  assert.equal(f.authorizations.length, 2, 'serialized safety checks are not bypassed');
+  assert.equal(f.db.tables.gocardless_collection_reservations[0].status, 'submitted');
+  assert.equal(f.db.tables.membership_dd_renewals[0].status, 'renewed');
+  assert.deepEqual(f.args.previousAgreement, prior);
+});
+
+test('executeAutoRenewal default dynamic setup retains serialized member pause guard', async () => {
+  const f = dynamicPilotRenewalFixture();
+  f.db.tables.member[0].membership_paused = true;
+  await assert.rejects(executeAutoRenewal(f.args), /Membership paused/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.db.tables.membership_billing_agreements[1].metadata.renewal_setup_pending, true);
+  assert.equal(f.db.tables.membership_dd_renewals?.length || 0, 0);
+});
+
+test('executeAutoRenewal missing saved continuation consent cannot create a successor or collect', async () => {
+  const f = dynamicPilotRenewalFixture();
+  delete f.args.previousAgreement.metadata.dd.collection_policy.end_policy;
+  delete f.args.previousAgreement.metadata.dd.auto_renew;
+  const result = await executeAutoRenewal(f.args);
+  assert.equal(result.renewed, false);
+  assert.match(result.detail, /consent/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.db.tables.membership_billing_agreements.length, 1);
+  assert.equal(f.db.tables.membership_payment_plans?.length || 0, 0);
+});
+
+for (const status of ['paused', 'suspended', 'cancelled']) {
+  test(`executeAutoRenewal retry never promotes a ${status} successor into collection`, async () => {
+    const f = dynamicPilotRenewalFixture();
+    // Leave a reserved successor after a failed setup, then apply a lifecycle
+    // hold before retrying through the same default setup path.
+    f.args.deps.findMandate = async () => null;
+    assert.equal((await executeAutoRenewal(f.args)).renewed, false);
+    const agreement = f.db.tables.membership_billing_agreements[1];
+    agreement.status = status;
+    f.args.deps.findMandate = async () => ({ mandateId: 'MD_TEST', customerId: 'CU_TEST' });
+    await assert.rejects(executeAutoRenewal(f.args), /blocked by agreement or plan lifecycle/);
+    assert.equal(agreement.status, status);
+    assert.equal(agreement.metadata.renewal_setup_pending, true);
+    assert.equal(f.calls.length, 0);
+  });
 }
 
 test('concurrent reservation creates one history; cross-provider loser cannot reach collection', async () => {

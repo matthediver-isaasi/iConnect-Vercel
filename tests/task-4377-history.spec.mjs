@@ -170,6 +170,21 @@ const paginationRecords = [
 ];
 
 const pdfBody = "%PDF-1.4 history-4377 fixture";
+const historicalDdPayments = [
+  {
+    id: "historical-dd-jan-4377",
+    period: "2026-01-01",
+    charge_date: "2026-01-06",
+    amount_minor: 1304,
+    currency: "GBP",
+    provider_payment_id: "PM-HISTORY-JAN",
+    provider_status: "paid_out",
+    xero_invoice_id: "3e69cfdf-4d7c-4d70-9630-aa68f8c8fced",
+    xero_invoice_number: "INV-HISTORY-JAN",
+    xero_invoice_url: "https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=3e69cfdf-4d7c-4d70-9630-aa68f8c8fced",
+    historical_only: true,
+  },
+];
 
 function json(route, body, status = 200) {
   return route.fulfill({
@@ -253,6 +268,18 @@ async function installFixtures(page, {
       }
       return json(route, fixtureMembership);
     }
+    if (path === "/api/membership/historical-dd") {
+      const invoiceAllowed = !excludedFeatures.includes("commerce.history.access-invoices")
+        && !excludedFeatures.includes("commerce.history");
+      return json(route, {
+        payments: historicalDdPayments.map((payment) => invoiceAllowed ? payment : {
+          ...payment,
+          xero_invoice_id: null,
+          xero_invoice_number: null,
+          xero_invoice_url: null,
+        }),
+      });
+    }
     if (path.startsWith("/api/membership-invoice/")) {
       state.invoiceRequests.push({
         path,
@@ -305,6 +332,39 @@ test("combined personal and organisation history keeps source labels and same-ye
     quality: 80,
   });
   expect(state.escapedWrites).toEqual([]);
+});
+
+test("historical Direct Debit records render read-only with invoice feature gating", async ({ page }) => {
+  const state = await installFixtures(page);
+  await page.goto("/History");
+  await page.getByTestId("tab-membership").click();
+
+  const row = page.getByTestId("row-historical-dd-historical-dd-jan-4377");
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("January 2026");
+  await expect(row).toContainText("6 Jan 2026");
+  await expect(row).toContainText("£13.04");
+  await expect(row).toContainText("Paid out");
+  const invoice = page.getByTestId("link-historical-dd-invoice-historical-dd-jan-4377");
+  await expect(invoice).toHaveAttribute("href", /https:\/\/go\.xero\.com\/AccountsReceivable\/View\.aspx\?InvoiceID=/);
+  await expect(invoice).toHaveAttribute("target", "_blank");
+  await expect(row.getByRole("button")).toHaveCount(0);
+  await expect(page.getByText(/never trigger a collection, retry, refund or accounting action/).first()).toBeVisible();
+  await page.screenshot({
+    path: "screenshots/bnms-historical-dd-history.jpg",
+    fullPage: true,
+    type: "jpeg",
+    quality: 85,
+  });
+  expect(state.escapedWrites).toEqual([]);
+
+  const restricted = await page.context().newPage();
+  await installFixtures(restricted, { excludedFeatures: ["commerce.history.access-invoices"] });
+  await restricted.goto("/History");
+  await restricted.getByTestId("tab-membership").click();
+  await expect(restricted.getByTestId("row-historical-dd-historical-dd-jan-4377")).toBeVisible();
+  await expect(restricted.getByTestId("link-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
+  await restricted.close();
 });
 
 test("membership accounting invoice fallback is searchable and PDF preview/download sends source", async ({ page }) => {
