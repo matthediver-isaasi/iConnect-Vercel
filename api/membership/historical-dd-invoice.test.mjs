@@ -27,21 +27,30 @@ function dbMock({
     historical_only: true,
   },
   error = null,
+  betaRecord = null,
+  betaLink = null,
+  betaRecordError = null,
+  betaLinkError = null,
 } = {}) {
   const calls = [];
   return {
     calls,
     from(table) {
-      assert.equal(table, 'bnms_dd_historical_payment');
       const call = { table, filters: {} };
       calls.push(call);
       const query = {
         select() { return query; },
         eq(column, value) { call.filters[column] = value; return query; },
         maybeSingle() {
-          const matches = record && Object.entries(call.filters)
-            .every(([key, value]) => record[key] === value);
-          return Promise.resolve({ data: matches ? record : null, error });
+          const candidate = table === 'bnms_dd_beta_provider_history'
+            ? betaRecord
+            : (table === 'bnms_dd_beta_invoice_link' ? betaLink : record);
+          const queryError = table === 'bnms_dd_beta_provider_history'
+            ? betaRecordError
+            : (table === 'bnms_dd_beta_invoice_link' ? betaLinkError : error);
+          const matches = candidate && Object.entries(call.filters)
+            .every(([key, value]) => candidate[key] === value);
+          return Promise.resolve({ data: matches ? candidate : null, error: queryError });
         },
       };
       return query;
@@ -89,6 +98,8 @@ test('validates method, authentication, UUID and inline selector', async () => {
   res = await invoke(endpoint(), { recordId: 'not-a-uuid' });
   assert.equal(res.statusCode, 400);
   res = await invoke(endpoint(), { recordId: RECORD_ID, inline: 'yes' });
+  assert.equal(res.statusCode, 400);
+  res = await invoke(endpoint(), { recordId: RECORD_ID, source: 'provider-payment-id' });
   assert.equal(res.statusCode, 400);
 });
 
@@ -261,4 +272,65 @@ test('sanitizes Xero connection, missing provider, and generic provider failures
     assert.equal(res.body.code, code);
     assert.doesNotMatch(res.body.error, /secret-token|private details/);
   }
+});
+
+test('beta download resolves only an exact history owner and tenant invoice link', async () => {
+  const calls = [];
+  const db = dbMock({
+    betaRecord: {
+      id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      accounting_reconciled: false,
+    },
+    betaLink: {
+      history_id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      xero_invoice_id: INVOICE_ID, xero_invoice_number: 'BETA-100',
+    },
+  });
+  const res = await invoke(endpoint({
+    db,
+    fetchPdf: async (invoiceId, tenantId) => {
+      calls.push({ invoiceId, tenantId });
+      return Buffer.from('%PDF beta');
+    },
+  }), { recordId: RECORD_ID, source: 'beta_provider_history' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(calls, [{ invoiceId: INVOICE_ID, tenantId: 'tenant-1' }]);
+  assert.deepEqual(db.calls.map((call) => [call.table, call.filters]), [
+    ['bnms_dd_beta_provider_history', {
+      id: RECORD_ID, tenant_id: 'tenant-1', accounting_reconciled: false,
+    }],
+    ['bnms_dd_beta_invoice_link', {
+      history_id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+    }],
+  ]);
+});
+
+test('beta invoice link cannot authorize a different member and missing link storage is explicit', async () => {
+  let fetchCalled = false;
+  let db = dbMock({
+    betaRecord: {
+      id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-2',
+      accounting_reconciled: false,
+    },
+  });
+  let res = await invoke(endpoint({
+    db,
+    fetchPdf: async () => { fetchCalled = true; return Buffer.from(''); },
+  }), { recordId: RECORD_ID, source: 'beta_provider_history' });
+  assert.equal(res.statusCode, 403);
+  assert.equal(db.calls.length, 1);
+  assert.equal(fetchCalled, false);
+
+  db = dbMock({
+    betaRecord: {
+      id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      accounting_reconciled: false,
+    },
+    betaLinkError: { code: '42P01' },
+  });
+  res = await invoke(endpoint({ db }), {
+    recordId: RECORD_ID, source: 'beta_provider_history',
+  });
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED');
 });

@@ -71,6 +71,15 @@ async function invoiceError(response, fallback) {
   return new Error(payload.error || fallback);
 }
 
+export function historicalDdInvoiceUrl(payment, inline = false) {
+  const params = new URLSearchParams({
+    recordId: payment.id,
+    source: payment.source || "pilot_historical_ledger",
+  });
+  if (inline) params.set("inline", "true");
+  return `/api/membership/historical-dd-invoice?${params.toString()}`;
+}
+
 export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
   const [loading, setLoading] = useState(null);
   const [invoiceErrorMessage, setInvoiceErrorMessage] = useState(null);
@@ -99,9 +108,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
   }, []);
 
   const fetchInvoice = async (payment, inline, controller) => {
-    const params = new URLSearchParams({ recordId: payment.id });
-    if (inline) params.set("inline", "true");
-    const response = await request(`/api/membership/historical-dd-invoice?${params.toString()}`, {
+    const response = await request(historicalDdInvoiceUrl(payment, inline), {
       credentials: "include",
       signal: controller.signal,
     });
@@ -179,6 +186,8 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
             const invoiceAvailable = isHistoricalDdInvoiceAvailable(payment);
             const providerOnly = payment.provider_only
               || payment.provenance === "provider_evidence_only";
+            const betaReconciled = payment.source === "beta_provider_history"
+              && payment.accounting_reconciled;
             return (
               <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
               <td className="p-2">
@@ -191,7 +200,9 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                   {payment.period
                     ? <>Nominal period: {formatHistoricalDdDate(payment.period, { monthOnly: true })}{" · "}</>
                     : null}
-                  {providerOnly ? "Provider history only" : "Imported historical payment"}
+                  {providerOnly
+                    ? "Provider history only"
+                    : (betaReconciled ? "Reconciled provider history" : "Imported historical payment")}
                 </p>
               </td>
               <td className="p-2 text-right whitespace-nowrap">
@@ -199,7 +210,9 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
               </td>
               <td className="p-2">
                 <Badge variant="outline">
-                  {providerOnly ? "Provider evidence · unreconciled" : "Imported evidence"}
+                  {providerOnly
+                    ? "Provider evidence · unreconciled"
+                    : (betaReconciled ? "Provider + accounting evidence · reconciled" : "Imported evidence")}
                 </Badge>
               </td>
               <td className="p-2">
@@ -282,7 +295,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
       </MonthlyCollectionTable>
       <p className="p-3 text-xs text-muted-foreground border-t">
         Imported historical records are read-only and never trigger a collection, retry, refund or accounting action.
-        {' '}Provider-only records are not accounting reconciliations and have no invoice or download.
+        {' '}Unreconciled provider-only records have no invoice or download.
         {' '}They do not settle an upcoming term, activate payment, or establish current membership entitlement or its end date.
       </p>
       <Dialog open={!!preview} onOpenChange={(open) => { if (!open) revokePreview(); }}>

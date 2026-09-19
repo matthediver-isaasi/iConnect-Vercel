@@ -3,6 +3,8 @@ name: BNMS renewal reconciliation scope
 description: Agreed scope and evidence boundaries for BNMS migration review spreadsheets.
 ---
 
+**Historical invoice identity lesson:** Live Xero can contain two distinct invoice IDs with the same invoice number, even both marked paid. For existing GoCardless history, resolve with the exact Xero payment Reference matching the provider payment ID plus verified contact, amount/currency and period; invoice number or paid status alone is not ownership proof. Reject multiple exact matches rather than guessing. Future BNMS alpha tooling must enforce full historical-invoice identity coverage and explicitly block missing matches (see the brief near the top of replit.md).
+
 Reconcile one exact `member_class` at a time, beginning with invoices dated within the last twelve months. Deliver one Excel workbook with exactly two sheets: ready-to-set-up members and members needing completion. Use the same columns on both, with editable business fields, fixed-choice dropdowns, in-cell guidance and concise missing-information checklists, not separate evidence tabs.
 
 **Why:** The user chose class-by-class review because structures have different nominal codes and billing patterns, then requested a simpler completion template that can be returned for a controlled import. Broad historical candidate lists obscured recurring invoice series and counted copies from multiple sources separately.

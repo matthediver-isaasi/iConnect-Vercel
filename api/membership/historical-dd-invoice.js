@@ -60,6 +60,12 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
           || !['true', 'false'].includes(String(req.query.inline)))) {
       return res.status(400).json({ error: 'inline must be true or false' });
     }
+    const source = req.query?.source === undefined
+      ? 'pilot_historical_ledger'
+      : (Array.isArray(req.query.source) ? null : req.query.source);
+    if (!['pilot_historical_ledger', 'beta_provider_history'].includes(source)) {
+      return res.status(400).json({ error: 'source is invalid' });
+    }
 
     let sessionMember;
     let context;
@@ -116,27 +122,62 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
         }
       }
 
-      const { data: record, error: recordError } = await db
-        .from('bnms_dd_historical_payment')
-        .select('id, tenant_id, member_id, xero_invoice_id, xero_invoice_number, historical_only')
-        .eq('id', recordId)
-        .eq('tenant_id', tenantId)
-        .eq('historical_only', true)
-        .maybeSingle();
+      const recordQuery = source === 'beta_provider_history'
+        ? db
+          .from('bnms_dd_beta_provider_history')
+          .select('id, tenant_id, member_id, accounting_reconciled')
+          .eq('id', recordId)
+          .eq('tenant_id', tenantId)
+          .eq('accounting_reconciled', false)
+        : db
+          .from('bnms_dd_historical_payment')
+          .select('id, tenant_id, member_id, xero_invoice_id, xero_invoice_number, historical_only')
+          .eq('id', recordId)
+          .eq('tenant_id', tenantId)
+          .eq('historical_only', true);
+      const { data: persistedRecord, error: recordError } = await recordQuery.maybeSingle();
       if (recordError) {
         if (MIGRATION_ERROR_CODES.has(recordError.code)) {
           return res.status(503).json({
-            error: 'Historical Direct Debit storage is not installed',
-            code: 'HISTORICAL_DD_MIGRATION_NOT_INSTALLED',
+            error: source === 'beta_provider_history'
+              ? 'Beta historical Direct Debit storage is not installed'
+              : 'Historical Direct Debit storage is not installed',
+            code: source === 'beta_provider_history'
+              ? 'HISTORICAL_DD_BETA_MIGRATION_NOT_INSTALLED'
+              : 'HISTORICAL_DD_MIGRATION_NOT_INSTALLED',
           });
         }
         throw recordError;
       }
-      if (!record) {
+      if (!persistedRecord) {
         return res.status(404).json({ error: 'Historical Direct Debit invoice not found' });
       }
-      if (!isAdmin && (!sessionMember?.id || record.member_id !== sessionMember.id)) {
+      if (!isAdmin && (!sessionMember?.id || persistedRecord.member_id !== sessionMember.id)) {
         return res.status(403).json({ error: 'Not authorized to view this invoice' });
+      }
+
+      let record = persistedRecord;
+      if (source === 'beta_provider_history') {
+        const { data: link, error: linkError } = await db
+          .from('bnms_dd_beta_invoice_link')
+          .select('history_id, tenant_id, member_id, xero_invoice_id, xero_invoice_number')
+          .eq('history_id', persistedRecord.id)
+          .eq('tenant_id', tenantId)
+          .eq('member_id', persistedRecord.member_id)
+          .maybeSingle();
+        if (linkError) {
+          if (MIGRATION_ERROR_CODES.has(linkError.code)) {
+            return res.status(503).json({
+              error: 'Beta historical invoice reconciliation storage is not installed',
+              code: 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED',
+            });
+          }
+          throw linkError;
+        }
+        if (!link) {
+          return res.status(404).json({ error: 'No invoice is linked to this historical payment' });
+        }
+        record = link;
       }
       if (!record.xero_invoice_id) {
         return res.status(404).json({ error: 'No invoice is linked to this historical payment' });

@@ -7,6 +7,7 @@ import {
   formatHistoricalDdAmount,
   formatHistoricalDdDate,
   historicalInvoiceFilename,
+  historicalDdInvoiceUrl,
   HistoricalDdPaymentsTable,
   isHistoricalDdInvoiceAvailable,
 } from './HistoricalDdPayments.jsx';
@@ -21,9 +22,25 @@ test('read-only renderer only uses authenticated GET requests for invoices', () 
   const source = readFileSync(new URL('./HistoricalDdPayments.jsx', import.meta.url), 'utf8');
   assert.match(source, /historical-dd-invoice/);
   assert.match(source, /credentials:\s*"include"/);
+  assert.match(source, /source:\s*payment\.source\s*\|\|\s*"pilot_historical_ledger"/);
   assert.doesNotMatch(source, /xero_invoice_url/);
   assert.match(source, /read-only and never trigger a collection, retry, refund or accounting action/);
   assert.doesNotMatch(source, /method:\s*["']POST/);
+});
+
+test('invoice requests include the historical source and never a provider payment id', () => {
+  assert.equal(
+    historicalDdInvoiceUrl({
+      id: 'history-row-id',
+      source: 'beta_provider_history',
+      provider_payment_id: 'provider-id-must-not-be-used',
+    }),
+    '/api/membership/historical-dd-invoice?recordId=history-row-id&source=beta_provider_history',
+  );
+  assert.equal(
+    historicalDdInvoiceUrl({ id: 'pilot-row-id' }, true),
+    '/api/membership/historical-dd-invoice?recordId=pilot-row-id&source=pilot_historical_ledger&inline=true',
+  );
 });
 
 test('safe invoice filenames prefer Content-Disposition and fall back to persisted display values', () => {
@@ -165,6 +182,30 @@ test('beta provider history is clearly unreconciled and exposes no invoice actio
   assert.doesNotMatch(html, /button-view-historical-dd-invoice-beta-provider/);
   assert.doesNotMatch(html, /button-download-historical-dd-invoice-beta-provider/);
   assert.doesNotMatch(html, /Nominal period: Unknown/);
+});
+
+test('reconciled beta history exposes protected invoice actions and keeps its historical row id', () => {
+  const html = renderToStaticMarkup(React.createElement(HistoricalDdPaymentsTable, {
+    request: async () => { throw new Error('not called during render'); },
+    payments: [{
+      id: 'beta-linked',
+      source: 'beta_provider_history',
+      charge_date: '2026-09-09',
+      amount_minor: 1425,
+      currency: 'GBP',
+      provider_status: 'paid_out',
+      provider_only: false,
+      provenance: 'provider_and_accounting_evidence',
+      accounting_reconciled: true,
+      xero_invoice_number: 'BETA-10',
+      invoice_available: true,
+    }],
+  }));
+  assert.match(html, /Reconciled provider history/);
+  assert.match(html, /Provider \+ accounting evidence · reconciled/);
+  assert.match(html, /button-view-historical-dd-invoice-beta-linked/);
+  assert.match(html, /button-download-historical-dd-invoice-beta-linked/);
+  assert.doesNotMatch(html, /Provider evidence · unreconciled/);
 });
 
 test('both existing member surfaces include historical DD records', () => {

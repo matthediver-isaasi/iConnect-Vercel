@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import pg from 'pg';
 import {betaManifest,adoptBeta} from './bnms-dd-beta-adoption.mjs';
 import {parseArgs,applyBetaSchema} from './run-bnms-dd-beta-adoption.mjs';
+import {applyInvoiceSchema,sqlHash} from './bnms-dd-beta-invoices.mjs';
 import {TENANT_ID,digest} from './bnms-dd-pilot.mjs';
 import {processGocardlessEvent} from '../api/_lib/gocardlessWebhookProcessor.js';
 import {postDdInstalmentToAccounting} from '../api/_lib/gocardlessAccounting.js';
@@ -183,5 +184,10 @@ test('isolated PostgreSQL beta schema, atomic held import, rollback, replay and 
     assert.equal((await c.query('SELECT count(*)::integer AS n FROM gocardless_payments')).rows[0].n,0);
     await assert.rejects(c.query("UPDATE bnms_dd_beta_provider_history SET evidence='{}'"),/immutable/);
     await assert.rejects(c.query("INSERT INTO bnms_dd_beta_batch(tenant_id,evidence_sha256,evidence) VALUES($1,$2,'{}')",[TENANT_ID,'a'.repeat(64)]),/ten adoptions/);
+    // Independent append-only invoice schema must not invalidate the original
+    // beta-held catalog fingerprint or weaken its collection guards.
+    const invoiceSql=await readFile(new URL('../supabase/migrations/20261109_bnms_dd_beta_invoice_links.sql',import.meta.url),'utf8');
+    await applyInvoiceSchema(c,invoiceSql,sqlHash(invoiceSql));
+    assert.equal((await applyBetaSchema(c,schema,digest(schema))).mode,'schema_replay');
   }finally{await c?.end();if(started)run('pg_ctl',['-D',data,'-m','immediate','-w','stop']);await rm(root,{recursive:true,force:true});}
 });

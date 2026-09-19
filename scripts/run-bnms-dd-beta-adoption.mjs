@@ -30,7 +30,7 @@ export async function betaSchemaCatalogHash(c){
       AND c.relnamespace='public'::regnamespace AND (t.tgname LIKE 'bnms_dd_beta_%' OR c.relname LIKE 'bnms_dd_beta_%')
     UNION ALL SELECT 'policy',tablename||'.'||policyname,row_to_json(p)::text FROM pg_policies p
       WHERE schemaname='public' AND tablename LIKE 'bnms_dd_beta_%'
-  ) evidence ORDER BY kind,name`);
+  ) evidence WHERE name NOT LIKE 'bnms_dd_beta_invoice%' ORDER BY kind,name`);
   return fingerprint(result.rows);
 }
 export async function applyBetaSchema(c,sql,reviewSha256){
@@ -128,9 +128,14 @@ export async function main(args=process.argv.slice(2)){
     result=await adoptBeta(c,manifest,{apply:o.apply,reviewSha256:o.reviewSha256,verifiedDestination:true});
   }
   finally{await c.end();}
-  await file.writeFile(JSON.stringify({...result,providerProof,firstManagedDate:START,accountingReconciled:false,collectionHeld:true},null,2));
+  // This legacy pinned beta stage is NOT an alpha importer or a complete import.
+  // Future alpha completion must use assertHistoricalInvoicesComplete from
+  // bnms-dd-beta-invoices.mjs against the full historical-payment set.
+  await file.writeFile(JSON.stringify({...result,providerProof,firstManagedDate:START,accountingReconciled:false,
+    importComplete:false,completionStatus:'provider_only_incomplete',historicalInvoicesRequired:true,collectionHeld:true},null,2));
   console.log(JSON.stringify({mode:result.mode,hash:result.hash,writes:result.writes,plannedRows:result.plannedRows,
-    historicalRows:result.historicalRows,mirrorRows:result.mirrorRows,migrationRequired:result.migrationRequired,providerWrites:0,out:resolve(o.out)}));
+    historicalRows:result.historicalRows,mirrorRows:result.mirrorRows,migrationRequired:result.migrationRequired,
+    importComplete:false,completionStatus:'provider_only_incomplete',historicalInvoicesRequired:true,providerWrites:0,out:resolve(o.out)}));
   } finally { await file.close(); }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(e=>{

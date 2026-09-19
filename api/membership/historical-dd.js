@@ -127,6 +127,29 @@ export function createHistoricalDdHandler(dependencies = {}) {
       return res.status(500).json({ error: 'Failed to load historical Direct Debit payments' });
     }
 
+    const { data: betaInvoiceLinks, error: betaInvoiceLinkError } = await db
+      .from('bnms_dd_beta_invoice_link')
+      .select('history_id, tenant_id, member_id, xero_invoice_id, xero_invoice_number')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', requestedMemberId)
+      .order('created_at', { ascending: false });
+    if (betaInvoiceLinkError) {
+      if (MIGRATION_ERROR_CODES.has(betaInvoiceLinkError.code)) {
+        return res.status(503).json({
+          error: 'Beta historical invoice reconciliation storage is not installed',
+          code: 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED',
+        });
+      }
+      console.error('[historical-dd] Beta invoice link lookup failed:', betaInvoiceLinkError);
+      return res.status(500).json({ error: 'Failed to load historical Direct Debit invoices' });
+    }
+
+    // Do not infer reconciliation from the immutable provider-history flag.
+    // Only an exact, tenant/member-scoped reconciliation link is authoritative.
+    const betaLinksByHistoryId = new Map((betaInvoiceLinks || [])
+      .filter((link) => link.tenant_id === tenantId && link.member_id === requestedMemberId)
+      .map((link) => [link.history_id, link]));
+
     const pilotPayments = (pilotData || []).map((row) => ({
       id: row.id,
       period: row.period,
@@ -147,24 +170,33 @@ export function createHistoricalDdHandler(dependencies = {}) {
       provider_only: false,
       accounting_reconciled: true,
     }));
-    const betaPayments = (betaData || []).map((row) => ({
-      id: row.id,
-      period: null,
-      charge_date: row.charge_date,
-      amount_minor: row.amount_minor,
-      currency: row.currency,
-      provider_payment_id: row.provider_payment_id,
-      provider_status: row.provider_status,
-      xero_invoice_id: null,
-      xero_invoice_number: null,
-      invoice_available: false,
-      invoice_unavailable_reason: 'accounting_unreconciled',
-      historical_only: true,
-      source: 'beta_provider_history',
-      provenance: 'provider_evidence_only',
-      provider_only: true,
-      accounting_reconciled: false,
-    }));
+    const betaPayments = (betaData || []).map((row) => {
+      const link = betaLinksByHistoryId.get(row.id);
+      const isReconciled = !!link;
+      const hasInvoice = isReconciled && !!link.xero_invoice_id;
+      return {
+        id: row.id,
+        period: null,
+        charge_date: row.charge_date,
+        amount_minor: row.amount_minor,
+        currency: row.currency,
+        provider_payment_id: row.provider_payment_id,
+        provider_status: row.provider_status,
+        xero_invoice_id: canAccessInvoices && hasInvoice ? link.xero_invoice_id : null,
+        xero_invoice_number: canAccessInvoices && isReconciled ? link.xero_invoice_number : null,
+        invoice_available: canAccessInvoices && hasInvoice,
+        invoice_unavailable_reason: !canAccessInvoices
+          ? 'permission_denied'
+          : (hasInvoice ? null : (isReconciled ? 'not_linked' : 'accounting_unreconciled')),
+        historical_only: true,
+        source: 'beta_provider_history',
+        provenance: isReconciled
+          ? 'provider_and_accounting_evidence'
+          : 'provider_evidence_only',
+        provider_only: !isReconciled,
+        accounting_reconciled: isReconciled,
+      };
+    });
 
     return res.json({
       payments: [...pilotPayments, ...betaPayments].sort((a, b) =>
