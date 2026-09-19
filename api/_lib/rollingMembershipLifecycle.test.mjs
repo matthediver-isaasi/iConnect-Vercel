@@ -36,6 +36,10 @@ before(async () => {
     'emailService.js': 'export const replacePlaceholders = null;',
     'transactionalInbox.js': 'export const buildInboxDelivery = null; export const recordTransactionalInboxMessage = null; export const resolveCommunicationCategoryIdForLabel = null;',
     'memberPause.js': 'export const getPausedMemberIdSet = null;',
+    'reminderPaymentQuote.js': 'export const requestsReminderPaymentLink = () => false; export const resolveReminderPaymentQuote = () => { throw new Error("Payment effects forbidden in lifecycle tests"); };',
+    'membershipFeeTokenEmail.js': 'export const prepareMembershipFeeToken = () => { throw new Error("Payment effects forbidden in lifecycle tests"); };',
+    'membershipAddons.js': 'export const loadAddonLines = null; export const computeAddonTotals = null; export const buildAddonDisplayLines = null;',
+    'stripeCredentials.js': 'export const getStripeCredentials = () => { throw new Error("Provider configuration reads forbidden in lifecycle tests"); };',
     'session.js': 'export const invalidateMemberSessions = () => { throw new Error("Session effects forbidden in lifecycle tests"); };',
   };
   for (const [file, content] of Object.entries(stubs)) await writeFile(path.join(lib, file), content);

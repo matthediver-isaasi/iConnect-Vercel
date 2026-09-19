@@ -153,3 +153,4 @@
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
+- [Renewal reminder quotes](renewal-reminder-payment-links.md) — browser completion and webhook reconciliation must honor the same successor quote; preparation must not send a second email.

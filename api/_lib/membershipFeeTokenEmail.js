@@ -184,7 +184,7 @@ function buildBreakdownRows(currencySymbol, costBreakdown, finalCost, feeLineLab
  *
  * @returns {Promise<{ success: boolean, token?: string, paymentUrl?: string, sentTo?: string[], failed?: string[], error?: string }>}
  */
-export async function sendMembershipFeeTokenEmail({
+export async function prepareMembershipFeeToken({
   client = defaultSupabase,
   tenantId,
   organizationId = null,
@@ -204,6 +204,7 @@ export async function sendMembershipFeeTokenEmail({
   xeroOnlineInvoiceUrl = null,
   historyRecordId = null,
   requireAtomicMemberClaim = false,
+  reminderQuote = false,
 }) {
   if (!client) return { success: false, error: 'Database not configured' };
   if (!organizationId && !memberId) {
@@ -252,8 +253,10 @@ export async function sendMembershipFeeTokenEmail({
     return { success: false, error: 'No recipient email available' };
   }
 
-  await ensureTokenTable(client);
-  if (memberId) await ensureMemberTokenColumns(client);
+  if (!reminderQuote) {
+    await ensureTokenTable(client);
+    if (memberId) await ensureMemberTokenColumns(client);
+  }
 
   // Idempotency: if a non-terminal token already exists for this
   // (tenant, org, year), reuse it instead of minting a duplicate. Manual
@@ -269,7 +272,31 @@ export async function sendMembershipFeeTokenEmail({
   let expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   let atomicallyClaimed = false;
 
-  if (memberId) {
+  if (reminderQuote || !memberId) {
+    const { data: claim, error } = await client.rpc('claim_reminder_fee_token', {
+      p_tenant_id: tenantId, p_member_id: memberId, p_organization_id: organizationId,
+      p_membership_year: membershipYear, p_candidate_token: crypto.randomBytes(32).toString('hex'),
+      p_expires_at: expiresAt.toISOString(),
+      p_snapshot: { preparation_mode: reminderQuote ? 'reminder' : 'email',
+        final_cost: finalCost, currency, tier_label: tierLabel, cost_breakdown: costBreakdown, po_number: poNumber,
+        recipient_email: toEmails.join(', '), history_record_id: historyRecordId,
+        xero_invoice_id: xeroInvoiceId, xero_invoice_number: xeroInvoiceNumber,
+        xero_online_invoice_url: xeroOnlineInvoiceUrl },
+    });
+    if (error || !claim?.token) return { success: false, error: error?.message || claim?.error || 'Payment quote is unavailable' };
+    token = claim.token;
+    tokenId = claim.id;
+    expiresAt = new Date(claim.expires_at);
+    finalCost = claim.final_cost;
+    currency = claim.currency;
+    tierLabel = claim.tier_label;
+    costBreakdown = claim.cost_breakdown;
+    historyRecordId = claim.history_record_id || null;
+    xeroInvoiceId = claim.xero_invoice_id || null;
+    xeroInvoiceNumber = claim.xero_invoice_number || null;
+    xeroOnlineInvoiceUrl = claim.xero_online_invoice_url || null;
+    atomicallyClaimed = true;
+  } else if (memberId) {
     const candidateToken = crypto.randomBytes(32).toString('hex');
     const snapshot = {
       final_cost: finalCost,
@@ -437,16 +464,29 @@ export async function sendMembershipFeeTokenEmail({
     }
   }
 
-  const { data: tenant } = await client
+  const { data: tenant, error: tenantError } = await client
     .from('tenant')
     .select('name, slug, primary_color, logo_url')
     .eq('id', tenantId)
     .maybeSingle();
+  if (reminderQuote && (tenantError || !tenant)) return { success: false, error: 'Could not resolve payment-link tenant' };
 
   const tenantSlug = tenant?.slug;
   const paymentUrl = tenantSlug
     ? `https://${tenantSlug}.${APP_DOMAIN}/membership-fees/${token}`
     : `https://${APP_DOMAIN}/membership-fees/${token}`;
+
+  return { success: true, token, tokenId, paymentUrl, expiresAt, tenant, toEmails,
+    finalCost, currency, tierLabel, costBreakdown, historyRecordId, xeroInvoiceId };
+}
+
+export async function sendMembershipFeeTokenEmail(options) {
+  const prepared = await prepareMembershipFeeToken(options);
+  if (!prepared.success) return prepared;
+  const { token, paymentUrl, expiresAt, tenant, toEmails, finalCost, currency, tierLabel, costBreakdown } = prepared;
+  const { client = defaultSupabase, tenantId, organizationName, membershipYear,
+    tierConfig = null, stripeEnabled = false, poNumber = null,
+    xeroInvoiceNumber = null, xeroOnlineInvoiceUrl = null } = options;
 
   const tenantName = tenant?.name || 'Organisation';
   const primaryColor = tenant?.primary_color || '#5C0085';

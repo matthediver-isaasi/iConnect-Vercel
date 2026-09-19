@@ -3,6 +3,56 @@ import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalP
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
 
+// Reminder quotes are consent-time snapshots, not a request to reprice at
+// checkout. Rolling tokens already carry the richer commitment snapshot.
+export function simulationFromRenewalQuote(token) {
+  const quote = token.cost_breakdown?.renewalQuote;
+  if (!quote) return null;
+  if (!quote.config || quote.membershipYear?.label !== token.membership_year
+      || !quote.membershipYear?.start || !quote.membershipYear?.end
+      || !Number.isFinite(Date.parse(quote.membershipYear.start))
+      || !Number.isFinite(Date.parse(quote.membershipYear.end))
+      || Date.parse(quote.membershipYear.start) > Date.parse(quote.membershipYear.end)) {
+    throw new Error('The saved renewal quote is incomplete; please contact an administrator.');
+  }
+  const cb = token.cost_breakdown;
+  return {
+    ...cb, success: true, config: quote.config,
+    membershipYear: quote.membershipYear, previousTerm: quote.previousTerm,
+    existingRecord: token.history_record_id ? { id: token.history_record_id } : null,
+    finalCost: Number(token.final_cost), totalWithVat: Number(cb.totalWithVat ?? token.final_cost),
+    currency: token.currency, tierLabel: token.tier_label,
+    billingPeriod: quote.config.billing_period || 'annual',
+  };
+}
+
+function savedFeeSimulation(token) {
+  return simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
+}
+
+export function publicFeeBreakdown(breakdown = {}) {
+  const keys = [
+    'annualCost', 'annualCostBeforeDiscounts', 'customDiscountTotal', 'dailyCost',
+    'freeDiscount', 'freePeriodAmount', 'freePeriodDaysApplied', 'freePeriodUnit',
+    'prorataCost', 'prorataDays', 'proRataEnabled', 'yearNumber', 'rolloverDiscount',
+    'vatAmount', 'vatRatePercent', 'totalWithVat',
+  ];
+  return Object.fromEntries(keys.filter(key => Object.hasOwn(breakdown, key)).map(key => [key, breakdown[key]]));
+}
+
+export function renewalQuoteActivationFields(token, now = new Date()) {
+  const quote = token.cost_breakdown?.renewalQuote;
+  if (!quote) return {};
+  const start = String(quote.membershipYear.start).slice(0, 10);
+  const early = now.toISOString().slice(0, 10) < start;
+  return {
+    term_start_date: start, term_end_date: String(quote.membershipYear.end).slice(0, 10),
+    status: early ? 'scheduled' : 'active',
+    scheduled_activation_date: early ? start : null,
+    annual_renewal_state: 'renewed',
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -56,6 +106,11 @@ export default async function handler(req, res) {
     // organization_id. Their approval checks, history table, notes and
     // Direct Debit option all branch on this flag.
     const isMemberToken = !!feeToken.member_id;
+    const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote;
+    // Reminder checkout is an upfront renewal, not a new recurring agreement.
+    // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
+    // still attach a PO to the existing debt through the established path.
+    const poAvailable = !isReminderToken || !!(feeToken.history_record_id && feeToken.xero_invoice_id);
     let tokenMember = null;
     if (isMemberToken) {
       const { data: m } = await supabase
@@ -107,17 +162,42 @@ export default async function handler(req, res) {
     };
     const annualRenewalGate = async () => {
       const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-      const simulation = simulationFromFeeCommitment(feeToken) || (isMemberToken
+      const simulation = savedFeeSimulation(feeToken) || (isMemberToken
         ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year })
         : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year }));
       if (!simulation.success) return { eligible: false, error: simulation.error || 'Could not validate annual renewal eligibility', code: 'annual_renewal_unavailable' };
-      return resolveEntityAnnualRenewalEligibility(supabase, {
+      const eligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
         tenantId: feeToken.tenant_id,
         memberId: isMemberToken ? feeToken.member_id : null,
         organizationId: isMemberToken ? null : feeToken.organization_id,
         config: simulation.config,
         membershipYear: simulation.membershipYear,
       });
+      // An invoice-backed history is a debt to settle, not evidence that
+      // renewal was paid. Only the exact owned, linked unpaid row qualifies.
+      if (eligibility.code === 'annual_renewal_already_exists' && feeToken.history_record_id) {
+        const { data: linked, error } = await supabase
+          .from(isMemberToken ? 'member_membership_history' : 'organisation_membership_history')
+          .select('*').eq('id', feeToken.history_record_id).eq('tenant_id', feeToken.tenant_id)
+          .eq(isMemberToken ? 'member_id' : 'organization_id', feeToken.member_id || feeToken.organization_id)
+          .eq('membership_year', feeToken.membership_year).maybeSingle();
+        if (error) throw new Error(`Could not verify the linked renewal: ${error.message}`);
+        if (linked && linked.payment_status !== 'paid' && !linked.paid_at
+            && !linked.billing_agreement_id && !['cancelled', 'void'].includes(linked.status)
+            && (linked.xero_invoice_id || linked.accounting_invoice_id || linked.term_key)) {
+          const { classifyAnnualRenewal, hasActiveMonthlyBillingAgreement } = await import('../../_lib/annualRenewalPolicy.js');
+          const hasMonthly = await hasActiveMonthlyBillingAgreement(supabase, {
+            tenantId: feeToken.tenant_id, memberId: feeToken.member_id, organizationId: feeToken.organization_id,
+          });
+          const checked = classifyAnnualRenewal({
+            previousRecord: feeToken.cost_breakdown?.renewalQuote?.previousTerm || simulation.previousTerm,
+            targetMembershipYear: simulation.membershipYear, config: simulation.config,
+            hasActiveMonthlyAgreement: hasMonthly,
+          });
+          return { ...eligibility, ...checked };
+        }
+      }
+      return eligibility;
     };
 
     if (req.method === 'GET') {
@@ -144,7 +224,7 @@ export default async function handler(req, res) {
       let renewalLifecycle = null;
       try {
         const { getConfigForOrganisation, getConfigForMember } = await import('../../_lib/membershipConfigResolver.js');
-        tierConfig = feeTokenCommitment(feeToken)?.commitment_snapshot?.config || (isMemberToken
+        tierConfig = savedFeeSimulation(feeToken)?.config || (isMemberToken
           ? await getConfigForMember(feeToken.tenant_id, feeToken.member_id)
           : await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id));
         if (tierConfig?.online_card_payment) {
@@ -160,19 +240,15 @@ export default async function handler(req, res) {
       // surface explains why its payment controls are unavailable.
       try {
         const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const lifecycleSimulation = simulationFromFeeCommitment(feeToken) || (isMemberToken
+        const lifecycleSimulation = savedFeeSimulation(feeToken) || (isMemberToken
           ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year })
           : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year }));
         if (lifecycleSimulation.success) {
-          renewalLifecycle = await resolveEntityAnnualRenewalEligibility(supabase, {
-            tenantId: feeToken.tenant_id,
-            memberId: isMemberToken ? feeToken.member_id : null,
-            organizationId: isMemberToken ? null : feeToken.organization_id,
-            config: lifecycleSimulation.config,
-            membershipYear: lifecycleSimulation.membershipYear,
-          });
+          renewalLifecycle = await annualRenewalGate();
         }
-      } catch {}
+      } catch (error) {
+        renewalLifecycle = { eligible: false, message: error.message };
+      }
 
       const breakdown = feeToken.cost_breakdown || {};
 
@@ -266,7 +342,7 @@ export default async function handler(req, res) {
         // Monthly card option (Task #3620): offered when the tier enables it
         // AND the tenant has usable Stripe membership credentials.
         try {
-          if (tierConfig?.card_monthly_enabled) {
+          if (!isReminderToken && tierConfig?.card_monthly_enabled) {
             const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
             const stripeCreds = await getStripeCredentials(feeToken.tenant_id, 'membership');
             if (stripeCreds?.secret_key) {
@@ -294,7 +370,7 @@ export default async function handler(req, res) {
         try {
           const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
           const creds = await getGocardlessCredentials(feeToken.tenant_id);
-          if (creds?.accessToken && tierConfig?.dd_enabled) {
+          if (!isReminderToken && creds?.accessToken && tierConfig?.dd_enabled) {
             const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
             const { resolveDdOffer, publicDdConsentTerms } = await import('../../_lib/gocardlessDirectDebit.js');
             const ddSim = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
@@ -393,18 +469,29 @@ export default async function handler(req, res) {
         renewal,
         renewalLifecycle: renewalLifecycle?.lifecycle || null,
         renewalAvailable: renewalLifecycle?.eligible !== false,
-        renewalMessage: renewalLifecycle?.eligible === false ? renewalLifecycle.error : null,
+        renewalMessage: renewalLifecycle?.eligible === false ? (renewalLifecycle.message || renewalLifecycle.error) : null,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
-        commitment: feeTokenCommitment(feeToken),
+        commitment: feeTokenCommitment(feeToken) ? {
+          term_start_date: feeTokenCommitment(feeToken).term_start_date,
+          term_end_date: feeTokenCommitment(feeToken).term_end_date,
+          membership_renewal_date: feeTokenCommitment(feeToken).membership_renewal_date,
+        } : null,
         finalCost: parseFloat(feeToken.final_cost),
         vatRatePercent: tokenVatRate,
         vatAmount: tokenVatAmount,
         totalWithVat: tokenTotalWithVat,
         currency: feeToken.currency || 'GBP',
         tierLabel: feeToken.tier_label,
-        costBreakdown: breakdown,
-        addonLines: addonLines && addonLines.length > 0 ? addonLines : [],
+        costBreakdown: publicFeeBreakdown(breakdown),
+        addonLines: (addonLines || []).map(line => ({
+          description: line.description, quantity: line.quantity, line_total: line.line_total,
+        })),
+        poAvailable,
+        paymentMethodsMessage: isReminderToken
+          ? 'This renewal link supports upfront card payment only. Monthly payment plans cannot be started here.'
+            + (poAvailable ? ' You may add a purchase order number to the existing invoice.' : ' To renew by purchase order or invoice, please contact your administrator.')
+          : null,
         poNumber: feeToken.po_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
@@ -428,6 +515,12 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const { action } = req.body;
+      if (isReminderToken && ['start_direct_debit', 'start_monthly_card'].includes(action)) {
+        return res.status(409).json({ code: 'renewal_upfront_only', error: 'This renewal link supports upfront payment only. Please contact your administrator about monthly payment plans.' });
+      }
+      if (action === 'submit_po' && !poAvailable) {
+        return res.status(409).json({ code: 'renewal_po_requires_invoice', error: 'A purchase order cannot activate this renewal. Please contact your administrator to arrange an invoice.' });
+      }
 
       // Task #1112 — confirm_payment must be able to recover a stuck-paid
       // token (status='paid' but no history row). Skip the "already paid"
@@ -668,10 +761,11 @@ export default async function handler(req, res) {
         const tokenBreakdown = feeToken.cost_breakdown || {};
         const chargeTotal = tokenBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
         const amount = Math.round(chargeTotal * 100);
-        if (reservedTerm && (feeToken.stripe_payment_intent_id || reservedTerm.stripe_payment_intent_id)) {
+        if ((reservedTerm || feeToken.cost_breakdown?.renewalQuote)
+            && (feeToken.stripe_payment_intent_id || reservedTerm?.stripe_payment_intent_id)) {
           const { retrieveTenantPaymentIntent } = await import('../../_lib/stripeCredentials.js');
           const recovered = await retrieveTenantPaymentIntent(feeToken.tenant_id, 'membership',
-            feeToken.stripe_payment_intent_id || reservedTerm.stripe_payment_intent_id);
+            feeToken.stripe_payment_intent_id || reservedTerm?.stripe_payment_intent_id);
           const existingIntent = recovered?.paymentIntent || recovered?.payment_intent || recovered;
           if (!existingIntent?.id || existingIntent.status === 'canceled'
               || existingIntent.amount !== amount
@@ -734,7 +828,8 @@ export default async function handler(req, res) {
             tenant_id: feeToken.tenant_id,
           },
           description: `Membership fee for ${payerName || 'Member'} - ${feeToken.membership_year}`,
-        }, reservedTerm ? { idempotencyKey: `rolling-fee-payment:${feeToken.tenant_id}:${reservedTerm.id}` } : undefined);
+        }, reservedTerm ? { idempotencyKey: `rolling-fee-payment:${feeToken.tenant_id}:${reservedTerm.id}` }
+          : feeToken.cost_breakdown?.renewalQuote ? { idempotencyKey: `renewal-fee-payment:${feeToken.tenant_id}:${feeToken.id}` } : undefined);
 
         const { error: paymentLinkError } = await supabase
           .from('membership_fee_token')
@@ -756,7 +851,7 @@ export default async function handler(req, res) {
 
       if (action === 'confirm_payment') {
         // A succeeded payment completes the bought quote, not today's offer.
-        const annualEligibility = feeTokenCommitment(feeToken)
+        const annualEligibility = savedFeeSimulation(feeToken)
           ? { eligible: true } : await annualRenewalGate();
         if (!annualEligibility.eligible) {
           return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
@@ -895,7 +990,7 @@ export default async function handler(req, res) {
           .eq('id', feeToken.id);
 
         const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = simulationFromFeeCommitment(feeToken) || (isMemberToken
+        const simResult = savedFeeSimulation(feeToken) || (isMemberToken
           ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
               source: 'stripe-payment',
               mode: 'manual',
@@ -944,6 +1039,10 @@ export default async function handler(req, res) {
                 .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
                 .eq('membership_year', feeToken.membership_year)
                 .maybeSingle()).data;
+            if (historyRecord && (historyRecord.payment_status === 'paid' || historyRecord.paid_at)
+                && historyRecord.stripe_payment_intent_id !== paymentIntentId) {
+              return confirmFailure('The linked renewal was already paid by another payment');
+            }
             if (historyRecord && !historyRecord.stripe_payment_intent_id) {
               await supabase
                 .from(historyTable)
@@ -1000,6 +1099,7 @@ export default async function handler(req, res) {
               payment_method: 'stripe',
               stripe_payment_intent_id: paymentIntentId,
               status: 'active',
+              ...renewalQuoteActivationFields(feeToken),
               ...(feeTokenCommitment(feeToken)
                 ? (await import('../../_lib/formMembershipPaymentQuote.js')).formPaymentActivationFields(feeTokenCommitment(feeToken))
                 : {}),

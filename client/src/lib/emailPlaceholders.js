@@ -22,6 +22,7 @@
  *   - api/functions/[functionName].js           (member/team invites)
  *   - api/pending-purchase-orders/index.js      (PO reminder emails)
  *   - api/_lib/membershipFeeTokenEmail.js       (membership fee-link emails)
+ *   - api/_lib/membershipReminders.js           (membership renewal reminders)
  *
  * Two syntaxes are supported by the engine:
  *   - {{token}}   — form-field / workflow-time substitutions
@@ -67,6 +68,7 @@ export const PLACEHOLDER_CONTEXTS = [
   'Purchase Order Reminders',
   'Article Brief Forms',
   'Membership Fee Link',
+  'Membership Renewal Reminders',
   'Vacancy Application Decisions',
   'Email Footer (all emails)',
 ];
@@ -1310,15 +1312,18 @@ export const EMAIL_PLACEHOLDERS = [
     'api/article-briefs/[briefId]/send-case-study-form.js',
   ),
 
-  // --- Membership Fees (fee-link email per tier; Task #995) ---
+  // --- Membership Fees (fee-link email per tier and renewal reminders) ---
   entry(
     '{{payment_link}}',
     PLACEHOLDER_SYNTAX.CURLY,
     'Membership Fees',
-    'HTML anchor pointing at the single-use payment / submit-PO page minted for the recipient. REQUIRED — the API refuses to save a tier whose chosen fee-link template is missing this token.',
-    ['Membership Fee Link'],
-    'api/_lib/membershipFeeTokenEmail.js',
-    { prerequisites: 'Tier must have a fee_link_email_template_id picked on the Pricing step.' },
+    'HTML anchor pointing at the personalised payment / submit-PO page. It is required in a selected fee-link email template and optional in a membership renewal reminder template.',
+    ['Membership Fee Link', 'Membership Renewal Reminders'],
+    'api/_lib/membershipFeeTokenEmail.js, api/_lib/membershipReminders.js',
+    {
+      prerequisites: 'Renewal reminders create a link only for an eligible upfront, non-recurring renewal after its separately configured renewal window opens.',
+      notes: 'If a linked reminder becomes due before renewal opens, delivery is deferred until the opening date. Active monthly card or Direct Debit renewals and already-paid successors do not receive a payment-link reminder. Reminder templates without this token remain informational and follow their existing schedule.',
+    },
   ),
   entry(
     '{{recipient_name}}',

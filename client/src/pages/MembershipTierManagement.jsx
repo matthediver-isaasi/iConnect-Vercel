@@ -3294,6 +3294,22 @@ export default function MembershipTierManagement() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
+        <Alert data-testid="alert-renewal-reminder-payment-links">
+          <Info className="h-4 w-4" />
+          <AlertDescription className="space-y-2">
+            <p>
+              Add <code className="text-xs">{'{{payment_link}}'}</code> to a reminder template to include a personalised link for an eligible upfront, non-recurring renewal. Payment creates the successor term after the current term ends; it does not shorten the current membership.
+            </p>
+            <p>
+              <strong>Renewal open days is a separate setting on the Period step.</strong>{' '}
+              Set it to at least the reminder&apos;s “before renewal” offset if the link should be sent on that reminder date. A linked reminder that becomes due before the window opens is deferred until the opening date. Members managed by monthly card or Direct Debit, and successors already paid, are not sent a payment-link reminder.
+            </p>
+            <p>
+              Templates without <code className="text-xs">{'{{payment_link}}'}</code> remain informational and keep their existing reminder behaviour. See{' '}
+              <a href="/EmailPlaceholders" className="underline" target="_blank" rel="noreferrer">Email Placeholders</a> for the placeholder reference.
+            </p>
+          </AlertDescription>
+        </Alert>
         {reminders.length === 0 ? (
           <div className="border border-dashed rounded-md p-6 text-center text-sm text-muted-foreground" data-testid="text-no-reminders">
             <Mail className="w-8 h-8 mx-auto mb-2 opacity-50" />

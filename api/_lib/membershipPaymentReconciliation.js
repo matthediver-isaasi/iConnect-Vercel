@@ -323,6 +323,27 @@ export async function recordSucceededMembershipPaymentIntent(
       } catch (error) {
         return { status: 'unmatched', table, detail: `Cannot recover fee commitment: ${error.message}` };
       }
+    } else if (feeToken?.cost_breakdown?.renewalQuote) {
+      const cb = feeToken.cost_breakdown;
+      const quote = cb.renewalQuote;
+      const start = String(quote.membershipYear?.start || '').slice(0, 10);
+      const end = String(quote.membershipYear?.end || '').slice(0, 10);
+      if (!quote.config?.id || quote.membershipYear?.label !== md.membership_year
+          || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)
+          || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || start > end
+          || Math.round(Number(cb.totalWithVat ?? feeToken.final_cost) * 100) !== pi.amount
+          || String(feeToken.currency).toLowerCase() !== String(pi.currency).toLowerCase()) {
+        return { status: 'conflict', table, detail: 'Saved renewal quote does not match the captured amount, currency or term' };
+      }
+      const early = new Date().toISOString().slice(0, 10) < start;
+      savedFields = {
+        config_id: quote.config.id, tier_label: feeToken.tier_label,
+        annual_cost: cb.annualCost, billing_period: quote.config.billing_period || 'annual',
+        term_start_date: start, term_end_date: end,
+        status: early ? 'scheduled' : 'active',
+        scheduled_activation_date: early ? start : null,
+        annual_renewal_state: 'renewed',
+      };
     } else if (md.membership_quote_id) {
       try {
         const { loadFormMembershipPaymentQuote, historyFromFormPaymentSnapshot, formPaymentActivationFields } = await import('./formMembershipPaymentQuote.js');

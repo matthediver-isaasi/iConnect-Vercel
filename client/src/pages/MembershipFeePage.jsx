@@ -554,7 +554,11 @@ export default function MembershipFeePage() {
           </div>
         )}
 
-        {!renewalBlocked && !poSubmitted && paymentMode !== 'stripe' && (
+        {data?.paymentMethodsMessage && (
+          <p className="text-sm text-gray-600" data-testid="text-renewal-payment-methods">{data.paymentMethodsMessage}</p>
+        )}
+
+        {!renewalBlocked && data?.poAvailable !== false && !poSubmitted && paymentMode !== 'stripe' && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">

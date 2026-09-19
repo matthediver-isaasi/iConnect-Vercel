@@ -1,13 +1,18 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-let root, pause, reminders, dd, card, setDatabase, setSimulationError, setTermError;
+let root, temporaryRoot, pause, reminders, dd, card, setDatabase, setSimulationError, setTermError;
 before(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), 'renewal-stage-budgets-'));
+  temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'renewal-stage-budgets-'));
+  root = path.join(temporaryRoot, 'api', '_lib');
+  await mkdir(root, { recursive: true });
+  await mkdir(path.join(temporaryRoot, 'shared'));
+  await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
+  await cp(new URL('../../shared/gocardlessCollectionPolicy.js', import.meta.url), path.join(temporaryRoot, 'shared', 'gocardlessCollectionPolicy.js'));
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
   for (const name of ['memberPause.js', 'membershipReminders.js', 'membershipRenewalBudget.js', 'gocardlessDdRenewals.js', 'stripeCardRenewals.js']) {
     await cp(new URL(name, import.meta.url), path.join(root, name));
@@ -19,8 +24,13 @@ before(async () => {
     'session.js': exports(['invalidateMemberSessions']),
     'gocardless.js': exports(['gocardlessForTenant', 'buildIdempotencyKey']),
     'gocardlessState.js': 'export const STATUS = {};',
+    'xero.js': exports(['assertBnmsPilotAccountingContext']),
     'membershipSimulation.js': 'let failure; export function setSimulationError(error) { failure = error; } export async function simulateMembershipForMember() { if (failure) throw failure; return { success: false }; } export const simulateMembershipForOrg = simulateMembershipForMember;',
     'tenantEmailService.js': exports(['sendTenantEmail']),
+    'reminderPaymentQuote.js': `export const requestsReminderPaymentLink = () => false; ${exports(['resolveReminderPaymentQuote'])}`,
+    'membershipFeeTokenEmail.js': exports(['prepareMembershipFeeToken']),
+    'membershipAddons.js': exports(['loadAddonLines', 'computeAddonTotals', 'buildAddonDisplayLines']),
+    'annualRenewalPolicy.js': exports(['deriveAnnualTerm']),
     'emailService.js': exports(['replacePlaceholders']),
     'transactionalInbox.js': exports(['buildInboxDelivery', 'recordTransactionalInboxMessage', 'resolveCommunicationCategoryIdForLabel']),
     'gocardlessDirectDebit.js': exports(['resolveDdOffer', 'buildAgreementSnapshot', 'findReusableMandate', 'ensureSubscriptionForAgreement', 'activateMembershipForAgreement']),
@@ -42,7 +52,7 @@ before(async () => {
   dd = await import(pathToFileURL(path.join(root, 'gocardlessDdRenewals.js')));
   card = await import(pathToFileURL(path.join(root, 'stripeCardRenewals.js')));
 });
-after(async () => { if (root) await rm(root, { recursive: true, force: true }); });
+after(async () => { if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true }); });
 
 const id = n => String(n).padStart(6, '0');
 function fakeDb(tables, { cap = 23, failTable = null } = {}) {

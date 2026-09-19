@@ -121,6 +121,14 @@ test('membership tier editor uses the annual structure boundary for policy contr
   assert.doesNotMatch(pageSource, /isAnnualNonRecurring/);
 });
 
+test('renewal reminder guidance explains linked-payment eligibility and scheduling', () => {
+  assert.match(pageSource, /alert-renewal-reminder-payment-links/);
+  assert.match(pageSource, /eligible upfront, non-recurring renewal/);
+  assert.match(pageSource, /Renewal open days is a separate setting on the Period step/);
+  assert.match(pageSource, /linked reminder that becomes due before the window opens is deferred/);
+  assert.match(pageSource, /Templates without .*payment_link.* remain informational/s);
+});
+
 test('page enters the structure browser first and editor renders only the loaded card', () => {
   assert.match(pageSource, /useState\('list'\)/);
   assert.match(pageSource, /data-testid="tier-structure-browser"/);
