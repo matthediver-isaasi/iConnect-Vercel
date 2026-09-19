@@ -209,6 +209,17 @@ function reflowSources(rowGroups) {
         fullWidth: group.fullWidth,
         growth: group.growth,
         signed: true,
+        // Signed rows are represented by one row-level source rather than the
+        // original member. Preserve the member's Section overflow eligibility
+        // on that synthetic source; otherwise a live-data block authored past
+        // its Section bottom is accepted by the opt-in check above but silently
+        // discarded while the Section's effective shrink is calculated.
+        allowSectionBottomOverflow: (group.members || []).some(
+          (member) => member?.allowSectionBottomOverflow === true,
+        ),
+        shrinkOwningSectionRelay: (group.members || []).some(
+          (member) => member?.shrinkOwningSectionRelay === true,
+        ),
       });
       continue;
     }
@@ -292,10 +303,24 @@ function liveTargetHeight(target, membersById) {
   return Number.isFinite(measuredHeight) ? measuredHeight : storedHeight;
 }
 
-function signedBaseOffset(sources, targetGeom, targetY) {
+function signedBaseOffset(sources, targetGeom, targetY, relayTargets) {
+  const signedContainerRelays = (relayTargets || [])
+    .map(relaySource)
+    .filter((source) => source?.signed);
   let offset = 0;
-  for (const source of sources) {
+  for (const source of [...sources, ...signedContainerRelays]) {
     if (!source.signed) continue;
+    // An opted-in live-data row delegates downstream shrink to its owning
+    // Section. Applying both the leaf's raw signed delta and the Section's
+    // effective shrink would pull following content through the preserved
+    // authored overflow. Inside the Section the leaf remains the source.
+    if (
+      source.shrinkOwningSectionRelay === true &&
+      signedContainerRelays.some((container) => (
+        targetY >= container.refBottom - SIGNED_ROW_PUSH_TOLERANCE &&
+        containsMember(container, source, { allowBottomOverflow: true })
+      ))
+    ) continue;
     if (
       source.refBottom - SIGNED_ROW_PUSH_TOLERANCE <= targetY &&
       horizontalReflowOverlap(source, targetGeom)
@@ -359,6 +384,10 @@ function relaySource(target) {
   if (!spatial) return null;
   return {
     id: spatial.id,
+    x: spatial.x,
+    y: spatial.y,
+    w: spatial.w,
+    h: spatial.h,
     top: spatial.top,
     bottom: spatial.bottom,
     refBottom: spatial.bottom,
@@ -372,7 +401,7 @@ function relaySource(target) {
     growth: Number.isFinite(spatial.signedContentShrink)
       ? spatial.signedContentShrink
       : 0,
-    signed: false,
+    signed: Number.isFinite(spatial.signedContentShrink) && spatial.signedContentShrink < 0,
   };
 }
 
@@ -406,7 +435,7 @@ function reflowPaths(sources, relayTargets, inheritedOffsets) {
     .sort((a, b) => a.top - b.top || a.refBottom - b.refBottom);
 
   for (const source of sorted) {
-    const baseOffset = signedBaseOffset(sources, source, source.top);
+    const baseOffset = signedBaseOffset(sources, source, source.top, relayTargets);
     const inheritedOffset = inheritedOffsetFor(inheritedOffsets, source.id);
     const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
     const preliminaryTop = source.top + preliminaryOffset;
@@ -436,7 +465,7 @@ export function offsetForTargetGeom(
   if (!targetGeom) return 0;
   const targetY = numericBound(targetGeom.y) ? targetGeom.y : 0;
   const sources = reflowSources(rowGroups);
-  const baseOffset = signedBaseOffset(sources, targetGeom, targetY);
+  const baseOffset = signedBaseOffset(sources, targetGeom, targetY, relayTargets);
   const inheritedOffset = inheritedOffsetFor(inheritedOffsets, targetGeom.id);
   const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
   const preliminaryY = targetY + preliminaryOffset;

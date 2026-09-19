@@ -46,3 +46,15 @@ or ordinary auto-height blocks, and retain independent static-child collisions.
 Derive relay shrink from the container's effective bounds, not the signed leaf's
 raw delta: a lower child in another horizontal lane can limit container shrink
 without colliding with the following block in the leaf's lane.
+
+An opted-in Section must also own signed displacement for targets outside it;
+do not apply the child's raw shrink again beyond that boundary.
+
+**Why:** When saved cards extend below their Section, the Section's effective
+shrink can be smaller than the cards' shrink. Correcting only the Section's
+height still lets the raw child delta consume intentional downstream spacing.
+
+**How to apply:** Test authored bottom-overflow layouts with both measured
+following text and static targets, and compare Section, child, and following
+bounds together. Preserve top-anchor overflow eligibility when converting
+measured members into synthetic row sources.

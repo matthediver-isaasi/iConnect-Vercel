@@ -1451,6 +1451,172 @@ test('Member Group Cards shrink the owning Section relay without losing authored
   );
 });
 
+test('Member Group Cards relay shrinks when its authored box overflows the Section bottom', () => {
+  const rows = buildReflowRowGroups([{
+    ...entry({
+      id: 'member-groups',
+      x: 0,
+      y: 1248,
+      w: 1192,
+      h: 2296,
+      measuredH: 1458,
+      signed: true,
+      fullWidth: true,
+      allowSectionBottomOverflow: true,
+    }),
+    shrinkOwningSectionRelay: true,
+  }]);
+  const section = {
+    id: 'groups-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 1008,
+    w: 1200,
+    h: 2248,
+    top: 1008,
+    bottom: 3256,
+  };
+  const cardsTarget = {
+    id: 'member-groups',
+    x: 0,
+    y: 1248,
+    w: 1192,
+    h: 2296,
+    top: 1248,
+    bottom: 3544,
+    fullWidth: true,
+    allowSectionBottomOverflow: true,
+  };
+
+  const signedContentShrink = signedContentShrinkForSection(
+    rows,
+    section,
+    [cardsTarget],
+    [section],
+  );
+  const following = {
+    id: 'following-heading',
+    x: 0,
+    y: 3624,
+    w: 328,
+    h: 65,
+    top: 3624,
+    bottom: 3689,
+  };
+  const adjustedSectionRelay = { ...section, signedContentShrink };
+
+  assert.equal(
+    signedContentShrink,
+    -550,
+    'the 838px live shrink preserves the 288px authored bottom overflow',
+  );
+  assert.equal(
+    offsetForTargetGeom(rows, following, [adjustedSectionRelay]),
+    -550,
+    'the Section effective shrink replaces the cards raw -838px downstream shrink',
+  );
+  assert.equal(
+    (following.y - 550) - (cardsTarget.y + 1458),
+    368,
+    'the saved Section-to-following gap remains intact',
+  );
+});
+
+test('Member Group Cards Section shrink moves the final static block exactly once', () => {
+  const rows = buildReflowRowGroups([
+    {
+      ...entry({
+        id: 'member-groups',
+        x: 0,
+        y: 1248,
+        w: 1192,
+        h: 2296,
+        measuredH: 1590,
+        signed: true,
+        fullWidth: true,
+        allowSectionBottomOverflow: true,
+      }),
+      shrinkOwningSectionRelay: true,
+    },
+    entry({
+      id: 'following-heading',
+      x: 0,
+      y: 3624,
+      w: 328,
+      h: 65,
+      measuredH: 65,
+    }),
+    entry({
+      id: 'following-copy',
+      x: 0,
+      y: 3689,
+      w: 525,
+      h: 409,
+      measuredH: 409,
+    }),
+  ]);
+  const section = {
+    id: 'groups-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 1008,
+    w: 1200,
+    h: 2248,
+    top: 1008,
+    bottom: 3256,
+  };
+  const cardsTarget = {
+    id: 'member-groups',
+    x: 0,
+    y: 1248,
+    w: 1192,
+    h: 2296,
+    top: 1248,
+    bottom: 3544,
+    fullWidth: true,
+    allowSectionBottomOverflow: true,
+  };
+  const signedContentShrink = signedContentShrinkForSection(
+    rows,
+    section,
+    [cardsTarget],
+    [section],
+  );
+  const adjustedSection = { ...section, signedContentShrink };
+  const terminal = block('terminal-section', BLOCK_TYPES.SECTION, 5107, 192, 0, 1200);
+  const blocks = [
+    block('member-groups', 'member-group-cards', 1248, 2296, 0, 1192),
+    block('following-heading', 'text', 3624, 65, 0, 328),
+    block('following-copy', 'text', 3689, 409, 0, 525),
+    terminal,
+  ];
+
+  assert.equal(rows[0].growth, -706);
+  assert.equal(signedContentShrink, -418);
+  assert.equal(
+    offsetForTargetGeom(rows, terminal.geom, [adjustedSection, {
+      ...terminal.geom,
+      id: terminal.id,
+      top: terminal.geom.y,
+      bottom: terminal.geom.y + terminal.geom.h,
+    }]),
+    -418,
+    'the raw card shrink is replaced by, not added to, its Section relay',
+  );
+  assert.equal(
+    computeReflowStageHeight({
+      baseHeight: 5299,
+      blocks,
+      resolveGeom,
+      rowGroups: rows,
+      relayTargets: [adjustedSection],
+      getContainerGrowth: () => 0,
+    }),
+    4881,
+    'the stage bottom follows the final block after one Section displacement',
+  );
+});
+
 test('Member Group Cards section relay follows loading, guest, and taller member measurements', () => {
   const section = {
     id: 'groups-section',
