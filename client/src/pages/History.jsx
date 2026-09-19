@@ -16,6 +16,7 @@ import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
+import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -1756,6 +1757,10 @@ export default function HistoryPage({ hasBanner }) {
                   )}
 
                   {/* Membership History Section */}
+                  <HistoricalDdPayments
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
                   {filteredMembershipHistory.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
@@ -1939,6 +1944,10 @@ export default function HistoryPage({ hasBanner }) {
 
                 {/* Membership Tab */}
                 <TabsContent value="membership" className="space-y-3">
+                  <HistoricalDdPayments
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
                   {(() => {
                     const pagination = paginateData(filteredMembershipHistory);
                     if (membershipHistoryFailed) {

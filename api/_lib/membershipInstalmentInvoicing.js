@@ -458,7 +458,7 @@ export async function resolveStripeInvoicePaymentIntent({
   return ids[0];
 }
 
-export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, stripePaymentIntentId = null, bankAccountSettingKey = null, strictBankAccount = false, idempotencyKey = null }) {
+export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, stripePaymentIntentId = null, bankAccountSettingKey = null, strictBankAccount = false, ddAccountingMigration = null, idempotencyKey = null }) {
   return provider.createMembershipInvoice({
     appTenantId: tenantId,
     organizationName: context.contactName,
@@ -481,6 +481,7 @@ export async function createInstalmentInvoice({ provider, tenantId, context, amo
     // strict: never fall back to the Stripe bank account for another rail —
     // an unresolvable account must surface as payment_recorded=false.
     strictBankAccount,
+    ddAccountingMigration,
     idempotencyKey,
     // The payment is a separate provider request with its own idempotency
     // key, so crash-after-payment can't double-pay on retry.
@@ -498,7 +499,7 @@ export function invoicePaymentRecorded(result) {
  * only (re-)apply the payment against it. Returns
  * { invoiceId, invoiceNumber, paymentRecorded }.
  */
-export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, stripePaymentIntentId = null, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, db }) {
+export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, stripePaymentIntentId = null, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, ddAccountingMigration = null, db }) {
   if (existingInvoiceId) {
     const result = await provider.applyStripePaymentToInvoice({
       appTenantId: agreement.tenant_id,
@@ -510,6 +511,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
       stripePaymentIntentId,
       bankAccountSettingKey,
       strictBankAccount,
+      ddAccountingMigration,
       // Same deterministic per-collection payment key as the create path —
       // retries after a crash-after-payment replay instead of double-paying.
       idempotencyKey: idempotencyKey ? `${idempotencyKey}-pay` : null,
@@ -521,6 +523,12 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     };
   }
   const context = await resolveInstalmentInvoiceContext({ agreement, snapshot, db });
+  if (ddAccountingMigration) {
+    if (provider.name !== 'xero' || context.currency !== 'GBP') {
+      throw new Error('BNMS pilot accounting requires Xero and GBP');
+    }
+    context.nominalCode = ddAccountingMigration.snapshot.revenue_account_code;
+  }
   const invoice = await createInstalmentInvoice({
     provider,
     tenantId: agreement.tenant_id,
@@ -531,6 +539,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     stripePaymentIntentId,
     bankAccountSettingKey,
     strictBankAccount,
+    ddAccountingMigration,
     idempotencyKey,
   });
   if (!invoice?.invoice_id) throw new Error('provider returned no invoice payload');

@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +32,11 @@ import {
   Eye, Download, PauseCircle
 } from "lucide-react";
 import { toast } from "sonner";
+import { getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import DirectDebitCommitmentDetails from "@/components/membership/DirectDebitCommitmentDetails";
+import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MemberMembershipInstalments, {
   getMembershipSource,
   isMonthlyMembershipRecord,
@@ -569,6 +572,11 @@ function MemberYearCostSection({
 
 export default function MemberMembershipTab({ memberId, memberEmail }) {
   const queryClient = useQueryClient();
+  const activeTenantId = useSyncExternalStore(
+    subscribeToActiveTenantId,
+    getActiveTenantId,
+    () => null,
+  );
   const [invoicingModes, setInvoicingModes] = useState({});
   const [invoiceDates, setInvoiceDates] = useState({});
   const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});
@@ -1828,6 +1836,12 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           )}
         </CardContent>
       </Card>
+
+      <HistoricalDdPayments
+        memberId={memberId}
+        activeTenantId={activeTenantId}
+        request={adminFetch}
+      />
 
       <Dialog open={invoiceModalOpen} onOpenChange={handleInvoiceModalClose}>
         <DialogContent className="max-w-4xl h-[90vh] p-0 flex flex-col">

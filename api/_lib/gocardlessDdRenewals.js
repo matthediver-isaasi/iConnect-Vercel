@@ -36,6 +36,7 @@ import {
 } from './gocardlessDirectDebit.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { STATUS } from './gocardlessState.js';
+import { assertBnmsPilotAccountingContext } from './xero.js';
 import { getPausedMemberIdSet } from './memberPause.js';
 import { renewalRows } from './membershipRenewalBudget.js';
 import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
@@ -46,6 +47,33 @@ import {
 } from './rollingMonthlyRenewal.js';
 
 export const RENEWAL_NOTICE_DAYS = 30;
+
+// The pilot's immutable accounting and nominated-day approval is not a
+// shared structure default. Restamp current prices/term, but carry only the
+// explicitly pinned pilot authority across subsequent management terms.
+export function buildDdRenewalSnapshot({ previousAgreement, offer, simResult, acceptedAt }) {
+  const prior = previousAgreement.metadata?.dd;
+  if (!prior?.accounting_migration) return buildAgreementSnapshot({ offer, simResult, acceptedAt });
+  const mapping = assertBnmsPilotAccountingContext(previousAgreement.tenant_id, {
+    snapshot: prior.accounting_migration, memberId: previousAgreement.member_id,
+    environment: previousAgreement.environment, provider: previousAgreement.provider,
+  });
+  if (previousAgreement.organization_id || prior.first_collection_rule !== 'nominated_day'
+    || prior.collection_day !== 1 || prior.currency !== 'GBP' || prior.invoicing_mode !== 'per_instalment'
+    || prior.collection_policy?.version !== 1 || prior.collection_policy.pricing_policy !== 'dynamic'
+    || prior.collection_policy.end_policy !== 'continue'
+    || offer.currency !== 'GBP' || offer.invoicingMode !== 'per_instalment'
+    || offer.collectionPolicy?.version !== 1 || offer.collectionPolicy.pricing_policy !== 'dynamic'
+    || offer.collectionPolicy.end_policy !== 'continue') {
+    throw new Error('BNMS pilot renewal requires immutable dynamic/continue, GBP, per-instalment and nominated day 1 authority');
+  }
+  const snapshot = buildAgreementSnapshot({
+    offer: { ...offer, firstCollectionRule: prior.first_collection_rule, collectionDay: prior.collection_day },
+    simResult, acceptedAt,
+  });
+  snapshot.accounting_migration = { ...mapping };
+  return snapshot;
+}
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -229,7 +257,7 @@ export async function executeAutoRenewal({ tenantId, memberId, organizationId, p
   if (rolling || simResult.previousTerm) {
     const reservation = await reserveRollingMonthlyRenewal({
       db, tenantId, memberId, organizationId, previousAgreement,
-      snapshot: buildAgreementSnapshot({ offer, simResult, acceptedAt: d.now().toISOString() }),
+      snapshot: buildDdRenewalSnapshot({ previousAgreement, offer, simResult, acceptedAt: d.now().toISOString() }),
       provider: 'gocardless', idempotencyKey: buildIdempotencyKey(organizationId ? 'dd-agree-org' : 'dd-agree', tenantId, ownerId, yearLabel),
     });
     let { agreement } = reservation;
@@ -275,7 +303,7 @@ export async function executeAutoRenewal({ tenantId, memberId, organizationId, p
 
   // Fresh immutable snapshot at CURRENT tier terms — never copied from the
   // previous agreement.
-  const snapshot = buildAgreementSnapshot({ offer, simResult });
+  const snapshot = buildDdRenewalSnapshot({ previousAgreement, offer, simResult });
 
   const { data: agreement, error: agreeErr } = await db
     .from('membership_billing_agreements')
