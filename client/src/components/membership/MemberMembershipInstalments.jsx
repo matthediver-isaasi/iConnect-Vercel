@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import MonthlyCollectionTable from "./MonthlyCollectionTable";
 
 /**
  * This endpoint is intentionally separate from the member membership summary.
@@ -121,10 +122,18 @@ function normalizeAccountingStatus(value) {
  * annual history rows must retain their existing invoice controls and must
  * not make a monthly ledger request.
  */
+export function isDynamicMonthlyCommitment(commitment = {}) {
+  return commitment.collectionPolicy?.pricing_policy === "dynamic"
+    && ["direct_debit", "gocardless"].includes(commitment.paymentMethod)
+    && ["monthly", "monthly_direct_debit", "monthly_instalments"].includes(commitment.paymentFrequency);
+}
+
 export function isMonthlyMembershipRecord(record = {}) {
   const method = normalizeStatus(record.payment_method);
   const frequency = normalizeStatus(
     record.payment_frequency
+      || record.commitment_snapshot?.payment_frequency
+      || record.commitment_snapshot?.collection_frequency
       || record.interval_unit
       || record.billing_period
       || record.billing_frequency,
@@ -510,17 +519,7 @@ export default function MemberMembershipInstalments({
           )}
 
           {items.length > 0 && (
-            <div className="border rounded-md overflow-auto">
-              <table className="w-full text-sm" data-testid={`table-member-instalments-${historyId}`}>
-                <thead>
-                  <tr className="border-b bg-background/60">
-                    <th className="text-left p-2 font-medium">Collection</th>
-                    <th className="text-right p-2 font-medium">Amount</th>
-                    <th className="text-left p-2 font-medium">Accounting</th>
-                    <th className="text-left p-2 font-medium">Invoice</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <MonthlyCollectionTable testId={`table-member-instalments-${historyId}`}>
                   {items.map((item, index) => {
                     const itemKey = item.id || item.paymentRef || `${page}-${index}`;
                     const collectionLabel = collectionStatusLabel(item.collectionStatus);
@@ -567,9 +566,7 @@ export default function MemberMembershipInstalments({
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
+            </MonthlyCollectionTable>
           )}
 
           {loaded && (loaded.hasPrevious || loaded.hasNext) && (

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ExternalLink, History } from "lucide-react";
+import MonthlyCollectionTable from "./MonthlyCollectionTable";
 
 export function formatHistoricalDdAmount(amountMinor, currency = "GBP") {
   if (!Number.isInteger(amountMinor)) return "—";
@@ -25,29 +26,28 @@ export function formatHistoricalDdDate(value, options = {}) {
 
 export function HistoricalDdPaymentsTable({ payments }) {
   return (
-    <div className="border rounded-md overflow-auto">
-      <table className="w-full text-sm" data-testid="table-historical-dd">
-        <thead>
-          <tr className="border-b bg-muted/50">
-            <th className="text-left p-3 font-medium">Nominal period</th>
-            <th className="text-left p-3 font-medium">Charged</th>
-            <th className="text-right p-3 font-medium">Amount</th>
-            <th className="text-left p-3 font-medium">Status</th>
-            <th className="text-left p-3 font-medium">Xero invoice</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="space-y-2">
+      <MonthlyCollectionTable testId="table-historical-dd">
           {payments.map((payment) => (
             <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
-              <td className="p-3 font-medium">{formatHistoricalDdDate(payment.period, { monthOnly: true })}</td>
-              <td className="p-3">{formatHistoricalDdDate(payment.charge_date)}</td>
-              <td className="p-3 text-right font-medium">
+              <td className="p-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span>{formatHistoricalDdDate(payment.charge_date)}</span>
+                  <span className="text-xs text-muted-foreground">Collection</span>
+                  <Badge variant="secondary">{payment.provider_status === "paid_out" ? "Paid out" : payment.provider_status}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Nominal period: {formatHistoricalDdDate(payment.period, { monthOnly: true })}
+                  {" · "}Imported historical payment
+                </p>
+              </td>
+              <td className="p-2 text-right whitespace-nowrap">
                 {formatHistoricalDdAmount(payment.amount_minor, payment.currency)}
               </td>
-              <td className="p-3">
-                <Badge variant="secondary">{payment.provider_status === "paid_out" ? "Paid out" : payment.provider_status}</Badge>
+              <td className="p-2">
+                <Badge variant="outline">Imported evidence</Badge>
               </td>
-              <td className="p-3">
+              <td className="p-2">
                 {payment.xero_invoice_url ? (
                   <a
                     className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
@@ -63,8 +63,7 @@ export function HistoricalDdPaymentsTable({ payments }) {
               </td>
             </tr>
           ))}
-        </tbody>
-      </table>
+      </MonthlyCollectionTable>
       <p className="p-3 text-xs text-muted-foreground border-t">
         Imported historical records are read-only and never trigger a collection, retry, refund or accounting action.
       </p>
@@ -75,6 +74,7 @@ export function HistoricalDdPaymentsTable({ payments }) {
 export default function HistoricalDdPayments({
   memberId,
   embedded = false,
+  monthlyHistory = false,
   request = fetch,
   activeTenantId = null,
 }) {
@@ -93,7 +93,10 @@ export default function HistoricalDdPayments({
     retry: false,
   });
 
-  if (!memberId || isLoading) return null;
+  if (!memberId) return null;
+  if (isLoading) return monthlyHistory
+    ? <p className="text-sm text-muted-foreground" role="status">Loading monthly collection history…</p>
+    : null;
   const body = error ? (
     <div className="flex items-start gap-2 text-sm text-destructive" role="alert" data-testid="historical-dd-error">
       <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -102,7 +105,12 @@ export default function HistoricalDdPayments({
   ) : !data?.length ? null : <HistoricalDdPaymentsTable payments={data} />;
 
   if (!body) return null;
-  if (embedded) return <div className="space-y-2" data-testid="historical-dd-embedded">{body}</div>;
+  if (embedded) return (
+    <div className="space-y-2 mb-4" data-testid="historical-dd-embedded">
+      {monthlyHistory && <p className="text-sm font-medium">Monthly instalment history</p>}
+      {body}
+    </div>
+  );
   return (
     <Card data-testid="card-historical-dd">
       <CardHeader>
