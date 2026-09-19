@@ -691,3 +691,31 @@ mtime_ms = 1789836597543
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b8b458e-0a5f-4719-946c-a712785a750f/882857a7-445b-4840-b336-0b4449236e02"
 storage_version_token = "1789836635411419"
 content_type = "text/csv"
+
+[[outputs]]
+id = "lYE2e7tF82yQ7Vfdch3YW"
+uri = "file://exports/private-bnms-held/BNMS-69-held-rows.xlsx"
+type = "table"
+title = "BNMS — 69 held rows (Excel)"
+description = "Verified 69 populated rows with all original values, Excel row numbers and hold reasons. Includes reconciliation of all 96 source rows and historical provenance. Private member data: authorized administrators only."
+logical_id = "d71f3389-6060-49f6-a2dc-862368e1d141"
+content_hash = "sha256:1115a3b4f05755d1d1fb4642e61232148561df4a35a619e5fa02f23833687d2e"
+size = 25296
+mtime_ms = 1789838618704
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d71f3389-6060-49f6-a2dc-862368e1d141/df5b2f43-2f7a-4aa3-ba1e-c3be054be512"
+storage_version_token = "1789838624976461"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "UqpXcyCYu1VEbQzOO5E5S"
+uri = "file://exports/private-bnms-held/BNMS-69-held-rows.csv"
+type = "table"
+title = "BNMS — 69 held rows (CSV)"
+description = "Verified 69 data rows. Exact byte-for-byte match to the original historical attachment hash; 24,398 bytes. Private member data: authorized administrators only."
+logical_id = "b75d88c8-226f-4427-93dc-4fd554727464"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789838618266
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b75d88c8-226f-4427-93dc-4fd554727464/234f79bc-943a-4f4b-a55c-05612c1c9e20"
+storage_version_token = "1789838625831102"
+content_type = "text/csv"
