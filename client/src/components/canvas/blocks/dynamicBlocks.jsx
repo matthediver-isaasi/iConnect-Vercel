@@ -9635,6 +9635,7 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     widthResizeOnly: true,
     renderOnlyAutoHeight: true,
     signedAutoHeight: true,
+    shrinkOwningSectionRelay: true,
   },
   [BLOCK_TYPES.CARD_DECK]: {
     label: 'Card deck',

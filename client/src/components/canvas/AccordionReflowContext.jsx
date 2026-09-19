@@ -18,6 +18,7 @@ import {
   offsetForTargetGeom,
   reflowMemberIsContained,
   resolveSectionAwareOffsets,
+  signedContentShrinkForSection,
 } from './reflowStageHeight';
 
 const AccordionReflowCtx = createContext(null);
@@ -508,6 +509,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         signed,
         isCard,
         allowSectionBottomOverflow: !!def?.autoHeight,
+        shrinkOwningSectionRelay: !!def?.shrinkOwningSectionRelay,
       });
     }
     return buildReflowRowGroups(entries);
@@ -554,8 +556,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     return { targets, collisionTargets, containerTargets };
   }, [blocks, resolveGeom]);
   const { targets: reflowTargets, collisionTargets, containerTargets } = reflowGeometry;
-
-  const containerAwareOffsets = useMemo(
+  const preliminaryContainerOffsets = useMemo(
     () => resolveSectionAwareOffsets({
       rowGroups,
       targets: reflowTargets,
@@ -563,6 +564,43 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       relayTargets: collisionTargets,
     }),
     [rowGroups, reflowTargets, containerTargets, collisionTargets],
+  );
+  const effectiveCollisionTargets = useMemo(
+    () => collisionTargets.map((target) => {
+      if (target.containerType !== BLOCK_TYPES.SECTION) return target;
+      const containedTargets = reflowTargets.filter((candidate) => (
+        candidate.id !== target.id &&
+        reflowMemberIsContained(target, candidate, {
+          allowBottomOverflow: candidate.allowSectionBottomOverflow === true,
+        })
+      ));
+      const signedContentShrink = signedContentShrinkForSection(
+        rowGroups,
+        target,
+        containedTargets,
+        collisionTargets,
+        preliminaryContainerOffsets.inheritedOffsets,
+      );
+      return signedContentShrink < 0
+        ? { ...target, signedContentShrink }
+        : target;
+    }),
+    [
+      collisionTargets,
+      preliminaryContainerOffsets.inheritedOffsets,
+      reflowTargets,
+      rowGroups,
+    ],
+  );
+
+  const containerAwareOffsets = useMemo(
+    () => resolveSectionAwareOffsets({
+      rowGroups,
+      targets: reflowTargets,
+      containerTargets,
+      relayTargets: effectiveCollisionTargets,
+    }),
+    [rowGroups, reflowTargets, containerTargets, effectiveCollisionTargets],
   );
   const inheritedOffsets = containerAwareOffsets.inheritedOffsets;
 
@@ -601,7 +639,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         id: blockId,
         y: storedY,
         fullWidth: blockIsFullWidthLike(block),
-      }, collisionTargets, inheritedOffsets);
+      }, effectiveCollisionTargets, inheritedOffsets);
     },
     [
       editorMode,
@@ -609,7 +647,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       containerAwareOffsets,
       blocks,
       resolveGeom,
-      collisionTargets,
+      effectiveCollisionTargets,
       inheritedOffsets,
     ],
   );
@@ -665,10 +703,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     return offsetForTargetGeom(
       rowGroups,
       { y: Infinity, fullWidth: true },
-      collisionTargets,
+      effectiveCollisionTargets,
       inheritedOffsets,
     );
-  }, [editorMode, rowGroups, collisionTargets, inheritedOffsets]);
+  }, [editorMode, rowGroups, effectiveCollisionTargets, inheritedOffsets]);
 
   /**
    * Height growth (px) required by a CONTAINING background-style block — a
@@ -735,12 +773,12 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // room beneath content is consumed before the background grows.
       return growthForContainedGeom(rowGroups, spatialContainerGeom, containedTargets, {
         growOnly: isBox,
-        relayTargets: collisionTargets,
+        relayTargets: effectiveCollisionTargets,
         inheritedOffsets,
         allowBottomOverflow: !isBox,
       });
     },
-    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets, inheritedOffsets],
+    [editorMode, rowGroups, blocks, resolveGeom, effectiveCollisionTargets, inheritedOffsets],
   );
 
   // Back-compat alias: sections are just one kind of container.
@@ -754,7 +792,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       rowGroups,
       editorMode,
       getContainerGrowth,
-      relayTargets: collisionTargets,
+      relayTargets: effectiveCollisionTargets,
       inheritedOffsets,
     }),
     [
@@ -763,7 +801,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       rowGroups,
       editorMode,
       getContainerGrowth,
-      collisionTargets,
+      effectiveCollisionTargets,
       inheritedOffsets,
     ],
   );

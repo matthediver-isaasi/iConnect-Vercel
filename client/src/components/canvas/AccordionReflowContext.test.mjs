@@ -8,6 +8,7 @@ import {
   offsetForTargetGeom,
   relativeOffsetWithinContainer,
   resolveSectionAwareOffsets,
+  signedContentShrinkForSection,
 } from './reflowStageHeight.js';
 import { computeBoxGrowthDelta } from './autoHeightBake.js';
 
@@ -1374,6 +1375,202 @@ test('a Box stays at its authored height when a signed carousel shrinks', () => 
   // their authored height on the public page.
   assert.equal(growthForContainedGeom(rows, container, targets), -50);
   assert.equal(growthForContainedGeom(rows, container, targets, { growOnly: true }), 0);
+});
+
+test('Member Group Cards shrink the owning Section relay without losing authored padding', () => {
+  const rows = buildReflowRowGroups([
+    {
+      ...entry({
+        id: 'member-groups',
+        x: 0,
+        y: 1160,
+        w: 800,
+        h: 1296,
+        measuredH: 1092,
+        signed: true,
+      }),
+      shrinkOwningSectionRelay: true,
+    },
+  ]);
+  const section = {
+    id: 'groups-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 1048,
+    w: 1200,
+    h: 1464,
+    top: 1048,
+    bottom: 2512,
+  };
+  const followingSection = {
+    id: 'following-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 2520,
+    w: 1200,
+    h: 664,
+    top: 2520,
+    bottom: 3184,
+  };
+  const cardsTarget = {
+    id: 'member-groups',
+    x: 0,
+    y: 1160,
+    w: 800,
+    h: 1296,
+    top: 1160,
+    bottom: 2456,
+    allowSectionBottomOverflow: true,
+  };
+  const signedContentShrink = signedContentShrinkForSection(
+    rows,
+    section,
+    [cardsTarget],
+    [section],
+  );
+  const adjustedSectionRelay = { ...section, signedContentShrink };
+
+  assert.equal(signedContentShrink, -204);
+  assert.equal(growthForContainedGeom(
+    rows,
+    section,
+    [cardsTarget],
+    {
+      relayTargets: [adjustedSectionRelay],
+      allowBottomOverflow: true,
+    },
+  ), -204);
+  assert.equal(
+    offsetForTargetGeom(rows, followingSection, [adjustedSectionRelay]),
+    -204,
+  );
+  assert.equal(
+    (section.bottom + signedContentShrink) - (1160 + 1092),
+    section.bottom - (1160 + 1296),
+    'the authored inset below the cards remains unchanged',
+  );
+});
+
+test('Member Group Cards section relay follows loading, guest, and taller member measurements', () => {
+  const section = {
+    id: 'groups-section',
+    x: 0,
+    y: 1048,
+    w: 1200,
+    h: 1464,
+    top: 1048,
+    bottom: 2512,
+  };
+  const makeRows = (measuredH) => buildReflowRowGroups([{
+    ...entry({
+      id: 'member-groups',
+      x: 0,
+      y: 1160,
+      w: 800,
+      h: 1296,
+      measuredH,
+      signed: true,
+    }),
+    shrinkOwningSectionRelay: true,
+  }]);
+
+  const cardsTarget = {
+    id: 'member-groups',
+    x: 0,
+    y: 1160,
+    w: 800,
+    h: 1296,
+    top: 1160,
+    bottom: 2456,
+    allowSectionBottomOverflow: true,
+  };
+  const shrinkFor = (measuredH) => signedContentShrinkForSection(
+    makeRows(measuredH),
+    section,
+    [cardsTarget],
+    [section],
+  );
+
+  assert.equal(shrinkFor(320), -976);
+  assert.equal(shrinkFor(1092), -204);
+  assert.equal(
+    shrinkFor(1420),
+    0,
+    'growth keeps the existing section growth and collision behavior',
+  );
+});
+
+test('Member Group Cards relay cannot shrink past a lower static child in another lane', () => {
+  const rows = buildReflowRowGroups([{
+    ...entry({
+      id: 'member-groups',
+      x: 0,
+      y: 100,
+      w: 700,
+      h: 300,
+      measuredH: 0,
+      signed: true,
+    }),
+    shrinkOwningSectionRelay: true,
+  }]);
+  const section = {
+    id: 'groups-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 0,
+    w: 1200,
+    h: 500,
+    top: 0,
+    bottom: 500,
+  };
+  const cards = {
+    id: 'member-groups',
+    x: 0,
+    y: 100,
+    w: 700,
+    h: 300,
+    top: 100,
+    bottom: 400,
+    allowSectionBottomOverflow: true,
+  };
+  const lowerStatic = {
+    id: 'lower-static',
+    x: 800,
+    y: 350,
+    w: 400,
+    h: 100,
+    top: 350,
+    bottom: 450,
+  };
+  const followingInCardsLane = {
+    id: 'following',
+    x: 0,
+    y: 510,
+    w: 700,
+    h: 100,
+    top: 510,
+    bottom: 610,
+  };
+  const effectiveShrink = signedContentShrinkForSection(
+    rows,
+    section,
+    [cards, lowerStatic],
+    [section, lowerStatic],
+  );
+  const adjustedSection = { ...section, signedContentShrink: effectiveShrink };
+  const followingOffset = offsetForTargetGeom(
+    rows,
+    followingInCardsLane,
+    [adjustedSection, lowerStatic],
+  );
+
+  assert.equal(effectiveShrink, -50, 'the static child holds the Section bottom at 450');
+  assert.equal(followingOffset, -50);
+  assert.equal(
+    followingInCardsLane.top + followingOffset - (section.bottom + effectiveShrink),
+    10,
+    'the authored gap below the effective Section bottom is preserved',
+  );
 });
 
 test('a signed carousel relays only the residual collision to a following block', () => {

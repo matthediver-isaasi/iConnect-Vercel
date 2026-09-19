@@ -32,3 +32,17 @@ horizontal containment. Box ownership always requires full-rectangle
 containment. Mixed nested Sections/Boxes use the smallest owner and inherit each
 container displacement once. Signed aspect carousels keep their residual
 collision exception. Editor displacement remains zero.
+
+**Rule:** When a dynamic block opts into shrinking its owning Section, the
+Section's downstream collision relay must use its rendered bottom too.
+
+**Why:** A correctly measured signed shrink can resize the visible Section
+while its authored-bottom relay cancels the same shrink for following blocks,
+creating extra whitespace despite correct measurement.
+
+**How to apply:** Check content, container, and following-block bounds together.
+Keep this behavior explicitly opted in; do not broadly shrink decorative Boxes
+or ordinary auto-height blocks, and retain independent static-child collisions.
+Derive relay shrink from the container's effective bounds, not the signed leaf's
+raw delta: a lower child in another horizontal lane can limit container shrink
+without colliding with the following block in the leaf's lane.

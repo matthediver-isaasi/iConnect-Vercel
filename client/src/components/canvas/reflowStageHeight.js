@@ -365,7 +365,13 @@ function relaySource(target) {
     left: spatial.left,
     right: spatial.right,
     fullWidth: spatial.fullWidth,
-    growth: 0,
+    // A Section containing an opted-in signed auto-height block can shrink
+    // with that block. Its collision relay must use the same live bottom as
+    // the rendered Section; otherwise the stale authored bottom cancels the
+    // child's negative offset and leaves every following block in place.
+    growth: Number.isFinite(spatial.signedContentShrink)
+      ? spatial.signedContentShrink
+      : 0,
     signed: false,
   };
 }
@@ -694,6 +700,50 @@ export function reflowMemberIsContained(
   { allowBottomOverflow = false } = {},
 ) {
   return containsMember(containerGeom, member, { allowBottomOverflow });
+}
+
+/**
+ * Return the effective Section shrink when it owns explicitly opted-in signed
+ * live content. This value is applied only to the Section's collision relay;
+ * the wrapper itself continues to use growthForContainedGeom.
+ *
+ * Static children remain independent relay targets, so they still prevent
+ * following content from moving through them when they extend below the
+ * shrunken Section background.
+ */
+export function signedContentShrinkForSection(
+  rowGroups,
+  sectionGeom,
+  containedTargets,
+  relayTargets,
+  inheritedOffsets,
+) {
+  if (!sectionGeom) return 0;
+  const hasOptedInShrink = (rowGroups || []).some((group) => (
+    group?.signed &&
+    Number.isFinite(group.growth) &&
+    group.growth < 0 &&
+    (group.members || []).some((item) => (
+      item?.shrinkOwningSectionRelay === true &&
+      containsMember(sectionGeom, item, { allowBottomOverflow: true })
+    ))
+  ));
+  if (!hasOptedInShrink) return 0;
+
+  // Use the Section's effective growth, not the opted-in row's raw delta.
+  // Content in another lane can hold the Section open, in which case relaying
+  // the full row shrink would pull following content through the still-visible
+  // Section background.
+  return Math.min(0, growthForContainedGeom(
+    rowGroups,
+    sectionGeom,
+    containedTargets,
+    {
+      relayTargets,
+      inheritedOffsets,
+      allowBottomOverflow: true,
+    },
+  ));
 }
 
 /**
