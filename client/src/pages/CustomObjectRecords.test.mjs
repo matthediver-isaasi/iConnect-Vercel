@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('./CustomObjectRecords.jsx', import.meta.url), 'utf8');
+const relatedRecordsSource = readFileSync(new URL('./customObjects/RelatedRecordsPanel.jsx', import.meta.url), 'utf8');
 const workspaceStart = source.indexOf('function CustomObjectRecordListWorkspace');
 const workspaceEnd = source.indexOf('function LegacyCustomObjectRecordList');
 const workspace = source.slice(workspaceStart, workspaceEnd);
@@ -82,4 +83,21 @@ test('saved relationship views wait for server-authorized relationship metadata'
   );
   assert.match(workspace, /if \(!viewsLoaded \|\| !listMetadataResolved \|\| restoredViewRef\.current/);
   assert.match(workspace, /relationshipColumns: requestedRelationshipColumns/);
+});
+
+test('record archive confirmations state the generic graph impact without making Department claims for arbitrary objects', () => {
+  for (const archiveFlow of [detail, relatedRecordsSource]) {
+    assert.match(archiveFlow, /all relationship links incident to this record/);
+    assert.match(archiveFlow, /relationships between other records/);
+    assert.match(archiveFlow, /object_key === "member_organisation_assignment"/);
+    assert.match(archiveFlow, /Existing Department links remain unchanged/);
+  }
+  assert.match(relatedRecordsSource, /This is separate from removing only this link/);
+});
+
+test('required unlink failures offer only the server-authorized archive route', () => {
+  assert.match(relatedRecordsSource, /error\.details\?\.code === "REQUIRED_RELATIONSHIP"/);
+  assert.match(relatedRecordsSource, /error\.details\.archive_record \|\| null/);
+  assert.match(relatedRecordsSource, /Review archive option/);
+  assert.match(relatedRecordsSource, /method: "DELETE"/);
 });

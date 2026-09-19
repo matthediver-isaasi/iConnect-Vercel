@@ -977,6 +977,209 @@ test('migration replays and persists every supported Custom Object field type', 
     assert.equal(dangling, 0);
     assert.ok(cascadedAudits > 0);
 
+    // Assignment retirement is scoped to the retiring source record. Its
+    // required core-terminal edges become history, while unrelated Department
+    // membership and organisation state remain current. Conversely, a required
+    // incoming edge makes target retirement fail as one atomic transaction.
+    const assignmentTenant = '45480000-0000-4000-8000-000000000001';
+    const assignmentOne = '45480000-0000-4000-8000-000000000011';
+    const assignmentTwo = '45480000-0000-4000-8000-000000000012';
+    const assignmentMemberOne = '45480000-0000-4000-8000-000000000101';
+    const assignmentOrgOne = '45480000-0000-4000-8000-000000000102';
+    const assignmentOptionalOne = '45480000-0000-4000-8000-000000000103';
+    const assignmentMemberTwo = '45480000-0000-4000-8000-000000000104';
+    const assignmentOrgTwo = '45480000-0000-4000-8000-000000000105';
+    const assignmentOptionalTwo = '45480000-0000-4000-8000-000000000106';
+    const assignmentIncomingTwo = '45480000-0000-4000-8000-000000000107';
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.tenant(id) VALUES ('${assignmentTenant}');
+        INSERT INTO public.organization(id, tenant_id)
+        VALUES
+          ('45480000-0000-4000-8000-000000000002', '${assignmentTenant}'),
+          ('45480000-0000-4000-8000-000000000003', '${assignmentTenant}');
+        INSERT INTO public.member(id, tenant_id, organization_id)
+        VALUES (
+          '45480000-0000-4000-8000-000000000004',
+          '${assignmentTenant}',
+          '45480000-0000-4000-8000-000000000002'
+        );
+        INSERT INTO public.custom_object_definition(
+          id, tenant_id, object_key, singular_label, plural_label
+        ) VALUES
+          ('45480000-0000-4000-8000-000000000005', '${assignmentTenant}',
+           'task4548_department', 'Department', 'Departments'),
+          ('45480000-0000-4000-8000-000000000006', '${assignmentTenant}',
+           'task4548_assignment', 'Assignment', 'Assignments'),
+          ('45480000-0000-4000-8000-000000000007', '${assignmentTenant}',
+           'task4548_dependency', 'Dependency', 'Dependencies');
+        INSERT INTO public.preference_field(
+          id, tenant_id, name, label, field_type, entity_scope, custom_object_id
+        ) VALUES
+          ('45480000-0000-4000-8000-000000000008', '${assignmentTenant}',
+           'task4548_department_name', 'Name', 'text', 'custom_object',
+           '45480000-0000-4000-8000-000000000005'),
+          ('45480000-0000-4000-8000-000000000009', '${assignmentTenant}',
+           'task4548_assignment_name', 'Name', 'text', 'custom_object',
+           '45480000-0000-4000-8000-000000000006'),
+          ('45480000-0000-4000-8000-00000000000a', '${assignmentTenant}',
+           'task4548_dependency_name', 'Name', 'text', 'custom_object',
+           '45480000-0000-4000-8000-000000000007');
+        UPDATE public.custom_object_definition
+        SET primary_display_field_id = CASE id
+              WHEN '45480000-0000-4000-8000-000000000005'
+                THEN '45480000-0000-4000-8000-000000000008'::uuid
+              WHEN '45480000-0000-4000-8000-000000000006'
+                THEN '45480000-0000-4000-8000-000000000009'::uuid
+              ELSE '45480000-0000-4000-8000-00000000000a'::uuid
+            END,
+            status = 'active'
+        WHERE tenant_id = '${assignmentTenant}';
+        INSERT INTO public.custom_object_record(
+          id, tenant_id, custom_object_id, data
+        ) VALUES
+          ('45480000-0000-4000-8000-000000000010', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000005', '{"task4548_department_name":"Primary"}'),
+          ('${assignmentOne}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000006', '{"task4548_assignment_name":"One"}'),
+          ('${assignmentTwo}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000006', '{"task4548_assignment_name":"Two"}'),
+          ('45480000-0000-4000-8000-000000000013', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000007', '{"task4548_dependency_name":"Guard"}');
+        INSERT INTO public.custom_object_relationship_definition(
+          id, tenant_id, relationship_key, source_kind, source_custom_object_id,
+          target_kind, target_custom_object_id, cardinality, source_label,
+          target_label, is_required, status
+        ) VALUES
+          ('45480000-0000-4000-8000-000000000020', '${assignmentTenant}',
+           'task4548_department_org', 'custom_object',
+           '45480000-0000-4000-8000-000000000005', 'organization', NULL,
+           'many_to_one', 'Organisation', 'Departments', true, 'active'),
+          ('45480000-0000-4000-8000-000000000021', '${assignmentTenant}',
+           'task4548_department_member', 'custom_object',
+           '45480000-0000-4000-8000-000000000005', 'member', NULL,
+           'many_to_many', 'Members', 'Departments', false, 'active'),
+          ('45480000-0000-4000-8000-000000000022', '${assignmentTenant}',
+           'task4548_assignment_member', 'custom_object',
+           '45480000-0000-4000-8000-000000000006', 'member', NULL,
+           'many_to_one', 'Member', 'Assignments', true, 'active'),
+          ('45480000-0000-4000-8000-000000000023', '${assignmentTenant}',
+           'task4548_assignment_org', 'custom_object',
+           '45480000-0000-4000-8000-000000000006', 'organization', NULL,
+           'many_to_one', 'Organisation', 'Assignments', true, 'active'),
+          ('45480000-0000-4000-8000-000000000024', '${assignmentTenant}',
+           'task4548_assignment_department', 'custom_object',
+           '45480000-0000-4000-8000-000000000006', 'custom_object',
+           '45480000-0000-4000-8000-000000000005', 'many_to_one',
+           'Department', 'Assignments', false, 'active'),
+          ('45480000-0000-4000-8000-000000000025', '${assignmentTenant}',
+           'task4548_dependency_assignment', 'custom_object',
+           '45480000-0000-4000-8000-000000000007', 'custom_object',
+           '45480000-0000-4000-8000-000000000006', 'many_to_one',
+           'Assignment', 'Dependencies', true, 'active');
+        INSERT INTO public.custom_object_relationship(
+          id, tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES
+          ('45480000-0000-4000-8000-000000000100', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000020',
+           '45480000-0000-4000-8000-000000000010',
+           '45480000-0000-4000-8000-000000000002'),
+          ('45480000-0000-4000-8000-000000000108', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000021',
+           '45480000-0000-4000-8000-000000000010',
+           '45480000-0000-4000-8000-000000000004'),
+          ('${assignmentMemberOne}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000022', '${assignmentOne}',
+           '45480000-0000-4000-8000-000000000004'),
+          ('${assignmentOrgOne}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000023', '${assignmentOne}',
+           '45480000-0000-4000-8000-000000000002'),
+          ('${assignmentOptionalOne}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000024', '${assignmentOne}',
+           '45480000-0000-4000-8000-000000000010'),
+          ('${assignmentMemberTwo}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000022', '${assignmentTwo}',
+           '45480000-0000-4000-8000-000000000004'),
+          ('${assignmentOrgTwo}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000023', '${assignmentTwo}',
+           '45480000-0000-4000-8000-000000000002'),
+          ('${assignmentOptionalTwo}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000024', '${assignmentTwo}',
+           '45480000-0000-4000-8000-000000000010'),
+          ('${assignmentIncomingTwo}', '${assignmentTenant}',
+           '45480000-0000-4000-8000-000000000025',
+           '45480000-0000-4000-8000-000000000013', '${assignmentTwo}');
+      `,
+    });
+
+    run(psql, connectionArgs, {
+      input: `SELECT public.archive_custom_object_relationship(
+        '${assignmentTenant}', '${assignmentOptionalOne}', 'ordinary-unlink', now());`,
+    });
+    runFailure(psql, connectionArgs, /required relationship cannot lose its final active edge/i, {
+      input: `SELECT public.archive_custom_object_relationship(
+        '${assignmentTenant}', '${assignmentMemberOne}', 'forbidden-unlink', now());`,
+    });
+    run(psql, connectionArgs, {
+      input: `UPDATE public.custom_object_record
+        SET archived_at=now(), archived_by='assignment-retired'
+        WHERE id='${assignmentOne}' AND tenant_id='${assignmentTenant}';`,
+    });
+    const retiredAssignmentState = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          (SELECT archived_at IS NOT NULL
+             FROM public.custom_object_record WHERE id='${assignmentOne}') || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+             WHERE id IN ('${assignmentMemberOne}', '${assignmentOrgOne}')
+               AND archived_at IS NOT NULL
+               AND archived_by='assignment-retired') || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+             WHERE id IN (
+               '${assignmentMemberOne}', '${assignmentOrgOne}', '${assignmentOptionalOne}'
+             )) || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+             WHERE id IN (
+               '${assignmentMemberTwo}', '${assignmentOrgTwo}', '${assignmentOptionalTwo}',
+               '${assignmentIncomingTwo}'
+             ) AND archived_at IS NULL) || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+             WHERE id IN (
+               '45480000-0000-4000-8000-000000000100',
+               '45480000-0000-4000-8000-000000000108'
+             ) AND archived_at IS NULL) || ':' ||
+          (SELECT organization_id='45480000-0000-4000-8000-000000000002'
+             FROM public.member WHERE id='45480000-0000-4000-8000-000000000004') || ':' ||
+          (SELECT count(*) FROM public.custom_object_audit_event
+             WHERE relationship_id IN (
+               '${assignmentMemberOne}', '${assignmentOrgOne}', '${assignmentOptionalOne}'
+             ) AND action='relationship_archived');`,
+    });
+    assert.equal(retiredAssignmentState.trim(), 'true:2:3:4:2:true:3');
+
+    runFailure(psql, connectionArgs, /required relationship cannot lose its final active edge/i, {
+      input: `UPDATE public.custom_object_record
+        SET archived_at=now(), archived_by='blocked-retirement'
+        WHERE id='${assignmentTwo}' AND tenant_id='${assignmentTenant}';`,
+    });
+    const blockedAssignmentState = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          (SELECT archived_at IS NULL
+             FROM public.custom_object_record WHERE id='${assignmentTwo}') || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+             WHERE id IN (
+               '${assignmentMemberTwo}', '${assignmentOrgTwo}', '${assignmentOptionalTwo}',
+               '${assignmentIncomingTwo}'
+             ) AND archived_at IS NULL) || ':' ||
+          (SELECT count(*) FROM public.custom_object_audit_event
+             WHERE relationship_id IN (
+               '${assignmentMemberTwo}', '${assignmentOrgTwo}', '${assignmentOptionalTwo}',
+               '${assignmentIncomingTwo}'
+             ) AND action='relationship_archived');`,
+    });
+    assert.equal(blockedAssignmentState.trim(), 'true:4:0');
+
     // Circular/self and reciprocal Custom Object definitions are legal.
     run(psql, connectionArgs, {
       input: edge('30000000-0000-4000-8000-000000000006', a1, a2)

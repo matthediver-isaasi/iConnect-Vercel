@@ -6701,7 +6701,177 @@ test('database cardinality and required-edge guards map to HTTP 409 conflicts', 
       routed_side: 'source',
       routed_record_id: 'source-1',
     }),
-    (error) => error.status === 409 && /required relationship/.test(error.message),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.match(error.message, /required relationship/);
+      assert.deepEqual(error.details, {
+        code: 'REQUIRED_RELATIONSHIP',
+        archive_record: {
+          object_id: objectId,
+          record_id: 'source-1',
+          label: 'source-1',
+        },
+      });
+      return true;
+    },
+  );
+});
+
+test('required final-edge conflicts expose an archive route only with independent source record permissions', async () => {
+  const definitionId = 'required-route-definition';
+  const conflict = {
+    code: 'P0001',
+    message: 'A required relationship cannot lose its final active edge',
+  };
+  const seed = (canArchive) => ({
+    custom_object_definition: [object({ primary_display_field_id: 'title-field' })],
+    preference_field: [field({
+      id: 'title-field',
+      name: 'title',
+      label: 'Title',
+      field_type: 'text',
+      is_required: false,
+    })],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+      can_archive_records: canArchive,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'one_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      edit_from_source: true,
+    }],
+    custom_object_record: [
+      {
+        id: 'source-route',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        archived_at: null,
+        data: { title: 'Assignment 42' },
+      },
+      {
+        id: 'target-route',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        archived_at: null,
+        data: { title: 'Churchill Hospital' },
+      },
+    ],
+    custom_object_relationship: [{
+      id: 'required-route-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-route',
+      target_record_id: 'target-route',
+      archived_at: null,
+    }],
+  });
+  const archive = (service) => service.archiveRelationship(objectId, 'required-route-edge', {
+    routed_side: 'source',
+    routed_record_id: 'source-route',
+  });
+
+  const allowedDb = mockDb(seed(true), {
+    archive_custom_object_relationship: conflict,
+  });
+  await assert.rejects(
+    () => archive(createCustomObjectService({ db: allowedDb, context: context() })),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, {
+        code: 'REQUIRED_RELATIONSHIP',
+        archive_record: {
+          object_id: objectId,
+          record_id: 'source-route',
+          label: 'Assignment 42',
+        },
+      });
+      return true;
+    },
+  );
+
+  const deniedDb = mockDb(seed(false), {
+    archive_custom_object_relationship: conflict,
+  });
+  await assert.rejects(
+    () => archive(createCustomObjectService({ db: deniedDb, context: context() })),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      assert.equal(Object.hasOwn(error.details, 'archive_record'), false);
+      return true;
+    },
+  );
+});
+
+test('core final-edge conflicts omit the archive route for an archived source Custom Object record', async () => {
+  const definitionId = 'required-core-route-definition';
+  const db = mockDb({
+    member: [{ id: 'member-core-route', tenant_id: tenantId }],
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_target: true,
+      edit_from_target: true,
+    }],
+    custom_object_record: [{
+      id: 'archived-source-route',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: '2026-10-01T00:00:00.000Z',
+      data: {},
+    }],
+    custom_object_relationship: [{
+      id: 'required-core-route-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'archived-source-route',
+      target_record_id: 'member-core-route',
+      archived_at: null,
+    }],
+  }, {
+    archive_custom_object_relationship: {
+      code: '23514',
+      details: 'A required relationship cannot lose its final active edge',
+      message: 'check constraint violation',
+    },
+  });
+
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).archiveCoreRelationship(
+      'member',
+      'member-core-route',
+      'required-core-route-edge',
+    ),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      return true;
+    },
   );
 });
 

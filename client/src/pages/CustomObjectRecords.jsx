@@ -36,6 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -1314,6 +1315,10 @@ export function CustomObjectRecordDetail() {
     onSuccess: () => {
       toast.success(`${object.singular_label} archived`);
       qc.invalidateQueries({ queryKey: ["custom-object-records", objectId] });
+      qc.invalidateQueries({ queryKey: ["record-relationships"] });
+      qc.invalidateQueries({ queryKey: ["related-record-definitions"] });
+      qc.invalidateQueries({ queryKey: ["relationship-entity-picker"] });
+      qc.invalidateQueries({ queryKey: ["custom-objects"] });
       recordQuery.refetch();
       setArchiveOpen(false);
     },
@@ -1396,7 +1401,7 @@ export function CustomObjectRecordDetail() {
         )}
       </div>
       <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Archive {record.display_value}?</DialogTitle></DialogHeader><p className="text-sm text-slate-600">The record will be hidden from the default list but remains available when archived records are shown.</p><div><Label>Reason (optional)</Label><Textarea className="mt-2" value={reason} onChange={(event) => setReason(event.target.value)} /></div><DialogFooter><Button variant="outline" onClick={() => setArchiveOpen(false)}>Cancel</Button><Button variant="destructive" disabled={archive.isPending} onClick={() => archive.mutate()}>{archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Archive {record.display_value}?</DialogTitle><DialogDescription>This archives the {object.singular_label.toLowerCase()} record, not only one relationship link.</DialogDescription></DialogHeader><p className="text-sm text-slate-600">This archives this {object.object_key === "member_organisation_assignment" ? "assignment" : "record"} and all relationship links incident to this record. The record and relationship history are retained. Member and Organisation records and the primary organisation remain unchanged, as do relationships between other records.{object.object_key === "member_organisation_assignment" ? " Existing Department links remain unchanged." : ""}</p><div><Label>Reason (optional)</Label><Textarea className="mt-2" value={reason} onChange={(event) => setReason(event.target.value)} /></div><DialogFooter><Button variant="outline" onClick={() => setArchiveOpen(false)}>Cancel</Button><Button variant="destructive" disabled={archive.isPending} onClick={() => archive.mutate()}>{archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive record</Button></DialogFooter></DialogContent>
       </Dialog>
     </Workspace>
   );

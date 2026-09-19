@@ -488,3 +488,91 @@ test("standalone opt-out keeps the legacy skeleton without overlay or inert sema
   assert.match(view.container.textContent, /No members linked yet/);
   await view.cleanup();
 });
+
+test("related record archive is permission-aware and separate from unlink", async () => {
+  const definition = {
+    ...definitionFor(coreContext),
+    target_kind: "custom_object",
+    target_custom_object_id: "assignment-object",
+    source_label: "Assignments",
+    edit_from_source: false,
+    can_edit: false,
+  };
+  const assignment = {
+    relationship_id: "assignment-edge",
+    related_kind: "custom_object",
+    related_custom_object_id: "assignment-object",
+    related_record_id: "assignment-1",
+    related: {
+      id: "assignment-1",
+      kind: "custom_object",
+      custom_object_id: "assignment-object",
+      primary_label: "Treasurer assignment",
+    },
+  };
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    requests.push({ path, method: options.method || "GET" });
+    if (path === "/api/custom-objects/assignment-object")
+      return json({ id: "assignment-object", object_key: "member_organisation_assignment", status: "active", capabilities: { archive: true } });
+    if (path.includes("/relationships?")) return json(rows([assignment]));
+    throw new Error(`Unexpected request: ${path}`);
+  };
+
+  const view = await mount(
+    <RelatedRecordsPanel
+      context={coreContext}
+      record={{ id: "org-1", capabilities: { edit_records: false } }}
+      definition={definition}
+      side="source"
+    />,
+  );
+  try {
+    const archiveButton = view.container.querySelector('[aria-label="Archive Treasurer assignment"]');
+    assert.ok(archiveButton, "archive action should not depend on edge edit permission");
+    assert.equal(view.container.querySelector('[aria-label^="Remove link"]'), null);
+    assert.equal(requests.some(request => request.method === "DELETE"), false, "rendering the action must not archive");
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("related record archive permission fails closed when the object GET omits archive capability", async () => {
+  const definition = {
+    ...definitionFor(coreContext),
+    target_kind: "custom_object",
+    target_custom_object_id: "assignment-object",
+    source_label: "Assignments",
+  };
+  globalThis.fetch = async url => {
+    const path = String(url);
+    if (path === "/api/custom-objects/assignment-object")
+      return json({ id: "assignment-object", status: "active", capabilities: { edit_records: true } });
+    if (path.includes("/relationships?"))
+      return json(rows([{
+        relationship_id: "assignment-edge",
+        related_kind: "custom_object",
+        related_record_id: "assignment-1",
+        related: {
+          id: "assignment-1",
+          custom_object_id: "assignment-object",
+          primary_label: "Protected assignment",
+        },
+      }]));
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const view = await mount(
+    <RelatedRecordsPanel
+      context={coreContext}
+      record={{ id: "org-1", capabilities: { edit_records: false } }}
+      definition={definition}
+      side="source"
+    />,
+  );
+  try {
+    assert.equal(view.container.querySelector('[aria-label="Archive Protected assignment"]'), null);
+  } finally {
+    await view.cleanup();
+  }
+});

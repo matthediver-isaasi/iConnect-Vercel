@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleAlert, GripVertical, Link2, Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleAlert, GripVertical, Link2, Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,6 +188,8 @@ function RelationshipPanel({
   const [sortField, setSortField] = useState("");
   const [sortDir, setSortDir] = useState("asc");
   const [draggedColumn, setDraggedColumn] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [requiredRelationship, setRequiredRelationship] = useState(null);
   const routes = routesFor(context, definition, editSide);
   const queryKey = ["record-relationships", context.kind, context.objectId, context.recordId, definition.id, editSide];
   const query = useQuery({
@@ -258,8 +260,23 @@ function RelationshipPanel({
   const oppositeObject = useQuery({
     queryKey: ["custom-objects", endpoint.customObjectId],
     queryFn: () => relationshipRequest(`/api/custom-objects/${endpoint.customObjectId}`),
-    enabled: editable && endpoint.kind === "custom_object" && Boolean(endpoint.customObjectId),
+    // Archive permission is deliberately resolved independently of permission
+    // to edit the edge. A failed or incomplete object GET remains fail-closed.
+    enabled: endpoint.kind === "custom_object" && Boolean(endpoint.customObjectId),
   });
+  const oppositeCapabilities = oppositeObject.data?.capabilities
+    || oppositeObject.data?.permissions;
+  const archiveCapability = Array.isArray(oppositeCapabilities)
+    ? oppositeCapabilities.includes("archive_records")
+      || oppositeCapabilities.includes("archive")
+      || oppositeCapabilities.includes("can_archive_records")
+    : oppositeCapabilities?.archive_records === true
+      || oppositeCapabilities?.archive === true
+      || oppositeCapabilities?.can_archive_records === true;
+  const canArchiveRelated = !includeArchived
+    && endpoint.kind === "custom_object"
+    && oppositeObject.data?.status !== "archived"
+    && archiveCapability;
   const contextualCreate = contextualCreateEligibility({
     definition,
     side: editSide,
@@ -287,7 +304,7 @@ function RelationshipPanel({
     onError: (error) => toast.error(error.status === 409 ? `This link could not be added: ${error.message}` : error.message),
   });
   const remove = useMutation({
-    mutationFn: (edgeId) => relationshipRequest(routes.remove(edgeId), {
+    mutationFn: ({ edgeId }) => relationshipRequest(routes.remove(edgeId), {
       method: "DELETE",
       body: JSON.stringify({ routed_side: editSide, routed_record_id: context.recordId }),
     }),
@@ -296,7 +313,34 @@ function RelationshipPanel({
       qc.invalidateQueries({ queryKey: ["related-record-definitions", context.kind, context.objectId, context.recordId] });
       toast.success("Relationship removed");
     },
-    onError: (error) => toast.error(error.status === 409 ? `This link changed elsewhere: ${error.message}` : error.message),
+    onError: (error, variables) => {
+      if (error.details?.code === "REQUIRED_RELATIONSHIP") {
+        setRequiredRelationship({
+          label: variables.label,
+          archiveRecord: error.details.archive_record || null,
+        });
+        return;
+      }
+      toast.error(error.status === 409 ? `This link changed elsewhere: ${error.message}` : error.message);
+    },
+  });
+  const archiveRelated = useMutation({
+    mutationFn: (target) => relationshipRequest(
+      `/api/custom-objects/${target.object_id}/records/${target.record_id}`,
+      { method: "DELETE", body: JSON.stringify({ archive_reason: null }) },
+    ),
+    onSuccess: (_data, target) => {
+      toast.success(`${target.label} archived`);
+      setArchiveTarget(null);
+      qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ["record-relationships"] });
+      qc.invalidateQueries({ queryKey: ["related-record-definitions"] });
+      qc.invalidateQueries({ queryKey: ["relationship-entity-picker"] });
+      qc.invalidateQueries({ queryKey: ["custom-object-records", target.object_id] });
+      qc.invalidateQueries({ queryKey: ["custom-object-record", target.object_id, target.record_id] });
+      qc.invalidateQueries({ queryKey: ["custom-objects"] });
+    },
+    onError: (error) => toast.error(`Record could not be archived: ${error.message}`),
   });
   const updateEdgeField = useMutation({
     mutationFn: ({ edge, field, value }) => relationshipRequest(
@@ -433,6 +477,36 @@ function RelationshipPanel({
     record_id: edge.related_record_id,
     ...(edge.related || {}),
   });
+  const archiveTargetFor = (related, label) => ({
+    object_id: related.custom_object_id || related.customObjectId || endpoint.customObjectId,
+    record_id: related.record_id || related.id,
+    label,
+    object_key: oppositeObject.data?.object_key,
+  });
+  const requestRemove = (edge, label) => {
+    if (window.confirm(`Remove the link to ${label}?`))
+      remove.mutate({ edgeId: edge.relationship_id, label });
+  };
+  const relatedActions = (edge, related, label, card = false) => (
+    <div className={`flex justify-end gap-1 ${card ? "shrink-0" : ""}`}>
+      {canArchiveRelated && <Button
+        variant="ghost"
+        size="icon"
+        className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+        disabled={archiveRelated.isPending}
+        aria-label={`Archive ${label}`}
+        onClick={() => setArchiveTarget(archiveTargetFor(related, label))}
+      ><Archive className="h-4 w-4 text-amber-700" /></Button>}
+      {editable && <Button
+        variant="ghost"
+        size="icon"
+        className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+        disabled={remove.isPending}
+        aria-label={`Remove link to ${label}`}
+        onClick={() => requestRemove(edge, label)}
+      ><Trash2 className="h-4 w-4 text-rose-600" /></Button>}
+    </div>
+  );
   const previewValue = (related, descriptor) => {
     if (descriptor.kind === "compact_scalar")
       return related.compact_fields?.find((item) =>
@@ -536,7 +610,7 @@ function RelationshipPanel({
                             ? renderEdgeField(edge, edgeFields.find((field) => String(field.id) === descriptor.fieldId))
                             : renderPreviewValue(previewValue(related, descriptor))}
                       </td>)}
-                      <td className="px-4 py-2 text-right align-top">{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</td>
+                      <td className="px-4 py-2 text-right align-top">{relatedActions(edge, related, label)}</td>
                     </tr>;
                   })}</tbody>
                 </table>
@@ -548,11 +622,52 @@ function RelationshipPanel({
                  const values = previewColumns.map((column) => column.type === "field"
                    ? related.compact_fields?.find((item) => String(item.field_id) === column.field_id)?.value
                    : related.relationship_columns?.filter((item) => String(item.relationship_definition_id) === column.relationship_definition_id && item.side === column.side) || []);
-                  return <article key={edge.relationship_id} className={relationshipCardColumnLayoutClasses.card}><div className="flex items-start justify-between gap-3"><div className="min-w-0">{primary}{edge.archived_at && <Badge variant="outline" className="mt-2 block w-fit">Archived link</Badge>}</div>{editable && <Button variant="ghost" size="icon" className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>{(edgeFields.length > 0 || previewColumns.length > 0) && <dl className="mt-4 space-y-3">{edgeFields.map((field) => <div key={`edge-field-${field.id}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</dt><dd className="mt-1 text-sm text-slate-700">{renderEdgeField(edge, field)}</dd></div>)}{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{column.label}</dt><dd className="mt-1 text-sm text-slate-700">{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : relationshipScalarDisplayValue(values[index])}</dd></div>)}</dl>}</article>;
+                   return <article key={edge.relationship_id} className={`${relationshipCardColumnLayoutClasses.card} group`}><div className="flex items-start justify-between gap-3"><div className="min-w-0">{primary}{edge.archived_at && <Badge variant="outline" className="mt-2 block w-fit">Archived link</Badge>}</div>{relatedActions(edge, related, label, true)}</div>{(edgeFields.length > 0 || previewColumns.length > 0) && <dl className="mt-4 space-y-3">{edgeFields.map((field) => <div key={`edge-field-${field.id}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</dt><dd className="mt-1 text-sm text-slate-700">{renderEdgeField(edge, field)}</dd></div>)}{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{column.label}</dt><dd className="mt-1 text-sm text-slate-700">{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : relationshipScalarDisplayValue(values[index])}</dd></div>)}</dl>}</article>;
                })}</div>}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>
       </RelatedRecordsLoadingSurface>
+      <Dialog open={Boolean(requiredRelationship)} onOpenChange={(open) => { if (!open) setRequiredRelationship(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>This link is required</DialogTitle>
+            <DialogDescription>
+              The link to {requiredRelationship?.label} cannot be removed because it is required. No records have been changed.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">You can leave the required link intact{requiredRelationship?.archiveRecord ? ", or review the separate option to archive the related record" : ""}.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequiredRelationship(null)}>Keep link</Button>
+            {requiredRelationship?.archiveRecord && <Button
+              variant="destructive"
+              onClick={() => {
+                setArchiveTarget({
+                  ...requiredRelationship.archiveRecord,
+                  object_key: oppositeObject.data?.object_key,
+                });
+                setRequiredRelationship(null);
+              }}
+            >Review archive option</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(archiveTarget)} onOpenChange={(open) => { if (!open && !archiveRelated.isPending) setArchiveTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archive {archiveTarget?.label}?</DialogTitle>
+            <DialogDescription>This is separate from removing only this link.</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            This archives this {archiveTarget?.object_key === "member_organisation_assignment" ? "assignment" : "record"} and all relationship links incident to this record. The record and relationship history are retained. Member and Organisation records and the primary organisation remain unchanged, as do relationships between other records.{archiveTarget?.object_key === "member_organisation_assignment" ? " Existing Department links remain unchanged." : ""}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" disabled={archiveRelated.isPending} onClick={() => setArchiveTarget(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={archiveRelated.isPending} onClick={() => archiveRelated.mutate(archiveTarget)}>
+              {archiveRelated.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive record
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

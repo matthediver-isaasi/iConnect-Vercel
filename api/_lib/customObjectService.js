@@ -444,8 +444,15 @@ function throwDb(error, fallback = 'Database operation failed') {
   }
   if (error.code === '23503' || error.code === '23514') {
     const constraint = error.constraint || error.details || error.message || '';
-    if (/custom_object_relationship_required_source/i.test(constraint)) {
-      throw new CustomObjectHttpError(409, 'A required relationship cannot lose its final active edge');
+    if (
+      /custom_object_relationship_required_source/i.test(constraint)
+      || /required relationship cannot lose its final active edge/i.test(error.message || '')
+    ) {
+      throw new CustomObjectHttpError(
+        409,
+        'A required relationship cannot lose its final active edge',
+        { code: 'REQUIRED_RELATIONSHIP' },
+      );
     }
     if (/custom_object_relationship_(source|target)_valid|same_tenant|active|bnms_.*_organization_(required|match)/i.test(constraint)) {
       throw new CustomObjectHttpError(400, error.message || 'Relationship endpoint is unavailable');
@@ -454,6 +461,16 @@ function throwDb(error, fallback = 'Database operation failed') {
   }
   if (error.code === '22P02') throw new CustomObjectHttpError(400, error.message || fallback);
   throw new CustomObjectHttpError(500, error.message || fallback);
+}
+
+function isRequiredRelationshipConflict(error) {
+  const diagnostic = [
+    error?.constraint,
+    error?.details,
+    error?.message,
+  ].filter(Boolean).join(' ');
+  return /custom_object_relationship_required_source/i.test(diagnostic)
+    || /required relationship cannot lose its final active edge/i.test(diagnostic);
 }
 
 function throwAtomicCreateDb(error) {
@@ -1097,6 +1114,57 @@ export function createCustomObjectService({
   async function requireCapability(objectId, capability) {
     const allowed = await hasCapability(objectId, capability);
     if (!allowed) throw new CustomObjectHttpError(403, 'Access denied');
+  }
+
+  async function throwRelationshipArchiveDb(error, definition, edge) {
+    if (!error) return;
+    if (!isRequiredRelationshipConflict(error)) throwDb(error);
+
+    const details = { code: 'REQUIRED_RELATIONSHIP' };
+    const sourceObjectId = definition?.source_kind === 'custom_object'
+      ? definition.source_custom_object_id
+      : null;
+    if (sourceObjectId && edge?.source_record_id) {
+      try {
+        const sourceObject = await activeObject(sourceObjectId);
+        const [canView, canArchive] = await Promise.all([
+          hasCapability(sourceObjectId, 'view_records'),
+          hasCapability(sourceObjectId, 'archive_records'),
+        ]);
+        if (canView && canArchive) {
+          const sourceRecord = await one(
+            'custom_object_record',
+            edge.source_record_id,
+            { custom_object_id: sourceObjectId, archived_at: null },
+          );
+          const sourceFields = await fields(sourceObjectId, true);
+          const access = await fieldAccess(sourceObjectId, sourceFields);
+          details.archive_record = {
+            object_id: sourceObjectId,
+            record_id: sourceRecord.id,
+            label: endpointLabel(
+              'custom_object',
+              sourceRecord,
+              sourceObject,
+              sourceFields,
+              access,
+            ).primary_label,
+          };
+        }
+      } catch (contextError) {
+        if (
+          !(contextError instanceof CustomObjectHttpError)
+          || ![403, 404, 409].includes(contextError.status)
+        ) {
+          throw contextError;
+        }
+      }
+    }
+    throw new CustomObjectHttpError(
+      409,
+      'A required relationship cannot lose its final active edge',
+      details,
+    );
   }
 
   function relationshipObjectIds(definition) {
@@ -3623,7 +3691,7 @@ export function createCustomObjectService({
       p_archived_by: currentActorReference,
       p_archived_at: now(),
     }).single();
-    throwDb(error);
+    await throwRelationshipArchiveDb(error, definition, edge);
     return data;
   }
 
@@ -3942,7 +4010,7 @@ export function createCustomObjectService({
       p_archived_by: currentActorReference,
       p_archived_at: now(),
     }).single();
-    throwDb(error);
+    await throwRelationshipArchiveDb(error, definition, before);
     return data;
   }
 
