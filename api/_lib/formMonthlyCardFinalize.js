@@ -50,8 +50,9 @@
  *     (CAS on the exact stale timestamp) and resume.
  *   - See 'done' → { handled: true, alreadyFinalized: true }.
  *
- * Never throws on Supabase write errors — all DB errors are checked and
- * returned as { retryable } so the caller decides.
+ * Database read/write errors are never treated as a lost CAS race. They are
+ * thrown to the webhook/reconciliation boundary so the real failure remains
+ * observable and retryable; a clean zero-row RPC result alone means CAS loss.
  */
 
 import { runFormEntityPipelines } from './formEntityPipelines.js';
@@ -114,7 +115,12 @@ async function readClaimState(db, submissionId) {
     .select('payment_status, payment_meta, processing_notes')
     .eq('id', submissionId)
     .maybeSingle();
-  if (error || !data) return { state: null, meta: {} };
+  if (error) {
+    throw new Error(`monthly-card claim-state read failed: ${error.message}`, { cause: error });
+  }
+  if (!data) {
+    throw new Error(`monthly-card claim-state read failed: form_submission ${submissionId} not found`);
+  }
   const meta = (data.payment_meta && typeof data.payment_meta === 'object') ? data.payment_meta : {};
   const state = (meta.monthly_card_state && typeof meta.monthly_card_state === 'object')
     ? meta.monthly_card_state : null;
@@ -126,21 +132,62 @@ async function readClaimState(db, submissionId) {
   };
 }
 
-async function writePreclaimBlockedState(db, submissionId, meta, { code, detail }) {
+/**
+ * Patch only payment_meta.monthly_card_state in PostgreSQL. The expected full
+ * metadata is sent in the RPC request body (rather than a PostgREST query
+ * string), while PostgreSQL performs the exact JSONB CAS and atomic jsonb_set.
+ * This both preserves unrelated metadata and avoids URI limits for submissions
+ * whose pipeline metadata has grown beyond ~20KB.
+ */
+async function patchMonthlyCardState(db, {
+  submissionId,
+  expectedMeta,
+  nextState,
+  removeState = false,
+  expectedPaymentStatus = null,
+  expectedStateStatus = null,
+  expectStateAbsent = false,
+  expectedClaimedAt = null,
+  expectedOwnerToken = null,
+  processingNotes = null,
+  writeProcessingNotes = false,
+}) {
+  const { data, error } = await db.rpc('cas_form_monthly_card_state', {
+    p_submission_id: submissionId,
+    p_expected_payment_meta: expectedMeta,
+    p_next_state: nextState,
+    p_remove_state: removeState,
+    p_expected_payment_status: expectedPaymentStatus,
+    p_expected_state_status: expectedStateStatus,
+    p_expect_state_absent: expectStateAbsent,
+    p_expected_claimed_at: expectedClaimedAt,
+    p_expected_owner_token: expectedOwnerToken,
+    p_processing_notes: processingNotes,
+    p_write_processing_notes: writeProcessingNotes,
+  });
+  if (error) {
+    throw new Error(`monthly-card state CAS failed: ${error.message}`, { cause: error });
+  }
+  return data === true;
+}
+
+async function writePreclaimBlockedState(db, submissionId, meta, {
+  code,
+  detail,
+  paymentStatus,
+}) {
   const blockedState = {
     status: 'blocked',
     code: code || 'MEMBERSHIP_SETUP_BLOCKED',
     detail: String(detail || 'Membership setup is blocked').replace(/\s+/g, ' ').slice(0, 500),
     blocked_at: new Date().toISOString(),
   };
-  const { data, error } = await db
-    .from('form_submission')
-    .update({ payment_meta: { ...meta, monthly_card_state: blockedState } })
-    .eq('id', submissionId)
-    .eq('payment_meta', JSON.stringify(meta))
-    .select('id');
-  if (error) return false;
-  return Array.isArray(data) ? data.length > 0 : !!data;
+  return patchMonthlyCardState(db, {
+    submissionId,
+    expectedMeta: meta,
+    nextState: blockedState,
+    expectedPaymentStatus: paymentStatus,
+  });
 }
 
 /**
@@ -164,28 +211,19 @@ async function writeClaim(db, submissionId, meta, { expectedCurrentStatus, stale
     },
   };
 
-  let query = db
-    .from('form_submission')
-    .update({ payment_meta: newMeta })
-    .eq('id', submissionId)
-    .eq('payment_status', 'setup_complete')
-    .eq('payment_meta', JSON.stringify(meta));
-
-  if (expectedCurrentStatus === 'absent') {
-    query = query.filter('payment_meta->monthly_card_state', 'is', null);
-  } else if (expectedCurrentStatus === 'stale') {
-    // Stale re-claim: must match exact stale timestamp.
-    query = query.filter(
-      'payment_meta->monthly_card_state->>claimed_at',
-      'eq',
-      staleTimestamp,
-    );
-  }
-
-  const { data: updated, error } = await query.select('id').maybeSingle();
-  if (error) return { claimed: false, claimedAt: null, ownerToken: null };
+  const updated = await patchMonthlyCardState(db, {
+    submissionId,
+    expectedMeta: meta,
+    nextState: newMeta.monthly_card_state,
+    expectedPaymentStatus: 'setup_complete',
+    expectedStateStatus: expectedCurrentStatus === 'absent'
+      ? null
+      : expectedCurrentStatus === 'stale' ? 'processing' : expectedCurrentStatus,
+    expectStateAbsent: expectedCurrentStatus === 'absent',
+    expectedClaimedAt: expectedCurrentStatus === 'stale' ? staleTimestamp : null,
+  });
   return {
-    claimed: !!updated,
+    claimed: updated,
     claimedAt: updated ? claimedAt : null,
     ownerToken: updated ? ownerToken : null,
   };
@@ -222,23 +260,15 @@ async function writeClaimResult(db, submissionId, {
   } else {
     delete nextMeta.monthly_card_state;
   }
-  try {
-    const { data, error } = await db
-      .from('form_submission')
-      .update({ payment_meta: nextMeta })
-      .eq('id', submissionId)
-      .eq('payment_meta', JSON.stringify(meta))
-      .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
-      .select('id');
-    if (error) {
-      console.error('[formMonthlyCardFinalize] writeClaimResult failed:', error.message);
-      return false;
-    }
-    return Array.isArray(data) ? data.length > 0 : !!data;
-  } catch (err) {
-    console.error('[formMonthlyCardFinalize] writeClaimResult threw:', err?.message);
-    return false;
-  }
+  return patchMonthlyCardState(db, {
+    submissionId,
+    expectedMeta: meta,
+    nextState: nextMeta.monthly_card_state || null,
+    removeState: !nextMeta.monthly_card_state,
+    expectedPaymentStatus: 'setup_complete',
+    expectedStateStatus: 'processing',
+    expectedOwnerToken: ownerToken,
+  });
 }
 
 async function writeConflictState(db, submissionId, {
@@ -258,21 +288,19 @@ async function writeConflictState(db, submissionId, {
     member_id: memberId || null,
     detected_at: new Date().toISOString(),
   };
-  const { data, error } = await db
-    .from('form_submission')
-    .update({
-      payment_meta: { ...meta, monthly_card_state: conflictState },
-      processing_notes: [
-        processingNotes,
-        `${conflictState.detail}. The Stripe subscription will be cancelled and any successful payment refunded automatically.`,
-      ].filter(Boolean).join('\n'),
-    })
-    .eq('id', submissionId)
-    .eq('payment_meta', JSON.stringify(meta))
-    .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
-    .select('id');
-  if (error) return false;
-  return Array.isArray(data) ? data.length > 0 : !!data;
+  return patchMonthlyCardState(db, {
+    submissionId,
+    expectedMeta: meta,
+    nextState: conflictState,
+    expectedPaymentStatus: 'setup_complete',
+    expectedStateStatus: 'processing',
+    expectedOwnerToken: ownerToken,
+    processingNotes: [
+      processingNotes,
+      `${conflictState.detail}. The Stripe subscription will be cancelled and any successful payment refunded automatically.`,
+    ].filter(Boolean).join('\n'),
+    writeProcessingNotes: true,
+  });
 }
 
 /**
@@ -288,15 +316,14 @@ async function renewClaimLease(db, submissionId, ownerToken) {
     ...state,
     claimed_at: new Date().toISOString(),
   };
-  const { data, error } = await db
-    .from('form_submission')
-    .update({ payment_meta: { ...meta, monthly_card_state: renewedState } })
-    .eq('id', submissionId)
-    .eq('payment_meta', JSON.stringify(meta))
-    .filter('payment_meta->monthly_card_state->>owner_token', 'eq', ownerToken)
-    .select('id');
-  if (error) return false;
-  return Array.isArray(data) ? data.length > 0 : !!data;
+  return patchMonthlyCardState(db, {
+    submissionId,
+    expectedMeta: meta,
+    nextState: renewedState,
+    expectedPaymentStatus: 'setup_complete',
+    expectedStateStatus: 'processing',
+    expectedOwnerToken: ownerToken,
+  });
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -358,13 +385,24 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   }
   if (!hasFormPaymentAccessProof(submission, form)) {
     const detail = `form_submission ${formSubmissionId} has no trusted form-access authorization`;
-    await writePreclaimBlockedState(
+    const blockedSaved = await writePreclaimBlockedState(
       db,
       formSubmissionId,
       (submission.payment_meta && typeof submission.payment_meta === 'object')
         ? submission.payment_meta : {},
-      { code: 'FORM_ACCESS_NOT_AUTHORIZED', detail },
+      {
+        code: 'FORM_ACCESS_NOT_AUTHORIZED',
+        detail,
+        paymentStatus: submission.payment_status,
+      },
     );
+    if (!blockedSaved) {
+      return {
+        handled: false,
+        retryable: true,
+        detail: `form_submission ${formSubmissionId} access denial state changed concurrently`,
+      };
+    }
     return {
       handled: false,
       blocked: true,

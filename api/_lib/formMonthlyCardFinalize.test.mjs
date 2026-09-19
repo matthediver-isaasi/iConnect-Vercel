@@ -329,6 +329,52 @@ function makeSupabase({
     return { data: { ok: true, idempotent: false, history_id: historyRow.id }, error: null };
   }
 
+  function monthlyCardStateCasRpc(args) {
+    if (rpc.stateCasError) {
+      const error = typeof rpc.stateCasError === 'function'
+        ? rpc.stateCasError(args)
+        : rpc.stateCasError;
+      if (error) return { data: null, error };
+    }
+    const row = (store.form_submission || []).find(
+      (candidate) => candidate.id === args.p_submission_id,
+    );
+    const state = row?.payment_meta?.monthly_card_state;
+    const matches = !!row
+      && JSON.stringify(row.payment_meta) === JSON.stringify(args.p_expected_payment_meta)
+      && (!args.p_expected_payment_status || row.payment_status === args.p_expected_payment_status)
+      && (!args.p_expect_state_absent || state == null)
+      && (!args.p_expected_state_status || state?.status === args.p_expected_state_status)
+      && (!args.p_expected_claimed_at || state?.claimed_at === args.p_expected_claimed_at)
+      && (!args.p_expected_owner_token || state?.owner_token === args.p_expected_owner_token);
+    if (!matches || rpc.forceStateCasLoss === true) return { data: false, error: null };
+
+    const nextMeta = clone(row.payment_meta || {});
+    if (args.p_remove_state) delete nextMeta.monthly_card_state;
+    else nextMeta.monthly_card_state = clone(args.p_next_state);
+    row.payment_meta = nextMeta;
+    if (args.p_write_processing_notes) row.processing_notes = args.p_processing_notes;
+    if (hooks.onUpdate) {
+      hooks.onUpdate('form_submission', {
+        rpc: true,
+        payload: {
+          payment_meta: clone(nextMeta),
+          ...(args.p_write_processing_notes
+            ? { processing_notes: args.p_processing_notes } : {}),
+        },
+        matched: 1,
+      });
+    }
+    log.push({
+      op: 'rpc-update',
+      name: 'cas_form_monthly_card_state',
+      table: 'form_submission',
+      payload: { payment_meta: clone(nextMeta) },
+    });
+    if (rpc.onStateCas) rpc.onStateCas(args, row);
+    return { data: true, error: null };
+  }
+
   return {
     tables: store,
     log,
@@ -339,6 +385,7 @@ function makeSupabase({
     async rpc(name, args) {
       log.push({ op: 'rpc', name });
       if (name === 'claim_form_monthly_card_membership') return claimRpc(args);
+      if (name === 'cas_form_monthly_card_state') return monthlyCardStateCasRpc(args);
       if (name === 'claim_form_due_diligence_initialization') {
         if (dueDiligenceRpc.error) return { data: null, error: dueDiligenceRpc.error };
         return {
@@ -803,7 +850,7 @@ test('paid DD claim runs after completed monthly-card finalization and cannot bl
   const membershipClaimAt = db.log.findIndex((entry) => entry.name === 'claim_form_monthly_card_membership');
   const dueDiligenceClaimAt = db.log.findIndex((entry) => entry.name === 'claim_form_due_diligence_initialization');
   const doneStampAt = db.log.findIndex((entry) => (
-    entry.op === 'update'
+    entry.op === 'rpc-update'
       && entry.table === 'form_submission'
       && entry.payload?.payment_meta?.monthly_card_state?.status === 'done'
   ));
@@ -877,6 +924,62 @@ test('stale processing lease is reclaimed (new owner_token) and completes', asyn
   // (The done stamp drops owner_token, so assert via history existence + done.)
   assert.equal((db.tables.member_membership_history || []).length, 1);
   assert.equal(db.tables.member_membership_history[0].billing_period, 'monthly_card');
+});
+
+test('large payment metadata is carried in the state-CAS RPC body and stale lease completes', async () => {
+  const staleTime = new Date(Date.now() - FINALIZE_CLAIM_TTL_MS - 60_000).toISOString();
+  const largePipelineMetadata = {
+    operations: Array.from({ length: 180 }, (_, index) => ({
+      operation_id: `operation-${index}`,
+      detail: 'pipeline-result-detail'.repeat(7),
+    })),
+  };
+  assert.ok(JSON.stringify(largePipelineMetadata).length > 21_000);
+  const db = happyFake({
+    payment_meta: {
+      monthly_card: { agreement_id: 'ag1' },
+      pipeline: largePipelineMetadata,
+      monthly_card_state: {
+        status: 'processing',
+        claimed_at: staleTime,
+        owner_token: 'dead-worker',
+      },
+    },
+  });
+
+  const result = await run(db);
+
+  assert.equal(result.handled, true);
+  assert.equal(db._readRow('form_submission', 'sub1').payment_meta.pipeline.operations.length, 180);
+  assert.equal(db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state.status, 'done');
+  const stateCalls = db.log.filter((entry) => entry.name === 'cas_form_monthly_card_state');
+  assert.ok(stateCalls.length >= 3, 'claim, renewal, and terminal stamp use the body RPC');
+  assert.equal(
+    db.log.some((entry) => entry.op === 'update'
+      && entry.table === 'form_submission'
+      && entry.predicates?.some?.((predicate) => predicate.column === 'payment_meta')),
+    false,
+  );
+});
+
+test('state-CAS database errors are surfaced and are not reported as concurrency', async () => {
+  const db = happyFake({}, {
+    rpc: { stateCasError: { message: 'request body rejected by database' } },
+  });
+  await assert.rejects(
+    run(db),
+    /monthly-card state CAS failed: request body rejected by database/,
+  );
+  assert.equal(db.tables.member_membership_history.length, 0);
+});
+
+test('clean zero-row state-CAS result remains a lost-race retry', async () => {
+  const db = happyFake({}, {
+    rpc: { forceStateCasLoss: true },
+  });
+  const result = await run(db);
+  assert.equal(result.retryable, true);
+  assert.match(result.detail, /claim lost to concurrent caller/);
 });
 
 // ===========================================================================
@@ -1206,50 +1309,20 @@ test('(a) old worker cannot release a newer reclaimed lease', async () => {
   // rejected by the owner-token CAS, leaving the newer lease intact.
   const db = happyFake({ created_member_id: null }); // triggers release attempt
 
-  // Intercept the post-pipeline renewal read: after the old worker's pipeline
-  // runs, a newer worker reclaims by overwriting owner_token + claimed_at.
-  // We hook onSelect for form_submission reading payment_status/payment_meta
-  // (the readClaimState just before renew / release) and, once we've seen the
-  // old worker's own claim land, swap in a newer owner.
-  let oldOwnerToken = null;
-  let swapped = false;
-  const origFrom = db.from.bind(db);
-  db.from = (table) => {
-    const chain = origFrom(table);
-    if (table === 'form_submission') {
-      const realUpdate = chain.update.bind(chain);
-      chain.update = (p) => {
-        // Capture the old worker's claim token the first time it stamps processing.
-        const tok = p?.payment_meta?.monthly_card_state?.owner_token;
-        if (tok && p.payment_meta.monthly_card_state.status === 'processing' && !oldOwnerToken) {
-          oldOwnerToken = tok;
-        }
-        return realUpdate(p);
-      };
-      const realSelect = chain.select.bind(chain);
-      chain.select = (...a) => {
-        const c = realSelect(...a);
-        const realMaybe = c.maybeSingle.bind(c);
-        c.maybeSingle = async () => {
-          // Before the old worker reads state to renew/release, a newer worker
-          // reclaims: overwrite persisted owner_token.
-          if (oldOwnerToken && !swapped) {
-            const row = db._readRow('form_submission', 'sub1');
-            if (row?.payment_meta?.monthly_card_state?.owner_token === oldOwnerToken) {
-              row.payment_meta.monthly_card_state = {
-                status: 'processing',
-                claimed_at: new Date().toISOString(),
-                owner_token: 'newer-worker',
-              };
-              swapped = true;
-            }
-          }
-          return realMaybe();
-        };
-        return c;
+  // The first state RPC acquires the lease. Replace it immediately before the
+  // second state RPC (the post-pipeline renewal), so its exact-meta/owner CAS
+  // returns a clean zero-row loss.
+  let stateCasCalls = 0;
+  const originalRpc = db.rpc.bind(db);
+  db.rpc = async (name, args) => {
+    if (name === 'cas_form_monthly_card_state' && ++stateCasCalls === 2) {
+      db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state = {
+        status: 'processing',
+        claimed_at: new Date().toISOString(),
+        owner_token: 'newer-worker',
       };
     }
-    return chain;
+    return originalRpc(name, args);
   };
 
   const result = await run(db);
@@ -1266,50 +1339,25 @@ test('(b) old worker cannot stamp done over a newer lease', async () => {
   // But a newer worker reclaimed the lease just before the terminal stamp. The
   // owner-token CAS must reject the done stamp, so the lease stays processing
   // under the newer owner (NOT flipped to done by the old worker).
-  let oldOwnerToken = null;
-  let swapped = false;
   let seenHistory = false;
   // The claim now happens inside the RPC; mark history-written when it runs.
   const db = happyFake({ created_member_id: 'mem1' }, {
     rpc: { onCall: () => { seenHistory = true; } },
   });
 
-  const origFrom = db.from.bind(db);
-  db.from = (table) => {
-    const chain = origFrom(table);
-    if (table === 'form_submission') {
-      const realUpdate = chain.update.bind(chain);
-      chain.update = (p) => {
-        const st = p?.payment_meta?.monthly_card_state;
-        if (st?.status === 'processing' && st.owner_token && !oldOwnerToken) {
-          oldOwnerToken = st.owner_token;
-        }
-        return realUpdate(p);
+  let swapped = false;
+  const originalRpc = db.rpc.bind(db);
+  db.rpc = async (name, args) => {
+    if (name === 'cas_form_monthly_card_state'
+        && seenHistory && args.p_next_state?.status === 'done' && !swapped) {
+      db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state = {
+        status: 'processing',
+        claimed_at: new Date().toISOString(),
+        owner_token: 'newer-worker',
       };
-      const realSelect = chain.select.bind(chain);
-      chain.select = (...a) => {
-        const c = realSelect(...a);
-        const realMaybe = c.maybeSingle.bind(c);
-        c.maybeSingle = async () => {
-          // Only reclaim AFTER history has been written (i.e. right before the
-          // terminal done stamp's readClaimState).
-          if (seenHistory && oldOwnerToken && !swapped) {
-            const row = db._readRow('form_submission', 'sub1');
-            if (row?.payment_meta?.monthly_card_state?.owner_token === oldOwnerToken) {
-              row.payment_meta.monthly_card_state = {
-                status: 'processing',
-                claimed_at: new Date().toISOString(),
-                owner_token: 'newer-worker',
-              };
-              swapped = true;
-            }
-          }
-          return realMaybe();
-        };
-        return c;
-      };
+      swapped = true;
     }
-    return chain;
+    return originalRpc(name, args);
   };
 
   const result = await run(db);
@@ -1329,41 +1377,17 @@ test('(c) lease renewal is owner-CAS guarded: only the active owner renews', asy
   // that point, the renewal fails and finalization aborts as retryable.
   const db = happyFake({ created_member_id: 'mem1' });
 
-  let oldOwnerToken = null;
-  let swapped = false;
-  const origFrom = db.from.bind(db);
-  db.from = (table) => {
-    const chain = origFrom(table);
-    if (table === 'form_submission') {
-      const realUpdate = chain.update.bind(chain);
-      chain.update = (p) => {
-        const st = p?.payment_meta?.monthly_card_state;
-        if (st?.status === 'processing' && st.owner_token && !oldOwnerToken) oldOwnerToken = st.owner_token;
-        return realUpdate(p);
-      };
-      const realSelect = chain.select.bind(chain);
-      chain.select = (...a) => {
-        const c = realSelect(...a);
-        const realMaybe = c.maybeSingle.bind(c);
-        c.maybeSingle = async () => {
-          // Steal the lease before the post-pipeline renewal reads state.
-          if (oldOwnerToken && !swapped) {
-            const row = db._readRow('form_submission', 'sub1');
-            if (row?.payment_meta?.monthly_card_state?.owner_token === oldOwnerToken) {
-              row.payment_meta.monthly_card_state = {
-                status: 'processing',
-                claimed_at: new Date().toISOString(),
-                owner_token: 'someone-else',
-              };
-              swapped = true;
-            }
-          }
-          return realMaybe();
-        };
-        return c;
+  let stateCasCalls = 0;
+  const originalRpc = db.rpc.bind(db);
+  db.rpc = async (name, args) => {
+    if (name === 'cas_form_monthly_card_state' && ++stateCasCalls === 2) {
+      db._readRow('form_submission', 'sub1').payment_meta.monthly_card_state = {
+        status: 'processing',
+        claimed_at: new Date().toISOString(),
+        owner_token: 'someone-else',
       };
     }
-    return chain;
+    return originalRpc(name, args);
   };
 
   const result = await run(db);
@@ -1514,12 +1538,19 @@ test('src: formMonthlyCardFinalize.js uses an owner-token CAS on every lease wri
   assert.match(finalizeSrc, /owner_token/, 'must stamp an owner_token into the lease');
   assert.match(finalizeSrc, /randomUUID\(\)/, 'owner token must be a random UUID');
   // Release / done stamp is guarded by an owner-token filter.
-  assert.match(finalizeSrc, /payment_meta->monthly_card_state->>owner_token['"],\s*['"]eq['"]/,
-    'lease writes must filter on owner_token eq');
+  assert.match(finalizeSrc, /p_expected_owner_token:\s*expectedOwnerToken/,
+    'lease writes must pass the expected owner token to the body RPC');
   // The terminal writer requires the caller to pass its ownerToken.
   assert.match(finalizeSrc, /writeClaimResult\([^)]*ownerToken/s, 'writeClaimResult must receive ownerToken');
   // There is a dedicated renewal helper that is owner-CAS guarded.
   assert.match(finalizeSrc, /renewClaimLease/, 'must have a renewClaimLease helper');
+});
+
+test('src: monthly-card state writes use body RPC and never full-meta URL equality', () => {
+  const finalizeSrc = src('./formMonthlyCardFinalize.js');
+  assert.match(finalizeSrc, /rpc\('cas_form_monthly_card_state'/);
+  assert.doesNotMatch(finalizeSrc, /\.eq\(['"]payment_meta['"]/);
+  assert.doesNotMatch(finalizeSrc, /JSON\.stringify\(meta\)/);
 });
 
 test('src: formMonthlyCardFinalize.js renews the lease after the pipeline and aborts if ownership lost', () => {
