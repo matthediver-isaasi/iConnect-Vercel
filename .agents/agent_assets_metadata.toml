@@ -677,3 +677,17 @@ mtime_ms = 1789834891195
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1f5e16da-d1b8-4520-b326-bea42585f208/4b3f0602-a9f3-4ee6-98f6-f0a18accaee8"
 storage_version_token = "1789834949382821"
 content_type = "text/csv"
+
+[[outputs]]
+id = "5gNu440OLJ1D4CtxhV356"
+uri = "file://.local/private-reports/bnms-held-current/BNMS-held-rows-REGENERATED-current-state-2026-09-19.csv"
+type = "table"
+title = "BNMS held rows — regenerated current-state CSV"
+description = "69 held source rows, all 31 original columns, source row numbers and manual-attention reasons. Regenerated read-only on 19 September 2026; not the recovered historical report. No member data changes or migrations."
+logical_id = "8b8b458e-0a5f-4719-946c-a712785a750f"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789836597543
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b8b458e-0a5f-4719-946c-a712785a750f/882857a7-445b-4840-b336-0b4449236e02"
+storage_version_token = "1789836635411419"
+content_type = "text/csv"
