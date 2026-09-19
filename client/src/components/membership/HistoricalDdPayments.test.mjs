@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   formatHistoricalDdAmount,
   formatHistoricalDdDate,
+  formatHistoricalDdStatus,
   historicalInvoiceFilename,
   historicalDdInvoiceUrl,
   HistoricalDdPaymentsTable,
@@ -16,6 +17,12 @@ test('historical amount and nominal/charge dates are formatted separately', () =
   assert.equal(formatHistoricalDdAmount(1304, 'GBP'), '£13.04');
   assert.equal(formatHistoricalDdDate('2026-01-01', { monthOnly: true }), 'January 2026');
   assert.match(formatHistoricalDdDate('2026-01-06'), /6 Jan 2026/);
+});
+
+test('alpha mandate, first-payment and held statuses reuse member-facing labels', () => {
+  assert.equal(formatHistoricalDdStatus('active'), 'Active mandate');
+  assert.equal(formatHistoricalDdStatus('first_payment_pending'), 'Awaiting first payment');
+  assert.equal(formatHistoricalDdStatus('held'), 'Held');
 });
 
 test('read-only renderer only uses authenticated GET requests for invoices', () => {
@@ -36,6 +43,14 @@ test('invoice requests include the historical source and never a provider paymen
       provider_payment_id: 'provider-id-must-not-be-used',
     }),
     '/api/membership/historical-dd-invoice?recordId=history-row-id&source=beta_provider_history',
+  );
+  assert.equal(
+    historicalDdInvoiceUrl({
+      id: 'alpha-history-uuid',
+      source: 'alpha_provider_history',
+      provider_payment_id: 'must-not-appear',
+    }),
+    '/api/membership/historical-dd-invoice?recordId=alpha-history-uuid&source=alpha_provider_history',
   );
   assert.equal(
     historicalDdInvoiceUrl({ id: 'pilot-row-id' }, true),
@@ -206,6 +221,28 @@ test('reconciled beta history exposes protected invoice actions and keeps its hi
   assert.match(html, /button-view-historical-dd-invoice-beta-linked/);
   assert.match(html, /button-download-historical-dd-invoice-beta-linked/);
   assert.doesNotMatch(html, /Provider evidence · unreconciled/);
+});
+
+test('reconciled alpha history reuses protected provider-history invoice presentation', () => {
+  const html = renderToStaticMarkup(React.createElement(HistoricalDdPaymentsTable, {
+    request: async () => { throw new Error('not called during render'); },
+    payments: [{
+      id: 'alpha-linked',
+      source: 'alpha_provider_history',
+      charge_date: '2026-01-01',
+      amount_minor: 1600,
+      currency: 'GBP',
+      provider_status: 'first_payment_pending',
+      provider_only: false,
+      provenance: 'provider_and_accounting_evidence',
+      accounting_reconciled: true,
+      xero_invoice_number: 'ALPHA-10',
+      invoice_available: true,
+    }],
+  }));
+  assert.match(html, /Awaiting first payment/);
+  assert.match(html, /Reconciled provider history/);
+  assert.match(html, /button-view-historical-dd-invoice-alpha-linked/);
 });
 
 test('both existing member surfaces include historical DD records', () => {

@@ -11,6 +11,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const HISTORY_PERMISSION = 'commerce.history';
 const INVOICE_PERMISSION = 'commerce.history.access-invoices';
 const MIGRATION_ERROR_CODES = new Set(['42P01', '42703']);
+const ALPHA_HISTORY_START_DATE = '2026-01-01';
 
 function safeFilenamePart(value) {
   const safe = String(value || '')
@@ -63,7 +64,7 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
     const source = req.query?.source === undefined
       ? 'pilot_historical_ledger'
       : (Array.isArray(req.query.source) ? null : req.query.source);
-    if (!['pilot_historical_ledger', 'beta_provider_history'].includes(source)) {
+    if (!['pilot_historical_ledger', 'beta_provider_history', 'alpha_provider_history'].includes(source)) {
       return res.status(400).json({ error: 'source is invalid' });
     }
 
@@ -129,7 +130,14 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
           .eq('id', recordId)
           .eq('tenant_id', tenantId)
           .eq('accounting_reconciled', false)
-        : db
+        : source === 'alpha_provider_history'
+          ? db
+            .from('bnms_dd_alpha_provider_history')
+            .select('id, tenant_id, member_id, provider_payment_id, charge_date')
+            .eq('id', recordId)
+            .eq('tenant_id', tenantId)
+            .gte('charge_date', ALPHA_HISTORY_START_DATE)
+          : db
           .from('bnms_dd_historical_payment')
           .select('id, tenant_id, member_id, xero_invoice_id, xero_invoice_number, historical_only')
           .eq('id', recordId)
@@ -141,10 +149,14 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
           return res.status(503).json({
             error: source === 'beta_provider_history'
               ? 'Beta historical Direct Debit storage is not installed'
-              : 'Historical Direct Debit storage is not installed',
+              : (source === 'alpha_provider_history'
+                ? 'Alpha historical Direct Debit storage is not installed'
+                : 'Historical Direct Debit storage is not installed'),
             code: source === 'beta_provider_history'
               ? 'HISTORICAL_DD_BETA_MIGRATION_NOT_INSTALLED'
-              : 'HISTORICAL_DD_MIGRATION_NOT_INSTALLED',
+              : (source === 'alpha_provider_history'
+                ? 'HISTORICAL_DD_ALPHA_MIGRATION_NOT_INSTALLED'
+                : 'HISTORICAL_DD_MIGRATION_NOT_INSTALLED'),
           });
         }
         throw recordError;
@@ -157,19 +169,27 @@ export function createHistoricalDdInvoiceHandler(dependencies = {}) {
       }
 
       let record = persistedRecord;
-      if (source === 'beta_provider_history') {
-        const { data: link, error: linkError } = await db
-          .from('bnms_dd_beta_invoice_link')
-          .select('history_id, tenant_id, member_id, xero_invoice_id, xero_invoice_number')
+      if (source === 'beta_provider_history' || source === 'alpha_provider_history') {
+        const isAlpha = source === 'alpha_provider_history';
+        let linkQuery = db
+          .from(isAlpha ? 'bnms_dd_alpha_invoice_link' : 'bnms_dd_beta_invoice_link')
+          .select('history_id, tenant_id, member_id, provider_payment_id, xero_invoice_id, xero_invoice_number')
           .eq('history_id', persistedRecord.id)
           .eq('tenant_id', tenantId)
-          .eq('member_id', persistedRecord.member_id)
-          .maybeSingle();
+          .eq('member_id', persistedRecord.member_id);
+        if (isAlpha) {
+          linkQuery = linkQuery.eq('provider_payment_id', persistedRecord.provider_payment_id);
+        }
+        const { data: link, error: linkError } = await linkQuery.maybeSingle();
         if (linkError) {
           if (MIGRATION_ERROR_CODES.has(linkError.code)) {
             return res.status(503).json({
-              error: 'Beta historical invoice reconciliation storage is not installed',
-              code: 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED',
+              error: isAlpha
+                ? 'Alpha historical invoice reconciliation storage is not installed'
+                : 'Beta historical invoice reconciliation storage is not installed',
+              code: isAlpha
+                ? 'HISTORICAL_DD_ALPHA_INVOICE_LINK_MIGRATION_NOT_INSTALLED'
+                : 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED',
             });
           }
           throw linkError;

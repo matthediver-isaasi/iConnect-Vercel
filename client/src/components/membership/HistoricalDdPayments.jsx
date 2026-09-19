@@ -32,6 +32,18 @@ export function formatHistoricalDdDate(value, options = {}) {
   });
 }
 
+export function formatHistoricalDdStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  if (normalized === "paid_out") return "Paid out";
+  if (normalized === "active" || normalized === "active_mandate") return "Active mandate";
+  if (normalized === "first_payment_pending" || normalized === "awaiting_first_payment") {
+    return "Awaiting first payment";
+  }
+  if (normalized === "held") return "Held";
+  return normalized.replace(/_/g, " ").replace(/^./, (value) => value.toUpperCase());
+}
+
 export function historicalInvoiceFilename(contentDisposition, payment) {
   const clean = (value) => String(value)
     .replace(/[/\\?%*:|"<>]/g, "-")
@@ -186,7 +198,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
             const invoiceAvailable = isHistoricalDdInvoiceAvailable(payment);
             const providerOnly = payment.provider_only
               || payment.provenance === "provider_evidence_only";
-            const betaReconciled = payment.source === "beta_provider_history"
+            const providerHistoryReconciled = ["beta_provider_history", "alpha_provider_history"].includes(payment.source)
               && payment.accounting_reconciled;
             return (
               <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
@@ -194,7 +206,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span>{formatHistoricalDdDate(payment.charge_date)}</span>
                   <span className="text-xs text-muted-foreground">Collection</span>
-                  <Badge variant="secondary">{payment.provider_status === "paid_out" ? "Paid out" : payment.provider_status}</Badge>
+                   <Badge variant="secondary">{formatHistoricalDdStatus(payment.provider_status)}</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {payment.period
@@ -202,7 +214,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                     : null}
                   {providerOnly
                     ? "Provider history only"
-                    : (betaReconciled ? "Reconciled provider history" : "Imported historical payment")}
+                     : (providerHistoryReconciled ? "Reconciled provider history" : "Imported historical payment")}
                 </p>
               </td>
               <td className="p-2 text-right whitespace-nowrap">
@@ -212,7 +224,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                 <Badge variant="outline">
                   {providerOnly
                     ? "Provider evidence · unreconciled"
-                    : (betaReconciled ? "Provider + accounting evidence · reconciled" : "Imported evidence")}
+                     : (providerHistoryReconciled ? "Provider + accounting evidence · reconciled" : "Imported evidence")}
                 </Badge>
               </td>
               <td className="p-2">

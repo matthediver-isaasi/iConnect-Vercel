@@ -6,8 +6,6 @@
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
-- [csv_import_job history](csv-import-job-history.md) — import history writes are swallowed by try/catch so column drift fails silently; recording must fire on BOTH the SQL fast path and JS path, and the list must be tenant-filtered.
-- [Member/org import pitfalls](member-import-pitfalls.md) — import SQL fast path silently drops non-core fields; preference_value column is `field_id`; emails must be stored lowercased or login shows "No Member Record".
 - [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
 - [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
@@ -39,8 +37,7 @@
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
 - [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
 - [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
-- [Accounting provider dual invoice columns](accounting-provider-dual-columns.md) — QBO rows fill only accounting_invoice_id/number; queries filtering xero_* alone silently miss them; keep xero_invoice_id strictly Xero for API calls.
-- [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
+- [Billing, import, and evidence topics](billing-import-evidence-index.md) — index of durable rules for CSV imports, accounting/Xero invoices, BNMS reconciliation, and private report recovery.
 - [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
 - [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
@@ -152,9 +149,7 @@
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
 - [Deleted-member relationships](deleted-member-relationship-visibility.md) — intentional identity suppression is not a missing endpoint; retain history and apply eligibility before paging.
-- [BNMS renewal reconciliation](bnms-renewal-reconciliation.md) — review one exact class and twelve-month invoice window per Excel workbook; nominal-code evidence must be explicit.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
-- [Private report recovery](private-report-recovery.md) — exact historical attachment hashes prove report identity, not individual import writes; verify delivered bytes separately.

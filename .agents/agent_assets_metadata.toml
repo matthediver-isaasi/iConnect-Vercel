@@ -747,3 +747,31 @@ mtime_ms = 1789839032357
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/79f9a18e-d7ba-4f90-a605-0c37a848b6e0/859ef19b-ccea-4d73-868e-5bd88c4a8857"
 storage_version_token = "1789839169307725"
 content_type = "text/csv"
+
+[[outputs]]
+id = "XtFqqT5_0THd_bS6WdbxM"
+uri = "file://exports/private-bnms-alpha-final-review-20260920/BNMS-alpha-review.xlsx"
+type = "table"
+title = "BNMS alpha import — prepared members and exceptions"
+description = "Review only: 249 planned future held memberships, 2,137 matched historical invoices, and 170 mandate exceptions. No alpha records imported yet. Contains private member data."
+logical_id = "c33895f7-c686-43bd-96db-1005d5160778"
+content_hash = "sha256:5c5fb395225beeb169b32574fcc0216a3e3f1e863962ef742e87a1388ac93efb"
+size = 42136
+mtime_ms = 1789845183468
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c33895f7-c686-43bd-96db-1005d5160778/e52d707e-1603-4399-9dbf-d0037b14302f"
+storage_version_token = "1789845310368606"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "dvft8WJjIezVq9Z-UvnUj"
+uri = "file://exports/private-bnms-alpha-final-review-20260920/BNMS-alpha-exceptions.csv"
+type = "table"
+title = "BNMS alpha — 170 mandate exceptions"
+description = "Records excluded from the prepared batch, with reasons requiring review. Contains private member data."
+logical_id = "4deb11c1-81f2-4288-bb06-a32ae695899c"
+content_hash = "sha256:2fe47352a60adf493174a6389d6e1b1abebe40fc130afc624dad6cdba1118f7f"
+size = 34138
+mtime_ms = 1789845183472
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4deb11c1-81f2-4288-bb06-a32ae695899c/fa5e0daa-be70-4320-8805-ac88962bd69a"
+storage_version_token = "1789845311117629"
+content_type = "text/csv"

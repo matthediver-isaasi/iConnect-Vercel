@@ -26,3 +26,5 @@ Provider-only historical evidence can coexist with a held future adoption before
 **Why:** BNMS beta candidates had verified settled provider payments but expired accounting access and no evidenced source entitlement dates. Blocking collection and keeping evidence separate allowed safe held adoption without inventing invoice links or current membership access.
 
 **How to apply:** Label provider-only history as accounting-unreconciled, leave nominal coverage periods and invoice links absent, and preserve the historical mutable-ledger barrier. Do not inherit the original pilot's accounting approval, disabled-legacy-scheduler claim or entitlement from similar mandates. Member/admin projections using real DEST data and injected auth collaborators are service evidence only—not deployed login or visual proof.
+
+Missing prior entitlement dates must remain unknown, but they must not block an explicitly approved future-only held adoption. That approval does not establish current activation: do not infer present entitlement, current membership access, or an activation date from the held future adoption.

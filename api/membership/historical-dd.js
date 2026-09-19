@@ -9,6 +9,7 @@ import {
 const MIGRATION_ERROR_CODES = new Set(['42P01', '42703']);
 const HISTORY_PERMISSION = 'commerce.history';
 const INVOICE_PERMISSION = 'commerce.history.access-invoices';
+const ALPHA_HISTORY_START_DATE = '2026-01-01';
 
 export function createHistoricalDdHandler(dependencies = {}) {
   const db = dependencies.db === undefined ? supabase : dependencies.db;
@@ -150,6 +151,44 @@ export function createHistoricalDdHandler(dependencies = {}) {
       .filter((link) => link.tenant_id === tenantId && link.member_id === requestedMemberId)
       .map((link) => [link.history_id, link]));
 
+    const { data: alphaData, error: alphaError } = await db
+      .from('bnms_dd_alpha_provider_history')
+      .select('id, adoption_id, tenant_id, member_id, charge_date, amount_minor, currency, provider_payment_id, provider_status')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', requestedMemberId)
+      .gte('charge_date', ALPHA_HISTORY_START_DATE)
+      .order('charge_date', { ascending: false });
+    if (alphaError) {
+      if (MIGRATION_ERROR_CODES.has(alphaError.code)) {
+        return res.status(503).json({
+          error: 'Alpha historical Direct Debit storage is not installed',
+          code: 'HISTORICAL_DD_ALPHA_MIGRATION_NOT_INSTALLED',
+        });
+      }
+      console.error('[historical-dd] Alpha provider history lookup failed:', alphaError);
+      return res.status(500).json({ error: 'Failed to load historical Direct Debit payments' });
+    }
+
+    const { data: alphaInvoiceLinks, error: alphaInvoiceLinkError } = await db
+      .from('bnms_dd_alpha_invoice_link')
+      .select('history_id, tenant_id, member_id, provider_payment_id, xero_invoice_id, xero_invoice_number')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', requestedMemberId)
+      .order('history_id', { ascending: false });
+    if (alphaInvoiceLinkError) {
+      if (MIGRATION_ERROR_CODES.has(alphaInvoiceLinkError.code)) {
+        return res.status(503).json({
+          error: 'Alpha historical invoice reconciliation storage is not installed',
+          code: 'HISTORICAL_DD_ALPHA_INVOICE_LINK_MIGRATION_NOT_INSTALLED',
+        });
+      }
+      console.error('[historical-dd] Alpha invoice link lookup failed:', alphaInvoiceLinkError);
+      return res.status(500).json({ error: 'Failed to load historical Direct Debit invoices' });
+    }
+    const alphaLinksByHistoryId = new Map((alphaInvoiceLinks || [])
+      .filter((link) => link.tenant_id === tenantId && link.member_id === requestedMemberId)
+      .map((link) => [link.history_id, link]));
+
     const pilotPayments = (pilotData || []).map((row) => ({
       id: row.id,
       period: row.period,
@@ -197,9 +236,39 @@ export function createHistoricalDdHandler(dependencies = {}) {
         accounting_reconciled: isReconciled,
       };
     });
+    const alphaPayments = (alphaData || []).map((row) => {
+      const candidate = alphaLinksByHistoryId.get(row.id);
+      // A link must identify the same immutable provider payment as well as the
+      // exact history row, tenant and member before it can expose accounting data.
+      const link = candidate?.provider_payment_id === row.provider_payment_id ? candidate : null;
+      const isReconciled = !!link;
+      const hasInvoice = isReconciled && !!link.xero_invoice_id;
+      return {
+        id: row.id,
+        period: null,
+        charge_date: row.charge_date,
+        amount_minor: row.amount_minor,
+        currency: row.currency,
+        provider_payment_id: row.provider_payment_id,
+        provider_status: row.provider_status,
+        xero_invoice_id: canAccessInvoices && hasInvoice ? link.xero_invoice_id : null,
+        xero_invoice_number: canAccessInvoices && isReconciled ? link.xero_invoice_number : null,
+        invoice_available: canAccessInvoices && hasInvoice,
+        invoice_unavailable_reason: !canAccessInvoices
+          ? 'permission_denied'
+          : (hasInvoice ? null : (isReconciled ? 'not_linked' : 'accounting_unreconciled')),
+        historical_only: true,
+        source: 'alpha_provider_history',
+        provenance: isReconciled
+          ? 'provider_and_accounting_evidence'
+          : 'provider_evidence_only',
+        provider_only: !isReconciled,
+        accounting_reconciled: isReconciled,
+      };
+    });
 
     return res.json({
-      payments: [...pilotPayments, ...betaPayments].sort((a, b) =>
+      payments: [...pilotPayments, ...betaPayments, ...alphaPayments].sort((a, b) =>
         String(b.charge_date || b.period || '').localeCompare(String(a.charge_date || a.period || ''))),
     });
   };

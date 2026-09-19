@@ -31,6 +31,10 @@ function dbMock({
   betaLink = null,
   betaRecordError = null,
   betaLinkError = null,
+  alphaRecord = null,
+  alphaLink = null,
+  alphaRecordError = null,
+  alphaLinkError = null,
 } = {}) {
   const calls = [];
   return {
@@ -41,15 +45,24 @@ function dbMock({
       const query = {
         select() { return query; },
         eq(column, value) { call.filters[column] = value; return query; },
+        gte(column, value) { call.filters[column] = { gte: value }; return query; },
         maybeSingle() {
           const candidate = table === 'bnms_dd_beta_provider_history'
             ? betaRecord
-            : (table === 'bnms_dd_beta_invoice_link' ? betaLink : record);
+            : (table === 'bnms_dd_beta_invoice_link'
+              ? betaLink
+              : (table === 'bnms_dd_alpha_provider_history'
+                ? alphaRecord
+                : (table === 'bnms_dd_alpha_invoice_link' ? alphaLink : record)));
           const queryError = table === 'bnms_dd_beta_provider_history'
             ? betaRecordError
-            : (table === 'bnms_dd_beta_invoice_link' ? betaLinkError : error);
+            : (table === 'bnms_dd_beta_invoice_link'
+              ? betaLinkError
+              : (table === 'bnms_dd_alpha_provider_history'
+                ? alphaRecordError
+                : (table === 'bnms_dd_alpha_invoice_link' ? alphaLinkError : error)));
           const matches = candidate && Object.entries(call.filters)
-            .every(([key, value]) => candidate[key] === value);
+            .every(([key, value]) => value?.gte ? candidate[key] >= value.gte : candidate[key] === value);
           return Promise.resolve({ data: matches ? candidate : null, error: queryError });
         },
       };
@@ -333,4 +346,61 @@ test('beta invoice link cannot authorize a different member and missing link sto
   });
   assert.equal(res.statusCode, 503);
   assert.equal(res.body.code, 'HISTORICAL_DD_BETA_INVOICE_LINK_MIGRATION_NOT_INSTALLED');
+});
+
+test('alpha download uses only the history UUID and exact tenant/member/provider link', async () => {
+  const db = dbMock({
+    alphaRecord: {
+      id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      provider_payment_id: 'PM-ALPHA', charge_date: '2026-01-01',
+    },
+    alphaLink: {
+      history_id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      provider_payment_id: 'PM-ALPHA', xero_invoice_id: INVOICE_ID,
+      xero_invoice_number: 'ALPHA-100',
+    },
+  });
+  const res = await invoke(endpoint({ db }), {
+    recordId: RECORD_ID, source: 'alpha_provider_history',
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(db.calls.map((call) => [call.table, call.filters]), [
+    ['bnms_dd_alpha_provider_history', {
+      id: RECORD_ID, tenant_id: 'tenant-1', charge_date: { gte: '2026-01-01' },
+    }],
+    ['bnms_dd_alpha_invoice_link', {
+      history_id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+      provider_payment_id: 'PM-ALPHA',
+    }],
+  ]);
+});
+
+test('alpha invoice permissions, ownership, unlinked rows and missing storage stay explicit', async () => {
+  const alphaRecord = {
+    id: RECORD_ID, tenant_id: 'tenant-1', member_id: 'member-1',
+    provider_payment_id: 'PM-ALPHA', charge_date: '2026-02-01',
+  };
+  let res = await invoke(endpoint({
+    db: dbMock({ alphaRecord }),
+  }), { recordId: RECORD_ID, source: 'alpha_provider_history' });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.body.error, /No invoice is linked/);
+
+  res = await invoke(endpoint({
+    db: dbMock({ alphaRecord }),
+    feature: async (_role, permission) => permission === 'commerce.history',
+  }), { recordId: RECORD_ID, source: 'alpha_provider_history' });
+  assert.equal(res.statusCode, 403);
+
+  res = await invoke(endpoint({
+    db: dbMock({ alphaRecordError: { code: '42P01' } }),
+  }), { recordId: RECORD_ID, source: 'alpha_provider_history' });
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'HISTORICAL_DD_ALPHA_MIGRATION_NOT_INSTALLED');
+
+  res = await invoke(endpoint({
+    db: dbMock({ alphaRecord, alphaLinkError: { code: '42703' } }),
+  }), { recordId: RECORD_ID, source: 'alpha_provider_history' });
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'HISTORICAL_DD_ALPHA_INVOICE_LINK_MIGRATION_NOT_INSTALLED');
 });

@@ -70,6 +70,14 @@ export function assertHistoricalInvoicesComplete(history,links) {
 export function invoiceManifest(e) {
   if(e?.tenantId!==TENANT_ID||e.xeroTenantId!==XERO_TENANT_ID||e.rows?.length!==221
     ||new Set(e.rows.map(r=>r.member_id)).size!==10) fail('Pinned ten-member beta scope required');
+  return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,xeroTenantId:XERO_TENANT_ID,
+    historicalInvoiceCoverage:'complete',collectionHeld:true,links:reconcileHistoricalInvoices(e)};
+}
+
+// Shared financial/ownership validation. Beta keeps its pinned batch gate above;
+// alpha supplies its complete per-member historical set, never an equal-count subset.
+export function reconcileHistoricalInvoices(e) {
+  if(e?.tenantId!==TENANT_ID||e.xeroTenantId!==XERO_TENANT_ID) fail('Pinned historical tenant required');
   const links=e.rows.map(r=>{
     if(r.tenant_id!==TENANT_ID||r.member_id==='33e5d54d-162e-436d-9bff-ec6676d198f9'||!uuid(r.id)||!uuid(r.member_id)) fail('Historical ownership mismatch');
     const owners=e.provider.filter(p=>p.mandate.id===r.mandate_id&&p.customer.id===r.customer_id
@@ -113,8 +121,7 @@ export function invoiceManifest(e) {
   assertHistoricalInvoicesComplete(e.rows,links);
   // One verified contact must not be claimed by two members.
   for(const l of links) if(links.some(x=>x.xero_contact_id===l.xero_contact_id&&x.member_id!==l.member_id)) fail('Cross-member contact collision');
-  return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,xeroTenantId:XERO_TENANT_ID,
-    historicalInvoiceCoverage:'complete',collectionHeld:true,links};
+  return links;
 }
 
 export async function importInvoiceLinks(c,manifest,{apply=false,reviewSha256,evidence,schemaSha256}={}) {
