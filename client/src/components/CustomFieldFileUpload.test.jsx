@@ -167,6 +167,105 @@ test('edit-mode file controls resolve distinct secure preview and download URLs'
   delete globalThis.fetch;
 });
 
+test('upload trigger clicks the hidden file input', async () => {
+  const view = await mountUpload('');
+  const input = view.container.querySelector('[data-testid="input-file-upload-fixture"]');
+  const trigger = view.container.querySelector('[data-testid="button-upload-file-upload-fixture"]');
+  let clicks = 0;
+  input.click = () => { clicks += 1; };
+
+  trigger.click();
+
+  assert.equal(clicks, 1);
+  await view.cleanup();
+});
+
+test('disabled upload controls cannot open or select a file', async () => {
+  const view = await mountUpload('', { disabled: true });
+  const input = view.container.querySelector('[data-testid="input-file-upload-fixture"]');
+  const trigger = view.container.querySelector('[data-testid="button-upload-file-upload-fixture"]');
+  let clicks = 0;
+  input.click = () => { clicks += 1; };
+
+  trigger.click();
+
+  assert.equal(input.disabled, true);
+  assert.equal(trigger.disabled, true);
+  assert.equal(clicks, 0);
+  await view.cleanup();
+});
+
+test('upload loading disables trigger and input until the upload completes', async () => {
+  let resolveUploadUrl;
+  const uploadUrlResponse = new Promise(resolve => { resolveUploadUrl = resolve; });
+  let changedValue = null;
+  globalThis.fetch = async (url) => {
+    if (url === '/api/storage/signed-upload-url') return uploadUrlResponse;
+    return { ok: true, async json() { return {}; } };
+  };
+  const view = await mountUpload('', {
+    onChange: (value) => { changedValue = value; },
+    allowedTypes: ['pdf'],
+  });
+  const input = view.container.querySelector('[data-testid="input-file-upload-fixture"]');
+  const trigger = view.container.querySelector('[data-testid="button-upload-file-upload-fixture"]');
+  const file = new window.File(['report'], 'report.pdf', { type: 'application/pdf' });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(input.disabled, true);
+  assert.equal(trigger.disabled, true);
+  assert.match(trigger.textContent, /Uploading/);
+
+  resolveUploadUrl({
+    ok: true,
+    async json() {
+      return {
+        signedUrl: 'https://storage.example.test/signed-upload',
+        fileUrl: 'https://files.example.test/report.pdf',
+        path: 'tenant/report.pdf',
+        bucket: 'private-uploads',
+      };
+    },
+  });
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+
+  assert.equal(input.disabled, false);
+  assert.equal(trigger.disabled, false);
+  assert.equal(JSON.parse(changedValue).file_name, 'report.pdf');
+  await view.cleanup();
+  delete globalThis.fetch;
+});
+
+test('uploaded files can be removed, but disabled uploaded files hide removal', async () => {
+  const value = {
+    file_url: 'https://files.example.test/report.pdf',
+    file_name: 'report.pdf',
+    file_size: 1024,
+  };
+  let changedValue = null;
+  const view = await mountUpload(value, {
+    onChange: (nextValue) => { changedValue = nextValue; },
+  });
+  const remove = view.container.querySelector('[data-testid="button-remove-file-upload-fixture"]');
+  assert.ok(remove);
+  remove.click();
+  assert.equal(changedValue, '');
+  await view.cleanup();
+
+  const disabledView = await mountUpload(value, { disabled: true });
+  assert.equal(
+    disabledView.container.querySelector('[data-testid="button-remove-file-upload-fixture"]'),
+    null,
+  );
+  await disabledView.cleanup();
+});
+
 test('custom-object uploads round-trip through the field-bound private endpoint', async () => {
   const requests = [];
   let changedValue = null;

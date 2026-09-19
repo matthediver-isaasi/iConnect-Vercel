@@ -242,7 +242,7 @@ export default function CustomFieldFileUpload({
     const displayUrl = resolvedUrl || fileUrl;
     
     return (
-      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+      <div className="flex w-full min-w-0 max-w-full items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
         <FileIcon className="w-8 h-8 text-blue-500 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-slate-900 truncate">
@@ -306,7 +306,7 @@ export default function CustomFieldFileUpload({
   }
   
   return (
-    <div className="space-y-2">
+    <div className="w-full min-w-0 max-w-full space-y-2">
       <input
         ref={fileInputRef}
         type="file"
@@ -322,18 +322,18 @@ export default function CustomFieldFileUpload({
         variant="outline"
         onClick={() => fileInputRef.current?.click()}
         disabled={disabled || isUploading}
-        className="w-full justify-center gap-2 h-20 border-dashed"
+        className="w-full min-w-0 max-w-full justify-center gap-2 h-auto min-h-20 whitespace-normal border-dashed py-4"
         data-testid={`button-upload-file-${fieldId}`}
       >
         {isUploading ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="w-5 h-5 shrink-0 animate-spin" />
             <span>Uploading...</span>
           </>
         ) : (
           <>
-            <Upload className="w-5 h-5" />
-            <div className="text-left">
+            <Upload className="w-5 h-5 shrink-0" />
+            <div className="min-w-0 break-words text-left">
               <span className="block">{label}</span>
               <span className="text-xs text-slate-400 font-normal">
                 {getAllowedTypesLabel(normalizedAllowedTypes)} (max 50MB)

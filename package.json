@@ -18,6 +18,7 @@
     "verify:production:relationships": "node scripts/verify-custom-object-relationship-list-live.mjs",
     "test:rolling-memberships": "node scripts/test-rolling-memberships.mjs",
     "test:rolling-memberships:browser": "playwright test --config=tests/member-detail-rolling-commitments.config.mjs",
+    "test:file-upload-layout:browser": "playwright test --config=tests/file-upload-layout.config.mjs",
     "test:sales-hardening": "node scripts/test-sales-hardening.mjs",
     "test:directory-object-fields": "node --test api/_lib/customObjectDirectory*.test.mjs api/_lib/organisationDirectoryFilters*.test.mjs api/organisation-directory/filters.test.mjs shared/organisationDirectoryFilters.test.mjs api/_lib/customObjectDomain.test.mjs api/_lib/customObjectService.test.mjs api/_lib/directoryConfig.test.mjs api/public/dynamic-directory.test.mjs api/storage/custom-object-upload-url.test.mjs client/src/pages/customObjects/organisationDirectoryPresentation.test.mjs client/src/utils/directoryBackOrder.test.mjs && tsx --test client/src/components/directory/DirectoryObjectSourceField.test.jsx client/src/components/directory/OrganisationDirectoryFilters.test.jsx client/src/hooks/useOrganisationDirectoryFilterSettings.test.jsx client/src/components/CustomFieldFileUpload.test.jsx",
     "test:directory-object-fields:browser": "playwright test",
