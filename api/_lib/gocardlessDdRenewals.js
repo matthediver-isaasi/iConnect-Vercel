@@ -267,11 +267,16 @@ export async function executeAutoRenewal({ tenantId, memberId, organizationId, p
     if (!mandate) return { renewed: false, detail: 'no reusable active mandate' };
     const mandateFields = {
       gocardless_mandate_id: mandate.mandateId, gocardless_customer_id: mandate.customerId,
+      // The reservation is not collectible until its reusable mandate is
+      // attached. Advance only setup-required, never a paused/held lifecycle.
+      ...(agreement.status === STATUS.PAYMENT_SETUP_REQUIRED ? { status: STATUS.MANDATE_PENDING } : {}),
     };
-    const { error } = await db.from('membership_billing_agreements').update(mandateFields)
-      .eq('id', agreement.id).eq('tenant_id', tenantId);
+    const { data: attached, error } = await db.from('membership_billing_agreements').update(mandateFields)
+      .eq('id', agreement.id).eq('tenant_id', tenantId).eq('status', agreement.status)
+      .select('*').maybeSingle();
     if (error) throw new Error(`Could not attach renewal mandate: ${error.message}`);
-    agreement = { ...agreement, ...mandateFields };
+    if (!attached) throw new Error('Renewal agreement lifecycle changed while attaching its mandate; retry required.');
+    agreement = attached;
     await d.ensureSubscription(agreement, { db, gc: deps.gc, now: d.now });
     await d.activateMembership(agreement, { trigger: 'mandate_active', db });
     await completeRollingMonthlySetup(db, agreement);
