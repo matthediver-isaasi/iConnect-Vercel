@@ -932,7 +932,7 @@ export default function OrganisationDirectorySettingsPage() {
             </CardTitle>
             <p className="text-sm text-slate-600 mt-2">
               Selected roles determine which people appear after a user clicks View Members for an organisation.
-              If no roles are selected, the View Members page safely shows no members.
+              If no roles are selected, the View Members button is hidden on organisation directory cards.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

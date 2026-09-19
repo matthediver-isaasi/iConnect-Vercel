@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
 import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
-import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
+import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
@@ -227,6 +227,7 @@ export default function DynamicDirectoryView() {
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const viewMembersRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_view_members_role_ids');
       const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
       const customFieldsLabelSetting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
 
@@ -258,6 +259,7 @@ export default function DynamicDirectoryView() {
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
         excludedOrgIds: excludedOrgIds,
         reverseCardRoleIds: reverseCardRoleIds,
+        viewMembersRoleIds: parseOrganisationViewMembersRoleIds(viewMembersRolesSetting?.setting_value),
         customFieldsLabel: customFieldsLabelSetting?.setting_value || null,
         backFieldOrder: (() => {
           if (!backOrderSetting?.setting_value) return null;

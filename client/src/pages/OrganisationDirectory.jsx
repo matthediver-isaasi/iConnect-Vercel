@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
-import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
+import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds, hasOrganisationViewMembersRoles } from "@/lib/organisationDirectoryMemberContext";
 import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
@@ -83,6 +83,7 @@ export default function OrganisationDirectoryPage() {
       const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
       const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const viewMembersRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_view_members_role_ids');
       const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
       const customFieldsLabelSetting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
 
@@ -135,6 +136,7 @@ export default function OrganisationDirectoryPage() {
         allowedApplicationStatuses: allowedApplicationStatuses,
         visibleOrgTypes: visibleOrgTypes,
         reverseCardRoleIds: reverseCardRoleIds,
+        viewMembersRoleIds: parseOrganisationViewMembersRoleIds(viewMembersRolesSetting?.setting_value),
         customFieldsLabel: customFieldsLabelSetting?.setting_value || null,
         backFieldOrder: (() => {
           if (!backOrderSetting?.setting_value) return null;
@@ -1065,7 +1067,7 @@ export default function OrganisationDirectoryPage() {
             <Button variant="outline" onClick={() => setSelectedOrg(null)}>
               Close
             </Button>
-            <Button
+            {hasOrganisationViewMembersRoles(displaySettings) && <Button
               onClick={() => {
                 window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id);
               }}
@@ -1075,7 +1077,7 @@ export default function OrganisationDirectoryPage() {
               <Users className="w-4 h-4" />
               View Members
               <ExternalLink className="w-3 h-3" />
-            </Button>
+            </Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>
