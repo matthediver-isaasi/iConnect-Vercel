@@ -120,6 +120,9 @@ export function createHistoricalDdHandler(dependencies = {}) {
         xero_invoice_id: canAccessInvoices ? row.xero_invoice_id : null,
         xero_invoice_number: canAccessInvoices ? row.xero_invoice_number : null,
         invoice_available: canAccessInvoices && !!row.xero_invoice_id,
+        invoice_unavailable_reason: !canAccessInvoices
+          ? 'permission_denied'
+          : (row.xero_invoice_id ? null : 'not_linked'),
         historical_only: true,
       })),
     });

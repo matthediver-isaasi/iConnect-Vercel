@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +45,28 @@ export function getAccountingInvoiceNumber(record) {
   return record?.accounting_invoice_number || record?.xero_invoice_number || null;
 }
 
+export function membershipInvoiceFilename(contentDisposition, invoiceNumber, recordId) {
+  const clean = (value) => String(value)
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  const fallback = clean(`membership-invoice-${invoiceNumber || recordId || 'download'}.pdf`);
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(contentDisposition || '')?.[1];
+  const quoted = /filename\s*=\s*"([^"]+)"/i.exec(contentDisposition || '')?.[1];
+  const unquoted = /filename\s*=\s*([^;\s]+)/i.exec(contentDisposition || '')?.[1];
+  let candidate = encoded || quoted || unquoted || fallback;
+  if (encoded) {
+    try {
+      candidate = decodeURIComponent(encoded);
+    } catch {
+      candidate = fallback;
+    }
+  }
+  candidate = clean(candidate);
+  if (!candidate || candidate === '.' || candidate === '..') candidate = fallback;
+  return candidate.toLowerCase().endsWith('.pdf') ? candidate : `${candidate}.pdf`;
+}
+
 export function normalizeMembershipHistory(payload) {
   if (!Array.isArray(payload)) {
     throw new Error('Invalid membership history response');
@@ -74,6 +96,11 @@ export default function HistoryPage({ hasBanner }) {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  const [currentInvoiceFilename, setCurrentInvoiceFilename] = useState(null);
+  const [membershipInvoiceError, setMembershipInvoiceError] = useState(null);
+  const currentInvoiceObjectUrlRef = useRef(null);
+  const mountedRef = useRef(false);
+  const membershipInvoiceControllersRef = useRef(new Set());
   // These states must be declared before the member/organisation loading
   // returns below. Keeping them here avoids changing hook order when context
   // resolves from null to an authenticated member.
@@ -82,6 +109,19 @@ export default function HistoryPage({ hasBanner }) {
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      membershipInvoiceControllersRef.current.forEach((controller) => controller.abort());
+      membershipInvoiceControllersRef.current.clear();
+      if (currentInvoiceObjectUrlRef.current) {
+        URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+        currentInvoiceObjectUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Search, filter, sort, and pagination state
   const [searchQuery, setSearchQuery] = useState("");
@@ -534,6 +574,13 @@ export default function HistoryPage({ hasBanner }) {
     }, 10);
   };
 
+  const trackInvoiceObjectUrl = (objectUrl) => {
+    if (currentInvoiceObjectUrlRef.current) {
+      URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+    }
+    currentInvoiceObjectUrlRef.current = objectUrl;
+  };
+
   const handleViewInvoice = async (transaction) => {
     if (!transaction.xero_invoice_pdf_uri) {
       toast.error('Invoice not available');
@@ -559,6 +606,7 @@ export default function HistoryPage({ hasBanner }) {
 
         // Create a blob URL for inline viewing
         const blobUrl = URL.createObjectURL(pdfBlob);
+        trackInvoiceObjectUrl(blobUrl);
 
         // Add parameters to hide navigation panes and fit to page
         const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
@@ -582,7 +630,8 @@ export default function HistoryPage({ hasBanner }) {
 
     const link = document.createElement('a');
     link.href = currentInvoiceUrl;
-    link.download = `invoice-${currentInvoiceNumber || 'download'}.pdf`;
+    link.download = currentInvoiceFilename
+      || membershipInvoiceFilename(null, currentInvoiceNumber, 'download');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -605,6 +654,7 @@ export default function HistoryPage({ hasBanner }) {
       
       const pdfBlob = await response.blob();
       const blobUrl = URL.createObjectURL(pdfBlob);
+      trackInvoiceObjectUrl(blobUrl);
       const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
       
       setCurrentInvoiceUrl(pdfUrl);
@@ -666,6 +716,7 @@ export default function HistoryPage({ hasBanner }) {
 
       const pdfBlob = await response.blob();
       const blobUrl = URL.createObjectURL(pdfBlob);
+      trackInvoiceObjectUrl(blobUrl);
       const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
 
       setCurrentInvoiceUrl(pdfUrl);
@@ -715,12 +766,17 @@ export default function HistoryPage({ hasBanner }) {
   const handleViewMembershipInvoice = async (record, invoiceNumber) => {
     const recordId = record?.id || record;
     const source = getMembershipSource(record);
-    setLoadingMembershipInvoice(recordId);
+    const actionKey = membershipRecordKey(record);
+    const controller = new AbortController();
+    membershipInvoiceControllersRef.current.add(controller);
+    setMembershipInvoiceError(null);
+    setLoadingMembershipInvoice(actionKey);
     
     try {
       const params = new URLSearchParams({ inline: 'true', source });
       const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
-        credentials: 'include'
+        credentials: 'include',
+        signal: controller.signal,
       });
       
       if (!response.ok) {
@@ -729,29 +785,49 @@ export default function HistoryPage({ hasBanner }) {
       }
       
       const pdfBlob = await response.blob();
+      if (!mountedRef.current || controller.signal.aborted) return;
       const blobUrl = URL.createObjectURL(pdfBlob);
+      if (!mountedRef.current || controller.signal.aborted) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      trackInvoiceObjectUrl(blobUrl);
       const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
-      
       setCurrentInvoiceUrl(pdfUrl);
       setCurrentInvoiceNumber(invoiceNumber);
+      setCurrentInvoiceFilename(membershipInvoiceFilename(
+        response.headers?.get?.('content-disposition'),
+        invoiceNumber,
+        recordId,
+      ));
       setInvoiceModalOpen(true);
     } catch (error) {
-      console.error('Error loading membership invoice:', error);
-      toast.error(error.message || 'Failed to load invoice');
+      if (error?.name !== 'AbortError' && mountedRef.current) {
+        console.error('Error loading membership invoice:', error);
+        const message = error.message || 'Failed to load invoice';
+        setMembershipInvoiceError({ key: actionKey, action: 'view', message });
+        toast.error(message);
+      }
     } finally {
-      setLoadingMembershipInvoice(null);
+      membershipInvoiceControllersRef.current.delete(controller);
+      if (mountedRef.current) setLoadingMembershipInvoice(null);
     }
   };
 
   const handleDownloadMembershipInvoice = async (record, invoiceNumber) => {
     const recordId = record?.id || record;
     const source = getMembershipSource(record);
-    setLoadingMembershipInvoice(recordId);
+    const actionKey = membershipRecordKey(record);
+    const controller = new AbortController();
+    membershipInvoiceControllersRef.current.add(controller);
+    setMembershipInvoiceError(null);
+    setLoadingMembershipInvoice(actionKey);
     
     try {
       const params = new URLSearchParams({ source });
       const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
-        credentials: 'include'
+        credentials: 'include',
+        signal: controller.signal,
       });
       
       if (!response.ok) {
@@ -760,11 +836,20 @@ export default function HistoryPage({ hasBanner }) {
       }
       
       const pdfBlob = await response.blob();
+      if (!mountedRef.current || controller.signal.aborted) return;
       const blobUrl = URL.createObjectURL(pdfBlob);
+      if (!mountedRef.current || controller.signal.aborted) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
       
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `membership-invoice-${invoiceNumber || recordId}.pdf`;
+      link.download = membershipInvoiceFilename(
+        response.headers?.get?.('content-disposition'),
+        invoiceNumber,
+        recordId,
+      );
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -772,21 +857,28 @@ export default function HistoryPage({ hasBanner }) {
       setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
       toast.success('Downloading invoice...');
     } catch (error) {
-      console.error('Error downloading membership invoice:', error);
-      toast.error(error.message || 'Failed to download invoice');
+      if (error?.name !== 'AbortError' && mountedRef.current) {
+        console.error('Error downloading membership invoice:', error);
+        const message = error.message || 'Failed to download invoice';
+        setMembershipInvoiceError({ key: actionKey, action: 'download', message });
+        toast.error(message);
+      }
     } finally {
-      setLoadingMembershipInvoice(null);
+      membershipInvoiceControllersRef.current.delete(controller);
+      if (mountedRef.current) setLoadingMembershipInvoice(null);
     }
   };
 
   // Cleanup blob URL when modal closes
   const handleModalClose = (open) => {
-    if (!open && currentInvoiceUrl) {
-      // Remove any URL parameters before revoking
-      const baseBlobUrl = currentInvoiceUrl.split('#')[0];
-      URL.revokeObjectURL(baseBlobUrl);
+    if (!open) {
+      if (currentInvoiceObjectUrlRef.current) {
+        URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+        currentInvoiceObjectUrlRef.current = null;
+      }
       setCurrentInvoiceUrl(null);
       setCurrentInvoiceNumber(null);
+      setCurrentInvoiceFilename(null);
     }
     setInvoiceModalOpen(open);
   };
@@ -1350,6 +1442,7 @@ export default function HistoryPage({ hasBanner }) {
     // A number alone is informational; only a provider invoice ID can be
     // passed through to the PDF endpoint.
     const hasInvoice = !!invoiceId;
+    const invoiceActionKey = membershipRecordKey(record);
     const createdDate = record.created_at ? new Date(record.created_at) : null;
     const transactionDate = createdDate && Number.isFinite(createdDate.getTime()) ? createdDate : null;
     const finalCost = parseFloat(record.final_cost || 0);
@@ -1423,16 +1516,26 @@ export default function HistoryPage({ hasBanner }) {
           </div>
         </div>
         
-        {canAccessInvoices && hasInvoice && (
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+        {canAccessInvoices && (
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            {!hasInvoice && (
+              <span
+                className="text-xs text-slate-500"
+                data-testid={`membership-invoice-unavailable-${membershipSource}-${record.id}`}
+              >
+                Invoice unavailable
+              </span>
+            )}
+            {hasInvoice && (
+              <>
             <Button
               variant="outline"
               size="sm"
               onClick={() => handleViewMembershipInvoice(record, invoiceNumber || record.id)}
-              disabled={loadingMembershipInvoice === record.id}
+              disabled={loadingMembershipInvoice === invoiceActionKey}
               data-testid={`button-view-membership-invoice-${membershipSource}-${record.id}`}
             >
-              {loadingMembershipInvoice === record.id ? (
+              {loadingMembershipInvoice === invoiceActionKey ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
@@ -1445,10 +1548,10 @@ export default function HistoryPage({ hasBanner }) {
               variant="outline"
               size="sm"
               onClick={() => handleDownloadMembershipInvoice(record, invoiceNumber || record.id)}
-              disabled={loadingMembershipInvoice === record.id}
+              disabled={loadingMembershipInvoice === invoiceActionKey}
               data-testid={`button-download-membership-invoice-${membershipSource}-${record.id}`}
             >
-              {loadingMembershipInvoice === record.id ? (
+              {loadingMembershipInvoice === invoiceActionKey ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
@@ -1457,6 +1560,29 @@ export default function HistoryPage({ hasBanner }) {
                 </>
               )}
             </Button>
+              </>
+            )}
+            {membershipInvoiceError?.key === invoiceActionKey && (
+              <div
+                className="flex flex-wrap items-center gap-2 text-xs text-red-600"
+                role="alert"
+                data-testid={`membership-invoice-error-${membershipSource}-${record.id}`}
+              >
+                <span>{membershipInvoiceError.message}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  disabled={loadingMembershipInvoice === invoiceActionKey}
+                  data-testid={`button-retry-membership-invoice-${membershipSource}-${record.id}`}
+                  onClick={() => membershipInvoiceError.action === 'view'
+                    ? handleViewMembershipInvoice(record, invoiceNumber || record.id)
+                    : handleDownloadMembershipInvoice(record, invoiceNumber || record.id)}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

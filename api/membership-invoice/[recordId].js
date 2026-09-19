@@ -11,6 +11,7 @@ const PERSONAL_SOURCE = 'personal';
 const ORGANISATION_SOURCE = 'organisation';
 const VALID_SOURCES = new Set([PERSONAL_SOURCE, ORGANISATION_SOURCE]);
 const ACCESS_INVOICES_PERMISSION = 'commerce.history.access-invoices';
+const PROVIDER_ERROR_MESSAGE = 'Unable to download this invoice right now. Please retry, or contact an administrator if the problem continues.';
 
 const COMMON_INVOICE_COLUMNS = [
   'id',
@@ -109,6 +110,15 @@ function ledgerInvoiceId(row) {
 
 function ledgerInvoiceNumber(row) {
   return row?.accounting_invoice_number || row?.xero_invoice_number || null;
+}
+
+function safeFilenamePart(value) {
+  const safe = String(value || '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+    .slice(0, 100);
+  return safe || 'invoice';
 }
 
 async function fetchInstalmentInvoiceRow({
@@ -231,6 +241,7 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
     || getAccountingProviderByName;
 
   return async function handler(req, res) {
+    res.setHeader('Cache-Control', 'private, no-store');
     if (req.method !== 'GET') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -411,17 +422,24 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
           });
         }
         const providerName = instalment.row.accounting_provider || 'xero';
-        const provider = await getProviderByName(providerName);
-        const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
+        let pdfBuffer;
+        try {
+          const provider = await getProviderByName(providerName);
+          pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
+        } catch (error) {
+          console.error('[membership-invoice] Accounting provider PDF fetch failed:', error);
+          return res.status(502).json({ error: PROVIDER_ERROR_MESSAGE });
+        }
         const inline = query.inline === 'true';
         const invoiceNumber = ledgerInvoiceNumber(instalment.row);
+        const filenamePart = safeFilenamePart(invoiceNumber || recordId);
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Length', pdfBuffer.length);
         const disposition = inline ? 'inline' : 'attachment';
         res.setHeader(
           'Content-Disposition',
-          `${disposition}; filename="membership-invoice-${invoiceNumber || recordId}.pdf"`,
+          `${disposition}; filename="membership-invoice-${filenamePart}.pdf"`,
         );
         return res.send(pdfBuffer);
       }
@@ -433,18 +451,25 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
       const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
       // Rows written before provider pinning are legacy Xero invoices.
       const providerName = record.accounting_provider || 'xero';
-      const provider = await getProviderByName(providerName);
-      const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
+      let pdfBuffer;
+      try {
+        const provider = await getProviderByName(providerName);
+        pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
+      } catch (error) {
+        console.error('[membership-invoice] Accounting provider PDF fetch failed:', error);
+        return res.status(502).json({ error: PROVIDER_ERROR_MESSAGE });
+      }
 
       const inline = query.inline === 'true';
       const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
+      const filenamePart = safeFilenamePart(invoiceNumber || recordId);
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Length', pdfBuffer.length);
       const disposition = inline ? 'inline' : 'attachment';
       res.setHeader(
         'Content-Disposition',
-        `${disposition}; filename="membership-invoice-${invoiceNumber || recordId}.pdf"`,
+        `${disposition}; filename="membership-invoice-${filenamePart}.pdf"`,
       );
 
       return res.send(pdfBuffer);

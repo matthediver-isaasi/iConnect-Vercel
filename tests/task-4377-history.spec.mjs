@@ -184,6 +184,20 @@ const historicalDdPayments = [
     invoice_available: true,
     historical_only: true,
   },
+  {
+    id: "historical-dd-unlinked-4377",
+    period: "2025-12-01",
+    charge_date: "2025-12-05",
+    amount_minor: 1304,
+    currency: "GBP",
+    provider_payment_id: "PM-HISTORY-UNLINKED",
+    provider_status: "paid_out",
+    xero_invoice_id: null,
+    xero_invoice_number: null,
+    invoice_available: false,
+    invoice_unavailable_reason: "not_linked",
+    historical_only: true,
+  },
 ];
 
 function json(route, body, status = 200) {
@@ -199,9 +213,13 @@ async function installFixtures(page, {
   membershipShape = "combined",
   membershipFailures = 0,
   invoiceStatus = 200,
+  invoiceFailures = invoiceStatus === 200 ? 0 : Number.POSITIVE_INFINITY,
+  delayMembershipInvoice = false,
   invoiceBody = pdfBody,
   historicalInvoiceStatus = 200,
+  historicalInvoiceFailures = historicalInvoiceStatus === 200 ? 0 : Number.POSITIVE_INFINITY,
   delayHistoricalInvoice = false,
+  historicalPayments = historicalDdPayments,
   excludedFeatures = [],
 } = {}) {
   const fixtureMember = membershipShape === "member-without-organisation"
@@ -217,6 +235,7 @@ async function installFixtures(page, {
   const state = {
     membershipCalls: 0,
     invoiceRequests: [],
+    membershipInvoiceDelayReleased: !delayMembershipInvoice,
     historicalInvoiceRequests: [],
     historicalInvoiceDelayReleased: !delayHistoricalInvoice,
     escapedWrites: [],
@@ -276,11 +295,12 @@ async function installFixtures(page, {
       const invoiceAllowed = !excludedFeatures.includes("commerce.history.access-invoices")
         && !excludedFeatures.includes("commerce.history");
       return json(route, {
-        payments: historicalDdPayments.map((payment) => invoiceAllowed ? payment : {
+        payments: historicalPayments.map((payment) => invoiceAllowed ? payment : {
           ...payment,
           xero_invoice_id: null,
           xero_invoice_number: null,
           invoice_available: false,
+          invoice_unavailable_reason: "permission_denied",
         }),
       });
     }
@@ -292,15 +312,18 @@ async function installFixtures(page, {
       while (!state.historicalInvoiceDelayReleased) {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
+      const responseStatus = state.historicalInvoiceRequests.length <= historicalInvoiceFailures
+        ? historicalInvoiceStatus
+        : 200;
       return route.fulfill({
-        status: historicalInvoiceStatus,
-        contentType: historicalInvoiceStatus === 200 ? "application/pdf" : "application/json",
-        headers: historicalInvoiceStatus === 200
+        status: responseStatus,
+        contentType: responseStatus === 200 ? "application/pdf" : "application/json",
+        headers: responseStatus === 200
           ? { "Content-Disposition": 'attachment; filename="historical-fixture.pdf"' }
           : {},
-        body: historicalInvoiceStatus === 200
+        body: responseStatus === 200
           ? invoiceBody
-          : JSON.stringify({ error: "Historical invoice permission denied" }),
+          : JSON.stringify({ error: "Historical accounting provider unavailable" }),
       });
     }
     if (path.startsWith("/api/membership-invoice/")) {
@@ -309,10 +332,19 @@ async function installFixtures(page, {
         source: url.searchParams.get("source"),
         inline: url.searchParams.get("inline"),
       });
+      while (!state.membershipInvoiceDelayReleased) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const responseStatus = state.invoiceRequests.length <= invoiceFailures ? invoiceStatus : 200;
       return route.fulfill({
-        status: invoiceStatus,
-        contentType: invoiceStatus === 200 ? "application/pdf" : "application/json",
-        body: invoiceStatus === 200 ? invoiceBody : JSON.stringify({ error: "Invoice permission denied" }),
+        status: responseStatus,
+        contentType: responseStatus === 200 ? "application/pdf" : "application/json",
+        headers: responseStatus === 200
+          ? { "Content-Disposition": 'attachment; filename="../../unsafe membership.pdf"' }
+          : {},
+        body: responseStatus === 200
+          ? invoiceBody
+          : JSON.stringify({ error: "Accounting provider temporarily unavailable" }),
       });
     }
 
@@ -324,7 +356,7 @@ async function installFixtures(page, {
 
 test("combined personal and organisation history keeps source labels and same-year rows", async ({ page }) => {
   const state = await installFixtures(page);
-  await page.goto("/History");
+  await page.goto("/history");
 
   await expect(page.getByTestId("membership-history-card-personal-personal-2026-4377")).toBeVisible();
   await expect(page.getByTestId("membership-history-card-personal-personal-2027-4377")).toBeVisible();
@@ -339,6 +371,8 @@ test("combined personal and organisation history keeps source labels and same-ye
     "Organisation membership",
   );
   await expect(page.getByTestId("membership-history-card-organisation-organisation-unlinked-4377").getByRole("button")).toHaveCount(0);
+  await expect(page.getByTestId("membership-invoice-unavailable-organisation-organisation-unlinked-4377"))
+    .toHaveText("Invoice unavailable");
   await expect(page.getByText("Standard Ticket Purchases", { exact: false })).toBeVisible();
   await expect(page.getByText("Program Ticket Transactions", { exact: false })).toBeVisible();
 
@@ -348,8 +382,10 @@ test("combined personal and organisation history keeps source labels and same-ye
   const numberOnlyCard = page.getByTestId("membership-history-card-personal-personal-number-only-4377");
   await expect(numberOnlyCard).toContainText("INV-NUMBER-ONLY");
   await expect(numberOnlyCard.getByRole("button")).toHaveCount(0);
+  await expect(page.getByTestId("membership-invoice-unavailable-personal-personal-number-only-4377"))
+    .toHaveText("Invoice unavailable");
   await page.screenshot({
-    path: "screenshots/membership-history.jpg",
+    path: "/tmp/invoice-4543-browser/membership-history.jpg",
     fullPage: true,
     type: "jpeg",
     quality: 80,
@@ -374,7 +410,7 @@ test("historical Direct Debit records use protected invoice preview/download wit
     };
   });
   const state = await installFixtures(page);
-  await page.goto("/History");
+  await page.goto("/history");
   await page.getByTestId("tab-membership").click();
 
   const row = page.getByTestId("row-historical-dd-historical-dd-jan-4377");
@@ -387,6 +423,8 @@ test("historical Direct Debit records use protected invoice preview/download wit
   const download = page.getByTestId("button-download-historical-dd-invoice-historical-dd-jan-4377");
   await expect(view).toHaveAccessibleName("View invoice INV-HISTORY-JAN");
   await expect(download).toHaveAccessibleName("Download invoice INV-HISTORY-JAN");
+  await expect(page.getByTestId("historical-dd-invoice-unavailable-historical-dd-unlinked-4377"))
+    .toHaveText("Invoice unavailable");
   await view.click();
   const invoiceDialog = page.getByRole("dialog", { name: "Invoice INV-HISTORY-JAN" });
   await expect(invoiceDialog).toBeVisible();
@@ -412,7 +450,7 @@ test("historical Direct Debit records use protected invoice preview/download wit
   }))).toEqual({ created: 2, revoked: 2 });
   await expect(page.getByText(/never trigger a collection, retry, refund or accounting action/).first()).toBeVisible();
   await page.screenshot({
-    path: "screenshots/bnms-historical-dd-history.jpg",
+    path: "/tmp/invoice-4543-browser/bnms-historical-dd-history.jpg",
     fullPage: true,
     type: "jpeg",
     quality: 85,
@@ -421,17 +459,65 @@ test("historical Direct Debit records use protected invoice preview/download wit
 
   const restricted = await page.context().newPage();
   await installFixtures(restricted, { excludedFeatures: ["commerce.history.access-invoices"] });
-  await restricted.goto("/History");
+  await restricted.goto("/history");
   await restricted.getByTestId("tab-membership").click();
   await expect(restricted.getByTestId("row-historical-dd-historical-dd-jan-4377")).toBeVisible();
   await expect(restricted.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
   await expect(restricted.getByTestId("button-download-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
+  await expect(restricted.getByTestId("historical-dd-invoice-denied-historical-dd-jan-4377"))
+    .toHaveText("Invoice access denied");
+  await expect(restricted.getByTestId("historical-dd-invoice-unavailable-historical-dd-jan-4377")).toHaveCount(0);
   await restricted.close();
+});
+
+test("historical Direct Debit older API shape supports protected View and Download actions", async ({ page }) => {
+  const olderShapePayment = {
+    id: "historical-dd-older-shape-4377",
+    period: "2024-11-01",
+    charge_date: "2024-11-05",
+    amount_minor: 1304,
+    currency: "GBP",
+    provider_payment_id: "PM-HISTORY-OLDER-SHAPE",
+    provider_status: "paid_out",
+    xero_invoice_id: "ebb642c08-older-persisted-invoice-id",
+    xero_invoice_number: "INV-HISTORY-OLDER-SHAPE",
+    historical_only: true,
+  };
+  const state = await installFixtures(page, { historicalPayments: [olderShapePayment] });
+  await page.goto("/history");
+  await page.getByTestId("tab-membership").click();
+
+  const view = page.getByTestId(
+    "button-view-historical-dd-invoice-historical-dd-older-shape-4377",
+  );
+  const download = page.getByTestId(
+    "button-download-historical-dd-invoice-historical-dd-older-shape-4377",
+  );
+  await expect(view).toHaveAccessibleName("View invoice INV-HISTORY-OLDER-SHAPE");
+  await expect(download).toHaveAccessibleName("Download invoice INV-HISTORY-OLDER-SHAPE");
+
+  await view.click();
+  const dialog = page.getByRole("dialog", { name: "Invoice INV-HISTORY-OLDER-SHAPE" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => state.historicalInvoiceRequests.length).toBe(1);
+  expect(state.historicalInvoiceRequests[0]).toEqual({
+    recordId: olderShapePayment.id,
+    inline: "true",
+  });
+  await dialog.getByRole("button", { name: "Close" }).click();
+
+  await download.click();
+  await expect.poll(() => state.historicalInvoiceRequests.length).toBe(2);
+  expect(state.historicalInvoiceRequests[1]).toEqual({
+    recordId: olderShapePayment.id,
+    inline: null,
+  });
+  expect(state.escapedWrites).toEqual([]);
 });
 
 test("historical invoice controls expose loading and endpoint errors", async ({ page }) => {
   const loadingState = await installFixtures(page, { delayHistoricalInvoice: true });
-  await page.goto("/History");
+  await page.goto("/history");
   await page.getByTestId("tab-membership").click();
   const view = page.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377");
   await view.click();
@@ -441,18 +527,39 @@ test("historical invoice controls expose loading and endpoint errors", async ({ 
   await expect(page.getByRole("dialog", { name: "Invoice INV-HISTORY-JAN" })).toBeVisible();
 
   const errorPage = await page.context().newPage();
-  await installFixtures(errorPage, { historicalInvoiceStatus: 403 });
-  await errorPage.goto("/History");
+  const errorState = await installFixtures(errorPage, {
+    historicalInvoiceStatus: 503,
+    historicalInvoiceFailures: 1,
+  });
+  await errorPage.goto("/history");
   await errorPage.getByTestId("tab-membership").click();
   await errorPage.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377").click();
   await expect(errorPage.getByTestId("historical-dd-invoice-error-historical-dd-jan-4377"))
-    .toHaveText(/Historical invoice permission denied/);
+    .toHaveText(/Historical accounting provider unavailable/);
+  await errorPage.getByTestId("button-retry-historical-dd-invoice-historical-dd-jan-4377").click();
+  await expect(errorPage.getByRole("dialog", { name: "Invoice INV-HISTORY-JAN" })).toBeVisible();
+  expect(errorState.historicalInvoiceRequests).toHaveLength(2);
   await errorPage.close();
 });
 
 test("membership accounting invoice fallback is searchable and PDF preview/download sends source", async ({ page }) => {
+  await page.addInitScript(() => {
+    const create = URL.createObjectURL.bind(URL);
+    const revoke = URL.revokeObjectURL.bind(URL);
+    window.__membershipCreatedUrls = [];
+    window.__membershipRevokedUrls = [];
+    URL.createObjectURL = (blob) => {
+      const value = create(blob);
+      window.__membershipCreatedUrls.push(value);
+      return value;
+    };
+    URL.revokeObjectURL = (value) => {
+      window.__membershipRevokedUrls.push(value);
+      return revoke(value);
+    };
+  });
   const state = await installFixtures(page);
-  await page.goto("/History");
+  await page.goto("/history");
   await page.getByTestId("tab-membership").click();
 
   await page.getByTestId("input-search").fill("qbo-personal-8901");
@@ -474,8 +581,16 @@ test("membership accounting invoice fallback is searchable and PDF preview/downl
   await invoiceDialog.getByRole("button", { name: "Download" }).click();
   await invoiceDialog.getByRole("button").last().click();
   await expect(invoiceDialog).toBeHidden();
+  await expect.poll(() => page.evaluate(() => ({
+    created: window.__membershipCreatedUrls.length,
+    revoked: window.__membershipRevokedUrls.length,
+  }))).toEqual({ created: 1, revoked: 1 });
   await page.getByTestId("input-search").fill("");
+  const downloadPromise = page.waitForEvent("download");
   await page.getByTestId("button-download-membership-invoice-personal-personal-2026-4377").click();
+  const membershipDownload = await downloadPromise;
+  expect(membershipDownload.suggestedFilename()).toMatch(/unsafe membership\.pdf$/);
+  expect(membershipDownload.suggestedFilename()).not.toMatch(/[/\\]/);
   await expect.poll(() => state.invoiceRequests.length).toBe(2);
   expect(state.invoiceRequests[1]).toEqual(expect.objectContaining({
     source: "personal",
@@ -490,27 +605,97 @@ test("membership accounting invoice fallback is searchable and PDF preview/downl
     inline: "true",
   }));
   await invoiceDialog.getByRole("button").last().click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__membershipRevokedUrls.length)).toBe(3);
+  const organisationDownloadPromise = page.waitForEvent("download");
+  await page.getByTestId("button-download-membership-invoice-organisation-organisation-2028-4377").click();
+  const organisationDownload = await organisationDownloadPromise;
+  expect(organisationDownload.suggestedFilename()).toMatch(/unsafe membership\.pdf$/);
+  expect(organisationDownload.suggestedFilename()).not.toMatch(/[/\\]/);
+  expect(state.invoiceRequests[3]).toEqual(expect.objectContaining({
+    source: "organisation",
+    inline: null,
+  }));
+  await expect.poll(() => page.evaluate(() =>
+    window.__membershipRevokedUrls.length)).toBe(4);
   expect(state.escapedWrites).toEqual([]);
+});
+
+test("membership provider failure is actionable and retry preserves personal source", async ({ page }) => {
+  const state = await installFixtures(page, {
+    invoiceStatus: 503,
+    invoiceFailures: 1,
+  });
+  await page.goto("/history");
+  await page.getByTestId("tab-membership").click();
+
+  await page.getByTestId("button-view-membership-invoice-personal-personal-2026-4377").click();
+  const error = page.getByTestId("membership-invoice-error-personal-personal-2026-4377");
+  await expect(error).toHaveText(/Accounting provider temporarily unavailable/);
+  await page.getByTestId("button-retry-membership-invoice-personal-personal-2026-4377").click();
+  await expect(page.locator('[role="dialog"]').filter({ hasText: "Invoice INV-8901" })).toBeVisible();
+  expect(state.invoiceRequests).toHaveLength(2);
+  expect(state.invoiceRequests.every((request) => request.source === "personal")).toBe(true);
+});
+
+test("membership invoice loading is source-scoped and pending previews abort on unmount", async ({ page }) => {
+  let createdMembershipPdfUrls = 0;
+  await page.exposeFunction("recordMembershipObjectUrl", (type) => {
+    if (type === "application/pdf") createdMembershipPdfUrls += 1;
+  });
+  await page.addInitScript(() => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      window.recordMembershipObjectUrl(blob?.type || "");
+      return create(blob);
+    };
+  });
+  const duplicateId = "shared-ledger-record-4377";
+  const state = await installFixtures(page, {
+    delayMembershipInvoice: true,
+    membership: [
+      { ...membershipRecords[0], id: duplicateId },
+      { ...membershipRecords[3], id: duplicateId },
+    ],
+  });
+  await page.goto("/history");
+  await page.getByTestId("tab-membership").click();
+
+  const personalView = page.getByTestId(`button-view-membership-invoice-personal-${duplicateId}`);
+  const organisationView = page.getByTestId(`button-view-membership-invoice-organisation-${duplicateId}`);
+  await personalView.click();
+  await expect(personalView).toBeDisabled();
+  await expect(organisationView).toBeEnabled();
+  await expect.poll(() => state.invoiceRequests.length).toBe(1);
+  expect(state.invoiceRequests[0]).toEqual(expect.objectContaining({ source: "personal" }));
+
+  const navigation = page.goto("/");
+  await expect(page).toHaveURL(/\/$/);
+  state.membershipInvoiceDelayReleased = true;
+  await navigation;
+  await page.waitForTimeout(100);
+  expect(createdMembershipPdfUrls).toBe(0);
 });
 
 test("QBO-linked records remain visible without invoice controls when permission is denied", async ({ page }) => {
   const state = await installFixtures(page, {
     excludedFeatures: ["commerce.history.access-invoices"],
   });
-  await page.goto("/History");
+  await page.goto("/history");
 
   const card = page.getByTestId("membership-history-card-personal-personal-2026-4377");
   await expect(card).toBeVisible();
   await expect(card).toContainText("INV-8901");
   await expect(card.getByRole("button", { name: "View Invoice" })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Download" })).toHaveCount(0);
+  await expect(page.getByTestId("membership-invoice-unavailable-personal-personal-2026-4377")).toHaveCount(0);
   expect(state.invoiceRequests).toEqual([]);
   expect(state.escapedWrites).toEqual([]);
 });
 
 test("membership history failure is explicit in overview and Membership tab and can retry", async ({ page }) => {
   const state = await installFixtures(page, { membershipFailures: 1 });
-  await page.goto("/History");
+  await page.goto("/history");
 
   await expect(page.getByTestId("membership-history-error-overview")).toBeVisible();
   await expect(page.getByText("No transactions yet", { exact: true })).toHaveCount(0);
@@ -529,7 +714,7 @@ test("membership history failure is explicit in overview and Membership tab and 
 
 test("Membership tab keeps pagination and sort controls for combined history", async ({ page }) => {
   const state = await installFixtures(page, { membership: paginationRecords });
-  await page.goto("/History");
+  await page.goto("/history");
   await page.getByTestId("tab-membership").click();
 
   await expect(page.getByTestId("button-next-page")).toBeVisible();
@@ -546,7 +731,7 @@ test("Membership tab keeps pagination and sort controls for combined history", a
 
 test("malformed membership history response is an explicit load failure", async ({ page }) => {
   const state = await installFixtures(page, { membership: { records: [] } });
-  await page.goto("/History");
+  await page.goto("/history");
 
   await expect(page.getByTestId("membership-history-error-overview")).toBeVisible();
   await expect(page.getByText("No transactions yet", { exact: true })).toHaveCount(0);
@@ -571,7 +756,7 @@ const historyShapeMatrix = [
 for (const { shape, card } of historyShapeMatrix) {
   test(`history fixture supports ${shape} membership shape in overview and tab`, async ({ page }) => {
     const state = await installFixtures(page, { membershipShape: shape });
-    await page.goto("/History");
+    await page.goto("/history");
 
     await expect(page.getByText("View your transaction and membership history", { exact: true })).toBeVisible();
     await expect(page.getByTestId(card)).toBeVisible();

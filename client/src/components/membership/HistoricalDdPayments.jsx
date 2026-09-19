@@ -56,6 +56,16 @@ export function historicalInvoiceFilename(contentDisposition, payment) {
   return candidate.toLowerCase().endsWith(".pdf") ? candidate : `${candidate}.pdf`;
 }
 
+export function isHistoricalDdInvoiceAvailable(payment) {
+  if (payment?.invoice_unavailable_reason === "permission_denied") return false;
+  if (typeof payment?.invoice_available === "boolean") return payment.invoice_available;
+  if (payment?.invoice_available !== undefined) return false;
+  // Older authorized projections include the persisted ID but predate the flag.
+  // The PDF endpoint still rechecks current permissions and ownership.
+  return typeof payment?.xero_invoice_id === "string"
+    && payment.xero_invoice_id.trim().length > 0;
+}
+
 async function invoiceError(response, fallback) {
   const payload = await response.json().catch(() => ({}));
   return new Error(payload.error || fallback);
@@ -142,6 +152,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
       if (error?.name !== "AbortError" && mountedRef.current) {
         setInvoiceErrorMessage({
           id: payment.id,
+          action,
           message: error?.message || "Failed to access historical invoice",
         });
       }
@@ -164,8 +175,10 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
   return (
     <div className="space-y-2">
       <MonthlyCollectionTable testId="table-historical-dd">
-          {payments.map((payment) => (
-            <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
+          {payments.map((payment) => {
+            const invoiceAvailable = isHistoricalDdInvoiceAvailable(payment);
+            return (
+              <tr className="border-b last:border-0" key={payment.id} data-testid={`row-historical-dd-${payment.id}`}>
               <td className="p-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span>{formatHistoricalDdDate(payment.charge_date)}</span>
@@ -186,7 +199,7 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
               <td className="p-2">
                 <div className="space-y-2">
                   <span>{payment.xero_invoice_number || "—"}</span>
-                  {payment.invoice_available && (
+                  {invoiceAvailable && (
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -220,20 +233,44 @@ export function HistoricalDdPaymentsTable({ payments, request = fetch }) {
                       </Button>
                     </div>
                   )}
+                  {!invoiceAvailable && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid={payment.invoice_unavailable_reason === "permission_denied"
+                        ? `historical-dd-invoice-denied-${payment.id}`
+                        : `historical-dd-invoice-unavailable-${payment.id}`}
+                    >
+                      {payment.invoice_unavailable_reason === "permission_denied"
+                        ? "Invoice access denied"
+                        : "Invoice unavailable"}
+                    </p>
+                  )}
                   {invoiceErrorMessage?.id === payment.id && (
                     <div
-                      className="flex items-start gap-1 text-xs text-destructive"
+                      className="flex flex-wrap items-center gap-2 text-xs text-destructive"
                       role="alert"
                       data-testid={`historical-dd-invoice-error-${payment.id}`}
                     >
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                       <span>{invoiceErrorMessage.message}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        disabled={!!loading}
+                        data-testid={`button-retry-historical-dd-invoice-${payment.id}`}
+                        onClick={() => runInvoiceAction(payment, invoiceErrorMessage.action)}
+                      >
+                        Retry
+                      </Button>
                     </div>
                   )}
                 </div>
               </td>
-            </tr>
-          ))}
+              </tr>
+            );
+          })}
       </MonthlyCollectionTable>
       <p className="p-3 text-xs text-muted-foreground border-t">
         Imported historical records are read-only and never trigger a collection, retry, refund or accounting action.

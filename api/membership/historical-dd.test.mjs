@@ -72,6 +72,7 @@ test('self reads only their tenant-scoped immutable rows', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.payments.length, 1);
   assert.equal(res.body.payments[0].invoice_available, true);
+  assert.equal(res.body.payments[0].invoice_unavailable_reason, null);
   assert.equal(res.body.payments[0].xero_invoice_url, undefined);
   assert.equal(res.body.payments[0].tenant_id, undefined);
   assert.equal(res.body.payments[0].member_id, undefined);
@@ -120,6 +121,7 @@ test('rejects a self session whose tenant conflicts with the active context', as
     db: dbMock(),
     getSessionMember: async () => ({ id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-1' }),
     getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-2' }),
+    hasAdminAccess: async () => false,
     hasFeatureAccess: async () => true,
   });
   const res = response();
@@ -178,6 +180,7 @@ test('canonical history permission is required and invoice details have their ow
   assert.equal(res.body.payments[0].xero_invoice_id, null);
   assert.equal(res.body.payments[0].xero_invoice_number, null);
   assert.equal(res.body.payments[0].invoice_available, false);
+  assert.equal(res.body.payments[0].invoice_unavailable_reason, 'permission_denied');
   assert.equal(res.body.payments[0].xero_invoice_url, undefined);
 
   handler = createHistoricalDdHandler({
@@ -188,4 +191,19 @@ test('canonical history permission is required and invoice details have their ow
   await handler(request(), res);
   assert.equal(res.statusCode, 403);
   assert.match(res.body.error, /history access permission/);
+});
+
+test('a display invoice number alone is not a PDF reference', async () => {
+  const handler = createHistoricalDdHandler({
+    db: dbMock({ payments: [{ id: 'payment-1', xero_invoice_number: 'INV-1' }] }),
+    getSessionMember: async () => ({ id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-1' }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+  });
+  const res = response();
+  await handler(request(), res);
+  assert.equal(res.body.payments[0].invoice_available, false);
+  assert.equal(res.body.payments[0].invoice_unavailable_reason, 'not_linked');
+  assert.equal(res.body.payments[0].xero_invoice_number, 'INV-1');
 });

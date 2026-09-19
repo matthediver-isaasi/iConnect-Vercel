@@ -225,6 +225,7 @@ test('resolves a personal record independently of organisation assignment and su
   assert.equal(res.statusCode, 200);
   assert.equal(res.payload.toString(), '%PDF personal');
   assert.equal(res.headers['Content-Type'], 'application/pdf');
+  assert.equal(res.headers['Cache-Control'], 'private, no-store');
   assert.equal(res.headers['Content-Disposition'], 'inline; filename="membership-invoice-QBO-1001.pdf"');
   assert.deepEqual(providerCalls, [{ invoiceId: 'qbo-invoice-1', tenantId: 'tenant-1' }]);
   assert.deepEqual(getProviderLookups(), ['quickbooks']);
@@ -259,6 +260,39 @@ test('supports organisation download and legacy Xero invoice fields', async () =
   );
   assert.deepEqual(getProviderLookups(), ['xero']);
   assert.deepEqual(db.calls.map((call) => call.table), ['organisation_membership_history']);
+});
+
+test('sanitizes unsafe invoice numbers in Content-Disposition filenames', async () => {
+  const db = mockedDb({
+    rows: {
+      member_membership_history: [{
+        ...personalRecord,
+        accounting_invoice_number: 'INV-"bad\r\nname/100',
+      }],
+    },
+  });
+  const { handler } = endpoint({
+    db,
+    member: {
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      organization_id: null,
+      role_id: 'role-member',
+    },
+  });
+  const res = response();
+
+  await handler({
+    method: 'GET',
+    query: { recordId: 'personal-record', source: 'personal', inline: 'true' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(
+    res.headers['Content-Disposition'],
+    'inline; filename="membership-invoice-INV-bad-name-100.pdf"',
+  );
+  assert.doesNotMatch(res.headers['Content-Disposition'], /[\r\n]/);
 });
 
 test('uses Xero for legacy rows without a persisted provider', async () => {
@@ -528,10 +562,12 @@ test('fails on membership query and accounting provider errors', async () => {
     method: 'GET',
     query: { recordId: 'personal-record', source: 'personal' },
   }, providerResponse);
-  assert.equal(providerResponse.statusCode, 500);
+  assert.equal(providerResponse.statusCode, 502);
   assert.deepEqual(providerResponse.payload, {
-    error: 'Failed to fetch invoice from accounting provider',
+    error: 'Unable to download this invoice right now. Please retry, or contact an administrator if the problem continues.',
   });
+  assert.doesNotMatch(providerResponse.payload.error, /provider unavailable/);
+  assert.equal(providerResponse.headers['Cache-Control'], 'private, no-store');
 });
 
 test('instalment selector fetches the Stripe ledger by tenant, agreement and payment reference', async () => {

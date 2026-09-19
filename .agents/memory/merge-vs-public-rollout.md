@@ -26,3 +26,13 @@ Vercel's deployment `source` describes how deployment was invoked, not whether i
 **Why:** Git-backed deployments can report `source: "redeploy"` or omit it for API requests. Requiring `"git"` incorrectly rejects valid production proof.
 
 **How to apply:** Pin `gitSource.type`, repository ID and commit SHA, then independently check the active production target, READY status and deployed commit's source hashes. Do not weaken those checks to accommodate the invocation label.
+
+Do not diagnose a stale deployment merely because a live bundle lacks changes
+made during the current investigation.
+
+**Why:** Missing markers introduced during diagnosis prove only that those new
+changes have not been deployed; they cannot explain a pre-existing report.
+
+**How to apply:** Compare the live bundle against the pre-investigation baseline.
+When both baseline code and persisted prerequisites agree, require the affected
+authenticated API response/render before claiming the original fault is fixed.
