@@ -663,3 +663,17 @@ mtime_ms = 1789815223539
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b13fbce8-f00f-4c3a-a8d3-73ca1899231b/fbc1fa1c-2ef0-4155-bf5c-8af3b2731fa9"
 storage_version_token = "1789815345222946"
 content_type = "text/html"
+
+[[outputs]]
+id = "KoJndLI9tIo-PCGITjhtH"
+uri = "file://exports/bnms-additional-members/held-rows.csv"
+type = "table"
+title = "BNMS — 69 held member rows"
+description = "Original source columns plus workbook row number and hold reasons. Contains member personal data; share only with authorized administrators."
+logical_id = "1f5e16da-d1b8-4520-b326-bea42585f208"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789834891195
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1f5e16da-d1b8-4520-b326-bea42585f208/4b3f0602-a9f3-4ee6-98f6-f0a18accaee8"
+storage_version_token = "1789834949382821"
+content_type = "text/csv"
