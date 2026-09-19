@@ -5,6 +5,12 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+The Supabase MCP SQL connection can be read-only while the separately configured DEST SQL connection is writable.
+
+**Why:** An authorized member-role update was rejected by MCP as a read-only transaction, but the existing pinned DEST connection supported the update without credential or database-setting changes.
+
+**How to apply:** For explicitly authorized DEST writes, check the project's verified destination-only SQL runner before reporting that new access is needed. Keep project identity pins and verified TLS; never change a read-only connection's settings or substitute SOURCE.
+
 Large Supabase MCP results can be cut off inside JSON even in the saved output file.
 
 **Why:** A bounded bulk-member read produced a saved response cut off mid-string; the file path did not guarantee complete evidence.
