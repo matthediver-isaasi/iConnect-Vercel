@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHistoricalDdHandler, xeroInvoiceUrl } from './historical-dd.js';
+import { createHistoricalDdHandler } from './historical-dd.js';
 
 function response() {
   return {
@@ -71,7 +71,8 @@ test('self reads only their tenant-scoped immutable rows', async () => {
   await handler(request(), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.payments.length, 1);
-  assert.match(res.body.payments[0].xero_invoice_url, /^https:\/\/go\.xero\.com\//);
+  assert.equal(res.body.payments[0].invoice_available, true);
+  assert.equal(res.body.payments[0].xero_invoice_url, undefined);
   assert.equal(res.body.payments[0].tenant_id, undefined);
   assert.equal(res.body.payments[0].member_id, undefined);
 });
@@ -110,7 +111,8 @@ test('tenant admin explicitly bypasses member feature gates and can see invoice 
   await handler(request(), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.payments[0].xero_invoice_number, 'INV-1');
-  assert.match(res.body.payments[0].xero_invoice_url, /^https:\/\/go\.xero\.com\//);
+  assert.equal(res.body.payments[0].invoice_available, true);
+  assert.equal(res.body.payments[0].xero_invoice_url, undefined);
 });
 
 test('rejects a self session whose tenant conflicts with the active context', async () => {
@@ -145,11 +147,6 @@ test('missing migration is explicit and other data failures are not hidden', asy
   }
 });
 
-test('only UUID invoice identifiers become trusted Xero links', () => {
-  assert.equal(xeroInvoiceUrl('not-a-uuid'), null);
-  assert.match(xeroInvoiceUrl('3e69cfdf-4d7c-4d70-9630-aa68f8c8fced'), /InvoiceID=/);
-});
-
 test('canonical history permission is required and invoice details have their own gate', async () => {
   const payment = {
     id: 'payment-1', period: '2026-01-01', charge_date: '2026-01-06',
@@ -180,7 +177,8 @@ test('canonical history permission is required and invoice details have their ow
   assert.deepEqual(featureCalls, ['commerce.history', 'commerce.history.access-invoices']);
   assert.equal(res.body.payments[0].xero_invoice_id, null);
   assert.equal(res.body.payments[0].xero_invoice_number, null);
-  assert.equal(res.body.payments[0].xero_invoice_url, null);
+  assert.equal(res.body.payments[0].invoice_available, false);
+  assert.equal(res.body.payments[0].xero_invoice_url, undefined);
 
   handler = createHistoricalDdHandler({
     ...common,

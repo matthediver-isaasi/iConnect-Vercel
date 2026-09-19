@@ -6,16 +6,9 @@ import {
   hasFeatureAccess,
 } from '../_lib/tenantContext.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MIGRATION_ERROR_CODES = new Set(['42P01', '42703']);
 const HISTORY_PERMISSION = 'commerce.history';
 const INVOICE_PERMISSION = 'commerce.history.access-invoices';
-
-export function xeroInvoiceUrl(invoiceId) {
-  return UUID_RE.test(String(invoiceId || ''))
-    ? `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(invoiceId)}`
-    : null;
-}
 
 export function createHistoricalDdHandler(dependencies = {}) {
   const db = dependencies.db === undefined ? supabase : dependencies.db;
@@ -47,7 +40,14 @@ export function createHistoricalDdHandler(dependencies = {}) {
     let isAdmin = false;
     if (context?.isAuthenticated && context?.tenantId) {
       try {
-        isAdmin = await checkAdmin(context);
+        const adminContext = sessionMember && !context?.tenantUserId
+          ? {
+            ...context,
+            memberId: sessionMember.id,
+            roleId: sessionMember.role_id || null,
+          }
+          : context;
+        isAdmin = await checkAdmin(adminContext);
       } catch {
         isAdmin = false;
       }
@@ -66,9 +66,10 @@ export function createHistoricalDdHandler(dependencies = {}) {
 
     let canAccessInvoices = isAdmin;
     if (!isAdmin) {
-      const roleId = sessionMember?.role_id || context?.roleId;
-      const exclusions = sessionMember?.member_excluded_features
-        || context?.memberExcludedFeatures;
+      // Portal authorization must come from the authenticated member row, not
+      // potentially stale role/exclusion values in tenant context.
+      const roleId = sessionMember?.role_id;
+      const exclusions = sessionMember?.member_excluded_features;
       const canAccessHistory = !!roleId
         && await checkFeature(roleId, HISTORY_PERMISSION, exclusions);
       if (!canAccessHistory) {
@@ -118,7 +119,7 @@ export function createHistoricalDdHandler(dependencies = {}) {
         provider_status: row.provider_status,
         xero_invoice_id: canAccessInvoices ? row.xero_invoice_id : null,
         xero_invoice_number: canAccessInvoices ? row.xero_invoice_number : null,
-        xero_invoice_url: canAccessInvoices ? xeroInvoiceUrl(row.xero_invoice_id) : null,
+        invoice_available: canAccessInvoices && !!row.xero_invoice_id,
         historical_only: true,
       })),
     });

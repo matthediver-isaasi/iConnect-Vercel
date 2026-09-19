@@ -181,7 +181,7 @@ const historicalDdPayments = [
     provider_status: "paid_out",
     xero_invoice_id: "3e69cfdf-4d7c-4d70-9630-aa68f8c8fced",
     xero_invoice_number: "INV-HISTORY-JAN",
-    xero_invoice_url: "https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=3e69cfdf-4d7c-4d70-9630-aa68f8c8fced",
+    invoice_available: true,
     historical_only: true,
   },
 ];
@@ -200,6 +200,8 @@ async function installFixtures(page, {
   membershipFailures = 0,
   invoiceStatus = 200,
   invoiceBody = pdfBody,
+  historicalInvoiceStatus = 200,
+  delayHistoricalInvoice = false,
   excludedFeatures = [],
 } = {}) {
   const fixtureMember = membershipShape === "member-without-organisation"
@@ -215,6 +217,8 @@ async function installFixtures(page, {
   const state = {
     membershipCalls: 0,
     invoiceRequests: [],
+    historicalInvoiceRequests: [],
+    historicalInvoiceDelayReleased: !delayHistoricalInvoice,
     escapedWrites: [],
   };
   const fixtureRole = { ...role, excluded_features: excludedFeatures };
@@ -276,8 +280,27 @@ async function installFixtures(page, {
           ...payment,
           xero_invoice_id: null,
           xero_invoice_number: null,
-          xero_invoice_url: null,
+          invoice_available: false,
         }),
+      });
+    }
+    if (path === "/api/membership/historical-dd-invoice") {
+      state.historicalInvoiceRequests.push({
+        recordId: url.searchParams.get("recordId"),
+        inline: url.searchParams.get("inline"),
+      });
+      while (!state.historicalInvoiceDelayReleased) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return route.fulfill({
+        status: historicalInvoiceStatus,
+        contentType: historicalInvoiceStatus === 200 ? "application/pdf" : "application/json",
+        headers: historicalInvoiceStatus === 200
+          ? { "Content-Disposition": 'attachment; filename="historical-fixture.pdf"' }
+          : {},
+        body: historicalInvoiceStatus === 200
+          ? invoiceBody
+          : JSON.stringify({ error: "Historical invoice permission denied" }),
       });
     }
     if (path.startsWith("/api/membership-invoice/")) {
@@ -334,7 +357,22 @@ test("combined personal and organisation history keeps source labels and same-ye
   expect(state.escapedWrites).toEqual([]);
 });
 
-test("historical Direct Debit records render read-only with invoice feature gating", async ({ page }) => {
+test("historical Direct Debit records use protected invoice preview/download with cleanup and feature gating", async ({ page }) => {
+  await page.addInitScript(() => {
+    const create = URL.createObjectURL.bind(URL);
+    const revoke = URL.revokeObjectURL.bind(URL);
+    window.__historicalCreatedUrls = [];
+    window.__historicalRevokedUrls = [];
+    URL.createObjectURL = (blob) => {
+      const value = create(blob);
+      window.__historicalCreatedUrls.push(value);
+      return value;
+    };
+    URL.revokeObjectURL = (value) => {
+      window.__historicalRevokedUrls.push(value);
+      return revoke(value);
+    };
+  });
   const state = await installFixtures(page);
   await page.goto("/History");
   await page.getByTestId("tab-membership").click();
@@ -345,10 +383,33 @@ test("historical Direct Debit records render read-only with invoice feature gati
   await expect(row).toContainText("6 Jan 2026");
   await expect(row).toContainText("£13.04");
   await expect(row).toContainText("Paid out");
-  const invoice = page.getByTestId("link-historical-dd-invoice-historical-dd-jan-4377");
-  await expect(invoice).toHaveAttribute("href", /https:\/\/go\.xero\.com\/AccountsReceivable\/View\.aspx\?InvoiceID=/);
-  await expect(invoice).toHaveAttribute("target", "_blank");
-  await expect(row.getByRole("button")).toHaveCount(0);
+  const view = page.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377");
+  const download = page.getByTestId("button-download-historical-dd-invoice-historical-dd-jan-4377");
+  await expect(view).toHaveAccessibleName("View invoice INV-HISTORY-JAN");
+  await expect(download).toHaveAccessibleName("Download invoice INV-HISTORY-JAN");
+  await view.click();
+  const invoiceDialog = page.getByRole("dialog", { name: "Invoice INV-HISTORY-JAN" });
+  await expect(invoiceDialog).toBeVisible();
+  expect(state.historicalInvoiceRequests[0]).toEqual({
+    recordId: "historical-dd-jan-4377",
+    inline: "true",
+  });
+  await invoiceDialog.getByRole("button", { name: "Close" }).click();
+  await expect(invoiceDialog).toBeHidden();
+  await expect.poll(() => page.evaluate(() => ({
+    created: window.__historicalCreatedUrls.length,
+    revoked: window.__historicalRevokedUrls.length,
+  }))).toEqual({ created: 1, revoked: 1 });
+  await download.click();
+  await expect.poll(() => state.historicalInvoiceRequests.length).toBe(2);
+  expect(state.historicalInvoiceRequests[1]).toEqual({
+    recordId: "historical-dd-jan-4377",
+    inline: null,
+  });
+  await expect.poll(() => page.evaluate(() => ({
+    created: window.__historicalCreatedUrls.length,
+    revoked: window.__historicalRevokedUrls.length,
+  }))).toEqual({ created: 2, revoked: 2 });
   await expect(page.getByText(/never trigger a collection, retry, refund or accounting action/).first()).toBeVisible();
   await page.screenshot({
     path: "screenshots/bnms-historical-dd-history.jpg",
@@ -363,8 +424,30 @@ test("historical Direct Debit records render read-only with invoice feature gati
   await restricted.goto("/History");
   await restricted.getByTestId("tab-membership").click();
   await expect(restricted.getByTestId("row-historical-dd-historical-dd-jan-4377")).toBeVisible();
-  await expect(restricted.getByTestId("link-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
+  await expect(restricted.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
+  await expect(restricted.getByTestId("button-download-historical-dd-invoice-historical-dd-jan-4377")).toHaveCount(0);
   await restricted.close();
+});
+
+test("historical invoice controls expose loading and endpoint errors", async ({ page }) => {
+  const loadingState = await installFixtures(page, { delayHistoricalInvoice: true });
+  await page.goto("/History");
+  await page.getByTestId("tab-membership").click();
+  const view = page.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377");
+  await view.click();
+  await expect(view).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByTestId("button-download-historical-dd-invoice-historical-dd-jan-4377")).toBeDisabled();
+  loadingState.historicalInvoiceDelayReleased = true;
+  await expect(page.getByRole("dialog", { name: "Invoice INV-HISTORY-JAN" })).toBeVisible();
+
+  const errorPage = await page.context().newPage();
+  await installFixtures(errorPage, { historicalInvoiceStatus: 403 });
+  await errorPage.goto("/History");
+  await errorPage.getByTestId("tab-membership").click();
+  await errorPage.getByTestId("button-view-historical-dd-invoice-historical-dd-jan-4377").click();
+  await expect(errorPage.getByTestId("historical-dd-invoice-error-historical-dd-jan-4377"))
+    .toHaveText(/Historical invoice permission denied/);
+  await errorPage.close();
 });
 
 test("membership accounting invoice fallback is searchable and PDF preview/download sends source", async ({ page }) => {

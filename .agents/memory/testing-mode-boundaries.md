@@ -27,3 +27,14 @@ clicking Run starts only the application.
 **How to apply:** Assert the final parent graph after registration changes.
 Use the platform's schema-validated replacement flow for `.replit` rather
 than direct edits, which this environment rejects.
+
+For local Playwright runs on Nix, prefer an available Nix Chromium executable
+when the downloaded browser cannot load system libraries.
+
+**Why:** The downloaded Chromium failed on missing `libglib-2.0.so.0`, while
+the existing Nix Chromium ran the same isolated tests successfully.
+
+**How to apply:** Discover the installed executable and supply Playwright's
+`executablePath`; do not assume a pinned store path persists between sessions.
+Confirm test discovery too: an explicit spec argument still respects config
+`testMatch`, so excluded specs need a narrowly scoped config.
