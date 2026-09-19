@@ -133,7 +133,7 @@ export default function OrganisationDirectoryFilters({ fields, filters, onChange
   };
   if (!fields.length) return null;
   return (
-    <div className="flex flex-wrap items-end gap-4 pt-3 border-t border-slate-200">
+    <div className="flex flex-wrap items-start gap-4 pt-3 border-t border-slate-200">
       {fields.map((field) => {
         const filter = filters[field.key];
         return (

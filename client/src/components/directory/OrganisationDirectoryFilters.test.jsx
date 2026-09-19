@@ -73,6 +73,10 @@ function FilterHarness() {
 
 test("mounted controls emit the API operator/value shape and clear all", async () => {
   const view = await mount(<FilterHarness />);
+  const row = view.container.firstElementChild;
+  assert.ok(row.classList.contains("items-start"));
+  assert.ok(row.classList.contains("flex-wrap"));
+  assert.ok(!row.classList.contains("items-end"));
   const status = view.container.querySelector('select[aria-label="Status"]');
   await act(async () => {
     status.value = "active";

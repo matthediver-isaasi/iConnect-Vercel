@@ -461,6 +461,59 @@ async function expectDirectoryCards(page, { visible, hidden }) {
   await expect(page.getByTestId(`card-organisation-${hidden.id}`)).toHaveCount(0);
 }
 
+for (const width of [1440, 390]) {
+  test(`mixed-height filters stay top-aligned and clear selections at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await installFixtures(page);
+    const fields = [
+      { key: "region", label: "Region", control: "choice", options: [{ value: "north", label: "North" }] },
+      { key: "department", label: "Organisation department", control: "source-choice", multi_select: true },
+    ];
+    const requests = [];
+    await page.route("**/api/organisation-directory/filters", async route => {
+      const body = route.request().method() === "POST" ? route.request().postDataJSON() : null;
+      if (body) requests.push(body);
+      const options = ["Cardiology", "Radiology", "Oncology"].map(value => ({ value, label: value }));
+      await route.fulfill({
+        json: body?.action === "options"
+          ? { options, selectedOptions: options.filter(option => body.selected.includes(option.value)), unavailableSelected: [], total: 3, page: 1, pageSize: 50 }
+          : body
+            ? { fields, organizations: [], total: 0, page: 1, pageSize: 12 }
+            : { fields },
+      });
+    });
+    await page.goto("/OrganisationDirectory");
+    const region = page.getByRole("combobox", { name: "Region", exact: true });
+    const department = page.getByRole("group", { name: "Organisation department options" });
+    await expect(department).toBeVisible();
+    const regionLabel = page.locator("label").filter({ hasText: /^Region$/ });
+    const departmentLabel = page.locator("label").filter({ hasText: /^Organisation department$/ });
+    const row = region.locator("../..");
+    await expect(row).toHaveCSS("align-items", "flex-start");
+    await expect(row).toHaveCSS("flex-wrap", "wrap");
+    const regionBox = await regionLabel.boundingBox();
+    const departmentBox = await departmentLabel.boundingBox();
+    if (width === 1440) {
+      expect(Math.abs(regionBox.y - departmentBox.y)).toBeLessThan(1);
+    } else {
+      expect(departmentBox.y).toBeGreaterThan(regionBox.y + regionBox.height);
+      expect(Math.abs(regionBox.x - departmentBox.x)).toBeLessThan(1);
+    }
+    expect((await department.boundingBox()).height).toBeGreaterThan((await region.boundingBox()).height);
+    await region.selectOption("north");
+    await department.getByRole("checkbox", { name: "Cardiology" }).check();
+    await expect.poll(() => requests.filter(body => body.action !== "options").at(-1)?.filters).toEqual({
+      region: { operator: "eq", value: ["north"] },
+      department: { operator: "eq", value: ["Cardiology"] },
+    });
+    await page.getByRole("button", { name: "Clear all", exact: true }).click();
+    await expect(region).toHaveValue("");
+    await expect(department.getByRole("checkbox", { name: "Cardiology" })).not.toBeChecked();
+    await expect.poll(() => requests.filter(body => body.action !== "options").at(-1)?.filters).toEqual({});
+    await expect(page.getByRole("button", { name: "Clear all", exact: true })).toHaveCount(0);
+  });
+}
+
 test("administrator saves an organisation exclusion and the mounted directory enforces it", async ({ page }) => {
   const state = await installFixtures(page, {
     viewer: ADMIN_ONE,
