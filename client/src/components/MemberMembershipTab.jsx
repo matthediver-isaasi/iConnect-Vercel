@@ -40,6 +40,8 @@ import MonthlyCollectionSchedule, {
   isMonthlyCollectionCommitment,
 } from "@/components/membership/MonthlyCollectionSchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
+import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
 import MemberMembershipInstalments, {
   getMembershipSource,
   isMonthlyMembershipRecord,
@@ -1424,9 +1426,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
               <div>
                 <dt className="text-muted-foreground">Agreed Price for this Billing Period</dt>
                 <dd className="font-medium" data-testid={`text-commitment-price-${commitment.id}`}>
-                  {commitment.collectionPolicy?.pricing_policy === 'dynamic'
-                    ? 'Variable — determined for each collection'
-                    : formatCost(commitment.agreedPrice, commitment.currency)}
+                  {getMembershipPricingPresentation(commitment).agreed.text}
                 </dd>
               </div>
               <div>
@@ -1440,6 +1440,10 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 <dd className="font-medium">{formatPaymentMethod(commitment.paymentMethod)}</dd>
               </div>
             </dl>
+            <MembershipPricingDisplay
+              record={commitment}
+              className="mt-4 text-sm text-muted-foreground"
+            />
             {['direct_debit', 'gocardless'].includes(commitment.paymentMethod)
               ? <DirectDebitCommitmentDetails commitment={commitment} />
               : <p className="text-xs text-muted-foreground mt-4">Persisted commitment · pricing remains fixed for this term.</p>}
@@ -1672,6 +1676,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       && record.interval_unit !== 'monthly'
                       && record.payment_frequency !== 'monthly';
                     const isMonthlyRecord = isMonthlyMembershipRecord(record);
+                    const pricing = getMembershipPricingPresentation(record);
                     const isInstalmentsExpanded = expandedInstalmentHistoryId === membershipRecordKey;
                     return (
                       <Fragment key={membershipRecordKey}>
@@ -1702,12 +1707,11 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                           </div>
                         </td>
                         <td className="p-3 text-right">
-                          {formatCost(
-                            record.commitment_snapshot?.amounts?.total_with_vat
-                              ?? record.total_with_vat
-                              ?? record.final_cost,
-                            record.commitment_snapshot?.amounts?.currency || record.currency,
-                          )}
+                          <div>{pricing.agreed.text}</div>
+                          <MembershipPricingDisplay
+                            record={record}
+                            className="mt-1 text-xs text-muted-foreground"
+                          />
                         </td>
                         <td className="p-3 text-right text-xs space-y-0.5">
                           {hasAdjustments ? (
@@ -1732,8 +1736,8 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               || 'Frequency unknown'}
                           </div>
                         </td>
-                        <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
-                        <td className="p-3 text-right font-semibold">{formatCost(record.total_with_vat || record.final_cost, record.currency)}</td>
+                        <td className="p-3 text-right font-semibold">{pricing.net.text}</td>
+                        <td className="p-3 text-right font-semibold">{pricing.gross.text}</td>
                         <td className="p-3">
                           <div className="flex items-center gap-1 flex-wrap">
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>

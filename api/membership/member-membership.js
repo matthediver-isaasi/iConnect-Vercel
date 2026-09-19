@@ -14,6 +14,7 @@ import { loadGoCardlessCollectionDetails } from '../_lib/gocardlessCollectionDet
 import { loadStripeCollectionSchedule, unavailableCollectionSchedule } from '../_lib/membershipCollectionSchedule.js';
 import { loadGoCardlessSchedule } from '../_lib/gocardlessCollectionScheduleChange.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
+import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -779,6 +780,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const resolveConfigById = dependencies.getConfigByIdDirect || getConfigByIdDirect;
   const resolveActiveConfigs = dependencies.getAllActiveConfigs || getAllActiveConfigsStrict;
   const simulateMember = dependencies.simulateMembershipForMember || simulateMembershipForMember;
+  const enrichHistoryPrices = dependencies.enrichMembershipHistoryPrices || enrichMembershipHistoryPrices;
 
   return async function handler(req, res) {
     if (!db) {
@@ -815,6 +817,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
           resolveConfigById,
           resolveActiveConfigs,
           simulateMember,
+          enrichHistoryPrices,
         });
       }
 
@@ -953,6 +956,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   resolveConfigById = getConfigByIdDirect,
   resolveActiveConfigs = getAllActiveConfigsStrict,
   simulateMember = simulateMembershipForMember,
+  enrichHistoryPrices = enrichMembershipHistoryPrices,
 } = {}) {
   const { memberId } = req.query;
 
@@ -1089,6 +1093,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
+  await enrichHistoryPrices(history, { db, tenantId });
   const commitments = shapePersistedCommitments(history);
   const canEditSchedule = isAdmin && (!adminContext?.roleId || (
     await checkFeature(adminContext.roleId, 'commerce.gocardless-dd')

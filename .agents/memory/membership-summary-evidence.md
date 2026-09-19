@@ -14,3 +14,9 @@ For migrated Direct Debits, distinguish verified existing mandate readiness, imp
 **Why:** A pilot retained paid historical collections separately from an unpaid future term. Its internal pending setup status was misleading on screen despite an active legacy mandate; relabelling the term active would instead falsely grant financial entitlement.
 
 **How to apply:** Derive truthful presentation from tenant/environment-scoped mandate evidence without changing payment or activation state. Future imports must evidence current-term dates separately; historical paid collections alone do not establish those dates. Preserve collection holds, reviewed release, and cutover guards.
+
+Variable monthly prices and annual financial commitments are separate evidence.
+
+**Why:** Imported dynamic terms deliberately retain null annual totals while preserving an initial monthly quote. Neither that quote nor a saved reservation proves today's applicable price, and multiplying a current monthly amount by twelve invents a commitment.
+
+**How to apply:** Resolve display estimates read-only for an evidenced date and purchased scope; use provider evidence alone for scheduled-charge wording. Keep annual nulls uncommitted and preserve existing financial totals. Do not let a UI fallback turn an old reservation into a fresh price estimate.

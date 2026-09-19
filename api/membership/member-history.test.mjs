@@ -302,6 +302,57 @@ test('enforces history role permission and member exclusions before ledger queri
   assert.equal(excludedDb.calls.length, 0);
 });
 
+test('enriches prices only after history authorization and owner-scoped reads', async () => {
+  const db = mockedDb({
+    rows: {
+      member_membership_history: [{
+        id: 'personal-price',
+        tenant_id: 'tenant-1',
+        member_id: 'member-1',
+        membership_year: '2027',
+      }],
+    },
+  });
+  let enrichmentCalls = 0;
+  const allowed = createMemberHistoryHandler({
+    db,
+    getSessionMember: async () => ({ ...member, organization_id: null }),
+    getTenantContext: async () => ({
+      isAuthenticated: true,
+      tenantId: 'tenant-1',
+      memberId: 'member-1',
+      roleId: 'role-member',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+    enrichMembershipHistoryPrices: async (rows, context) => {
+      enrichmentCalls++;
+      assert.equal(context.tenantId, 'tenant-1');
+      assert.deepEqual(rows.map((row) => row.member_id), ['member-1']);
+    },
+  });
+  await allowed({ method: 'GET' }, response());
+  assert.equal(enrichmentCalls, 1);
+
+  const denied = createMemberHistoryHandler({
+    db,
+    getSessionMember: async () => ({ ...member, organization_id: null }),
+    getTenantContext: async () => ({
+      isAuthenticated: true,
+      tenantId: 'tenant-1',
+      memberId: 'member-1',
+      roleId: 'role-member',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    enrichMembershipHistoryPrices: async () => { enrichmentCalls++; },
+  });
+  const deniedResponse = response();
+  await denied({ method: 'GET' }, deniedResponse);
+  assert.equal(deniedResponse.statusCode, 403);
+  assert.equal(enrichmentCalls, 1);
+});
+
 test('does not fall back to a stale context role for history access', async () => {
   const db = mockedDb({
     rows: { member_membership_history: [] },

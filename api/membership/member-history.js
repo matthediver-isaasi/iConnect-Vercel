@@ -5,6 +5,7 @@ import {
   hasAdminAccess,
   hasFeatureAccess,
 } from '../_lib/tenantContext.js';
+import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
 
 const HISTORY_PERMISSION = 'commerce.history';
 
@@ -39,6 +40,7 @@ const PERSONAL_COLUMNS = [
   'term_key',
   'previous_term_id',
   'commitment_snapshot',
+  'billing_agreement_id',
   'stripe_payment_intent_id',
   'status',
   'created_at',
@@ -79,6 +81,7 @@ const ORGANISATION_COLUMNS = [
   'term_key',
   'previous_term_id',
   'commitment_snapshot',
+  'billing_agreement_id',
   'stripe_payment_intent_id',
   'status',
   'created_at',
@@ -159,6 +162,7 @@ export function createMemberHistoryHandler(dependencies = {}) {
   const getContext = dependencies.getTenantContext || getTenantContext;
   const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
   const checkFeature = dependencies.hasFeatureAccess || hasFeatureAccess;
+  const enrichPrices = dependencies.enrichMembershipHistoryPrices || enrichMembershipHistoryPrices;
 
   return async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -292,6 +296,7 @@ export function createMemberHistoryHandler(dependencies = {}) {
           band_label: record.band_id ? (bandMap[record.band_id] || null) : null,
         }))
         .sort(compareMembershipHistory);
+      await enrichPrices(enriched, { db, tenantId });
 
       return res.json(enriched);
     } catch (error) {

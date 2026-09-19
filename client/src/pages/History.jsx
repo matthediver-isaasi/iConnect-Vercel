@@ -17,6 +17,8 @@ import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
+import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -1445,10 +1447,7 @@ export default function HistoryPage({ hasBanner }) {
     const invoiceActionKey = membershipRecordKey(record);
     const createdDate = record.created_at ? new Date(record.created_at) : null;
     const transactionDate = createdDate && Number.isFinite(createdDate.getTime()) ? createdDate : null;
-    const finalCost = parseFloat(record.final_cost || 0);
-    const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : (record.vat_rate_percent != null ? parseFloat(record.vat_rate_percent) : 0);
-    const vatAmount = record.vat_amount != null ? parseFloat(record.vat_amount) : (vatRate > 0 ? finalCost * (vatRate / 100) : 0);
-    const totalAmount = record.total_with_vat != null ? parseFloat(record.total_with_vat) : (finalCost + vatAmount);
+    const pricing = getMembershipPricingPresentation(record);
 
     return (
       <div
@@ -1493,9 +1492,13 @@ export default function HistoryPage({ hasBanner }) {
                 </p>
               )}
               <p className="text-sm text-slate-600">
-                Net: £{finalCost.toFixed(2)}
-                {vatAmount > 0 && ` + VAT: £${vatAmount.toFixed(2)}`}
+                Net: {pricing.net.text}
+                {pricing.vat.amount !== null && ` + VAT: ${pricing.vat.text}`}
               </p>
+              <MembershipPricingDisplay
+                record={record}
+                className="text-sm text-slate-600"
+              />
               {record.purchase_order_number && (
                 <p className="text-xs text-slate-500">
                   PO: {record.purchase_order_number}
@@ -1511,7 +1514,7 @@ export default function HistoryPage({ hasBanner }) {
           
           <div className="flex items-center gap-2 shrink-0">
             <span className="font-semibold text-indigo-600">
-              £{totalAmount.toFixed(2)}
+              {pricing.gross.text}
             </span>
           </div>
         </div>
