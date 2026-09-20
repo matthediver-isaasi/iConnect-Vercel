@@ -1,6 +1,7 @@
 // Resize reports remain compatible with existing embed scripts. Navigation is a
 // separate signal: a height change alone must never move the containing page.
 export const FORM_PAGE_NAVIGATED_MESSAGE = 'iconn-form-page-navigated';
+export const FORM_SUCCESS_READY_MESSAGE = 'iconn-form-success-ready';
 
 // Drop-in is a body-level, fixed, 100%-height iframe, outside our flow-root.
 // Its rectangle (and this window's innerHeight) just echoes the height assigned
@@ -22,6 +23,7 @@ export function observeFormEmbedContent(root, windowObj = window) {
   let disposed = false;
   let lastHeight = null;
   let navigationPending = false;
+  let completionPending = null;
   let paymentNaturalHeight = 0;
   let activePayment = null;
   const body = root.ownerDocument?.body;
@@ -43,7 +45,12 @@ export function observeFormEmbedContent(root, windowObj = window) {
     const height = payment
       ? Math.max(paymentNaturalHeight, formEmbedPaymentViewportHeight(windowObj.innerWidth))
       : naturalHeight;
-    if (height > 0 && (height !== lastHeight || navigationPending)) {
+    // A completed surface must publish its final intrinsic height before its
+    // ready signal. While GoCardless still owns a body-level iframe, keep the
+    // completion pending: that overlay's removal is the authoritative point
+    // at which the compact receipt has actually been revealed.
+    const completionReady = completionPending && !payment;
+    if (height > 0 && (height !== lastHeight || navigationPending || completionReady)) {
       windowObj.parent.postMessage({ type: 'iconn-form-resize', height }, '*');
       lastHeight = height;
     }
@@ -58,6 +65,16 @@ export function observeFormEmbedContent(root, windowObj = window) {
         );
       } else {
         windowObj.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    if (completionReady) {
+      const messageType = completionPending;
+      completionPending = null;
+      if (windowObj.parent !== windowObj) {
+        windowObj.parent.postMessage(
+          { type: messageType, height },
+          windowObj.location.origin,
+        );
       }
     }
   };
@@ -77,6 +94,13 @@ export function observeFormEmbedContent(root, windowObj = window) {
     schedule,
     navigated() {
       navigationPending = true;
+      schedule();
+    },
+    completed(messageType = FORM_SUCCESS_READY_MESSAGE) {
+      // Coalesce repeated success effects while retaining the first surface
+      // classification. Callers use the payment-return type for a terminal
+      // hosted return and the default type for an inline/form success.
+      if (!completionPending) completionPending = messageType;
       schedule();
     },
     dispose() {

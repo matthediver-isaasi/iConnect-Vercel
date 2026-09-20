@@ -38,3 +38,9 @@ Apply the same separation to monthly setup, but do not equate setup with collect
 **Why:** GoCardless can confirm completed consent while the mandate is still pending submission or submitted; waiting for an active mandate would delay acknowledgement beyond the normal checkout experience. Stripe monthly can also complete setup without a first collection.
 
 **How to apply:** Verify provider-owned setup evidence and matching identities, preserve actual collection evidence separately, and keep login instructions deferred. If browser confirmation stops running internal finalizers, ensure the existing form recovery sweep discovers the acknowledged setup; slower agreement-level recovery alone is not sufficient.
+
+Embedded outcome navigation must follow a committed receipt and actual provider-overlay removal, not just an accepted callback or iframe resize.
+
+**Why:** Inline completion has no hosted-return relay, and a tall form can shrink underneath a still-mounted GoCardless overlay. Scrolling before that overlay releases its height can leave the receipt outside the containing viewport.
+
+**How to apply:** Keep inline completion distinct from relay-authorized hosted returns, report the final height before the one-shot readiness signal, and let Canvas settle before a visibility-aware parent scroll. Capture return navigation context before URL cleanup; later server-confirmed terminal transitions must not depend on payment query parameters still being present.

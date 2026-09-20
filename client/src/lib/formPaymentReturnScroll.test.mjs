@@ -54,6 +54,33 @@ test('an already visible return target does not steal ordinary browsing scroll',
   assert.deepEqual(calls, []);
 });
 
+test('return scroll clears sticky nav and data-marked Canvas chrome', () => {
+  const dom = new JSDOM(`
+    <nav></nav>
+    <div data-canvas-sticky></div>
+    <main id="target"></main>
+  `);
+  const { document } = dom.window;
+  const nav = document.querySelector('nav');
+  const canvasChrome = document.querySelector('[data-canvas-sticky]');
+  const target = document.querySelector('#target');
+  layout(nav, { top: 0, bottom: 48, height: 48 });
+  layout(canvasChrome, { top: 48, bottom: 96, height: 48 });
+  layout(target, { top: 1200, bottom: 1450, height: 250 });
+  nav.style.position = 'sticky';
+  Object.defineProperty(document.documentElement, 'scrollHeight', { value: 2400 });
+  const calls = [];
+  const windowObj = {
+    innerHeight: 800,
+    pageYOffset: 0,
+    scrollTo: options => calls.push(options),
+  };
+
+  assert.equal(getPaymentReturnHeaderOffset(document), 96);
+  assert.equal(scrollPaymentReturnTarget(target, { windowObj, documentObj: document }), true);
+  assert.deepEqual(calls, [{ top: 1088, behavior: 'auto' }]);
+});
+
 test('scheduled return scroll can be cancelled before delayed iframe layout settles', async () => {
   const dom = new JSDOM('<main id="target"></main>');
   const target = dom.window.document.querySelector('#target');

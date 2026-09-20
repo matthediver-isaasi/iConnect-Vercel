@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FORM_PAGE_NAVIGATED_MESSAGE,
+  FORM_SUCCESS_READY_MESSAGE,
   formEmbedPaymentViewportHeight,
   isFormEmbedMessage,
   measureFormContent,
@@ -108,6 +109,56 @@ test('successful equal-height navigation reports height then one origin-limited 
   f.flush();
   assert.equal(f.messages.length, 2, 'viewport/observer echo is deduplicated');
   runtime.dispose();
+});
+
+test('completion reports final natural height before one origin-limited success signal', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.flush();
+  f.messages.length = 0;
+  runtime.completed();
+  runtime.completed();
+  f.flush();
+  assert.deepEqual(f.messages, [
+    [{ type: 'iconn-form-resize', height: 1200 }, '*'],
+    [{ type: FORM_SUCCESS_READY_MESSAGE, height: 1200 }, 'https://example.test'],
+  ]);
+  runtime.dispose();
+});
+
+test('completion waits for actual payment overlay removal then reports compact receipt first', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.setPaymentVisible(true);
+  f.flush();
+  f.messages.length = 0;
+  f.setHeight(180);
+  runtime.completed();
+  f.flush();
+  assert.deepEqual(f.messages, [], 'visible overlay keeps completion pending');
+  f.mutateBody();
+  f.flush();
+  assert.deepEqual(f.messages, [], 'unrelated body mutation cannot reveal completion');
+  f.setPaymentVisible(false);
+  f.flush();
+  assert.deepEqual(f.messages, [
+    [{ type: 'iconn-form-resize', height: 180 }, '*'],
+    [{ type: FORM_SUCCESS_READY_MESSAGE, height: 180 }, 'https://example.test'],
+  ]);
+  runtime.dispose();
+});
+
+test('completion cleanup cancels pending overlay reveal', () => {
+  const f = fixture();
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.setPaymentVisible(true);
+  f.flush();
+  f.messages.length = 0;
+  runtime.completed('custom-terminal-ready');
+  runtime.dispose();
+  f.setPaymentVisible(false);
+  f.flush();
+  assert.deepEqual(f.messages, []);
 });
 
 test('cleanup cancels pending measurements and navigation', () => {
@@ -242,6 +293,22 @@ test('direct embed route retains standalone navigation scrolling', () => {
   f.flush();
   assert.deepEqual(scrolls, [{ top: 0, behavior: 'smooth' }]);
   assert.ok(f.messages.every(([message]) => message.type !== FORM_PAGE_NAVIGATED_MESSAGE));
+  runtime.dispose();
+});
+
+test('direct embed completion neither scrolls nor emits a success message', () => {
+  const f = fixture();
+  const scrolls = [];
+  f.win.parent = f.win;
+  f.win.postMessage = (...args) => f.messages.push(args);
+  f.win.scrollTo = options => scrolls.push(options);
+  const runtime = observeFormEmbedContent(f.root, f.win);
+  f.flush();
+  f.messages.length = 0;
+  runtime.completed();
+  f.flush();
+  assert.deepEqual(scrolls, []);
+  assert.deepEqual(f.messages, [[{ type: 'iconn-form-resize', height: 1200 }, '*']]);
   runtime.dispose();
 });
 

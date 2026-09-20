@@ -128,7 +128,12 @@ import {
   buildSectionOverlayBackground,
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
-import { FORM_PAGE_NAVIGATED_MESSAGE, isFormEmbedMessage, scrollFormPageTarget } from '@/lib/formEmbedRuntime';
+import {
+  FORM_PAGE_NAVIGATED_MESSAGE,
+  FORM_SUCCESS_READY_MESSAGE,
+  isFormEmbedMessage,
+  scrollFormPageTarget,
+} from '@/lib/formEmbedRuntime';
 import { forwardCanvasDepartmentContext } from './formEmbedDepartmentContext';
 import { getEmbeddedPaymentReturnRelay, stripPaymentParams } from '@/lib/formPaymentReturn';
 import {
@@ -6342,9 +6347,9 @@ function FormEmbedIframe({ href, title, breakpoint }) {
   const iframeRef = useRef(null);
   const [height, setHeight] = useState(null);
   const [pageNavigation, setPageNavigation] = useState(0);
-  const paymentReturnScrollTimerRef = useRef(null);
-  const paymentReturnScrollDoneRef = useRef(false);
-  const paymentReturnReadyRef = useRef(false);
+  const completionScrollTimerRef = useRef(null);
+  const completionScrollDoneRef = useRef(false);
+  const completionReadyRef = useRef(false);
   // Provider redirects that began in this same-origin iframe intentionally
   // return to the Canvas page, so its header/footer and microsite context are
   // restored. Relay only a short-lived, submission-bound return to the one
@@ -6386,25 +6391,33 @@ function FormEmbedIframe({ href, title, breakpoint }) {
   }, [relaySearch]);
 
   useEffect(() => () => {
-    if (paymentReturnScrollTimerRef.current != null) {
-      clearTimeout(paymentReturnScrollTimerRef.current);
+    if (completionScrollTimerRef.current != null) {
+      clearTimeout(completionScrollTimerRef.current);
     }
   }, []);
 
   useEffect(() => {
-    const schedulePaymentReturnScroll = (delay = 160) => {
-      if (!relaySearch || paymentReturnScrollDoneRef.current) return;
-      if (paymentReturnScrollTimerRef.current != null) {
-        clearTimeout(paymentReturnScrollTimerRef.current);
+    // A changed iframe source is a new surface and owns a fresh one-shot.
+    completionReadyRef.current = false;
+    completionScrollDoneRef.current = false;
+    if (completionScrollTimerRef.current != null) {
+      clearTimeout(completionScrollTimerRef.current);
+      completionScrollTimerRef.current = null;
+    }
+
+    const scheduleCompletionScroll = (delay = 160) => {
+      if (completionScrollDoneRef.current) return;
+      if (completionScrollTimerRef.current != null) {
+        clearTimeout(completionScrollTimerRef.current);
       }
-      // The status screen reports its own height after it mounts. Deferring
-      // this pass lets that resize reach the Canvas block before measuring the
-      // iframe, while still keeping one bounded scroll per return.
-      paymentReturnScrollTimerRef.current = setTimeout(() => {
-        paymentReturnScrollTimerRef.current = null;
-        if (paymentReturnScrollDoneRef.current || !iframeRef.current) return;
+      // The child reports final height before readiness. Deferring lets React
+      // commit that height and applyFormEmbedResize settle the Canvas stage
+      // before measuring, while retaining one bounded scroll per completion.
+      completionScrollTimerRef.current = setTimeout(() => {
+        completionScrollTimerRef.current = null;
+        if (completionScrollDoneRef.current || !iframeRef.current) return;
         scrollPaymentReturnTarget(iframeRef.current);
-        paymentReturnScrollDoneRef.current = true;
+        completionScrollDoneRef.current = true;
       }, delay);
     };
 
@@ -6413,17 +6426,15 @@ function FormEmbedIframe({ href, title, breakpoint }) {
       const iframe = iframeRef.current;
       // Only react to messages coming from this iframe's own contentWindow.
       if (!isFormEmbedMessage(event, iframe, src)) return;
-      // A same-origin iframe can only trigger return scrolling when the
-      // submission/instance-bound relay above was accepted. The origin check
-      // prevents an arbitrary frame from moving the containing page.
-      if (data?.type === PAYMENT_RETURN_READY_MESSAGE) {
+      // Inline/form success is isolated by exact source + expected same-origin
+      // URL. Hosted payment returns additionally require the short-lived,
+      // submission-bound relay that selected this specific form instance.
+      if (data?.type === FORM_SUCCESS_READY_MESSAGE
+        || data?.type === PAYMENT_RETURN_READY_MESSAGE) {
         if (event.origin !== window.location.origin) return;
-        paymentReturnReadyRef.current = true;
-        // Normally the iframe's return-screen resize follows shortly after
-        // this message. Keep a bounded fallback for older/hostile documents
-        // that do not report a resize, while preferring the resize-triggered
-        // pass below when it does arrive later.
-        schedulePaymentReturnScroll(400);
+        if (data.type === PAYMENT_RETURN_READY_MESSAGE && !relaySearch) return;
+        completionReadyRef.current = true;
+        scheduleCompletionScroll();
         return;
       }
       if (!data || !['iconn-form-resize', FORM_PAGE_NAVIGATED_MESSAGE].includes(data.type)) return;
@@ -6433,14 +6444,14 @@ function FormEmbedIframe({ href, title, breakpoint }) {
       if (data.type === FORM_PAGE_NAVIGATED_MESSAGE) {
         setPageNavigation(previous => previous + 1);
       }
-      if (paymentReturnReadyRef.current) schedulePaymentReturnScroll();
+      if (completionReadyRef.current) scheduleCompletionScroll();
     };
     window.addEventListener('message', onMessage);
     return () => {
       window.removeEventListener('message', onMessage);
-      if (paymentReturnScrollTimerRef.current != null) {
-        clearTimeout(paymentReturnScrollTimerRef.current);
-        paymentReturnScrollTimerRef.current = null;
+      if (completionScrollTimerRef.current != null) {
+        clearTimeout(completionScrollTimerRef.current);
+        completionScrollTimerRef.current = null;
       }
     };
   }, [relaySearch, src]);

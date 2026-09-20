@@ -13,7 +13,7 @@ function asNumber(value, fallback = 0) {
 function isVisibleFixedHeader(element, documentObj) {
   if (!element) return false;
   if (element.matches?.(
-    '[data-payment-return-fixed-header], header.sticky, header[class*="sticky"], header.fixed, header[class*="fixed"]',
+    '[data-payment-return-fixed-header], [data-canvas-sticky], header.sticky, header[class*="sticky"], header.fixed, header[class*="fixed"], nav.sticky, nav[class*="sticky"], nav.fixed, nav[class*="fixed"]',
   )) {
     return true;
   }
@@ -34,7 +34,7 @@ export function getPaymentReturnHeaderOffset(
   if (!documentObj?.querySelectorAll) return 0;
 
   const candidates = documentObj.querySelectorAll(
-    'header, [data-payment-return-fixed-header]',
+    'header, nav, [data-canvas-sticky], [data-payment-return-fixed-header]',
   );
   let offset = 0;
   for (const element of candidates) {

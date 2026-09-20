@@ -49,3 +49,9 @@ uncaught errors rather than a feature regression.
 **How to apply:** Check the first error and runtime version before investigating
 individual failed tests. Report runtime-blocked suites separately from passing
 isolated feature tests; do not silently weaken network safety boundaries.
+
+Distinguish an unavailable dev server from a blank fixture before changing tests.
+
+**Why:** Restored Vite dependency metadata can reference files from an older installed package layout. A page may initially render and then lose the server during dependency optimization, making unrelated Canvas fixtures all report zero embeds.
+
+**How to apply:** Check workflow termination and cached dependency paths against the installed package exports when logs show optimizer ENOENT errors. Regenerate generated caches rather than changing application imports or weakening fixture assertions.

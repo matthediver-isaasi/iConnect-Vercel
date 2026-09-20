@@ -58,6 +58,17 @@ import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetN
 const EMPTY_ARRAY = [];
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
+// Mount beside the actual outcome, not the provider callback. The next frame
+// also lets the outer embed runtime mount before an immediately-restored return.
+function CommittedOutcomeNavigation({ enabled = true, onReady, messageType }) {
+  useEffect(() => {
+    if (!enabled) return;
+    const frame = requestAnimationFrame(() => onReady(messageType));
+    return () => cancelAnimationFrame(frame);
+  }, [enabled, onReady, messageType]);
+  return null;
+}
+
 export default function EmbedFormPage() {
   const contentRef = useRef(null);
   const runtimeRef = useRef(null);
@@ -71,14 +82,15 @@ export default function EmbedFormPage() {
   }, []);
   const notifyParentResize = useCallback(() => runtimeRef.current?.schedule(), []);
   const onPageNavigation = useCallback(() => runtimeRef.current?.navigated(), []);
+  const onOutcomeNavigation = useCallback((messageType) => runtimeRef.current?.completed(messageType), []);
   return (
     <div ref={contentRef} style={{ display: 'flow-root' }} data-form-embed-content>
-      <EmbedFormContent notifyParentResize={notifyParentResize} onPageNavigation={onPageNavigation} />
+      <EmbedFormContent notifyParentResize={notifyParentResize} onPageNavigation={onPageNavigation} onOutcomeNavigation={onOutcomeNavigation} />
     </div>
   );
 }
 
-function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
+function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavigation }) {
   const { slug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   
@@ -95,6 +107,13 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const inlineCompletionRef = useRef(false);
+  // The payment hook cleans history before later confirmation/poll renders.
+  // Retain navigation context only; the parent still authorizes the relay.
+  const returnedPaymentRef = useRef([
+    'form_payment_submission', 'form_payment_provider', 'form_payment_cancelled',
+    'payment_intent', 'redirect_status',
+  ].some(key => searchParams.has(key)));
 
   // Task #3501: page-level payment return-leg handling (see FormView) —
   // the embed page must handle redirect returns identically.
@@ -1262,32 +1281,6 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
     notifyParentResize();
   }, [form, currentPageIndex, currentStep, submitted, hiddenFieldIds, hiddenPageIds]);
 
-  const paymentReturnHasParams = useMemo(() => (
-    [
-      'form_payment_submission',
-      'form_payment_provider',
-      'form_payment_cancelled',
-      'payment_intent',
-      'redirect_status',
-    ].some((key) => searchParams.has(key))
-  ), [searchParams]);
-
-  useEffect(() => {
-    if (!paymentReturn.active || !paymentReturnHasParams) return;
-    try {
-      // Only a same-origin containing Canvas page may receive this signal.
-      // FormEmbedIframe separately verifies the exact submission/instance
-      // relay before it ever scrolls.
-      if (window.parent === window || window.parent.location.origin !== window.location.origin) return;
-      window.parent.postMessage(
-        { type: PAYMENT_RETURN_READY_MESSAGE },
-        window.location.origin,
-      );
-    } catch {
-      // Cross-origin hosts cannot be inspected or navigated automatically.
-    }
-  }, [paymentReturn.active, paymentReturnHasParams]);
-
   // Canvas Builder "Form embed" block lets authors choose one tenant font +
   // base text size for the whole embedded form. They arrive as `font` (a full
   // CSS font-family string) and `fontSize` (px) query params. This route renders
@@ -1349,6 +1342,15 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
   // must remain visible even if this public form is now missing or restricted.
   if (paymentReturn.active) {
     return (
+      <>
+      <CommittedOutcomeNavigation
+        onReady={onOutcomeNavigation}
+        messageType={!inlineCompletionRef.current && returnedPaymentRef.current ? PAYMENT_RETURN_READY_MESSAGE : undefined}
+        enabled={(returnedPaymentRef.current || inlineCompletionRef.current) && (
+          paymentReturn.status === 'paid' || paymentReturn.presentationAccepted
+          || paymentReturn.setupAccepted || paymentReturn.directDebitCompleted
+        )}
+      />
       <FormPaymentReturnScreen
         embedded
         status={paymentReturn.status}
@@ -1373,6 +1375,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
         continueTarget={isFramed ? '_blank' : undefined}
         continueRel={isFramed ? 'noopener noreferrer' : undefined}
       />
+      </>
     );
   }
 
@@ -1464,6 +1467,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
   if (submitted) {
     return (
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-success">
+        <CommittedOutcomeNavigation onReady={onOutcomeNavigation} />
         <Toaster />
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center">
@@ -1605,6 +1609,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                     onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                      inlineCompletionRef.current = true;
                       rotateIdempotencyKey();
                       paymentReturn.adoptPaymentAcceptance({
                         submissionId, provider, status, paymentSucceeded,
@@ -1612,6 +1617,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
                       notifyParentResize();
                     }}
                     onSetupComplete={(setup) => {
+                      inlineCompletionRef.current = true;
                       rotateIdempotencyKey();
                       paymentReturn.adoptCompletion(
                         typeof setup === 'string'
@@ -1844,6 +1850,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
                 busy={submitFormMutation.isPending}
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                 onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                  inlineCompletionRef.current = true;
                   rotateIdempotencyKey();
                   paymentReturn.adoptPaymentAcceptance({
                     submissionId, provider, status, paymentSucceeded,
@@ -1851,6 +1858,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation }) {
                   notifyParentResize();
                 }}
                 onSetupComplete={(setup) => {
+                  inlineCompletionRef.current = true;
                   rotateIdempotencyKey();
                   paymentReturn.adoptCompletion(
                     typeof setup === 'string'

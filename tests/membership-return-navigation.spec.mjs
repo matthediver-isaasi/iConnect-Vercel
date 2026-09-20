@@ -476,6 +476,61 @@ test("same-origin Canvas Stripe return scrolls one below-the-fold originating if
   await capture(page, testInfo, "canvas-below-fold-return-scroll");
 });
 
+test("cleaned Canvas return stays put while pending, then reveals the terminal receipt", async ({ page }) => {
+  const state = await installFixtures(page, {
+    paymentForm: true,
+    embedTop: 1800,
+    confirmations: [
+      {
+        success: false,
+        provider: "stripe",
+        paymentProvider: "stripe_monthly_card",
+        status: "pending",
+        setupVerified: false,
+        paymentSucceeded: false,
+        retryable: false,
+      },
+      {
+        success: true,
+        provider: "stripe",
+        paymentProvider: "stripe_monthly_card",
+        status: "paid",
+        setupVerified: true,
+        paymentSucceeded: false,
+        retryable: false,
+      },
+    ],
+  });
+  await page.goto("/membership-return-canvas");
+  const frame = page.frameLocator('[data-testid="iframe-form-embed"]');
+  const paymentButton = frame.getByTestId("button-form-payment-monthly-card-fixture-payment");
+  await expect(paymentButton).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await paymentButton.evaluate(element => element.click());
+
+  const screen = frame.getByTestId("payment-return-screen");
+  await expect(screen).toHaveAttribute("data-payment-status", "pending");
+  expect(page.url()).not.toContain("form_payment_");
+  expect(page.url()).not.toContain("payment_intent");
+  await page.waitForTimeout(450);
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+
+  await frame.getByTestId("button-payment-return-recheck").evaluate(element => element.click());
+  await expect(screen).toHaveAttribute("data-payment-status", "paid");
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(500);
+  const bounds = await page.getByTestId("iframe-form-embed").evaluate(iframe => {
+    const frameRect = iframe.getBoundingClientRect();
+    const header = document.querySelector("header.sticky, header[class*='sticky']");
+    return {
+      frameTop: frameRect.top,
+      headerBottom: header?.getBoundingClientRect().bottom || 0,
+    };
+  });
+  expect(bounds.frameTop).toBeGreaterThanOrEqual(bounds.headerBottom);
+  expect(state.confirmationCalls).toHaveLength(2);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
 test("ordinary below-the-fold Canvas form load never scrolls the containing page", async ({ page }) => {
   const state = await installFixtures(page, { paymentForm: true, embedTop: 1800 });
   await page.goto("/membership-return-canvas");

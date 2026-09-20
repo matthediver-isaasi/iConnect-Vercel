@@ -2,20 +2,16 @@ export const FORM_SLUG = "task-4517-gocardless-form";
 export const PAGE_SLUG = "task-4517-gocardless-canvas";
 export const FIELD_ID = "task-4517-payment";
 
-function paymentFormFixture() {
-  return {
-    id: "task-4517-form",
-    slug: FORM_SLUG,
-    name: "Direct Debit sizing fixture",
-    description: "A short real form used to exercise the GoCardless overlay.",
-    form_type: "application",
-    layout_type: "standard",
-    require_authentication: false,
-    is_active: true,
-    prefill_source: "none",
-    pages: [],
-    fields: [
-      { id: "task-4517-name", type: "text", label: "Name", required: true },
+function paymentFormFixture({
+  provider = "gocardless",
+  layoutType = "standard",
+  normalSubmission = false,
+} = {}) {
+  const fields = [
+    { id: "task-4517-name", type: "text", label: "Name", required: true },
+  ];
+  if (!normalSubmission) {
+    fields.push(
       {
         id: "task-4517-price",
         type: "number",
@@ -28,10 +24,23 @@ function paymentFormFixture() {
         type: "payment",
         label: "Membership payment",
         payment_currency: "GBP",
-        payment_providers: ["gocardless"],
+        payment_providers: [provider],
         price_field_id: "task-4517-price",
       },
-    ],
+    );
+  }
+  return {
+    id: "task-4517-form",
+    slug: FORM_SLUG,
+    name: "Direct Debit sizing fixture",
+    description: "A short real form used to exercise the GoCardless overlay.",
+    form_type: "application",
+    layout_type: layoutType,
+    require_authentication: false,
+    is_active: true,
+    prefill_source: "none",
+    pages: [],
+    fields,
     visibility_rules: [],
     entity_pipelines: {},
     structured_actions: { version: 1, actions: [] },
@@ -75,7 +84,10 @@ function textBlock(id, y, height, html) {
   };
 }
 
-function canvasPageFixture() {
+function canvasPageFixture({ longPage = false } = {}) {
+  const firstY = longPage ? 1500 : 160;
+  const secondY = longPage ? 2180 : 760;
+  const downstreamY = longPage ? 2860 : 1360;
   return {
     id: "task-4517-canvas-page",
     slug: PAGE_SLUG,
@@ -90,11 +102,11 @@ function canvasPageFixture() {
           id: "root",
           children: [
             textBlock("task-4517-intro", 40, 60, "<h1>GoCardless sizing fixture</h1>"),
-            formBlock("task-4517-form-a", 160),
-            formBlock("task-4517-form-b", 760),
+            formBlock("task-4517-form-a", firstY),
+            formBlock("task-4517-form-b", secondY),
             textBlock(
               "task-4517-downstream",
-              1360,
+              downstreamY,
               80,
               "<h2>Downstream fixture content</h2><p>This must remain below both forms.</p>",
             ),
@@ -116,6 +128,13 @@ function fulfillJson(route, body, status = 200) {
 export async function installGoCardlessCanvasFixture(page, {
   sdkMode = "ready",
   confirmationStatus = "setup_complete",
+  confirmationPaymentProvider = null,
+  alreadyPaid = false,
+  provider = "gocardless",
+  layoutType = "standard",
+  normalSubmission = false,
+  longPage = false,
+  delayOverlayRemovalMs = 0,
 } = {}) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL
     || (process.env.REPLIT_DEV_DOMAIN
@@ -128,11 +147,35 @@ export async function installGoCardlessCanvasFixture(page, {
     blockedWrites: [],
     blockedExternalRequests: [],
     pageErrors: [],
+    successReadyMessages: [],
   };
   page.on("pageerror", error => state.pageErrors.push(error.message));
 
-  await page.addInitScript(({ mode }) => {
+  await page.addInitScript(({ mode, overlayDelay }) => {
     localStorage.setItem("cookie-consent", "declined");
+    if (window.self === window.top) {
+      window.__task4570SuccessMessages = [];
+      window.addEventListener("message", event => {
+        if (event.data?.type === "iconn-form-success-ready") {
+          window.__task4570SuccessMessages.push({
+            source: event.source,
+            origin: event.origin,
+            at: performance.now(),
+          });
+        }
+      });
+    }
+    window.Stripe = () => ({
+      elements: () => ({
+        create: type => ({
+          mount: element => { element.dataset.task4570StripeElement = type; },
+        }),
+        submit: async () => ({}),
+      }),
+      confirmPayment: async () => ({
+        paymentIntent: { id: "pi_task_4570", status: "succeeded" },
+      }),
+    });
     window.__task4517Gc = {
       opens: 0,
       exits: 0,
@@ -180,7 +223,8 @@ export async function installGoCardlessCanvasFixture(page, {
           },
           exit() {
             window.__task4517Gc.exits += 1;
-            removeReceipt();
+            if (overlayDelay > 0) setTimeout(removeReceipt, overlayDelay);
+            else removeReceipt();
             window.__task4517Gc.exitCallbacks += 1;
             options.onExit?.(null, { source: "handler-exit" });
           },
@@ -202,7 +246,7 @@ export async function installGoCardlessCanvasFixture(page, {
         return handler;
       },
     };
-  }, { mode: sdkMode });
+  }, { mode: sdkMode, overlayDelay: delayOverlayRemovalMs });
 
   await page.context().route("**/*", route => {
     const request = route.request();
@@ -246,18 +290,40 @@ export async function installGoCardlessCanvasFixture(page, {
     // to Vite rather than receiving a JSON fixture response.
     if (!path.startsWith("/api/")) return route.continue();
     if (path === `/api/public/form/${FORM_SLUG}` && request.method() === "GET") {
-      return fulfillJson(route, paymentFormFixture());
+      return fulfillJson(route, paymentFormFixture({ provider, layoutType, normalSubmission }));
     }
     if (path === `/api/public/page/${PAGE_SLUG}` && request.method() === "GET") {
-      return fulfillJson(route, { page: canvasPageFixture(), elements: [], symbols: [] });
+      return fulfillJson(route, { page: canvasPageFixture({ longPage }), elements: [], symbols: [] });
     }
     if (path === "/api/public/form-payment-providers" && request.method() === "GET") {
-      return fulfillJson(route, { providers: [{ id: "gocardless", configured: true }] });
+      return fulfillJson(route, { providers: [{ id: provider, configured: true }] });
+    }
+    if (path === "/api/public/form-submission" && request.method() === "POST") {
+      if (!normalSubmission) {
+        state.blockedWrites.push(`${request.method()} ${path}`);
+        return fulfillJson(route, { error: "Unexpected non-payment submission" }, 599);
+      }
+      state.paymentCalls.push({ action: "normal-submit", ...request.postDataJSON() });
+      return fulfillJson(route, { success: true, submission_id: "task-4570-normal-submission" });
     }
     if (path === "/api/public/form-payment" && request.method() === "POST") {
       const body = request.postDataJSON();
       state.paymentCalls.push(body);
       if (body.action === "create") {
+        if (alreadyPaid) {
+          return fulfillJson(route, {
+            submissionId: "task-4517-submission",
+            provider,
+            alreadyPaid: true,
+          });
+        }
+        if (provider === "stripe") {
+          return fulfillJson(route, {
+            submissionId: "task-4517-submission",
+            publishableKey: "pk_test_task_4570",
+            clientSecret: "cs_test_task_4570",
+          });
+        }
         return fulfillJson(route, {
           submissionId: "task-4517-submission",
           flowId: "BRF_task_4517",
@@ -268,10 +334,12 @@ export async function installGoCardlessCanvasFixture(page, {
       if (body.action === "confirm") {
         return fulfillJson(route, {
           status: confirmationStatus,
-          provider: "gocardless",
-          paymentProvider: "gocardless_monthly_dd",
-          setupVerified: true,
-          paymentSucceeded: false,
+          provider,
+          paymentProvider: confirmationPaymentProvider
+            || (provider === "gocardless" ? "gocardless_monthly_dd" : "stripe"),
+          setupVerified: provider === "gocardless"
+            && confirmationPaymentProvider !== "gocardless",
+          paymentSucceeded: provider === "stripe",
         });
       }
       return fulfillJson(route, { error: "Unexpected payment fixture action" }, 599);
