@@ -384,6 +384,56 @@ test('saved exclusions override own organization while status/type exceptions su
   assert.deepEqual((await directory.search(request())).organizations.map(({ id }) => id), ['eligible', 'own']);
 });
 
+test('search projects core postal address only for eligible tenant organisations with a value', async () => {
+  const organizations = [
+    {
+      id: 'barnsley',
+      tenant_id: tenantId,
+      name: 'Barnsley Hospital',
+      invoicing_address: '  Gawber Road\nBarnsley\nS75 2EP  ',
+    },
+    {
+      id: 'blank-address',
+      tenant_id: tenantId,
+      name: 'Blank address',
+      invoicing_address: '   ',
+    },
+    {
+      id: 'excluded',
+      tenant_id: tenantId,
+      name: 'Excluded',
+      invoicing_address: 'Private excluded address',
+    },
+    {
+      id: 'foreign',
+      tenant_id: otherTenantId,
+      name: 'Foreign',
+      invoicing_address: 'Private foreign address',
+    },
+  ];
+  const { service: directory } = service(baseSeed({
+    organization: organizations,
+    system_settings: [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_excluded_orgs',
+      setting_value: '["excluded"]',
+    }],
+  }));
+
+  const result = await directory.search(request());
+  assert.deepEqual(result.organizations.map(({ id }) => id), ['barnsley', 'blank-address']);
+  assert.equal(
+    result.organizations.find(({ id }) => id === 'barnsley').invoicing_address,
+    'Gawber Road\nBarnsley\nS75 2EP',
+  );
+  assert.equal(
+    Object.hasOwn(result.organizations.find(({ id }) => id === 'blank-address'), 'invoicing_address'),
+    false,
+  );
+  assert.equal(JSON.stringify(result).includes('Private excluded address'), false);
+  assert.equal(JSON.stringify(result).includes('Private foreign address'), false);
+});
+
 test('two saved exclusions apply to admin/member search, totals, options and CSV without changing another tenant', async () => {
   for (const isAdmin of [false, true]) {
     const sector = customField('sector', 'Sector');
@@ -919,7 +969,7 @@ test('directory projections use real selected columns and preserve undefined-col
     ],
   });
   const realSchema = {
-    organization: new Set(['id', 'name', 'logo_url']),
+    organization: new Set(['id', 'name', 'logo_url', 'invoicing_address']),
     organization_preference_value: new Set(['id', 'organization_id', 'field_id', 'value']),
   };
   const db = database(seed, null, realSchema);

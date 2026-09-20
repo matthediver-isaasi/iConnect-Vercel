@@ -589,7 +589,10 @@ function validateRequest(input, fieldByKey, sourceOptions = new Map()) {
 
 async function loadOrganizations(db, tenantId) {
   return paged(() => db.from('organization')
-    .select('id, name, logo_url')
+    // This is the complete core projection available to the authenticated
+    // standalone directory contract. Eligibility is applied before any row is
+    // returned; callers must not supplement it with unrestricted entity reads.
+    .select('id, name, logo_url, invoicing_address')
     .eq('tenant_id', tenantId).order('id', { ascending: true }),
   'Organisation inventory exceeds the supported size');
 }
@@ -1021,6 +1024,10 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
           name: organization.name,
           ...(showLogo ? { logo_url: organization.logo_url } : {}),
           ...(showDomains ? { domain: domainsFor(organization.id)[0] || null } : {}),
+          ...(typeof organization.invoicing_address === 'string'
+            && organization.invoicing_address.trim()
+            ? { invoicing_address: organization.invoicing_address.trim() }
+            : {}),
           ...(showMemberCount ? {
             member_count: memberValues.counts.get(String(organization.id)) || 0,
           } : {}),

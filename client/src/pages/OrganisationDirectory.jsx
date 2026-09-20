@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,7 +16,12 @@ import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds, hasOrganisationViewMembersRoles } from "@/lib/organisationDirectoryMemberContext";
 import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
-import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
+import { DirectoryObjectSourceGroup, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
+import OrganisationPostalSummary, {
+  buildOrganisationPostalSummary,
+  ORGANISATION_POSTAL_ORDER_KEY,
+  placeOrganisationPostalSummary,
+} from "@/components/directory/OrganisationPostalSummary";
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
 import OrganisationDirectoryGuest from "@/components/directory/OrganisationDirectoryGuest";
 import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
@@ -63,17 +68,9 @@ function AuthenticatedOrganisationDirectory() {
   
   // State for organization profile modal
   const [selectedOrg, setSelectedOrg] = useState(null);
-  const [visibleObjectSourceKeys, setVisibleObjectSourceKeys] = useState({});
   const [directoryFilters, setDirectoryFilters] = useState({});
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const objectSourceQuery = useDirectoryObjectSources();
-  const handleObjectSourceVisibility = useCallback((key, visible) => {
-    if (!key) return;
-    setVisibleObjectSourceKeys(previous => previous[key] === visible
-      ? previous
-      : { ...previous, [key]: visible });
-  }, []);
-  useEffect(() => setVisibleObjectSourceKeys({}), [selectedOrg?.id]);
   const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
     ? []
     : (objectSourceQuery.data?.sources || []);
@@ -837,20 +834,31 @@ function AuthenticatedOrganisationDirectory() {
               // Unified reverse-card ordering (tenant default → hardcoded
               // default). Visibility settings still gate what renders.
               const orderedOrgFields = getDirectoryOrderedFields(orgCustomFields, null);
-              const resolvedOrder = resolveBackFieldOrder({
+              const baseResolvedOrder = resolveBackFieldOrder({
                 directoryOrder: null,
                 tenantOrder: displaySettings?.backFieldOrder,
                 defaultOrder: ORG_BACK_DEFAULT_ORDER,
                 customFields: orderedOrgFields,
                 objectSources,
               });
+              const postalSummary = buildOrganisationPostalSummary(
+                orderedOrgFields,
+                isLoadingOrgValues ? [] : selectedOrgValues,
+                selectedOrg?.invoicing_address,
+              );
+              const resolvedOrder = placeOrganisationPostalSummary(
+                baseResolvedOrder,
+                objectSources,
+                postalSummary,
+              );
               const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
+              const sourceByKey = new Map(objectSources.map(source => [source.key, source]));
+              const sourceOrder = new Map(resolvedOrder.map((key, index) => [key, index]));
+              const renderedSourceGroups = new Set();
 
               const sections = [];
               let pendingCustoms = [];
               let batchIdx = 0;
-              let precedingObjectSourceGroup = null;
-              let precedingObjectSourceKeys = [];
               const flushCustoms = () => {
                 if (pendingCustoms.length === 0) return;
                 const batch = pendingCustoms;
@@ -922,8 +930,6 @@ function AuthenticatedOrganisationDirectory() {
               for (const key of resolvedOrder) {
                 if (key === 'org_member_count') {
                   if (!displaySettings?.showMemberCount) continue;
-                  precedingObjectSourceGroup = null;
-                  precedingObjectSourceKeys = [];
                   flushCustoms();
                   sections.push(
                     <div key={key} className="flex items-center gap-2 text-slate-600">
@@ -933,8 +939,6 @@ function AuthenticatedOrganisationDirectory() {
                   );
                 } else if (key === 'org_members_list') {
                   if (reverseCardContactGroups.length === 0) continue;
-                  precedingObjectSourceGroup = null;
-                  precedingObjectSourceKeys = [];
                   flushCustoms();
                   sections.push(
                     <Fragment key={key}>
@@ -1021,27 +1025,30 @@ function AuthenticatedOrganisationDirectory() {
                 } else if (key.startsWith('custom:')) {
                   const field = fieldById.get(key.slice(7));
                   if (!field || field._visBack === false) continue;
-                  precedingObjectSourceGroup = null;
-                  precedingObjectSourceKeys = [];
                   pendingCustoms.push(field);
-                } else if (key.startsWith('object-field:')) {
-                  const source = objectSources.find(item => item.key === key);
-                  if (!source) continue;
+                } else if (key === ORGANISATION_POSTAL_ORDER_KEY) {
                   flushCustoms();
-                  const sourceGroup = getDirectoryObjectSourceGroupId(source);
-                  const precedingContextSourceKeys = sourceGroup === precedingObjectSourceGroup
-                    ? precedingObjectSourceKeys
-                    : [];
-                  precedingObjectSourceGroup = sourceGroup;
-                  precedingObjectSourceKeys = [...precedingContextSourceKeys, source.key];
                   sections.push(
-                    <DirectoryObjectSourceField
-                      key={key}
-                      source={source}
+                    <OrganisationPostalSummary key={key} summary={postalSummary} />
+                  );
+                } else if (key.startsWith('object-field:')) {
+                  const source = sourceByKey.get(key);
+                  if (!source) continue;
+                  const sourceGroup = getDirectoryObjectSourceGroupId(source);
+                  if (!sourceGroup || renderedSourceGroups.has(sourceGroup)) continue;
+                  renderedSourceGroups.add(sourceGroup);
+                  flushCustoms();
+                  const groupedSources = objectSources
+                    .filter(item => getDirectoryObjectSourceGroupId(item) === sourceGroup)
+                    .sort((left, right) => (
+                      (sourceOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER)
+                      - (sourceOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER)
+                    ));
+                  sections.push(
+                    <DirectoryObjectSourceGroup
+                      key={sourceGroup}
+                      sources={groupedSources}
                       organizationId={selectedOrg?.id}
-                      precedingContextSourceKeys={precedingContextSourceKeys}
-                      visibleSourceKeys={visibleObjectSourceKeys}
-                      onVisibilityChange={handleObjectSourceVisibility}
                     />
                   );
                 }

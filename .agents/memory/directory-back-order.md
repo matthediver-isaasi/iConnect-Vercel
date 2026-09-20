@@ -9,6 +9,10 @@ Saved object-source keys must be treated as explicit positions, even if their hi
 **Why:** guest/embed rendering gets its settings from the server mirror; a client-only change silently diverges for public visitors. A parity unit test asserts the two copies' constants match.
 **How to apply:** adding a new orderable back element means updating BOTH copies plus every detail-dialog renderer (there are several: dynamic member/org dialogs, org directory page, standalone member profile modal). Ordering only sequences; visibility toggles still gate content. Header items (photo/name, logo/title) are pinned and not reorderable.
 
+For organisation detail cards, coherent per-department presentation takes precedence over field-first interleaving, without changing saved settings or permissions.
+**Why:** Repeating departments under every address component was unreadable; the user explicitly requested each department once and its own organisation address first.
+**How to apply:** Keep organisation postal provenance separate: a department address is never evidence of the organisation's address.
+
 ## Per-directory core-field visibility (added Aug 2026)
 - `dynamic_directory.core_field_visibility` JSONB: `{ "<core key>": { front?, back? } }`; missing key/side inherits global Member Directory Settings; NULL = inherit all.
 - Merge helper `applyCoreFieldVisibility` duplicated client (`directorySettings.js`) + server (`directoryConfig.js`) like the back-order resolver — keep in sync; parity covered in `directoryBackOrder.test.mjs`.

@@ -18,6 +18,7 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { LayoutProvider, useLayoutContext } = await import("../../contexts/LayoutContext.jsx");
 const {
   DirectoryObjectSourceField,
+  DirectoryObjectSourceGroup,
   DirectoryObjectSourcesStatus,
 } = await import("./DirectoryObjectSourceField.jsx");
 const {
@@ -56,6 +57,7 @@ async function mount(child) {
   await settle();
   return {
     container,
+    client,
     async cleanup() {
       await act(async () => root.unmount());
       client.clear();
@@ -75,6 +77,18 @@ const source = (fieldType = "text") => ({
     field_type: fieldType,
     options: fieldType === "dropdown" ? [{ value: "a", label: "Option A" }] : [],
   },
+});
+
+const groupedSource = (fieldId, fieldType = "text", extra = {}) => ({
+  ...source(fieldType),
+  key: `object-field:relationship:source:object:${fieldId}`,
+  relationship_id: "relationship",
+  object_id: "object",
+  direction: "source",
+  field_id: fieldId,
+  field_label: fieldId,
+  field: { field_type: fieldType, options: [] },
+  ...extra,
 });
 
 test("omits an empty terminal source section", async () => {
@@ -216,6 +230,255 @@ test("keeps every multiple-record value associated with its record, including eq
   assert.equal(groups.length, 2);
   assert.match(groups[0].textContent, /Alex Kim[\s\S]*Operations/);
   assert.match(groups[1].textContent, /Alex Kim[\s\S]*Finance/);
+  await view.cleanup();
+});
+
+test("groups multiple fields by stable record id and names equal-label records once", async () => {
+  const name = groupedSource("Name", "text", { is_primary_display_field: true });
+  const role = groupedSource("Role");
+  const alias = groupedSource("Alias", "text", { field_label: "Name" });
+  globalThis.fetch = async url => {
+    const decoded = decodeURIComponent(String(url));
+    const isName = decoded.includes(name.key);
+    const isAlias = decoded.includes(alias.key);
+    return new Response(JSON.stringify({
+      source: isName ? name : (isAlias ? alias : role),
+      items: isName ? [
+        { record_id: "record-a", label: "Alex Kim", value: "Alex Kim" },
+        { record_id: "record-b", label: "Alex Kim", value: "Alex Kim" },
+      ] : (isAlias ? [
+        { record_id: "record-a", label: "Alex Kim", value: "A. Kim" },
+      ] : [
+        { record_id: "record-a", label: "Alex Kim", value: "Operations" },
+        { record_id: "record-b", label: "Alex Kim", value: "Finance" },
+      ]),
+      nextCursor: null,
+    }), { status: 200 });
+  };
+  const view = await mount(
+    <DirectoryObjectSourceGroup sources={[name, role, alias]} organizationId="org-1" />,
+  );
+  const records = view.container.querySelectorAll("[data-testid^='directory-object-record-']");
+  assert.equal(records.length, 2);
+  assert.match(records[0].textContent, /Alex Kim[\s\S]*Operations/);
+  assert.match(records[1].textContent, /Alex Kim[\s\S]*Finance/);
+  assert.equal((records[0].textContent.match(/Alex Kim/g) || []).length, 1);
+  assert.equal((records[1].textContent.match(/Alex Kim/g) || []).length, 1);
+  assert.doesNotMatch(view.container.textContent, /NameAlex Kim/);
+  assert.match(records[0].textContent, /NameA\. Kim/);
+  await view.cleanup();
+});
+
+test("does not align missing field values by label or array index", async () => {
+  const email = groupedSource("Email", "email");
+  const phone = groupedSource("Phone");
+  globalThis.fetch = async url => {
+    const isEmail = decodeURIComponent(String(url)).includes(email.key);
+    return new Response(JSON.stringify({
+      source: isEmail ? email : phone,
+      items: isEmail
+        ? [{ record_id: "record-a", label: "Same label", value: "a@example.test" }]
+        : [{ record_id: "record-b", label: "Same label", value: "020 1234" }],
+      nextCursor: null,
+    }), { status: 200 });
+  };
+  const view = await mount(
+    <DirectoryObjectSourceGroup sources={[email, phone]} organizationId="org-1" />,
+  );
+  const first = view.container.querySelector("[data-testid='directory-object-record-record-a']");
+  const second = view.container.querySelector("[data-testid='directory-object-record-record-b']");
+  assert.match(first.textContent, /a@example\.test/);
+  assert.doesNotMatch(first.textContent, /020 1234/);
+  assert.match(second.textContent, /020 1234/);
+  assert.doesNotMatch(second.textContent, /a@example\.test/);
+  await view.cleanup();
+});
+
+test("keeps loaded records visible when one source pagination fails", async () => {
+  const office = groupedSource("Office");
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-a", label: "Aarhus", value: "Mindet 6" }],
+        nextCursor: "page-2",
+      }), { status: 200 });
+    }
+    return new Response("failure", { status: 500 });
+  };
+  const view = await mount(
+    <DirectoryObjectSourceGroup sources={[office]} organizationId="org-1" />,
+  );
+  const loadMore = [...view.container.querySelectorAll("button")]
+    .find(button => button.textContent.includes("Load more Office"));
+  assert.ok(loadMore);
+  await act(async () => loadMore.click());
+  await settle();
+  assert.match(view.container.textContent, /Aarhus[\s\S]*Mindet 6/);
+  assert.match(view.container.textContent, /Office unavailable/);
+  assert.ok([...view.container.querySelectorAll("button")]
+    .some(button => button.textContent.includes("Retry")));
+  await view.cleanup();
+});
+
+test("hides stale group values while a source is revalidating", async () => {
+  const office = groupedSource("Office");
+  let calls = 0;
+  let releaseRevalidation;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-a", label: "Aarhus", value: "Old address" }],
+        nextCursor: null,
+      }), { status: 200 });
+    }
+    return new Promise(resolve => {
+      releaseRevalidation = () => resolve(new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-a", label: "Aarhus", value: "New address" }],
+        nextCursor: null,
+      }), { status: 200 }));
+    });
+  };
+  const view = await mount(
+    <DirectoryObjectSourceGroup sources={[office]} organizationId="org-1" />,
+  );
+  assert.match(view.container.textContent, /Old address/);
+  act(() => {
+    void view.client.refetchQueries({
+      queryKey: [
+        "directory-object-source-values",
+        "tenant-1",
+        "viewer-1",
+        "main",
+        "org-1",
+        office.key,
+      ],
+    });
+  });
+  await settle();
+  assert.doesNotMatch(view.container.textContent, /Old address/);
+  assert.match(view.container.textContent, /Loading Office/);
+  releaseRevalidation();
+  await settle();
+  assert.match(view.container.textContent, /New address/);
+  await view.cleanup();
+});
+
+test("never renders a previous organization snapshot after scope changes", async () => {
+  const office = groupedSource("Office");
+  let releaseSecondOrganization;
+  globalThis.fetch = async url => {
+    const organizationId = new URL(String(url), window.location.href)
+      .searchParams.get("organization_id");
+    if (organizationId === "org-1") {
+      return new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-a", label: "Aarhus", value: "Org one only" }],
+        nextCursor: null,
+      }), { status: 200 });
+    }
+    return new Promise(resolve => {
+      releaseSecondOrganization = () => resolve(new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-b", label: "London", value: "Org two only" }],
+        nextCursor: null,
+      }), { status: 200 }));
+    });
+  };
+  function OrganizationSwitcher() {
+    const [organizationId, setOrganizationId] = React.useState("org-1");
+    return <>
+      <button onClick={() => setOrganizationId("org-2")}>Switch organization</button>
+      <DirectoryObjectSourceGroup sources={[office]} organizationId={organizationId} />
+    </>;
+  }
+  const view = await mount(<OrganizationSwitcher />);
+  assert.match(view.container.textContent, /Org one only/);
+  const switchButton = [...view.container.querySelectorAll("button")]
+    .find(button => button.textContent === "Switch organization");
+  await act(async () => switchButton.click());
+  assert.doesNotMatch(view.container.textContent, /Org one only/);
+  releaseSecondOrganization();
+  await settle();
+  assert.match(view.container.textContent, /Org two only/);
+  await view.cleanup();
+});
+
+test("never renders a previous viewer snapshot after identity changes", async () => {
+  const office = groupedSource("Office");
+  let calls = 0;
+  let releaseSecondViewer;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-a", label: "Aarhus", value: "Viewer one only" }],
+        nextCursor: null,
+      }), { status: 200 });
+    }
+    return new Promise(resolve => {
+      releaseSecondViewer = () => resolve(new Response(JSON.stringify({
+        source: office,
+        items: [{ record_id: "record-b", label: "London", value: "Viewer two only" }],
+        nextCursor: null,
+      }), { status: 200 }));
+    });
+  };
+  function IdentitySwitcher() {
+    const context = useLayoutContext();
+    return <>
+      <button onClick={() => context.setMemberInfo({ id: "viewer-2", tenant_id: "tenant-1" })}>
+        Switch viewer
+      </button>
+      <DirectoryObjectSourceGroup sources={[office]} organizationId="org-1" />
+    </>;
+  }
+  const view = await mount(<IdentitySwitcher />);
+  assert.match(view.container.textContent, /Viewer one only/);
+  const switchButton = [...view.container.querySelectorAll("button")]
+    .find(button => button.textContent === "Switch viewer");
+  await act(async () => switchButton.click());
+  assert.doesNotMatch(view.container.textContent, /Viewer one only/);
+  releaseSecondViewer();
+  await settle();
+  assert.match(view.container.textContent, /Viewer two only/);
+  await view.cleanup();
+});
+
+test("group values retain safe link rendering and per-source revocation", async () => {
+  const website = groupedSource("Website", "url");
+  const unsafe = groupedSource("Unsafe", "url");
+  const revoked = groupedSource("Private");
+  globalThis.fetch = async url => {
+    const decoded = decodeURIComponent(String(url));
+    if (decoded.includes(revoked.key)) {
+      return new Response(JSON.stringify({ error: "revoked" }), { status: 403 });
+    }
+    const isUnsafe = decoded.includes(unsafe.key);
+    const current = isUnsafe ? unsafe : website;
+    return new Response(JSON.stringify({
+      source: current,
+      items: [{
+        record_id: "record-a",
+        label: "Record A",
+        value: isUnsafe ? "javascript:alert(1)" : "https://example.test/path",
+      }],
+      nextCursor: null,
+    }), { status: 200 });
+  };
+  const view = await mount(
+    <DirectoryObjectSourceGroup sources={[website, unsafe, revoked]} organizationId="org-1" />,
+  );
+  const links = [...view.container.querySelectorAll("a")];
+  assert.ok(links.some(link => link.href === "https://example.test/path"));
+  assert.ok(!links.some(link => link.href.startsWith("javascript:")));
+  assert.doesNotMatch(view.container.textContent, /Private unavailable/);
   await view.cleanup();
 });
 

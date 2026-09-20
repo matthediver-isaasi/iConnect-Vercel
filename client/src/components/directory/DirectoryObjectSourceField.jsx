@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -112,29 +112,23 @@ function FieldValueRow({ source, item, showRecordLabel, showFieldLabel = true })
   );
 }
 
-/** One orderable custom-object field on an organisation card back. */
-export function DirectoryObjectSourceField({
+function useDirectoryObjectSourceValueQuery({
   source,
   organizationId,
-  directoryId = "main",
-  enabled = true,
-  showContext,
-  precedingContextSourceKeys = [],
-  visibleSourceKeys = {},
-  onVisibilityChange,
+  directoryId,
+  enabled,
 }) {
   const { memberInfo, authResolved } = useMemberAccess();
   const isEmbedded = isDirectoryEmbedLocation();
-  const queryKey = [
-    "directory-object-source-values",
-    memberInfo?.tenant_id || null,
-    memberInfo?.id || null,
-    directoryId,
-    organizationId || null,
-    source?.key || null,
-  ];
-  const query = useInfiniteQuery({
-    queryKey,
+  return useInfiniteQuery({
+    queryKey: [
+      "directory-object-source-values",
+      memberInfo?.tenant_id || null,
+      memberInfo?.id || null,
+      directoryId,
+      organizationId || null,
+      source?.key || null,
+    ],
     enabled: Boolean(
       enabled && authResolved && memberInfo?.id && memberInfo?.tenant_id
       && organizationId && source?.key && !isEmbedded
@@ -170,6 +164,255 @@ export function DirectoryObjectSourceField({
     // Requests never retry in the background. The explicit, one-click retry
     // keeps failures bounded and prevents repeated work for every open card.
     retry: false,
+  });
+}
+
+function sourceQuerySnapshot(source, query, scope) {
+  const items = (query.data?.pages || []).flatMap(page => page.items || []);
+  const resolvedSource = query.data?.pages?.[0]?.source || source;
+  const isRevalidating = query.isFetching && !query.isPending && !query.isFetchingNextPage;
+  return {
+    scope,
+    source: resolvedSource,
+    items,
+    isPending: query.isPending,
+    isRevalidating,
+    isError: query.isError,
+    accessRevoked: query.isError && [401, 403, 404].includes(query.error?.status),
+    error: query.error,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+    refetch: query.refetch,
+  };
+}
+
+function DirectoryObjectSourceGroupQuery({
+  source,
+  organizationId,
+  directoryId,
+  enabled,
+  onUpdate,
+}) {
+  const { memberInfo } = useMemberAccess();
+  const scope = [
+    memberInfo?.tenant_id || "",
+    memberInfo?.id || "",
+    directoryId || "main",
+    organizationId || "",
+  ].join(":");
+  const query = useDirectoryObjectSourceValueQuery({
+    source,
+    organizationId,
+    directoryId,
+    enabled,
+  });
+  const snapshot = useMemo(
+    () => sourceQuerySnapshot(source, query, scope),
+    [
+      source, scope, query.data, query.isPending, query.isFetching,
+      query.isFetchingNextPage, query.isError, query.error,
+      query.hasNextPage, query.fetchNextPage, query.refetch,
+    ],
+  );
+  useEffect(() => {
+    onUpdate(source.key, snapshot);
+  }, [
+    onUpdate, source.key, snapshot.scope, snapshot.source, snapshot.items, snapshot.isPending,
+    snapshot.isRevalidating, snapshot.isError, snapshot.accessRevoked,
+    snapshot.error, snapshot.hasNextPage, snapshot.isFetchingNextPage,
+    snapshot.fetchNextPage, snapshot.refetch,
+  ]);
+  useEffect(() => () => onUpdate(source.key, null), [onUpdate, source.key]);
+  return null;
+}
+
+/**
+ * Record-first presentation for fields from one relationship/object source.
+ * Values are joined only by the server-provided stable record_id; each source
+ * retains its own bounded pagination, retry, authorization, and identity cache.
+ */
+export function DirectoryObjectSourceGroup({
+  sources = [],
+  organizationId,
+  directoryId = "main",
+  enabled = true,
+  onVisibilityChange,
+}) {
+  const { memberInfo } = useMemberAccess();
+  const scope = [
+    memberInfo?.tenant_id || "",
+    memberInfo?.id || "",
+    directoryId || "main",
+    organizationId || "",
+  ].join(":");
+  const sourceGroupId = getDirectoryObjectSourceGroupId(sources[0]);
+  const groupedSources = useMemo(() => {
+    if (!sourceGroupId) return [];
+    return sources.filter(source => getDirectoryObjectSourceGroupId(source) === sourceGroupId);
+  }, [sources, sourceGroupId]);
+  const [snapshots, setSnapshots] = useState({});
+  const updateSnapshot = useMemo(() => (key, snapshot) => {
+    setSnapshots(previous => {
+      if (snapshot === null) {
+        if (!(key in previous)) return previous;
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      }
+      return { ...previous, [key]: snapshot };
+    });
+  }, []);
+
+  useEffect(() => {
+    setSnapshots(previous => {
+      const allowed = new Set(groupedSources.map(source => source.key));
+      const next = Object.fromEntries(
+        Object.entries(previous).filter(([key]) => allowed.has(key)),
+      );
+      return Object.keys(next).length === Object.keys(previous).length ? previous : next;
+    });
+  }, [groupedSources]);
+
+  const activeSnapshots = groupedSources
+    .map(source => snapshots[source.key])
+    .filter(snapshot => snapshot?.scope === scope && !snapshot.accessRevoked);
+  const recordMap = new Map();
+  for (const source of groupedSources) {
+    const snapshot = snapshots[source.key];
+    // Match the original field renderer's fail-closed revalidation behavior:
+    // stale values disappear while access and data are being rechecked.
+    if (!snapshot || snapshot.scope !== scope
+      || snapshot.accessRevoked || snapshot.isRevalidating) continue;
+    for (const item of snapshot.items) {
+      if (item?.record_id === undefined || item?.record_id === null) continue;
+      const recordId = String(item.record_id);
+      if (!recordMap.has(recordId)) {
+        recordMap.set(recordId, {
+          recordId,
+          label: typeof item.label === "string" && item.label.trim() ? item.label.trim() : "",
+          values: [],
+        });
+      }
+      const record = recordMap.get(recordId);
+      if (!record.label && typeof item.label === "string" && item.label.trim()) {
+        record.label = item.label.trim();
+      }
+      // Only authoritative metadata may identify the value already displayed
+      // as the record heading. Human labels such as "Name" are never inferred.
+      if (snapshot.source?.is_primary_display_field === true) continue;
+      record.values.push({ source: snapshot.source, item });
+    }
+  }
+  const records = [...recordMap.values()];
+  const isVisible = activeSnapshots.some(snapshot => (
+    snapshot.isPending || snapshot.isRevalidating || snapshot.isError
+    || snapshot.items.length > 0 || snapshot.hasNextPage
+  ));
+
+  useEffect(() => {
+    onVisibilityChange?.(sourceGroupId, isVisible);
+    return () => onVisibilityChange?.(sourceGroupId, false);
+  }, [isVisible, onVisibilityChange, sourceGroupId]);
+
+  if (groupedSources.length === 0) return null;
+  const contextSource = activeSnapshots[0]?.source || groupedSources[0];
+
+  return (
+    <section className="space-y-2.5 py-2" data-testid={`directory-object-source-group-${sourceGroupId}`}>
+      {groupedSources.map(source => (
+        <DirectoryObjectSourceGroupQuery
+          key={source.key}
+          source={source}
+          organizationId={organizationId}
+          directoryId={directoryId}
+          enabled={enabled}
+          onUpdate={updateSnapshot}
+        />
+      ))}
+      {isVisible && getDirectoryObjectSourceContext(contextSource) && (
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 break-words">
+          {getDirectoryObjectSourceContext(contextSource)}
+        </p>
+      )}
+      {records.map(record => (
+        <div
+          key={record.recordId}
+          className="rounded-md bg-slate-50 px-3 py-2.5 space-y-2"
+          data-testid={`directory-object-record-${record.recordId}`}
+        >
+          {record.label && (
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 break-words">
+              {record.label}
+            </p>
+          )}
+          {record.values.map(({ source, item }) => (
+            <FieldValueRow
+              key={source.key}
+              source={source}
+              item={item}
+              showRecordLabel={false}
+            />
+          ))}
+        </div>
+      ))}
+      {groupedSources.map(source => {
+        const snapshot = snapshots[source.key];
+        if (!snapshot || snapshot.scope !== scope || snapshot.accessRevoked) return null;
+        const fieldLabel = snapshot.source?.field_label
+          || snapshot.source?.field?.label || snapshot.source?.label || "Field";
+        if (snapshot.isPending || snapshot.isRevalidating) {
+          return (
+            <div key={source.key} className="flex items-center gap-2 py-1 text-sm text-slate-500" role="status">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              Loading {fieldLabel}…
+            </div>
+          );
+        }
+        if (snapshot.isError) {
+          return (
+            <div key={source.key} className="flex items-center justify-between gap-3 text-sm text-red-700">
+              <span className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />{fieldLabel} unavailable
+              </span>
+              <Button size="sm" variant="outline" onClick={() => snapshot.refetch()}>Retry</Button>
+            </div>
+          );
+        }
+        if (!snapshot.hasNextPage) return null;
+        return (
+          <Button
+            key={source.key}
+            size="sm"
+            variant="outline"
+            disabled={snapshot.isFetchingNextPage}
+            onClick={() => snapshot.fetchNextPage()}
+          >
+            {snapshot.isFetchingNextPage && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Load more {fieldLabel}
+          </Button>
+        );
+      })}
+    </section>
+  );
+}
+
+/** One orderable custom-object field on an organisation card back. */
+export function DirectoryObjectSourceField({
+  source,
+  organizationId,
+  directoryId = "main",
+  enabled = true,
+  showContext,
+  precedingContextSourceKeys = [],
+  visibleSourceKeys = {},
+  onVisibilityChange,
+}) {
+  const query = useDirectoryObjectSourceValueQuery({
+    source,
+    organizationId,
+    directoryId,
+    enabled,
   });
 
   const items = (query.data?.pages || []).flatMap(page => page.items || []);
