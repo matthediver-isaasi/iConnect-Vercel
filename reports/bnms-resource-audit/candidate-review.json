@@ -1,0 +1,11 @@
+{
+  "confirmedAbsent": [],
+  "unresolvedWithoutExecutionEvidence": [],
+  "policy": [
+    "Only a unique exact URL or conservative provider identity establishes presence.",
+    "Titles are review candidates only.",
+    "Historical holds are not missing.",
+    "No surviving row execution evidence is not proof of a failed import.",
+    "Confirmed absent requires row-level execution identity followed by absence from the stable current snapshot."
+  ]
+}

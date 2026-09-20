@@ -887,3 +887,31 @@ mtime_ms = 1789910494671
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9f2bef37-9463-4d50-a5b9-b239b9979c97/4bd055cc-e169-49e1-aae3-0f92abf0e6b5"
 storage_version_token = "1789910514970195"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "gF67dZuJMnbDjKDM_a-Pk"
+uri = "file://reports/bnms-resource-audit/bnms-resource-import-audit.xlsx"
+type = "table"
+title = "BNMS resource import audit"
+description = "Row-level audit of 5,773 source rows across 10 uploads, with current matches, exceptions, history and next actions."
+logical_id = "331a9ffd-6200-47fe-b8e2-b6fa65c4b903"
+content_hash = "sha256:39bbab4ca2b74371e790189fb239be0d2fda39714dffc375347a21622527a934"
+size = 7422644
+mtime_ms = 1789915538870
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/331a9ffd-6200-47fe-b8e2-b6fa65c4b903/5d875f26-acae-4ccd-9539-27306c8b86bd"
+storage_version_token = "1789915591741769"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "9syr63HN8o7M8XoTMF-Ui"
+uri = "file://reports/bnms-resource-audit/bnms-resource-audit-evidence.zip"
+type = "unspecified"
+title = "BNMS audit evidence"
+description = "Machine-readable audit, stable production snapshot, source inventory, dated summary and interpretation."
+logical_id = "1b34b674-1ad1-45ea-b00f-d35253e5b13b"
+content_hash = "sha256:ac53bc66be56a8c2576c17f359462f2a7136375048e3a48b7f24130ace6121be"
+size = 2597988
+mtime_ms = 1789915582969
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1b34b674-1ad1-45ea-b00f-d35253e5b13b/ea102765-8ac3-4a9f-a00e-170664d041be"
+storage_version_token = "1789915592683303"
+content_type = "application/octet-stream"

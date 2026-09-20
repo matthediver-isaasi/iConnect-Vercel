@@ -1,0 +1,389 @@
+{
+  "audit": {
+    "purpose": "Read-only scope reconstruction for the BNMS resource import completeness audit",
+    "preparedFromWorkspace": "2026-09-20",
+    "productionReadPerformed": false,
+    "databaseAccessPerformed": false,
+    "importOrApplyRunnerExecuted": false,
+    "tenantIdFromHistoricalEvidence": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "destinationProjectFromHistoricalEvidence": "lvmzliemqnieeoruhkik",
+    "scopeRule": "Include surviving BNMS uploads that supplied resource rows or classifications; retain revisions and byte-identical duplicates separately. Generic Base44 exports and unrelated documents are not import sources."
+  },
+  "uploads": [
+    {
+      "path": "attached_assets/BNMSResourcesClean_1779888089327.csv",
+      "kind": "csv",
+      "intent": "new resource import",
+      "sha256": "59a63e187420f8c2c5cf28a8f0786a28069f75c26e7cab7a9181fd299bb2907d",
+      "bytes": 16594,
+      "encodingNotes": "UTF-8 BOM, comma-delimited, quoted multiline fields",
+      "parsedRecordsIncludingHeader": 30,
+      "parsedDataRows": 29,
+      "taskClaim": "The task says 61 rows plus header, but the surviving file parses to 29 data records; wc -l is 60 because quoted fields contain newlines.",
+      "firstGitEvidence": {
+        "commit": "fe0e9a5f78989415f782432bb51c477a2a245d5b",
+        "date": "2026-05-27T13:26:11Z",
+        "subject": "Saved your changes before starting work"
+      },
+      "completionCommitEvidence": {
+        "commit": "ba9f0658a946d939caee1fff8825557d93eff6dd",
+        "date": "2026-05-27T13:29:22Z",
+        "subject": "Task #1087: Import BNMS resources CSV"
+      },
+      "task": ".local/tasks/import-bnms-resources-csv.md",
+      "runner": "scripts/import-bnms-resources.mjs",
+      "durableExecutionEvidence": null
+    },
+    {
+      "path": "attached_assets/bnms-resources2_1780477749303.csv",
+      "kind": "csv",
+      "intent": "poster resource import",
+      "sha256": "abbe5aef46ecf36080df9d88cd00de39ca76dc439ead6ad562d4b2ce28eec3aa",
+      "bytes": 315438,
+      "encodingNotes": "UTF-8 BOM, semicolon-delimited, quoted multiline fields",
+      "parsedRecordsIncludingHeader": 922,
+      "parsedDataRows": 921,
+      "firstGitEvidence": {
+        "commit": "66a4c23d9c4c4314515b7175de020430e3d5ad4d",
+        "date": "2026-06-03T09:14:40Z",
+        "subject": "Saved your changes before starting work"
+      },
+      "completionCommitEvidence": {
+        "commit": "d7a2fac510a608592ee27193d4609eac3c9c6071",
+        "date": "2026-06-03T09:31:38Z",
+        "subject": "Task #1192: Import BNMS posters CSV (batch 2/3)"
+      },
+      "task": ".local/tasks/import-bnms-resources2-csv.md",
+      "runner": "scripts/import-bnms-resources2.mjs",
+      "durableExecutionEvidence": null
+    },
+    {
+      "path": "attached_assets/bnms-resources3_1780478750493.csv",
+      "kind": "csv",
+      "intent": "surviving revision/copy of poster batch",
+      "sha256": "abbe5aef46ecf36080df9d88cd00de39ca76dc439ead6ad562d4b2ce28eec3aa",
+      "bytes": 315438,
+      "parsedRecordsIncludingHeader": 922,
+      "parsedDataRows": 921,
+      "relationship": "Byte-identical to bnms-resources2_1780477749303.csv; do not count as 921 additional expectations.",
+      "firstGitEvidence": {
+        "commit": "d7a2fac510a608592ee27193d4609eac3c9c6071",
+        "date": "2026-06-03T09:31:38Z",
+        "subject": "Task #1192: Import BNMS posters CSV (batch 2/3)"
+      },
+      "task": ".local/tasks/import-bnms-resources2-csv.md",
+      "runner": "scripts/import-bnms-resources3.mjs",
+      "durableExecutionEvidence": null
+    },
+    {
+      "path": "attached_assets/BNMS-batch3-correct_1780479260692.csv",
+      "kind": "csv",
+      "intent": "corrected video resource import",
+      "sha256": "6e61e131db4c102ee88613a1e1717e79d0ce515c84f5aa8981159126fd146f4d",
+      "bytes": 96782,
+      "encodingNotes": "UTF-8 BOM, semicolon-delimited, quoted multiline fields",
+      "parsedRecordsIncludingHeader": 336,
+      "parsedDataRows": 335,
+      "taskInterpretation": "Task records 141 blank separator rows and approximately 194 real video rows.",
+      "firstGitEvidence": {
+        "commit": "a25cd9d16a9035eb00038e43d2a36265e7574b1f",
+        "date": "2026-06-03T09:37:26Z",
+        "subject": "Saved your changes before starting work"
+      },
+      "completionCommitEvidence": {
+        "commit": "c728875be94cb83864566747679d52cd4e1ca859",
+        "date": "2026-06-03T09:43:54Z",
+        "subject": "Task #1195: Import corrected BNMS batch-3 (videos) CSV"
+      },
+      "task": ".local/tasks/import-bnms-batch3-videos.md",
+      "runner": "scripts/import-bnms-resources3.mjs",
+      "durableExecutionEvidence": null
+    },
+    {
+      "path": "attached_assets/Spring_Meeting_2026_resources_1782996382352.xlsx",
+      "kind": "xlsx",
+      "intent": "original Spring Meeting 2026 resource import",
+      "sha256": "14d46bf0096f5f3d0f814969c4c037ee3d131fc0454e427ed61e91103a5fd085",
+      "bytes": 86622,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AL1471", "nonemptyRowsIncludingHeader": 309},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 31, "role": "reference"}
+      ],
+      "sourceRows": 308,
+      "firstGitEvidence": {
+        "commit": "b4c2a6871b73fdabd640bb4ff09e551a3f1c43c9",
+        "date": "2026-07-02T12:51:22Z",
+        "subject": "Saved your changes before starting work"
+      },
+      "completionCommitEvidence": {
+        "commit": "27b9f786321c39e8cae34a29cd0b27df214997b2",
+        "date": "2026-07-02T12:58:47Z",
+        "subject": "Task #2143 — Import BNMS Spring Meeting 2026 resources"
+      },
+      "followupCommitEvidence": [
+        {"commit": "b636fcfd28280010dcc40b4771640507b8ef9579", "date": "2026-07-02T13:12:39Z", "subject": "Task #2146: Set BNMS Spring 2026 resources to Download type"},
+        {"commit": "fd9fe8a15396e59af472adb3bcb324950b49c061", "date": "2026-07-02T16:44:30Z", "subject": "Task #2174: Mark BNMS Spring 2026 resources public"}
+      ],
+      "task": ".local/tasks/import-bnms-spring-meeting-2026-resources.md",
+      "runner": "scripts/import-bnms-spring-meeting-2026-resources.mjs",
+      "durableExecutionEvidence": null
+    },
+    {
+      "path": "attached_assets/Resources_-_categorising-tagging_YOUTUBE_FINALISED_1789471419015.xlsx",
+      "kind": "xlsx",
+      "intent": "classification-only update of existing YouTube resources",
+      "sha256": "c9288b43a7a50706f29028c52a1b4d6228a1a45c24ef5d025fd13820b6162117",
+      "bytes": 60214,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AJ336", "nonemptyRowsIncludingHeader": 196},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 31, "role": "reference"}
+      ],
+      "taskEvidence": "Task history records 193 valid-link rows resolving to 189 existing videos, row 163 unresolved, and row 324/blank rows ignored.",
+      "firstGitEvidence": {
+        "commit": "8f7106c450ae32171dac027957ef03bc07ca98ff",
+        "date": "2026-09-15T11:48:46Z",
+        "subject": "Use custom vault domain for badge image sharing with exact URL preservation and regression coverage"
+      },
+      "validationCommit": {
+        "commit": "7626a2a82e8d9687bd27f79e35734f3921a7884d",
+        "date": "2026-09-15T11:50:40Z",
+        "subject": "Add read-only BNMS YouTube classification validation and approval reports"
+      },
+      "applyCommit": {
+        "commit": "01e4ed1d92febe9173d40b5910b9fa4f2a14a432",
+        "date": "2026-09-15T12:42:52Z",
+        "subject": "Apply BNMS additive resource categorisation with pinned transactional runner, durable audit and zero-write replay"
+      },
+      "tasks": [
+        ".local/tasks/bnms-youtube-resource-category-dry-run.md",
+        ".local/tasks/apply-bnms-youtube-resource-categorisation.md"
+      ],
+      "runners": [
+        "scripts/validate-bnms-youtube-categorisation.mjs",
+        "scripts/apply-bnms-youtube-categorisation.mjs"
+      ],
+      "durableExecutionEvidence": "No generated YouTube report or journal survives in reports/; the apply task explicitly says the report outputs are not present."
+    },
+    {
+      "path": "attached_assets/Resources_-_categorising-tagging_PRESENTATIONS_FINALISED_1789478058638.xlsx",
+      "kind": "xlsx",
+      "intent": "presentation import",
+      "sha256": "0e522c5e96581bce9b23dc35841638724266a98c5060d79c19ac66153dbbb998",
+      "bytes": 326527,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AQ1446", "nonemptyRowsIncludingHeader": 1446},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 31, "role": "reference"},
+        {"name": "Categories Event Photos & News", "range": "A1:D102", "nonemptyRowsIncludingHeader": 101, "role": "reference"}
+      ],
+      "sourceRows": 1445,
+      "firstGitEvidence": {
+        "commit": "6ec3be8c518551e42ebcea68680c0c9b2cce5648",
+        "date": "2026-09-15T13:28:15Z",
+        "subject": "Prepare read-only BNMS presentations proposal with complete destination comparison, duplicate safeguards and approval audit"
+      },
+      "executionCommit": {
+        "commit": "73842e7a67058b4b6ca1c2e022d10aff7c95c958",
+        "date": "2026-09-15T13:40:16Z",
+        "subject": "Apply approved BNMS presentations import and save verified execution audit"
+      },
+      "historicalOutcome": {"inserted": 1354, "updated": 4, "blocked": 87, "writes": 1358, "replayWrites": 0},
+      "task": ".local/tasks/prepare-bnms-presentations-import.md",
+      "reportRoot": "reports/bnms-presentations"
+    },
+    {
+      "path": "attached_assets/Resources_-_categorising-tagging_POSTERS_FINALISED_1789479638626.xlsx",
+      "kind": "xlsx",
+      "intent": "poster metadata, access and classification revision over existing resources",
+      "sha256": "853c7e8b5202fe3ce0f8175aa97bf89f0d054e5fa7502dfcf18852767a0dc972",
+      "bytes": 138805,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AM922", "nonemptyRowsIncludingHeader": 922},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 32, "role": "reference"},
+        {"name": "Categories Event Photos & News", "range": "A1:D102", "nonemptyRowsIncludingHeader": 101, "role": "reference"}
+      ],
+      "sourceRows": 921,
+      "firstGitEvidence": {
+        "commit": "d201e834de0feb93e8c37853f6bda79c34b9fff8",
+        "date": "2026-09-15T13:47:37Z",
+        "subject": "Git commit prior to merge"
+      },
+      "proposalCommit": {
+        "commit": "e0cd9595f384c48ad696ace6b226c397d2e0d02c",
+        "date": "2026-09-15T13:52:49Z",
+        "subject": "Prepare read-only BNMS poster approval audit with destination comparison and regression tests"
+      },
+      "executionCommit": {
+        "commit": "968298386632be68c47651824d9a41e308e8893e",
+        "date": "2026-09-15T15:29:08Z",
+        "subject": "Apply approved BNMS poster patches with pinned scope, transactional guards, durable journal and zero-write replay"
+      },
+      "historicalOutcome": {"updated": 920, "excludedRows": [567], "writes": 920, "replayWrites": 0},
+      "task": ".local/tasks/prepare-bnms-posters-import.md",
+      "reportRoot": "reports/bnms-posters"
+    },
+    {
+      "path": "attached_assets/Resources_-_categorising-tagging_FINALISED_1789486104337.xlsx",
+      "kind": "xlsx",
+      "intent": "final mixed resource import/revision",
+      "sha256": "0c408805b7dabb1ae84fb152de29043de8d3ebb045626f74fffb32d3b95e838e",
+      "bytes": 92136,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AL531", "nonemptyRowsIncludingHeader": 531},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 31, "role": "reference"},
+        {"name": "Categories Event Photos & News", "range": "A1:D102", "nonemptyRowsIncludingHeader": 101, "role": "reference"}
+      ],
+      "sourceRows": 530,
+      "firstGitEvidence": {
+        "commit": "8491cc0ea2118369f4615de6934763d8d9ff5711",
+        "date": "2026-09-15T15:37:00Z",
+        "subject": "Add final resources and audit report to agent assets"
+      },
+      "executionCommit": {
+        "commit": "e78cc836b1afd443226ae36580405bf781418710",
+        "date": "2026-09-15T16:06:11Z",
+        "subject": "Add final BNMS resource reports and update agent metadata"
+      },
+      "proposalOutcome": {"insert": 225, "update": 26, "unchanged": 3, "blocked": 276},
+      "historicalOutcome": {"inserted": 379, "updated": 27, "unchanged": 3, "blocked": 121, "writes": 407, "replayWrites": 0, "taxonomyAdded": 4},
+      "task": ".local/tasks/import-bnms-2026-resources.md",
+      "reportRoot": "reports/bnms-final-resources"
+    },
+    {
+      "path": "attached_assets/Resources_-_categorising-tagging_2026_PRESENTATIONS_AND_POSTE_1789489599381.xlsx",
+      "kind": "xlsx",
+      "intent": "later Spring 2026 revision combining presentations and posters",
+      "sha256": "db61ce39f47baec8a8bb48bc2c8a0a40081163193e139b816e0e6300d3b5c1e0",
+      "bytes": 91232,
+      "sheets": [
+        {"name": "Resources", "range": "A1:AO1471", "nonemptyRowsIncludingHeader": 309},
+        {"name": "Lists", "range": "A1:E39", "nonemptyRowsIncludingHeader": 31, "role": "reference"}
+      ],
+      "sourceRows": 308,
+      "relationship": "Revision of the Spring 2026 set; overlap must be linked by URL/provider identity rather than added to the July workbook total.",
+      "firstGitEvidence": {
+        "commit": "d872680611ce5fbd88cf500457839430c182e430",
+        "date": "2026-09-15T16:44:39Z",
+        "subject": "Git commit prior to merge"
+      },
+      "executionCommit": {
+        "commit": "8fe2e5c23c9f08e6c1d81612b27ba111c90e6213",
+        "date": "2026-09-15T16:51:30Z",
+        "subject": "Reconcile pinned BNMS Spring 2026 workbook on DEST with members-only overrides, safe matching, durable audit and zero-write replay"
+      },
+      "historicalOutcome": {"inserted": 12, "updated": 161, "blocked": 135, "writes": 173, "replayWrites": 0},
+      "task": ".local/tasks/import-bnms-2026-resources.md",
+      "reportRoot": "reports/bnms-spring-2026-resources"
+    }
+  ],
+  "executionJournals": [
+    {
+      "path": "reports/bnms-presentations/execution/2026-09-15T13-38-24.208Z/journal.jsonl",
+      "entries": 5,
+      "linkage": "Transaction intent contains insert/update/skipped arrays with source row; generated IDs and verification files link applied rows to destination records.",
+      "terminalEvidence": "already_applied, writes=0"
+    },
+    {
+      "path": "reports/bnms-posters/execution/2026-09-15T15-25-46.706Z/journal.jsonl",
+      "entries": 1844,
+      "linkage": "Per-row intent/result pairs carry workbook row and destination id; row 567 is excluded in verification.",
+      "terminalEvidence": "920 updates and zero-write replay"
+    },
+    {
+      "path": "reports/bnms-final-resources/execution/2026-09-15T16-03-05.701Z/journal.jsonl",
+      "entries": 5,
+      "linkage": "Transaction intent contains row-bearing insert/update/skipped arrays; plan, expected, before, after and replay files preserve the joins.",
+      "terminalEvidence": "379 inserted, 27 updated, replay writes=0"
+    },
+    {
+      "path": "reports/bnms-spring-2026-resources/execution/2026-09-15T16-46-42.963Z/journal.jsonl",
+      "entries": 5,
+      "linkage": "Transaction intent contains row-bearing insert/update/skipped arrays and resulting ids.",
+      "terminalEvidence": "12 inserted, 161 updated, replay writes=0"
+    },
+    {
+      "path": "reports/bnms-spring-2026-resources/execution/2026-09-15T16-48-12.647Z/journal.jsonl",
+      "entries": 2,
+      "linkage": "Replay-only run; no row mutations.",
+      "terminalEvidence": "already_applied, writes=0"
+    }
+  ],
+  "reportSchema": {
+    "proposalRowCommonFields": [
+      "row",
+      "source",
+      "hyperlinks",
+      "url",
+      "link.identity",
+      "issues",
+      "candidateIds",
+      "titleCandidates",
+      "matchMethod",
+      "before.id",
+      "proposed",
+      "patch",
+      "status"
+    ],
+    "rowHistoryJoin": [
+      "Primary source locator is workbook sheet Resources plus one-based Excel row stored as row.",
+      "Exact literal URL and normalized provider identity link revisions and source files conservatively.",
+      "candidateIds and before.id link proposal rows to pre-existing destination records.",
+      "Execution journal row plus id links approved actions to destination records; after/verification snapshots confirm terminal state.",
+      "Titles are review candidates only and must not be used as a unique history key.",
+      "Input SHA-256 and report inputChecksum pin every report family to an exact upload."
+    ],
+    "reportFamilies": {
+      "presentations": {
+        "proposal": "reports/bnms-presentations/2026-09-15T13-27-11.746Z/proposal.json",
+        "snapshot": "reports/bnms-presentations/2026-09-15T13-27-11.746Z/destination-snapshot.json",
+        "verification": "reports/bnms-presentations/execution/2026-09-15T13-38-24.208Z/verification.json"
+      },
+      "posters": {
+        "proposal": "reports/bnms-posters/2026-09-15T15-20-48.757Z/audit.json",
+        "snapshot": "reports/bnms-posters/2026-09-15T15-20-48.757Z/snapshot.json",
+        "verification": "reports/bnms-posters/execution/2026-09-15T15-25-46.706Z/verification.json"
+      },
+      "finalResources": {
+        "proposal": "reports/bnms-final-resources/2026-09-15T15-36-08.721Z/audit.json",
+        "plan": "reports/bnms-final-resources/execution/2026-09-15T16-03-05.701Z/plan.json",
+        "verification": "reports/bnms-final-resources/execution/2026-09-15T16-03-05.701Z/verification.json"
+      },
+      "spring2026Revision": {
+        "proposal": "reports/bnms-spring-2026-resources/2026-09-15T16-46-19.783Z/audit.json",
+        "plan": "reports/bnms-spring-2026-resources/execution/2026-09-15T16-46-42.963Z/plan.json",
+        "verification": "reports/bnms-spring-2026-resources/execution/2026-09-15T16-46-42.963Z/verification.json"
+      }
+    }
+  },
+  "caveats": [
+    "This is an inventory of surviving workspace evidence, not proof that every historical upload still survives.",
+    "No current production read was made, so historical applied/blocked states are not current completeness findings.",
+    "May, June and July task/commit labels imply execution but no row-level journal or report survives; they cannot prove every source row was committed.",
+    "The YouTube apply commit exists, but its generated reports and journal do not survive in reports/.",
+    "The two June poster CSVs are byte-identical and must be deduplicated.",
+    "The July and September Spring workbooks overlap and require row-level URL/provider reconciliation.",
+    "Reference worksheets are taxonomy aids, not resource rows.",
+    "Filesystem mtimes were recorded only as corroboration; git dates, checksums, task text and report timestamps are the provenance anchors.",
+    "Historical blocked counts are exceptions, not confirmed missing resources."
+  ],
+  "excludedSurvivingCandidates": [
+    {
+      "path": "attached_assets/base44_export/Resource.csv",
+      "reason": "Generic Base44 export, not identified by BNMS import tasks as a BNMS upload source."
+    },
+    {
+      "path": "attached_assets/base44_export/ResourceCategory.csv",
+      "reason": "Generic taxonomy export, not a BNMS resource-row upload."
+    },
+    {
+      "path": "attached_assets/base44_export/ResourceAuthorSettings.csv",
+      "reason": "Generic settings export, not resource expectations."
+    },
+    {
+      "paths": [
+        "attached_assets/Professional_resources_1783156744768.docx",
+        "attached_assets/MRT_Professional_resources_1783158992612.docx"
+      ],
+      "reason": "Content documents, with no surviving BNMS resource import task or runner linkage."
+    }
+  ]
+}
