@@ -37,7 +37,22 @@ test('presentation normalization excludes private records and preview samples', 
   assert.equal(content.panel.borderWidth, 0);
   assert.equal(content.panel.borderRadius, 100);
   assert.equal(content.panel.background, 'var(--brand-panel)');
+  assert.equal(content.minHeight, 0);
   assert.deepEqual(normalizeCanvasMembershipContent(JSON.parse(JSON.stringify(content))), content);
+});
+
+test('outer minimum height normalizes responsive Auto and custom values', () => {
+  assert.equal(getCanvasMembershipDefaults().minHeight, 0);
+  assert.equal(normalizeCanvasMembershipContent({ minHeight: 420 }).minHeight, 420);
+  assert.deepEqual(
+    normalizeCanvasMembershipContent({ minHeight: { desktop: 500, tablet: 0, mobile: 240 } }).minHeight,
+    { desktop: 500, tablet: 0, mobile: 240 },
+  );
+  assert.deepEqual(
+    normalizeCanvasMembershipContent({ minHeight: { desktop: -20, tablet: 9000, mobile: '320' } }).minHeight,
+    { desktop: 0, tablet: 4000, mobile: 320 },
+  );
+  assert.equal(normalizeCanvasMembershipContent({ minHeight: { desktop: 'bad' } }).minHeight, 0);
 });
 
 test('every non-active state has independent non-success headings and support', () => {

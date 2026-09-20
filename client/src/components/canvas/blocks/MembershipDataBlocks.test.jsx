@@ -47,6 +47,25 @@ test('summary semantic labels, values, responsive grid and sample boundary', () 
   assert.match(render({ asEditor: true, result: { status: 'ready', data: live, isSample: true } }), /sample data, not a member record/);
 });
 
+test('responsive outer minimum height subtracts wrapper chrome and keeps Auto content-sized', () => {
+  const style = {
+    paddingTop: 20, paddingBottom: 30, borderStyle: 'solid', borderWidth: 2,
+  };
+  const html = render({ block: {
+    id: 'minimum-height', style,
+    content: { minHeight: { desktop: 500, tablet: 360, mobile: 0 } },
+  } });
+  assert.match(html, /min-height:446px/);
+  assert.match(html, /max-width:1023\.98px[^]*min-height:306px/);
+  assert.match(html, /max-width:639\.98px[^]*min-height:0px/);
+  const mobile = render({ breakpoint: 'mobile', block: {
+    id: 'minimum-height-mobile', style, content: { minHeight: 280 },
+  } });
+  assert.match(mobile, /min-height:226px/);
+  assert.doesNotMatch(mobile, /@media \(max-width:1023\.98px\).*min-height/);
+  assert.match(render(), /min-height:0/);
+});
+
 test('all lifecycle states select their own copy for both cards', () => {
   for (const type of ['membership-summary', 'payment-details']) {
     const defaults = getCanvasMembershipDefaults(type);
@@ -172,6 +191,15 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
     for (const role of MEMBERSHIP_TEXT_ROLES) assert.ok(container.querySelector(`[data-testid="membership-typography-${role}"]`));
     assert.ok(container.querySelector('[data-testid="membership-panel-background"]'));
     assert.ok(container.querySelector('[data-testid="membership-manage-link"]'));
+    const heightMode = container.querySelector('[data-testid="membership-min-height-mode"]');
+    assert.equal(heightMode.value, 'auto');
+    assert.match(
+      container.querySelector('[data-testid="membership-min-height-help"]').textContent,
+      /outer padding and border[^]*will not be clipped/i,
+    );
+    await act(async () => Simulate.change(heightMode, { target: { value: 'custom' } }));
+    const heightBlock = updates.at(-1)(block);
+    assert.equal(heightBlock.content.minHeight, 330);
     assert.equal(next.content.sample, undefined);
     await act(async () => root.render(<QueryClientProvider client={client}>
       <MembershipDataInspector block={{ ...block, type: 'membership-summary' }} update={() => {}} />
@@ -181,6 +209,35 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
         .some(option => option.value === 'paid'),
       false,
     );
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    container.remove();
+  }
+});
+
+test('inspector writes independent responsive Auto and custom minimum heights', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const block = {
+    id: 'responsive-height', type: 'membership-summary',
+    content: { minHeight: { desktop: 480, tablet: 360 } },
+  };
+  const updates = [];
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}>
+      <MembershipDataInspector block={block} breakpoint="mobile" update={updater => updates.push(updater)} />
+    </QueryClientProvider>));
+    assert.equal(container.querySelector('[data-testid="membership-min-height-mode"]').value, 'custom');
+    assert.equal(container.querySelector('[data-testid="membership-min-height"]').value, '360');
+    await act(async () => Simulate.change(
+      container.querySelector('[data-testid="membership-min-height"]'),
+      { target: { value: '' } },
+    ));
+    const next = updates.at(-1)(block);
+    assert.deepEqual(next.content.minHeight, { desktop: 480, tablet: 360, mobile: 0 });
   } finally {
     await act(async () => root.unmount());
     client.clear();

@@ -15,6 +15,9 @@ import {
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
   formatMembershipDate, safeMembershipLink,
 } from '@/lib/canvasMembershipData';
+import {
+  BREAKPOINT_MAX_PX, hasResponsiveOverride, resolveResponsiveValue, writeResponsiveValue,
+} from '@/lib/canvasDesign';
 
 const roleNames = {
   eyebrow: 'Eyebrow', heading: 'Heading', supporting: 'Supporting text',
@@ -37,7 +40,7 @@ const stateColors = {
 // Separate view makes the state contract testable without authentication/network.
 export function MembershipDataView({
   block, type = 'membership-summary', breakpoint, asEditor = false,
-  result, tenantStyles = [], stylesResolved = true,
+  result, tenantStyles = [], stylesResolved = true, viewportBreakpoint,
 }) {
   const content = normalizeCanvasMembershipContent(block.content, type);
   const paymentCard = type === 'payment-details';
@@ -66,6 +69,18 @@ export function MembershipDataView({
   const style = block.style || {};
   const extraHeight = (Number(style.paddingTop) || 0) + (Number(style.paddingBottom) || 0)
     + (style.borderStyle === 'none' ? 0 : 2 * (Number(style.borderWidth) || 0));
+  // minHeight is authored for the complete Canvas block (border + padding +
+  // content), while this component is mounted inside that wrapper. Subtract
+  // the wrapper chrome so the visible outer card reaches exactly the requested
+  // floor. The measured section still reports the floor to both V1 reflow and
+  // V2 flow layout, so long/async content remains free to grow beyond it.
+  const contentMinHeight = bp => Math.max(0, (resolveResponsiveValue(content.minHeight, bp) || 0) - extraHeight);
+  const activeBreakpoint = breakpoint || viewportBreakpoint || 'desktop';
+  const minHeight = contentMinHeight(activeBreakpoint);
+  const responsiveMinHeightCss = !breakpoint && typeof content.minHeight === 'object' ? `
+    @media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${selector}{min-height:${contentMinHeight('tablet')}px !important}}
+    @media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${selector}{min-height:${contentMinHeight('mobile')}px !important}}
+  ` : '';
   const ref = useReportReflowHeight(block.id, extraHeight, { includeExtraHeightPublic: true });
   const href = safeMembershipLink(content.manageLink);
   const paidWithoutNextPayment = summary.payment.state === 'paid' && !summary.payment.nextPayment;
@@ -84,8 +99,9 @@ export function MembershipDataView({
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
       data-membership-state={state} aria-labelledby={`${id}-heading`}
       aria-busy={result?.status === 'loading'}
-      style={{ width: '100%', minWidth: 0, containerType: 'inline-size', visibility: awaitingStyles ? 'hidden' : undefined }}>
+      style={{ width: '100%', minWidth: 0, minHeight, containerType: 'inline-size', visibility: awaitingStyles ? 'hidden' : undefined }}>
       <style dangerouslySetInnerHTML={{ __html: `${css}
+        ${responsiveMinHeightCss}
         ${selector} .membership-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin:40px 0 0;padding:0}
         ${selector} .membership-title{display:flex;align-items:center;gap:24px 60px;flex-wrap:wrap}
         @container (max-width:650px){${selector} .membership-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}}
@@ -161,13 +177,18 @@ export function PaymentDetailsRender(props) {
   return <MembershipDataRender {...props} type="payment-details" />;
 }
 
-export function MembershipDataInspector({ block, update }) {
+export function MembershipDataInspector({ block, update, breakpoint = 'desktop' }) {
   const c = normalizeCanvasMembershipContent(block.content, block.type);
   const [state, setState] = useState('active');
   const editableStates = block.type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
   const set = patch => update(b => ({
     ...b, content: normalizeCanvasMembershipContent({ ...normalizeCanvasMembershipContent(b.content, b.type), ...patch }, b.type),
   }));
+  const minHeight = resolveResponsiveValue(c.minHeight, breakpoint) || 0;
+  const minHeightMode = minHeight > 0 ? 'custom' : 'auto';
+  const setMinHeight = value => set({
+    minHeight: writeResponsiveValue(c.minHeight, breakpoint, value),
+  });
   const field = (label, value, onChange, key) => (
     <div className="space-y-1" key={key || label}>
       <Label className="text-xs">{label}
@@ -178,6 +199,32 @@ export function MembershipDataInspector({ block, update }) {
   );
   return <div className="space-y-4" data-testid="membership-data-inspector">
     <p className="text-xs text-slate-500">Published cards use the signed-in member’s data. Editor samples are not saved. Wording does not change membership or payment state.</p>
+    <div className="space-y-2">
+      <Label className="text-xs">Outer minimum height ({breakpoint})
+        <select className="mt-1 w-full rounded border p-2 text-sm" value={minHeightMode}
+          onChange={event => setMinHeight(event.target.value === 'auto'
+            ? 0
+            : (minHeight > 0 ? minHeight : (block.type === 'payment-details' ? 330 : 280)))}
+          data-testid="membership-min-height-mode">
+          <option value="auto">Auto</option>
+          <option value="custom">Custom</option>
+        </select>
+      </Label>
+      <p className="text-xs text-slate-500" data-testid="membership-min-height-help">
+        Includes the card’s outer padding and border. Longer content can still grow, so it will not be clipped.
+      </p>
+      {minHeightMode === 'custom' && <Label className="text-xs">Minimum height (px)
+        <Input className="mt-1" type="number" min="1" max="4000" value={minHeight}
+          onChange={event => {
+            const raw = event.target.value;
+            setMinHeight(raw === '' ? 0 : Math.max(1, Math.min(4000, Number(raw) || 1)));
+          }}
+          data-testid="membership-min-height" />
+      </Label>}
+      {breakpoint !== 'desktop' && !hasResponsiveOverride(c.minHeight, breakpoint) && (
+        <p className="text-xs text-slate-500">Inherited from the larger breakpoint.</p>
+      )}
+    </div>
     {field('Eyebrow', c.eyebrow, eyebrow => set({ eyebrow }))}
     <div className="space-y-2">
       <Label className="text-xs">State-specific wording

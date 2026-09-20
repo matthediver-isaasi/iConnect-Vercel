@@ -45,6 +45,19 @@ const text = (value, fallback) => typeof value === 'string' ? value.slice(0, 400
 const record = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const number = (value, fallback, max) => value !== '' && value != null && Number.isFinite(Number(value))
   ? Math.max(0, Math.min(max, Number(value))) : fallback;
+const responsiveNumber = (value, fallback, max) => {
+  if (typeof value === 'number') return number(value, fallback, max);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  const out = {};
+  for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+    if (value[breakpoint] !== '' && value[breakpoint] != null && Number.isFinite(Number(value[breakpoint]))) {
+      out[breakpoint] = number(value[breakpoint], 0, max);
+    }
+  }
+  const keys = Object.keys(out);
+  if (keys.length === 0) return fallback;
+  return keys.length === 1 && keys[0] === 'desktop' ? out.desktop : out;
+};
 
 export function getCanvasMembershipDefaults(type = 'membership-summary') {
   const payment = type === 'payment-details';
@@ -74,6 +87,8 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       noPaymentScheduled: 'No scheduled payment recorded',
     },
     typography: Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [role, ''])),
+    // Responsive outer-card minimum height. Zero deliberately means Auto.
+    minHeight: 0,
     manageLink: '', manageLinkText: 'Manage payments', manageLinkNewTab: false,
     panel: { background: '#f4faf6', borderColor: '#c4e6d1', borderWidth: 2, borderRadius: 6 },
   };
@@ -94,6 +109,7 @@ export function normalizeCanvasMembershipContent(content, type = 'membership-sum
     methods: strings(input.methods, defaults.methods),
     messages: strings(input.messages, defaults.messages),
     typography: strings(input.typography, defaults.typography),
+    minHeight: responsiveNumber(input.minHeight, defaults.minHeight, 4000),
     // Preserve incomplete input while an author types; validate at the link sink.
     manageLink: text(input.manageLink, defaults.manageLink),
     manageLinkText: text(input.manageLinkText, defaults.manageLinkText),

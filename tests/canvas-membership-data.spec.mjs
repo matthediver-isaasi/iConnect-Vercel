@@ -131,11 +131,35 @@ function block(type, id, y = 0, overrides = {}) {
   };
 }
 
-function design(version, { empty = false, duplicate = false, symbol = false, microsite = false } = {}) {
+function design(version, {
+  empty = false, duplicate = false, symbol = false, microsite = false,
+  membershipMinHeight, longMembershipContent = false,
+} = {}) {
   let children = empty ? [] : [
     block("membership-summary", `membership-v${version}`, 0),
     block("payment-details", `payment-v${version}`, 350),
   ];
+  if (membershipMinHeight !== undefined) {
+    children = children.map(item => (
+      item.type === "membership-summary" || item.type === "payment-details"
+        ? { ...item, content: { ...item.content, minHeight: membershipMinHeight } }
+        : item
+    ));
+  }
+  if (longMembershipContent) {
+    children = children.map(item => {
+      if (item.type !== "membership-summary") return item;
+      const active = item.content.states.active;
+      return { ...item, content: { ...item.content, states: {
+        ...item.content.states,
+        active: {
+          ...active,
+          heading: "A deliberately long membership heading that wraps across several lines on a narrow screen without being clipped",
+          supporting: "This deliberately long supporting message verifies that content remains authoritative when it needs more room than the configured minimum height. The card must grow, settle, and push every downstream block below its final rendered edge.",
+        },
+      } } };
+    });
+  }
   if (duplicate) {
     children.push(block("membership-summary", `membership-copy-v${version}`, 700, {
       content: membershipContent("membership-summary", { eyebrow: "SECOND INDEPENDENT CARD" }),
@@ -195,7 +219,7 @@ function pageFixture(version, options = {}) {
   };
 }
 
-function symbolFixture() {
+function symbolFixture(minHeight) {
   return {
     id: "symbol-task4511",
     design: {
@@ -206,6 +230,7 @@ function symbolFixture() {
           children: [{
             ...block("membership-summary", "symbol-membership-task4511"),
             content: membershipContent("membership-summary", {
+              ...(minHeight !== undefined ? { minHeight } : {}),
               eyebrow: "SYMBOL MEMBERSHIP",
               states: {
                 ...membershipContent("membership-summary").states,
@@ -226,9 +251,12 @@ function symbolFixture() {
 async function installFixtures(page, {
   version = 1, viewer = "alpha", apiState = "ready", empty = false,
   duplicate = false, symbol = false, microsite = false,
-  summaryOverride = null,
+  summaryOverride = null, membershipMinHeight, longMembershipContent = false,
+  symbolMinHeight,
 } = {}) {
-  const fixturePage = pageFixture(version, { empty, duplicate, symbol, microsite });
+  const fixturePage = pageFixture(version, {
+    empty, duplicate, symbol, microsite, membershipMinHeight, longMembershipContent,
+  });
   const requests = [];
   const writes = [];
   const pageErrors = [];
@@ -278,11 +306,11 @@ async function installFixtures(page, {
     if (path === `/api/public/page/${fixturePage.slug}`) {
       return json(route, {
         success: true, page: { ...fixturePage, canvas_design: savedDesign },
-        elements: [], symbols: symbol ? [symbolFixture()] : [],
+        elements: [], symbols: symbol ? [symbolFixture(symbolMinHeight)] : [],
       }, 200, { "Cache-Control": "private, no-store" });
     }
     if (path === "/api/public/canvas-symbols") {
-      return json(route, { symbols: symbol ? [symbolFixture()] : [] });
+      return json(route, { symbols: symbol ? [symbolFixture(symbolMinHeight)] : [] });
     }
     if (path === "/api/public/typography-styles") return json(route, microsite ? MICROSITE_TYPOGRAPHY : TYPOGRAPHY);
     if (path === "/api/public/microsites") return json(route, microsite ? [MICROSITE] : []);
@@ -361,6 +389,33 @@ async function assertAlphaData(page) {
   await expect(payment.getByRole("link", { name: /Manage payments/ })).toHaveAttribute("href", "/MembershipFees");
 }
 
+async function membershipLayout(page) {
+  const membership = page.locator("[data-block-type='membership-summary']").first();
+  const payment = page.locator("[data-block-type='payment-details']").first();
+  return page.evaluate(({ membershipNode, paymentNode }) => {
+    const box = node => {
+      const rect = node.getBoundingClientRect();
+      return {
+        top: rect.top, bottom: rect.bottom, height: rect.height,
+        clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
+      };
+    };
+    return {
+      membership: box(membershipNode),
+      payment: box(paymentNode),
+      membershipMinHeight: getComputedStyle(
+        membershipNode.querySelector("[data-membership-card]"),
+      ).minHeight,
+      paymentMinHeight: getComputedStyle(
+        paymentNode.querySelector("[data-membership-card]"),
+      ).minHeight,
+    };
+  }, {
+    membershipNode: await membership.elementHandle(),
+    paymentNode: await payment.elementHandle(),
+  });
+}
+
 async function dragPaletteBlock(page, type, targetY) {
   const source = page.getByTestId(`palette-item-${type}`);
   const target = page.getByTestId("canvas-stage");
@@ -430,7 +485,79 @@ for (const version of [1, 2]) {
     });
     expect(fixture.writes).toEqual([]);
   });
+
+  test(`isolated V${version} responsive minimum height equalises outer cards and reflows downstream`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const fixture = await installFixtures(page, {
+      version,
+      membershipMinHeight: { desktop: 700, tablet: 680, mobile: 700 },
+    });
+    await openPublished(page, fixture);
+    let layout = await membershipLayout(page);
+    expect(layout.membership.height).toBeGreaterThanOrEqual(700);
+    expect(Math.abs(layout.membership.height - layout.payment.height)).toBeLessThanOrEqual(1);
+    expect(layout.payment.top).toBeGreaterThanOrEqual(layout.membership.bottom - 1);
+    expect(layout.membership.scrollHeight).toBeLessThanOrEqual(layout.membership.clientHeight + 1);
+    expect(layout.payment.scrollHeight).toBeLessThanOrEqual(layout.payment.clientHeight + 1);
+    await page.screenshot({
+      path: testInfo.outputPath(`responsive-minimum-height-v${version}-desktop.png`),
+      fullPage: true,
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await assertAlphaData(page);
+    layout = await membershipLayout(page);
+    expect(layout.membership.height).toBeGreaterThanOrEqual(700);
+    expect(Math.abs(layout.membership.height - layout.payment.height)).toBeLessThanOrEqual(1);
+    expect(layout.payment.top).toBeGreaterThanOrEqual(layout.membership.bottom - 1);
+    await page.screenshot({
+      path: testInfo.outputPath(`responsive-minimum-height-v${version}-mobile.png`),
+      fullPage: true,
+    });
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
 }
+
+test("isolated Auto height remains content-driven and long mobile content settles without clipping", async ({ browser }) => {
+  for (const version of [1, 2]) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    const fixture = await installFixtures(page, {
+      version, membershipMinHeight: 0, longMembershipContent: true,
+    });
+    await openPublished(page, fixture);
+    await expect(page.getByTestId("canvas-membership-summary")).toContainText(
+      "content remains authoritative",
+    );
+    const samples = await page.evaluate(async () => {
+      const layouts = [];
+      for (let frame = 0; frame < 8; frame++) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const membership = document.querySelector("[data-block-type='membership-summary']");
+        const payment = document.querySelector("[data-block-type='payment-details']");
+        layouts.push({
+          height: membership.getBoundingClientRect().height,
+          clientHeight: membership.clientHeight,
+          scrollHeight: membership.scrollHeight,
+          bottom: membership.getBoundingClientRect().bottom,
+          nextTop: payment.getBoundingClientRect().top,
+          minHeight: getComputedStyle(membership.querySelector("[data-membership-card]")).minHeight,
+        });
+      }
+      return layouts;
+    });
+    const final = samples.at(-1);
+    expect(final.minHeight).toBe("0px");
+    expect(final.scrollHeight).toBeLessThanOrEqual(final.clientHeight + 1);
+    expect(final.nextTop).toBeGreaterThanOrEqual(final.bottom - 1);
+    expect(samples.slice(-4).every(sample => JSON.stringify(sample) === JSON.stringify(final))).toBe(true);
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+    await context.close();
+  }
+});
 
 test("isolated editor inserts both palette blocks, duplicates independently, edits, saves and reopens", async ({ page }) => {
   const fixture = await installFixtures(page, { version: 1, viewer: "alpha", empty: true });
@@ -447,10 +574,16 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
   const summary = page.locator("[data-block-type='membership-summary']").first();
   await summary.click();
   await expect(page.getByTestId("membership-editor-sample").first()).toContainText("sample data");
+  await page.getByTestId("membership-min-height-mode").selectOption("custom");
+  await page.getByTestId("membership-min-height").fill("460");
   await page.getByTestId("button-duplicate-selected").click();
   await expect(page.locator("[data-block-type='membership-summary']")).toHaveCount(2);
   const copies = page.locator("[data-block-type='membership-summary']");
   await copies.nth(1).click();
+  await page.getByTestId("button-breakpoint-mobile").first().click();
+  await expect(page.getByTestId("membership-min-height-mode")).toHaveValue("custom");
+  await page.getByTestId("membership-min-height").fill("520");
+  await page.getByTestId("button-breakpoint-desktop").first().click();
   await page.getByTestId("membership-input-eyebrow").fill("INDEPENDENT COPY WORDING");
   await expect(copies.nth(1)).toContainText("INDEPENDENT COPY WORDING");
   await expect(copies.nth(0)).toContainText("YOUR MEMBERSHIP");
@@ -487,10 +620,15 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
   expect(independent.content.states.paused.heading).toBe("Temporarily on hold");
   expect(independent.content.fields.memberSince).toBe("Joined in");
   expect(independent.content.typography.heading).toBe("type-task4511-heading");
+  expect(independent.content.minHeight).toMatchObject({ desktop: 460, mobile: 520 });
   expect(independent.style).toMatchObject({
     background: "#fff8ed", borderWidth: 3, borderRadius: 18, paddingTop: 36, boxShadow: "lg",
   });
   const savedPayment = children.find(item => item.type === "payment-details");
+  const originalSummary = children.find(item => (
+    item.type === "membership-summary" && item.content?.eyebrow === "YOUR MEMBERSHIP"
+  ));
+  expect(originalSummary.content.minHeight).toBe(460);
   expect(savedPayment.content).toMatchObject({
     manageLink: "/account/payments", manageLinkText: "Review billing",
     panel: { background: "#eaf8ef", borderColor: "#237249" },
@@ -507,6 +645,12 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
   await expect(page.locator("[data-block-type='membership-summary']")).toHaveCount(2);
   await expect(page.getByText("INDEPENDENT COPY WORDING", { exact: true })).toBeVisible();
   await expect(page.getByText("Review billing", { exact: true })).toBeVisible();
+  await page.locator("[data-block-type='membership-summary']").filter({
+    hasText: "INDEPENDENT COPY WORDING",
+  }).click();
+  await expect(page.getByTestId("membership-min-height")).toHaveValue("460");
+  await page.getByTestId("button-breakpoint-mobile").first().click();
+  await expect(page.getByTestId("membership-min-height")).toHaveValue("520");
   // Editor preview is explicit sample data and must not call the private API.
   expect(fixture.requests.filter(item => item.path === "/api/membership/canvas-summary")).toHaveLength(0);
 });
@@ -550,6 +694,7 @@ test("isolated duplicate instances and symbol membership content auto-height wit
   await page.setViewportSize({ width: 390, height: 844 });
   const fixture = await installFixtures(page, {
     version: 1, viewer: "alpha", duplicate: true, symbol: true,
+    symbolMinHeight: { desktop: 480, tablet: 440, mobile: 420 },
   });
   await openPublished(page, fixture);
   await expect(page.getByTestId("canvas-membership-summary")).toHaveCount(3);
@@ -563,7 +708,7 @@ test("isolated duplicate instances and symbol membership content auto-height wit
     childBottom: Math.max(...[...node.querySelectorAll("*")].map(child => child.getBoundingClientRect().bottom)),
     symbolBottom: node.getBoundingClientRect().bottom,
   }));
-  expect(dimensions.clientHeight).toBeGreaterThan(100);
+  expect(dimensions.clientHeight).toBeGreaterThanOrEqual(420);
   expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
   expect(dimensions.childBottom).toBeLessThanOrEqual(dimensions.symbolBottom + 1);
   expect(fixture.requests.filter(item => item.path === "/api/membership/canvas-summary")).toHaveLength(1);
