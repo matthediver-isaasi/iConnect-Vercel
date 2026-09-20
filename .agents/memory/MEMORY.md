@@ -6,8 +6,7 @@
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
-- [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
-- [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
+- [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
 - [Reindex concurrency guard](reindex-concurrency-guard.md) — reindex chain uses a fail-open defer-marker (system_settings global row + runId), NOT a hard lock; keep it best-effort or "restart is free" breaks.
 - [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
@@ -39,7 +38,6 @@
 - [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
 - [Billing, import, and evidence topics](billing-import-evidence-index.md) — index of durable rules for CSV imports, accounting/Xero invoices, BNMS reconciliation, and private report recovery.
 - [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
-- [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
 - [Public form submission idempotency](public-form-idempotency.md) — dup guard = client key + unique index returning the ORIGINAL success payload + keyless 10s backstop; test endpoint in-process against DEST (local DB is pre-tenant).
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
@@ -77,7 +75,6 @@
 - [Email preference consent serialization](email-preference-consent-serialization.md) — global and category consent writes must share one recipient lock and commit subscription+ledger changes atomically.
 - [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.
 - [Communication category member RBAC](communication-category-member-rbac.md) — enforce applicable roles on every member opt-in path; public affects externals only, while role-loss unsubscribe stays allowed.
-- [Membership invoice PO contract](membership-invoice-po-contract.md) — provider PO/reference fields must contain a genuine PO alone, or exactly TBC; never a membership-year description.
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.
 - [Cross-tenant member cleanup references](cross-tenant-member-cleanup-references.md) — tenant-scoped member deletion must fail closed when another tenant's rows reference candidate UUIDs.
