@@ -817,3 +817,17 @@ mtime_ms = 1789885314244
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0422efbf-984f-4c83-941f-926446af8613/81ce954e-f947-4782-a687-8e9b5523b8a9"
 storage_version_token = "1789885863309353"
 content_type = "text/csv"
+
+[[outputs]]
+id = "BKZWQ3wUQuG_TexOXsuXA"
+uri = "file://exports/.bnms-all-members/BNMS-All-Members.xlsx"
+type = "table"
+title = "All BNMS Members — Excel Export"
+description = "3,865 retained BNMS members, including 52 anonymised placeholders. Five requested columns; verified against the read-only production DEST snapshot from 20 September 2026 at 12:58 UTC."
+logical_id = "2b79f6de-9aa8-443c-95e6-5319b592377c"
+content_hash = "sha256:091065d00187aea7802fd00033c6655a803b3ad0f6b86f21c116091bea8b6ab7"
+size = 227286
+mtime_ms = 1789909086970
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2b79f6de-9aa8-443c-95e6-5319b592377c/1bcdac7e-2848-4493-a974-a176d928d0cb"
+storage_version_token = "1789909096098041"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
