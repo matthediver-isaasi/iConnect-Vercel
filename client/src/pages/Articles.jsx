@@ -193,7 +193,7 @@ export default function ArticlesPage() {
     ? (authorLoading || authorArticlesLoading)
     : (showMyArticlesOnly ? myArticlesLoading : publishedLoading);
 
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+  const { data: categories = [], isLoading: categoriesLoading, isSuccess: categoriesLoaded } = useQuery({
     queryKey: ['resourceCategories-articles', isAuthenticated],
     queryFn: async () => {
       let cats;
@@ -707,7 +707,8 @@ export default function ArticlesPage() {
         )}
 
         <div className="flex flex-col lg:flex-row gap-8">
-          <div className="lg:w-64 flex-shrink-0">
+          {(!categoriesLoaded || categories.length > 0) && (
+          <div className="lg:w-64 flex-shrink-0" data-testid="articles-sidebar">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-8">
               <ArticleFilter
                 categories={categories}
@@ -755,7 +756,9 @@ export default function ArticlesPage() {
             </div>
           </div>
 
-          <div className="flex-1">
+          )}
+
+          <div className="flex-1 min-w-0" data-testid="articles-content">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
               <div className="text-sm text-slate-600">
                 {sortedArticles.length > 0 
@@ -764,7 +767,7 @@ export default function ArticlesPage() {
                 }
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {memberInfo && !isFeatureExcluded('content.my-articles') && (
                   <Button
                     variant={showMyArticlesOnly ? "default" : "outline"}
