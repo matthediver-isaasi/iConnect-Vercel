@@ -5,6 +5,7 @@ import {
   PUBLIC_SIMPLE_EVENT_DETAIL_STATUSES,
   suppressImmediateSchedule,
 } from '../../shared/eventTiming.js';
+import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -49,6 +50,8 @@ export default async function handler(req, res) {
         pricing_config,
         allow_public_invoice_po,
         speaker_ids,
+        speaker_display_mode,
+        sponsor_display_mode,
         status,
         summary,
         event_type,
@@ -222,6 +225,8 @@ export default async function handler(req, res) {
       image_url: event.image_url,
       image_focal_point: event.image_focal_point,
       speaker_ids: event.speaker_ids,
+      speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
+      sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
       status: event.status,
       summary: event.summary,
       event_type: event.event_type,

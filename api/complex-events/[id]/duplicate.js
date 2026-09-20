@@ -13,7 +13,8 @@ const EVENT_FIELDS = [
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'timezone',
   'organization_id', 'program_id', 'pricing_config',
   'attached_documents', 'documents_section_title',
-  'member_group_id', 'group_event_public'
+  'member_group_id', 'group_event_public',
+  'speaker_display_mode', 'sponsor_display_mode'
 ];
 
 async function findUniqueSlug(tenantId, base) {

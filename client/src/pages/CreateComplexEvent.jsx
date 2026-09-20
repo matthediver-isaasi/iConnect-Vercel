@@ -50,6 +50,7 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
 import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
+import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
@@ -663,6 +664,8 @@ export default function CreateComplexEvent() {
     group_event_public: false,
     budgeted_costs: "",
     budgeted_income: "",
+    speaker_display_mode: "expanded",
+    sponsor_display_mode: "expanded",
     ...normalizeAttendancePolicy(),
   });
 
@@ -1205,6 +1208,8 @@ export default function CreateComplexEvent() {
         group_event_public: existingEvent.group_event_public === true,
         budgeted_costs: existingEvent.budgeted_costs != null ? String(existingEvent.budgeted_costs) : "",
         budgeted_income: existingEvent.budgeted_income != null ? String(existingEvent.budgeted_income) : "",
+        speaker_display_mode: existingEvent.speaker_display_mode || "expanded",
+        sponsor_display_mode: existingEvent.sponsor_display_mode || "expanded",
         ...normalizeAttendancePolicy(existingEvent),
       });
       setSlugManuallyEdited(true);
@@ -1928,6 +1933,8 @@ export default function CreateComplexEvent() {
         slug: formData.slug,
         description: formData.description || null,
         summary: formData.summary || null,
+        speaker_display_mode: formData.speaker_display_mode || "expanded",
+        sponsor_display_mode: formData.sponsor_display_mode || "expanded",
         custom_duration_explainer: (formData.custom_duration_explainer || "").trim().slice(0, 75) || null,
         speaker_award_config: formStateToConfig(speakerAwards),
         image_url: formData.image_url || null,
@@ -2845,6 +2852,15 @@ export default function CreateComplexEvent() {
                   </p>
                 </div>
 
+                {/* Complex events aggregate speakers from session assignments.
+                    This is the event-level registration-page preference. */}
+                <EventPeopleDisplayModeField
+                  field="speaker"
+                  label={speakerModuleName.plural}
+                  value={formData.speaker_display_mode}
+                  onChange={(value) => updateField("speaker_display_mode", value)}
+                />
+
                 {/* Event Sponsors - Collapsible */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <button
@@ -2862,6 +2878,14 @@ export default function CreateComplexEvent() {
                     </span>
                     {sponsorsExpanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                   </button>
+                  <div className="p-4 border-t border-slate-200">
+                    <EventPeopleDisplayModeField
+                      field="sponsor"
+                      label="Sponsors"
+                      value={formData.sponsor_display_mode}
+                      onChange={(value) => updateField("sponsor_display_mode", value)}
+                    />
+                  </div>
                   {sponsorsExpanded && (
                     <div className="p-4 border-t border-slate-200">
                       <EventSponsorSelector

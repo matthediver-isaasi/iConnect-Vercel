@@ -72,6 +72,7 @@ import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/co
 import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
 import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
+import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
@@ -364,7 +365,9 @@ export default function EditEvent() {
     teams_meeting_lifecycle: null,
     online_meeting_url: "",
     budgeted_costs: "",
-    budgeted_income: ""
+    budgeted_income: "",
+    speaker_display_mode: "expanded",
+    sponsor_display_mode: "expanded"
   });
 
   // State to track if timezone fetch failed
@@ -1130,7 +1133,9 @@ export default function EditEvent() {
         cta_override_mode: event.cta_override_mode || "card",
         cta_button_label: event.cta_button_label || "",
         budgeted_costs: event.budgeted_costs != null ? String(event.budgeted_costs) : "",
-        budgeted_income: event.budgeted_income != null ? String(event.budgeted_income) : ""
+        budgeted_income: event.budgeted_income != null ? String(event.budgeted_income) : "",
+        speaker_display_mode: event.speaker_display_mode || "expanded",
+        sponsor_display_mode: event.sponsor_display_mode || "expanded"
       });
 
       // TBC booking-element replacement fields
@@ -1822,6 +1827,8 @@ export default function EditEvent() {
       teams_outlook_connection_id: onlineProvider === 'teams' ? formData.teams_outlook_connection_id : null,
       teams_meeting_lifecycle: onlineProvider === 'teams' ? formData.teams_meeting_lifecycle : null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      speaker_display_mode: formData.speaker_display_mode || "expanded",
+      sponsor_display_mode: formData.sponsor_display_mode || "expanded",
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
@@ -2835,6 +2842,15 @@ export default function EditEvent() {
               </div>
               )}
 
+              {!isGroupLimited && (
+                <EventPeopleDisplayModeField
+                  field="speaker"
+                  label={speakerPlural}
+                  value={formData.speaker_display_mode}
+                  onChange={(value) => handleInputChange("speaker_display_mode", value)}
+                />
+              )}
+
               {/* Event Sponsors - Collapsible */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <button
@@ -2852,6 +2868,14 @@ export default function EditEvent() {
                   </span>
                   {sponsorsExpanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                 </button>
+                <div className="p-4 border-t border-slate-200">
+                  <EventPeopleDisplayModeField
+                    field="sponsor"
+                    label="Sponsors"
+                    value={formData.sponsor_display_mode}
+                    onChange={(value) => handleInputChange("sponsor_display_mode", value)}
+                  />
+                </div>
                 {sponsorsExpanded && (
                   <div className="p-4 border-t border-slate-200">
                     <EventSponsorSelector

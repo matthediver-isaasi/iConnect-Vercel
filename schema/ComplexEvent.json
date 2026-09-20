@@ -2,6 +2,16 @@
   "name": "ComplexEvent",
   "type": "object",
   "properties": {
+    "speaker_display_mode": {
+      "type": "string",
+      "enum": ["hidden", "collapsed", "expanded"],
+      "default": "expanded"
+    },
+    "sponsor_display_mode": {
+      "type": "string",
+      "enum": ["hidden", "collapsed", "expanded"],
+      "default": "expanded"
+    },
     "allow_public_invoice_po": {
       "type": "boolean",
       "default": false,

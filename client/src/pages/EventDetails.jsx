@@ -36,6 +36,7 @@ import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
+import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -467,6 +468,7 @@ export function EventDetailsExperience({
 
   // Use hybrid hook (authenticated: base44, public: publicClient)
   const { data: event, isLoading } = useEventData(eventId);
+  const speakerDisclosure = useEventDisclosure(event?.id, event?.speaker_display_mode);
 
   useEffect(() => {
     if (editorMode) return;
@@ -1794,7 +1796,7 @@ export function EventDetailsExperience({
 
               {/* Sponsors - below date section, above description */}
               {sponsorsAfterDate && (
-                <EventSponsorsCard eventId={event.id} eventType="simple" />
+                <EventSponsorsCard eventId={event.id} eventType="simple" displayMode={event.sponsor_display_mode} />
               )}
 
               {/* Description Section - Expandable accordion style */}
@@ -1850,7 +1852,7 @@ export function EventDetailsExperience({
 
               {/* Sponsors - default position after description & documents */}
               {!sponsorsAfterDate && (
-                <EventSponsorsCard eventId={event.id} eventType="simple" />
+                <EventSponsorsCard eventId={event.id} eventType="simple" displayMode={event.sponsor_display_mode} />
               )}
 
               {/* Sessions Schedule */}
@@ -1940,13 +1942,24 @@ export function EventDetailsExperience({
               )}
 
               {/* Speakers Section */}
-              {eventSpeakers.length > 0 && (
+              {!speakerDisclosure.hidden && eventSpeakers.length > 0 && (
                 <CardContent className="pt-6 border-t border-slate-200">
-                  <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <Mic className="w-5 h-5 text-purple-600" />
+                  <EventDisclosureHeading
+                    expanded={speakerDisclosure.expanded}
+                    onToggle={speakerDisclosure.toggle}
+                    icon={<Mic className="w-5 h-5 text-purple-600" aria-hidden="true" />}
+                    contentId={`event-speakers-${event.id}`}
+                    level={3}
+                    className={`font-semibold text-slate-900 ${speakerDisclosure.expanded ? "mb-4" : ""}`}
+                    testId="button-toggle-speakers"
+                  >
                     {speakerPlural}
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  </EventDisclosureHeading>
+                  <div
+                    id={`event-speakers-${event.id}`}
+                    className={speakerDisclosure.expanded ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : "hidden"}
+                    hidden={!speakerDisclosure.expanded}
+                  >
                     {eventSpeakers.map((speaker) => (
                       <button
                         key={speaker.id}

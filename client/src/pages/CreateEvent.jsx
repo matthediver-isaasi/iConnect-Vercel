@@ -78,6 +78,7 @@ import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import { emptyEventCpdBadgeConfig, putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import {
   emptyEventCpdPointsConfig,
   putEventCpdPointsRules,
@@ -286,7 +287,9 @@ export default function CreateEvent() {
     cta_override_url: "",
     cta_override_mode: "card",
     cta_button_label: "",
-    timezone: "Europe/London"
+    timezone: "Europe/London",
+    speaker_display_mode: "expanded",
+    sponsor_display_mode: "expanded"
   });
 
   // Common timezones for the selector
@@ -1161,6 +1164,8 @@ export default function CreateEvent() {
       online_provider: isOnline && !isTraining && !isGroupLimited ? onlineProvider : null,
       ...(isOnline && onlineProvider === 'teams' ? teamsMeeting : clearTeamsMeeting()),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      speaker_display_mode: formData.speaker_display_mode || "expanded",
+      sponsor_display_mode: formData.sponsor_display_mode || "expanded",
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
@@ -2133,6 +2138,24 @@ export default function CreateEvent() {
                 )}
               </div>
               )}
+
+              {!isGroupLimited && (
+                <EventPeopleDisplayModeField
+                  field="speaker"
+                  label={speakerPlural}
+                  value={formData.speaker_display_mode}
+                  onChange={(value) => handleInputChange("speaker_display_mode", value)}
+                />
+              )}
+
+              {/* Simple creation has no sponsor-assignment workflow. The display
+                  preference is still available so it is not silently defaulted. */}
+              <EventPeopleDisplayModeField
+                field="sponsor"
+                label="Sponsors"
+                value={formData.sponsor_display_mode}
+                onChange={(value) => handleInputChange("sponsor_display_mode", value)}
+              />
 
               {/* Event Filter Tags - Grouped by Category */}
               {eventCategories.length > 0 && (

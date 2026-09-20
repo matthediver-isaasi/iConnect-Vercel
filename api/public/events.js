@@ -5,6 +5,7 @@ import {
   isImmediateEvent,
   suppressImmediateSchedule,
 } from '../../shared/eventTiming.js';
+import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,6 +61,8 @@ export default async function handler(req, res) {
         registration_closes_at,
         is_featured,
         is_training,
+        speaker_display_mode,
+        sponsor_display_mode,
         cta_override_url,
         cta_override_mode,
         cta_button_label,
@@ -174,6 +177,8 @@ export default async function handler(req, res) {
         registration_closes_at: event.registration_closes_at,
         is_featured: event.is_featured || false,
         is_training: event.is_training || false,
+        speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
+        sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
         cheapest_price: cheapestPrice,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
         cta_override_url: event.cta_override_url || null,

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
 
 
 export default async function handler(req, res) {
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, member_group_id, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, attached_documents, documents_section_title, custom_duration_explainer, allow_public_invoice_po')
+      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, member_group_id, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, attached_documents, documents_section_title, custom_duration_explainer, allow_public_invoice_po, speaker_display_mode, sponsor_display_mode')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc', 'draft']);
 
@@ -177,6 +178,8 @@ export default async function handler(req, res) {
       show_ticket_availability: event.show_ticket_availability === true,
       collect_third_party_consent: event.pricing_config?.collectThirdPartyConsent === true,
       allow_public_invoice_po: event.allow_public_invoice_po === true,
+      speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
+      sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
       is_complex: true,
       cta_override_url: event.cta_override_url || null,
       cta_override_mode: event.cta_override_mode || 'card',

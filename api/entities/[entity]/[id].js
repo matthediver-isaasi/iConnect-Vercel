@@ -108,6 +108,7 @@ import { computeAuthoritativeHiddenFieldIds } from '../../_lib/formFieldVisibili
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
+import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
@@ -1190,6 +1191,10 @@ export default async function handler(req, res, dependencies = {}) {
       const sanitizedBody = Array.isArray(genericSanitizedBody)
         ? genericSanitizedBody
         : { ...genericSanitizedBody };
+      if (entityNormalized === 'event' || entityNormalized === 'complexevent') {
+        const displayModeError = validateEventDisplayModePayload(sanitizedBody);
+        if (displayModeError) return res.status(422).json(displayModeError);
+      }
       // The organisation member-login kill switch has one audited write path.
       // Generic entity mutation must never become an unscoped bypass.
       if (entityNormalized === 'organization' && (

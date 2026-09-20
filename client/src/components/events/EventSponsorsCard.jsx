@@ -3,12 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Handshake, Image } from "lucide-react";
 import { publicClient } from "@/api/publicClient";
+import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 
-export default function EventSponsorsCard({ eventId, eventType = "simple" }) {
+export default function EventSponsorsCard({ eventId, eventType = "simple", displayMode }) {
+  const disclosure = useEventDisclosure(eventId, displayMode);
   const { data } = useQuery({
     queryKey: ['public-event-sponsors', eventId, eventType],
     queryFn: () => publicClient.getEventSponsors(eventId, eventType),
-    enabled: !!eventId
+    enabled: !!eventId && !disclosure.hidden
   });
 
   const sponsors = data?.sponsors || [];
@@ -66,16 +68,25 @@ export default function EventSponsorsCard({ eventId, eventType = "simple" }) {
     return result;
   }, [sponsors, sponsorMap, categories, assignments]);
 
-  if (groupedSponsors.length === 0) return null;
+  if (disclosure.hidden || groupedSponsors.length === 0) return null;
+
+  const contentId = `event-sponsors-${eventType}-${eventId}`;
 
   return (
     <Card className="border-slate-200" data-testid="card-event-sponsors">
       <CardContent className="p-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2" data-testid="text-sponsors-heading">
-          <Handshake className="w-5 h-5 text-blue-600" />
+        <EventDisclosureHeading
+          expanded={disclosure.expanded}
+          onToggle={disclosure.toggle}
+          icon={<Handshake className="w-5 h-5 text-blue-600" aria-hidden="true" />}
+          contentId={contentId}
+          className={`text-lg font-semibold text-slate-900 ${disclosure.expanded ? "mb-4" : ""}`}
+          testId="button-toggle-sponsors"
+          headingTestId="text-sponsors-heading"
+        >
           Sponsors
-        </h2>
-        <div className="space-y-6">
+        </EventDisclosureHeading>
+        <div id={contentId} className="space-y-6" hidden={!disclosure.expanded}>
           {groupedSponsors.map((group, gi) => (
             <div key={group.categoryId || `uncategorized-${gi}`}>
               {group.categoryName && (

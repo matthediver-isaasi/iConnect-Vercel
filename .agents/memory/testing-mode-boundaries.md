@@ -50,6 +50,12 @@ uncaught errors rather than a feature regression.
 individual failed tests. Report runtime-blocked suites separately from passing
 isolated feature tests; do not silently weaken network safety boundaries.
 
+Include the application's CSS in isolated browser component fixtures when testing visibility.
+
+**Why:** A disclosure passed without styles but remained visible with Tailwind loaded: a display utility overrode the browser's native `hidden` styling.
+
+**How to apply:** Bundle the real stylesheet and assert visible content, not only `aria-expanded` or the `hidden` attribute.
+
 Distinguish an unavailable dev server from a blank fixture before changing tests.
 
 **Why:** Restored Vite dependency metadata can reference files from an older installed package layout. A page may initially render and then lose the server during dependency optimization, making unrelated Canvas fixtures all report zero embeds.

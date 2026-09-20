@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, registration_closes_at, event_type, is_featured, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, member_group_id, group_event_public, custom_duration_explainer')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, registration_closes_at, event_type, is_featured, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, member_group_id, group_event_public, custom_duration_explainer, speaker_display_mode, sponsor_display_mode')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .or('event_state.is.null,event_state.eq.active,event_state.eq.closed')
@@ -181,6 +182,8 @@ export default async function handler(req, res) {
         event_type: event.event_type || null,
         is_featured: event.is_featured || false,
         is_complex: true,
+        speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
+        sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
         session_count: sessionCountByEvent[event.id] || 0,
         day_count: dayCount,
         days_nonconsecutive: daysNonconsecutive,

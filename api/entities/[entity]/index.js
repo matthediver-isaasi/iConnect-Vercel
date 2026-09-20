@@ -102,6 +102,7 @@ import {
 } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
+import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
@@ -1486,6 +1487,10 @@ export default async function handler(req, res) {
       const sanitizedBody = Array.isArray(genericSanitizedBody)
         ? genericSanitizedBody
         : { ...genericSanitizedBody };
+      if (entityNorm === 'event' || entityNorm === 'complexevent') {
+        const displayModeError = validateEventDisplayModePayload(sanitizedBody);
+        if (displayModeError) return res.status(422).json(displayModeError);
+      }
       if (entityNorm === 'organization' && (
         Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked')
         || Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_login_blocked_at')

@@ -45,6 +45,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
+import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { allocationCartUnitPrice, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 
@@ -1281,6 +1282,7 @@ export function ComplexEventDetailExperience({
     enabled: !!eventId,
     staleTime: 30 * 1000
   });
+  const speakerDisclosure = useEventDisclosure(event?.id, event?.speaker_display_mode);
 
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ['complex-event-sessions-public', eventId],
@@ -1653,7 +1655,7 @@ export function ComplexEventDetailExperience({
             </Card>
 
             {sponsorsAfterDate && (
-              <EventSponsorsCard eventId={event.id} eventType="complex" />
+              <EventSponsorsCard eventId={event.id} eventType="complex" displayMode={event.sponsor_display_mode} />
             )}
 
             {(event.description || event.summary) && (
@@ -1684,7 +1686,7 @@ export function ComplexEventDetailExperience({
             )}
 
             {!sponsorsAfterDate && (
-              <EventSponsorsCard eventId={event.id} eventType="complex" />
+              <EventSponsorsCard eventId={event.id} eventType="complex" displayMode={event.sponsor_display_mode} />
             )}
 
             {filteredSessions.length > 0 && (
@@ -1724,15 +1726,25 @@ export function ComplexEventDetailExperience({
               </Card>
             )}
 
-            {visibleSpeakers.length > 0 && (
+            {!speakerDisclosure.hidden && visibleSpeakers.length > 0 && (
               <Card className="border-slate-200">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Mic className="w-5 h-5 text-purple-600" />
+                  <EventDisclosureHeading
+                    expanded={speakerDisclosure.expanded}
+                    onToggle={speakerDisclosure.toggle}
+                    icon={<Mic className="w-5 h-5 text-purple-600" aria-hidden="true" />}
+                    contentId={`complex-event-speakers-${event.id}`}
+                    level={2}
+                    className="text-2xl font-semibold leading-none tracking-tight"
+                    testId="button-toggle-speakers"
+                  >
                     Speakers
-                  </CardTitle>
+                  </EventDisclosureHeading>
                 </CardHeader>
-                <CardContent>
+                <CardContent
+                  id={`complex-event-speakers-${event.id}`}
+                  hidden={!speakerDisclosure.expanded}
+                >
                   <div className="grid sm:grid-cols-2 gap-4">
                     {visibleSpeakers.map(speaker => {
                       const displayName = speaker.full_name || speaker.name || '?';
