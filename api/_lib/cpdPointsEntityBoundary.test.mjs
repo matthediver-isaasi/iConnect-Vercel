@@ -13,6 +13,7 @@ const aliases = [
   'EventCpdPointsFollowup', 'event-cpd-points-followups',
   'EventCpdPointsOutbox', 'event_cpd_points_outboxes',
   'EventCpdPointsReplay', 'event_cpd_points_replays',
+  'HistoricalCpdPointsImportBatch', 'historical_cpd_points_import_batches',
 ];
 
 test('all CPD points table aliases are blocked', () => {

@@ -11,6 +11,8 @@ const BLOCKED_CPD_POINTS_ENTITY_ALIASES = new Set([
   'eventcpdpointsoutboxes',
   'eventcpdpointsreplay',
   'eventcpdpointsreplays',
+  'historicalcpdpointsimportbatch',
+  'historicalcpdpointsimportbatches',
 ]);
 
 export function normalizeGenericEntityAlias(entity) {
