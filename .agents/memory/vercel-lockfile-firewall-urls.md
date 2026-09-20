@@ -1,17 +1,17 @@
 ---
-name: Vercel build breaks on package-firewall.replit.local lockfile URLs
-description: Why Vercel npm install crashes with "Exit handler never called!" and the one-line fix.
+name: Keep npm lockfile resolved URLs portable
+description: Why approved Replit installs can leave internal package URLs that external deployment builders cannot resolve.
 ---
 
-# Replit package-firewall URLs leak into package-lock.json and break Vercel builds
+# Keep approved package installs portable across deployment builders
 
-When a package is installed in this workspace (via the Replit packager), its
-`package-lock.json` entry's `"resolved"` URL is written as
-`http://package-firewall.replit.local/npm/<path>` (Replit's internal package
-mirror), NOT `https://registry.npmjs.org/<path>`.
+An approved package install in this workspace can write a `package-lock.json`
+`"resolved"` URL under `http://package-firewall.replit.internal/npm/<path>`
+(older locks used the `.local` hostname). That internal mirror is valid during
+the controlled install but is not a portable artifact source.
 
-Vercel cannot resolve the host `package-firewall.replit.local`, so `npm install`
-on Vercel hangs and then crashes with:
+External builders such as Vercel cannot resolve the internal hostname, so their
+clean lockfile install can fail with `ENOTFOUND` or a misleading npm exit error.
 
 ```
 npm error Exit handler never called!
@@ -22,25 +22,19 @@ Command "npm install" exited with 1
 That npm-internal error message is misleading — the real cause is the
 unreachable mirror host in the lockfile.
 
-**Fix (safe, mechanical):** rewrite the host prefix in `package-lock.json`:
-
-```bash
-sed -i 's#http://package-firewall\.replit\.local/npm/#https://registry.npmjs.org/#g' package-lock.json
-```
-
-The path after `/npm/` is identical to npmjs's path, and `integrity` hashes are
-content hashes (registry-independent), so only the `"resolved"` lines change and
-npm still verifies integrity after downloading from npmjs. Verify with
-`grep -c package-firewall.replit.local package-lock.json` (expect 0) and
-`node -e "JSON.parse(require('fs').readFileSync('package-lock.json','utf8'))"`.
+**Fix (safe, mechanical):** replace only the exact internal npm prefix with
+`https://registry.npmjs.org/`. Preserve the remaining tarball path, package
+versions, integrity hashes, and any genuine external package sources byte for
+byte. Integrity hashes are content hashes, so npm still verifies the downloaded
+artifact independently of its registry hostname.
 
 **Why:** this recurs whenever a task agent adds a dependency (the AWS SDK /
 Cloudflare R2 backup work is one culprit). It had already been fixed twice before
 in git history ("replace internal Replit package mirror URL in package-lock.json"
 and "Fix build error caused by incorrect package registry URL").
 
-**How to apply:** after any merge that touched `package-lock.json`, before
-trusting a Vercel deploy, scan for non-`registry.npmjs.org` `resolved` hosts and
-rewrite them. Do NOT run `npm install` here to "fix" it — that re-resolves
-through the firewall and re-injects the internal URLs. Edit the lockfile directly
-(editing package-lock.json is allowed; editing package.json is not).
+**How to apply:** after an approved install or merge that touched the lockfile,
+run `node --test scripts/package-lock-portability.test.mjs` before trusting an
+external deployment. Do not run `npm install` merely to rewrite URLs, alter npm
+registry configuration, bypass the firewall, or blanket-rewrite genuine
+external sources; directly normalize only the known internal prefix.
