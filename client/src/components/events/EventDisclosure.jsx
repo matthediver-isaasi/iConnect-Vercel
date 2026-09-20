@@ -49,22 +49,25 @@ export function EventDisclosureHeading({
   const Heading = `h${level}`;
 
   return (
-    <Heading className={className} data-testid={headingTestId}>
+    <Heading
+      className={`text-lg font-semibold leading-7 text-slate-900 ${className}`}
+      data-testid={headingTestId}
+    >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
         aria-controls={contentId}
-        className={`flex w-full items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${buttonClassName}`}
+        className={`flex min-h-7 w-full items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${buttonClassName}`}
         data-testid={testId}
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <ChevronDown className="h-5 w-5 shrink-0" aria-hidden="true" />
         ) : (
-          <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
         )}
         {icon}
-        <span>{children}</span>
+        <span className="min-w-0">{children}</span>
       </button>
     </Heading>
   );

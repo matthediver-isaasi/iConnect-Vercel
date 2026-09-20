@@ -5,7 +5,12 @@ import { Handshake, Image } from "lucide-react";
 import { publicClient } from "@/api/publicClient";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 
-export default function EventSponsorsCard({ eventId, eventType = "simple", displayMode }) {
+export default function EventSponsorsCard({
+  eventId,
+  eventType = "simple",
+  displayMode,
+  presentation = "card",
+}) {
   const disclosure = useEventDisclosure(eventId, displayMode);
   const { data } = useQuery({
     queryKey: ['public-event-sponsors', eventId, eventType],
@@ -72,36 +77,50 @@ export default function EventSponsorsCard({ eventId, eventType = "simple", displ
 
   const contentId = `event-sponsors-${eventType}-${eventId}`;
 
+  const disclosureContent = (
+    <>
+      <EventDisclosureHeading
+        expanded={disclosure.expanded}
+        onToggle={disclosure.toggle}
+        icon={<Handshake className="w-5 h-5 text-blue-600" aria-hidden="true" />}
+        contentId={contentId}
+        className={disclosure.expanded ? "mb-4" : ""}
+        testId="button-toggle-sponsors"
+        headingTestId="text-sponsors-heading"
+      >
+        Sponsors
+      </EventDisclosureHeading>
+      <div id={contentId} className="space-y-6" hidden={!disclosure.expanded}>
+        {groupedSponsors.map((group, gi) => (
+          <div key={group.categoryId || `uncategorized-${gi}`}>
+            {group.categoryName && (
+              <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3" data-testid={`text-sponsor-category-${gi}`}>
+                {group.categoryName}
+              </h3>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {group.sponsors.map(sponsor => (
+                <SponsorItem key={sponsor.id} sponsor={sponsor} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  if (presentation === "inline") {
+    return (
+      <section className="border-t border-slate-200 p-6" data-testid="card-event-sponsors">
+        {disclosureContent}
+      </section>
+    );
+  }
+
   return (
     <Card className="border-slate-200" data-testid="card-event-sponsors">
       <CardContent className="p-6">
-        <EventDisclosureHeading
-          expanded={disclosure.expanded}
-          onToggle={disclosure.toggle}
-          icon={<Handshake className="w-5 h-5 text-blue-600" aria-hidden="true" />}
-          contentId={contentId}
-          className={`text-lg font-semibold text-slate-900 ${disclosure.expanded ? "mb-4" : ""}`}
-          testId="button-toggle-sponsors"
-          headingTestId="text-sponsors-heading"
-        >
-          Sponsors
-        </EventDisclosureHeading>
-        <div id={contentId} className="space-y-6" hidden={!disclosure.expanded}>
-          {groupedSponsors.map((group, gi) => (
-            <div key={group.categoryId || `uncategorized-${gi}`}>
-              {group.categoryName && (
-                <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3" data-testid={`text-sponsor-category-${gi}`}>
-                  {group.categoryName}
-                </h3>
-              )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {group.sponsors.map(sponsor => (
-                  <SponsorItem key={sponsor.id} sponsor={sponsor} />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        {disclosureContent}
       </CardContent>
     </Card>
   );
@@ -109,7 +128,7 @@ export default function EventSponsorsCard({ eventId, eventType = "simple", displ
 
 function SponsorItem({ sponsor }) {
   const content = (
-    <div className="flex flex-col items-center text-center gap-2 p-3 rounded-lg border border-slate-100 bg-slate-50/50" data-testid={`sponsor-item-${sponsor.id}`}>
+    <div className="flex min-w-0 flex-col items-center text-center gap-2 p-3 rounded-lg border border-slate-100 bg-slate-50/50" data-testid={`sponsor-item-${sponsor.id}`}>
       {sponsor.logo_url ? (
         <img
           src={sponsor.logo_url}
@@ -122,9 +141,9 @@ function SponsorItem({ sponsor }) {
           <Image className="h-8 w-8 text-slate-200" />
         </div>
       )}
-      <span className="text-sm font-medium text-slate-700 leading-tight">{sponsor.name}</span>
+      <span className="min-w-0 max-w-full text-sm font-medium text-slate-700 leading-tight break-words [overflow-wrap:anywhere]">{sponsor.name}</span>
       {sponsor.description && (
-        <span className="text-xs text-slate-500 line-clamp-2">{sponsor.description}</span>
+        <span className="min-w-0 max-w-full text-xs text-slate-500 line-clamp-2 break-words [overflow-wrap:anywhere]">{sponsor.description}</span>
       )}
     </div>
   );
@@ -135,7 +154,7 @@ function SponsorItem({ sponsor }) {
         href={sponsor.website_url}
         target="_blank"
         rel="noopener noreferrer"
-        className="block hover:ring-2 hover:ring-blue-200 rounded-lg transition-shadow"
+        className="block min-w-0 hover:ring-2 hover:ring-blue-200 rounded-lg transition-shadow"
         data-testid={`link-sponsor-${sponsor.id}`}
       >
         {content}

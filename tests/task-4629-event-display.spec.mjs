@@ -225,7 +225,7 @@ async function mount(page, options) {
   await page.evaluate(({ speakers, sponsors }) => {
     window.__task4629Speakers = speakers;
     window.__task4629Sponsors = sponsors;
-  }, { speakers: LARGE_SPEAKERS, sponsors: sponsorPayload() });
+  }, { speakers: options.speakers || LARGE_SPEAKERS, sponsors: options.sponsors || sponsorPayload() });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: script });
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -236,6 +236,102 @@ function sectionExpectations(mode) {
     heading: mode !== "hidden",
     content: mode === "expanded",
   };
+}
+
+// Computed styles, rather than class strings, catch inherited typography drift.
+async function disclosureMetrics(toggle) {
+  return toggle.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const heading = getComputedStyle(button.parentElement);
+    const icons = [...button.querySelectorAll("svg")].map((icon) => {
+      const rect = icon.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, center: rect.y + rect.height / 2 };
+    });
+    return {
+      fontSize: style.fontSize, fontWeight: style.fontWeight, lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing, gap: style.gap,
+      headingSize: heading.fontSize,
+      icons: icons.map(({ width, height }) => ({ width, height })),
+      iconOffset: Math.abs(icons[0].center - icons[1].center),
+    };
+  });
+}
+
+for (const pageType of ["simple", "complex"]) {
+  for (const placement of ["default", "after_date"]) {
+    for (const width of [375, 1440]) {
+      for (const minimal of [false, true]) {
+        test(`section layout ${pageType} ${placement} ${width} ${minimal ? "minimal" : "long"}`, async ({ page }, testInfo) => {
+          await page.setViewportSize({ width, height: 900 });
+          const event = (pageType === "simple" ? simpleEvent : complexEvent)("layout", "collapsed", "collapsed");
+          const sponsors = sponsorPayload();
+          sponsors.sponsors[0].name = "LongSponsorName".repeat(12);
+          sponsors.categories[0].name = "Principal partners supporting this event and its participants";
+          if (minimal) {
+            delete event.description;
+            delete event.summary;
+            event.attached_documents = [];
+            sponsors.sponsors.forEach(sponsor => { delete sponsor.description; });
+          }
+          await mount(page, { pageType, event, placement, sponsors });
+          const sponsor = page.getByTestId("card-event-sponsors");
+          const speakers = page.getByTestId("button-toggle-speakers");
+          const sponsorToggle = page.getByTestId("button-toggle-sponsors");
+          for (const state of ["collapsed", "speakers-only", "expanded", "sponsors-only"]) {
+            const a = await disclosureMetrics(speakers);
+            const b = await disclosureMetrics(sponsorToggle);
+            expect(a).toEqual(b);
+            expect(a.fontSize).toBe("18px");
+            expect(a.fontWeight).toBe("600");
+            expect(a.lineHeight).toBe("28px");
+            expect(a.gap).toBe("8px");
+            expect(a.iconOffset).toBeLessThan(1);
+            const titleSize = await page.getByRole("heading", { level: 1 })
+              .evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+            expect(titleSize).toBeGreaterThan(18);
+            const containment = await sponsor.evaluate(node => {
+              const style = getComputedStyle(node);
+              return { radius: style.borderRadius, shadow: style.boxShadow,
+                left: style.borderLeftWidth, right: style.borderRightWidth,
+                top: style.borderTopWidth, bottom: style.borderBottomWidth };
+            });
+            if (pageType === "simple") {
+              expect(containment).toEqual({ radius: "0px", shadow: "none", left: "0px", right: "0px", top: "1px", bottom: "0px" });
+            } else {
+              expect(containment.radius).not.toBe("0px");
+              expect(containment.left).toBe("1px");
+              const padding = await page.evaluate(() => {
+                const sponsor = document.querySelector('[data-testid="card-event-sponsors"]');
+                const speakerHeading = document.querySelector('[data-testid="button-toggle-speakers"]').parentElement;
+                const speakerCard = speakerHeading.parentElement.parentElement;
+                const offset = (card, button) => {
+                  const c = card.getBoundingClientRect(), b = button.getBoundingClientRect();
+                  return [b.x - c.x, b.y - c.y, c.right - b.right];
+                };
+                return {
+                  sponsor: offset(sponsor, sponsor.querySelector("button")),
+                  speaker: offset(speakerCard, speakerHeading.querySelector("button")),
+                  gap: speakerCard.getBoundingClientRect().top - sponsor.getBoundingClientRect().bottom,
+                };
+              });
+              expect(padding.sponsor).toEqual(padding.speaker);
+              expect(padding.gap).toBeGreaterThanOrEqual(24);
+            }
+            expect(await sponsor.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+            expect(await sponsor.evaluate(node => node.getBoundingClientRect().width <= window.innerWidth)).toBe(true);
+            if (state === "collapsed" || state === "expanded") {
+              await sponsor.scrollIntoViewIfNeeded();
+              await page.screenshot({ path: testInfo.outputPath(`${state}.png`) });
+            }
+            if (state === "collapsed") await speakers.click();
+            if (state === "speakers-only") await sponsorToggle.click();
+            if (state === "expanded") await speakers.click();
+          }
+          expect(await page.evaluate(() => window.__task4629.writes)).toEqual([]);
+        });
+      }
+    }
+  }
 }
 
 for (const pageType of ["simple", "complex"]) {

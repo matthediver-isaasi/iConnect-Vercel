@@ -1796,7 +1796,12 @@ export function EventDetailsExperience({
 
               {/* Sponsors - below date section, above description */}
               {sponsorsAfterDate && (
-                <EventSponsorsCard eventId={event.id} eventType="simple" displayMode={event.sponsor_display_mode} />
+                <EventSponsorsCard
+                  eventId={event.id}
+                  eventType="simple"
+                  displayMode={event.sponsor_display_mode}
+                  presentation="inline"
+                />
               )}
 
               {/* Description Section - Expandable accordion style */}
@@ -1852,7 +1857,12 @@ export function EventDetailsExperience({
 
               {/* Sponsors - default position after description & documents */}
               {!sponsorsAfterDate && (
-                <EventSponsorsCard eventId={event.id} eventType="simple" displayMode={event.sponsor_display_mode} />
+                <EventSponsorsCard
+                  eventId={event.id}
+                  eventType="simple"
+                  displayMode={event.sponsor_display_mode}
+                  presentation="inline"
+                />
               )}
 
               {/* Sessions Schedule */}
@@ -1950,7 +1960,7 @@ export function EventDetailsExperience({
                     icon={<Mic className="w-5 h-5 text-purple-600" aria-hidden="true" />}
                     contentId={`event-speakers-${event.id}`}
                     level={3}
-                    className={`font-semibold text-slate-900 ${speakerDisclosure.expanded ? "mb-4" : ""}`}
+                    className={speakerDisclosure.expanded ? "mb-4" : ""}
                     testId="button-toggle-speakers"
                   >
                     {speakerPlural}

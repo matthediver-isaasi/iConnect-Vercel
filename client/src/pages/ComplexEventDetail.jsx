@@ -1550,7 +1550,7 @@ export function ComplexEventDetailExperience({
         )}
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8 lg:items-start">
-          <div className="lg:col-span-2 space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-2">
+          <div className="min-w-0 lg:col-span-2 space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-2">
             {event.image_url && (
               <div className="rounded-xl overflow-hidden shadow-lg aspect-video max-h-[28rem] mx-auto w-full">
                 <img
@@ -1728,14 +1728,13 @@ export function ComplexEventDetailExperience({
 
             {!speakerDisclosure.hidden && visibleSpeakers.length > 0 && (
               <Card className="border-slate-200">
-                <CardHeader>
+                <CardHeader className="p-6">
                   <EventDisclosureHeading
                     expanded={speakerDisclosure.expanded}
                     onToggle={speakerDisclosure.toggle}
                     icon={<Mic className="w-5 h-5 text-purple-600" aria-hidden="true" />}
                     contentId={`complex-event-speakers-${event.id}`}
                     level={2}
-                    className="text-2xl font-semibold leading-none tracking-tight"
                     testId="button-toggle-speakers"
                   >
                     Speakers
