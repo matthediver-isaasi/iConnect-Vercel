@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +22,14 @@ import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle"
 import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
 import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
 import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
+import { publicClient } from "@/api/publicClient";
+import { getEligiblePublicHeaderActions } from "@/lib/publicHeaderNavigationActions";
+import {
+  ORGANISATION_DIRECTORY_GUEST_DEFAULTS,
+  saveOrganisationDirectoryGuestSettings,
+} from "@/lib/organisationDirectoryGuestSettings";
+
+const AUTOMATIC_JOIN_ACTION_VALUE = "__automatic_join_action__";
 
 export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
@@ -41,6 +50,10 @@ export default function OrganisationDirectorySettingsPage() {
   const [viewMembersRoleIds, setViewMembersRoleIds] = useState([]);
   const [backFieldOrder, setBackFieldOrder] = useState([]);
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
+  const [guestHeading, setGuestHeading] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
+  const [guestDescription, setGuestDescription] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description);
+  const [guestJoinActionId, setGuestJoinActionId] = useState("");
+  const tenantId = memberInfo?.tenant_id || null;
   const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
   const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
   const filterSettings = useOrganisationDirectoryFilterSettings({
@@ -51,6 +64,21 @@ export default function OrganisationDirectorySettingsPage() {
     enabled: accessChecked,
     identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
   });
+
+  const navigationActionsQuery = useQuery({
+    queryKey: ['organisation-directory-guest-navigation-actions', tenantId],
+    enabled: accessChecked && Boolean(tenantId),
+    queryFn: () => publicClient.listNavigationItems(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const navigationActions = useMemo(
+    () => getEligiblePublicHeaderActions(navigationActionsQuery.data)
+      .sort((a, b) => {
+        const locationOrder = a.location === b.location ? 0 : (a.location === 'top_nav' ? -1 : 1);
+        return locationOrder || (a.display_order || 0) - (b.display_order || 0);
+      }),
+    [navigationActionsQuery.data]
+  );
 
   useEffect(() => {
     if (isAccessReady) {
@@ -127,7 +155,8 @@ export default function OrganisationDirectorySettingsPage() {
 
   // Fetch current settings
   const { data: settings } = useQuery({
-    queryKey: ['organisation-directory-settings-admin'],
+    queryKey: ['organisation-directory-settings-admin', tenantId],
+    enabled: accessChecked && Boolean(tenantId),
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const headerSetting = allSettings.find((s) => s.setting_key === 'org_directory_header');
@@ -144,6 +173,9 @@ export default function OrganisationDirectorySettingsPage() {
       const viewMembersRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_view_members_role_ids');
       const backOrderSetting = allSettings.find((s) => s.setting_key === 'org_directory_back_field_order');
       const customFieldsLabelSetting = allSettings.find((s) => s.setting_key === 'org_directory_custom_fields_label');
+      const guestHeadingSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_heading');
+      const guestDescriptionSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_description');
+      const guestJoinActionSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_join_action_id');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -158,7 +190,10 @@ export default function OrganisationDirectorySettingsPage() {
         reverseCardRoles: reverseCardRolesSetting,
         viewMembersRoles: viewMembersRolesSetting,
         backOrder: backOrderSetting,
-        customFieldsLabel: customFieldsLabelSetting
+        customFieldsLabel: customFieldsLabelSetting,
+        guestHeading: guestHeadingSetting,
+        guestDescription: guestDescriptionSetting,
+        guestJoinAction: guestJoinActionSetting
       };
     },
     refetchOnMount: true
@@ -237,6 +272,11 @@ export default function OrganisationDirectorySettingsPage() {
     if (settings?.customFieldsLabel) {
       setCustomFieldsLabel(settings.customFieldsLabel.setting_value || "");
     }
+    setGuestHeading(settings?.guestHeading?.setting_value || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
+    setGuestDescription(
+      settings?.guestDescription?.setting_value || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description
+    );
+    setGuestJoinActionId(settings?.guestJoinAction?.setting_value || "");
   }, [settings]);
 
   // Handler for toggling logo - ensures at least one of logo/title is enabled
@@ -261,6 +301,7 @@ export default function OrganisationDirectorySettingsPage() {
     mutationFn: async () => {
       if (!settings || !filterSettings.isSuccess || filterSettings.isFetching
         || !csvSettings.isSuccess || csvSettings.isFetching
+        || !navigationActionsQuery.isSuccess || navigationActionsQuery.isFetching
         || fieldsPending || fieldsError || fieldsFetching
         || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching) {
         throw new Error("Wait for directory settings and field metadata to load before saving");
@@ -451,12 +492,25 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'Tenant-wide order of core elements and custom fields on the reverse of organisation directory cards'
         });
       }
+
+      await saveOrganisationDirectoryGuestSettings({
+        entity: base44.entities.SystemSettings,
+        existingSettings: {
+          heading: settings.guestHeading,
+          description: settings.guestDescription,
+          joinAction: settings.guestJoinAction,
+        },
+        heading: guestHeading,
+        description: guestDescription,
+        joinActionId: guestJoinActionId,
+      });
       await filterSettings.save();
       await csvSettings.save();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-guest-settings'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
       toast.success('Settings saved successfully');
     },
@@ -466,8 +520,11 @@ export default function OrganisationDirectorySettingsPage() {
   });
 
   const settingsSaveDisabled = saveMutation.isPending
+    || !settings
     || !csvSettings.isSuccess
-    || csvSettings.isFetching;
+    || csvSettings.isFetching
+    || !navigationActionsQuery.isSuccess
+    || navigationActionsQuery.isFetching;
 
   const toggleOrganization = (orgId) => {
     setExcludedOrgIds((prev) =>
@@ -737,6 +794,106 @@ export default function OrganisationDirectorySettingsPage() {
                 disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700">
 
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle>Guest Introduction</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Configure the introduction shown to signed-out visitors. This content appears separately from the
+              directory page header and signed-in directory content.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-heading">Heading</Label>
+              <Input
+                id="org-directory-guest-heading"
+                value={guestHeading}
+                onChange={(event) => setGuestHeading(event.target.value)}
+                placeholder="Organisation Directory"
+                data-testid="input-org-directory-guest-heading"
+              />
+              <p className="text-xs text-slate-500">
+                Leave blank to use “Organisation Directory”.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-description">Description</Label>
+              <Textarea
+                id="org-directory-guest-description"
+                value={guestDescription}
+                onChange={(event) => setGuestDescription(event.target.value)}
+                placeholder="Sign in to view the organisation directory."
+                rows={4}
+                data-testid="textarea-org-directory-guest-description"
+              />
+              <p className="text-xs text-slate-500">
+                Leave blank to use “Sign in to view the organisation directory.”
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-join-action">Join action</Label>
+              <Select
+                value={guestJoinActionId || AUTOMATIC_JOIN_ACTION_VALUE}
+                onValueChange={(value) =>
+                  setGuestJoinActionId(value === AUTOMATIC_JOIN_ACTION_VALUE ? "" : value)
+                }
+                disabled={!navigationActionsQuery.isSuccess || navigationActionsQuery.isFetching}
+              >
+                <SelectTrigger
+                  id="org-directory-guest-join-action"
+                  data-testid="select-org-directory-guest-join-action"
+                >
+                  <SelectValue placeholder="Select a public header action" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUTOMATIC_JOIN_ACTION_VALUE}>
+                    Automatic (use the single Join button)
+                  </SelectItem>
+                  {navigationActions.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>
+                      {item.title} ({item.location === 'top_nav' ? 'top navigation' : 'main navigation'})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Choose an existing public header button so the guest Join button uses the same destination and
+                behaviour. Automatic only uses a button named Join when exactly one match exists.
+              </p>
+              {navigationActionsQuery.isPending && (
+                <p role="status" className="text-sm text-slate-600">Loading public header actions…</p>
+              )}
+              {navigationActionsQuery.isError && (
+                <div role="alert" className="text-sm text-red-700">
+                  Public header actions could not be loaded. Saving is unavailable until they load.
+                  <Button variant="link" onClick={() => navigationActionsQuery.refetch()}>Retry</Button>
+                </div>
+              )}
+              {navigationActionsQuery.isSuccess && guestJoinActionId
+                && !navigationActions.some((item) => String(item.id) === guestJoinActionId) && (
+                <p role="alert" className="text-sm text-amber-700">
+                  The saved navigation action is no longer available. Guests will not see a Join link until you
+                  choose another action or select Automatic.
+                </p>
+              )}
+            </div>
+
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={settingsSaveDisabled}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-org-directory-guest-introduction"
+              >
                 <Save className="w-4 h-4 mr-2" />
                 {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
               </Button>

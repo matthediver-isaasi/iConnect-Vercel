@@ -18,6 +18,7 @@ import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleI
 import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
+import OrganisationDirectoryGuest from "@/components/directory/OrganisationDirectoryGuest";
 import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
 
 // Helper to add cache-busting for JPG images which have loading issues
@@ -34,6 +35,18 @@ const getLogoUrl = (url, orgId) => {
 };
 
 export default function OrganisationDirectoryPage() {
+  const { memberInfo, authResolved } = useMemberAccess();
+  if (isDirectoryEmbedLocation()) {
+    return <div className="p-4 md:p-8 text-slate-600">The organisation directory is available in the authenticated application.</div>;
+  }
+  if (!authResolved) {
+    return <div className="px-4 py-8 md:py-12" role="status" aria-label="Loading directory"><Loader2 className="mx-auto w-6 h-6 animate-spin text-slate-500" /></div>;
+  }
+  if (!memberInfo?.id || !memberInfo?.tenant_id) return <OrganisationDirectoryGuest />;
+  return <AuthenticatedOrganisationDirectory />;
+}
+
+function AuthenticatedOrganisationDirectory() {
   const { isAdmin, isFeatureExcluded, memberInfo, authResolved } = useMemberAccess();
   const queryClient = useQueryClient();
   
@@ -456,30 +469,6 @@ export default function OrganisationDirectoryPage() {
       }
     }
   };
-
-  if (isDirectoryEmbedLocation()) {
-    return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
-        The organisation directory is available in the authenticated application.
-      </div>
-    );
-  }
-
-  if (!authResolved) {
-    return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  if (!memberInfo?.id || !memberInfo?.tenant_id) {
-    return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center text-slate-600">
-        Sign in to view the organisation directory.
-      </div>
-    );
-  }
 
   // Metadata is intentionally disabled without an authenticated member, so
   // only include its pending state in the authenticated loading gate.

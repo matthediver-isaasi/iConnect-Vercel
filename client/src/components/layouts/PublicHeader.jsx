@@ -9,11 +9,9 @@ import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeContext";
-import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search, User, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
+import PublicHeaderNavigationAction from "@/components/navigation/PublicHeaderNavigationAction";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
 import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
@@ -58,134 +56,7 @@ const NEUTRAL_GRADIENT_STOPS = [
 ];
 const NEUTRAL_SOCIAL_ICON_COLOR = '#64748B';
 
-const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
-
-// Helper to generate background CSS from a background config object
-const generateBackgroundCss = (bgConfig, fallbackColor = '#3b82f6') => {
-  if (!bgConfig) return fallbackColor;
-  
-  if (bgConfig.type === 'solid') {
-    return bgConfig.solidColor || fallbackColor;
-  }
-  
-  // New format with gradientStops array
-  if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
-    const angle = bgConfig.gradientAngle ?? 90;
-    const stops = [...bgConfig.gradientStops]
-      .sort((a, b) => a.position - b.position)
-      .map(stop => `${stop.color} ${stop.position}%`)
-      .join(', ');
-    return `linear-gradient(${angle}deg, ${stops})`;
-  }
-  
-  // Old nested format with gradientStart/gradientEnd
-  if (bgConfig.gradientStart && bgConfig.gradientEnd) {
-    const directionToAngle = {
-      'to right': 90, 'to left': 270, 'to bottom': 180,
-      'to top': 0, 'to bottom right': 135, 'to bottom left': 225
-    };
-    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
-    return `linear-gradient(${angle}deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)`;
-  }
-  
-  return fallbackColor;
-};
-
-// Helper to generate CSS styles from button style config (returns both normal and hover)
-const getButtonStyles = (buttonStyleConfig) => {
-  if (!buttonStyleConfig) return null;
-  
-  const bg = buttonStyleConfig.background || {};
-  const border = buttonStyleConfig.border || {};
-  const radius = buttonStyleConfig.radius || 0;
-  const textColor = buttonStyleConfig.textColor || '#FFFFFF';
-  const hoverTextColor = buttonStyleConfig.hoverTextColor || textColor;
-  const hover = buttonStyleConfig.hover || {};
-  
-  // Generate normal background using the unified helper
-  const background = generateBackgroundCss(bg, '#3b82f6');
-  
-  // Generate hover background using the unified helper
-  let hoverBackground;
-  if (hover && (hover.type || hover.gradientStops || hover.gradientStart || hover.solidColor)) {
-    hoverBackground = generateBackgroundCss(hover, background);
-  } else {
-    hoverBackground = background; // fallback to same as normal
-  }
-  
-  // Handle border - support both nested and flat formats
-  const borderWidth = border.width ?? buttonStyleConfig.borderWidth ?? 0;
-  const borderStyle = border.style || buttonStyleConfig.borderStyle || 'solid';
-  const borderColor = border.color || buttonStyleConfig.borderColor || 'transparent';
-  
-  const baseStyle = {
-    borderWidth: borderWidth ? `${borderWidth}px` : '0',
-    borderStyle: borderWidth ? borderStyle : 'none',
-    borderColor: borderColor,
-    borderRadius: `${radius}px`,
-  };
-  
-  return {
-    normal: {
-      ...baseStyle,
-      background,
-      color: textColor,
-    },
-    hover: {
-      ...baseStyle,
-      background: hoverBackground,
-      color: hoverTextColor,
-    }
-  };
-};
-
-// Styled navigation button component with hover state
-function StyledNavButton({ styleConfig, children, className = '' }) {
-  const [isHovered, setIsHovered] = useState(false);
-  
-  const styles = getButtonStyles(styleConfig);
-  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
-    background: BUTTON_ACCENT_GRADIENT,
-    color: '#FFFFFF'
-  };
-  
-  return (
-    <Button 
-      className={`font-bold transition-all px-6 py-5 ${className}`}
-      style={{ 
-        fontFamily: 'Poppins, sans-serif',
-        ...currentStyle
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {children}
-    </Button>
-  );
-}
-
-// Styled navigation div for mobile with hover state
-function StyledNavDiv({ styleConfig, children, className = '' }) {
-  const [isHovered, setIsHovered] = useState(false);
-  
-  const styles = getButtonStyles(styleConfig);
-  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
-    background: BUTTON_ACCENT_GRADIENT,
-    color: '#FFFFFF'
-  };
-  
-  return (
-    <div 
-      className={`font-bold transition-all ${className}`}
-      style={currentStyle}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {children}
-    </div>
-  );
-}
 
 const convertLegacyGradientColors = (colors) => {
   if (!colors || colors.length === 0) return DEFAULT_GRADIENT_STOPS;
@@ -487,8 +358,6 @@ export default function PublicHeader() {
   const [mobileSearchQuery, setMobileSearchQuery] = useState('');
   const [mobileSearchResults, setMobileSearchResults] = useState([]);
   const [isMobileSearching, setIsMobileSearching] = useState(false);
-  const [formModalOpen, setFormModalOpen] = useState(false);
-  const [activeFormSlug, setActiveFormSlug] = useState(null);
   const searchTimeoutRef = useRef(null);
   const mobileSearchTimeoutRef = useRef(null);
   const location = useLocation();
@@ -1163,71 +1032,43 @@ export default function PublicHeader() {
       if (!item.form_slug) {
         return null;
       }
-      const styleName = item.button_style || 'primary';
-      const styleConfig = buttonStyles[styleName];
-      
       return (
-        <button 
+        <PublicHeaderNavigationAction
           key={item.id}
-          onClick={() => {
-            setMobileMenuOpen(false);
-            setActiveFormSlug(item.form_slug);
-            setFormModalOpen(true);
-          }}
-          className="w-full"
-        >
-          <StyledNavDiv 
-            styleConfig={styleConfig}
-            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
-          >
-            {Icon && <Icon className="w-4 h-4" />}
-            {item.title}
-            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-          </StyledNavDiv>
-        </button>
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
+          mobile
+          onAction={() => setMobileMenuOpen(false)}
+        />
       );
     }
 
     // Button display type - renders with custom button style from branding
     if (item.display_type === 'button' && !isNonNavigatingParent) {
-      const styleName = item.button_style || 'primary';
-      const styleConfig = buttonStyles[styleName];
-      
       return (
-        <LinkComponent 
-          key={item.id} 
-          {...linkProps}
-          onClick={() => setMobileMenuOpen(false)}
-        >
-          <StyledNavDiv 
-            styleConfig={styleConfig}
-            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
-          >
-            {Icon && <Icon className="w-4 h-4" />}
-            {item.title}
-            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-          </StyledNavDiv>
-        </LinkComponent>
+        <PublicHeaderNavigationAction
+          key={item.id}
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
+          mobile
+          onAction={() => setMobileMenuOpen(false)}
+        />
       );
     }
 
     // Gradient button style (legacy highlight_style support)
     if (item.highlight_style === 'gradient_button' && !isNonNavigatingParent) {
       return (
-        <LinkComponent 
-          key={item.id} 
-          {...linkProps}
-          onClick={() => setMobileMenuOpen(false)}
-        >
-          <StyledNavDiv 
-            styleConfig={null}
-            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
-          >
-            {Icon && <Icon className="w-4 h-4" />}
-            {item.title}
-            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-          </StyledNavDiv>
-        </LinkComponent>
+        <PublicHeaderNavigationAction
+          key={item.id}
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
+          mobile
+          onAction={() => setMobileMenuOpen(false)}
+        />
       );
     }
 
@@ -1366,53 +1207,38 @@ export default function PublicHeader() {
       if (!item.form_slug) {
         return null;
       }
-      const styleName = item.button_style || 'primary';
-      const styleConfig = buttonStyles[styleName];
-      
       return (
-        <button 
+        <PublicHeaderNavigationAction
           key={item.id}
-          onClick={() => {
-            setActiveFormSlug(item.form_slug);
-            setFormModalOpen(true);
-          }}
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
           className="cursor-pointer"
-        >
-          <StyledNavButton styleConfig={styleConfig}>
-            {Icon && <Icon className="w-4 h-4 mr-2" />}
-            {item.title}
-            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </StyledNavButton>
-        </button>
+        />
       );
     }
 
     // Button display type - renders with custom button style from branding
     if (item.display_type === 'button' && !isNonNavigatingParent) {
-      const styleName = item.button_style || 'primary';
-      const styleConfig = buttonStyles[styleName];
-      
       return (
-        <LinkComponent key={item.id} {...linkProps}>
-          <StyledNavButton styleConfig={styleConfig}>
-            {Icon && <Icon className="w-4 h-4 mr-2" />}
-            {item.title}
-            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </StyledNavButton>
-        </LinkComponent>
+        <PublicHeaderNavigationAction
+          key={item.id}
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
+        />
       );
     }
 
     // Gradient button style (legacy highlight_style support)
     if (item.highlight_style === 'gradient_button' && !isNonNavigatingParent) {
       return (
-        <LinkComponent key={item.id} {...linkProps}>
-          <StyledNavButton styleConfig={null}>
-            {Icon && <Icon className="w-4 h-4 mr-2" />}
-            {item.title}
-            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </StyledNavButton>
-        </LinkComponent>
+        <PublicHeaderNavigationAction
+          key={item.id}
+          item={item}
+          buttonStyles={buttonStyles}
+          icon={Icon}
+        />
       );
     }
 
@@ -1852,28 +1678,6 @@ export default function PublicHeader() {
         document.body
       )}
 
-      {/* Form Modal Dialog - displays form when triggered by form_modal nav items */}
-      <Dialog open={formModalOpen} onOpenChange={setFormModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
-          {activeFormSlug ? (
-            <IEditFormElement 
-              element={{
-                content: {
-                  form_slug: activeFormSlug,
-                  background_type: 'color',
-                  background_color: 'transparent'
-                }
-              }}
-              memberInfo={null}
-              organizationInfo={null}
-            />
-          ) : (
-            <div className="text-center py-8 px-6">
-              <p className="text-slate-600">Form not found or inactive.</p>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
