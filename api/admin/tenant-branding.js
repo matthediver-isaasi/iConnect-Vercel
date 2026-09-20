@@ -2,6 +2,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
 import { normalizeCanvasSwatches } from '../_lib/microsites.js';
+import { validateMobileHeaderHeight } from '../../shared/mobileHeaderHeight.js';
 
 function isValidHexColor(color) {
   if (!color || typeof color !== 'string') return false;
@@ -417,6 +418,19 @@ export default async function handler(req, res) {
         }
       }
 
+      // An explicitly empty mobile height resets the override. Keep a reset
+      // marker until after the existing JSONB config has been merged so the
+      // old persisted value can be removed rather than merged back in.
+      let resetMobileHeaderHeight = false;
+      if (updates.header_config && updates.header_config.mobileHeaderHeight !== undefined) {
+        const result = validateMobileHeaderHeight(updates.header_config.mobileHeaderHeight);
+        if (!result.ok) {
+          return res.status(400).json({ error: result.error });
+        }
+        resetMobileHeaderHeight = result.value === null;
+        updates.header_config.mobileHeaderHeight = result.value;
+      }
+
       // Clamp top navigation bar height (px) to a sensible range
       if (updates.header_config && updates.header_config.topBarHeight !== undefined) {
         const h = parseInt(updates.header_config.topBarHeight, 10);
@@ -735,6 +749,9 @@ export default async function handler(req, res) {
             ...(existing?.header_config || {}),
             ...updates.header_config,
           };
+          if (resetMobileHeaderHeight) {
+            delete updates.header_config.mobileHeaderHeight;
+          }
         }
 
         if (updates.branding_config) {

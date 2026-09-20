@@ -32,6 +32,7 @@ import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
+import { validateMobileHeaderHeight } from "@shared/mobileHeaderHeight";
 
 import { useInstalledFonts } from "@/lib/installedFonts";
 import {
@@ -268,6 +269,7 @@ export default function AdminBranding() {
       logoMarginLeft: '',
       gradientStops: DEFAULT_GRADIENT_STOPS,
       topBarHeight: '',
+      mobileHeaderHeight: '',
       topNavTextColor: '',
       topNavHoverColor: '',
       topNavFontSize: '',
@@ -451,6 +453,7 @@ export default function AdminBranding() {
                 logoMarginLeft: t?.header_config?.logoMarginLeft || '',
                 gradientStops: getGradientStops(t?.header_config),
                 topBarHeight: t?.header_config?.topBarHeight || '',
+                mobileHeaderHeight: t?.header_config?.mobileHeaderHeight ?? '',
                 topNavTextColor: t?.header_config?.topNavTextColor || '',
                 topNavHoverColor: t?.header_config?.topNavHoverColor || '',
                 topNavFontSize: t?.header_config?.topNavFontSize || '',
@@ -773,14 +776,30 @@ export default function AdminBranding() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const mobileHeightResult = validateMobileHeaderHeight(formData.header_config?.mobileHeaderHeight);
+    if (!mobileHeightResult.ok) {
+      toast({
+        title: "Invalid mobile header height",
+        description: mobileHeightResult.error,
+        variant: "destructive"
+      });
+      return;
+    }
     setSaving(true);
 
     try {
+      const payload = {
+        ...formData,
+        header_config: {
+          ...formData.header_config,
+          mobileHeaderHeight: mobileHeightResult.value
+        }
+      };
       const response = await adminFetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
@@ -2901,6 +2920,32 @@ export default function AdminBranding() {
                   data-testid="input-top-bar-height"
                 />
                 <p className="text-xs text-slate-500">Sets the height of the gradient top bar. Leave blank to use the default size.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mobile-header-height" className="text-slate-300">Mobile Header Height (px)</Label>
+                <Input
+                  id="mobile-header-height"
+                  type="number"
+                  min="64"
+                  max="200"
+                  step="1"
+                  placeholder="64"
+                  value={formData.header_config?.mobileHeaderHeight ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: { ...prev.header_config, mobileHeaderHeight: value }
+                    }));
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  aria-describedby="mobile-header-height-help"
+                  data-testid="input-mobile-header-height"
+                />
+                <p id="mobile-header-height-help" className="text-xs text-slate-500">
+                  Applies below the desktop breakpoint (1024px), including 12px padding above and below the logo.
+                  Whole number from 64 to 200. Leave blank to reset to the 64px toolbar and 40px logo.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

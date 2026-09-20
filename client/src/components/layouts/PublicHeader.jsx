@@ -18,6 +18,7 @@ import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
 import { DEFAULT_HEADER_LOGO_HEIGHT, resolveMicrositeLogoHomePath } from "@shared/micrositeHeaderLogo";
 import { resolvePublicHeaderLink } from "@/lib/publicHeaderLogin";
 import PublicLoginLink from "@/components/layouts/PublicLoginLink";
+import { resolveMobileHeaderHeight } from "@shared/mobileHeaderHeight";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -235,6 +236,7 @@ export default function PublicHeader() {
   };
   const topBarGradient = buildGradientFromStops(gradientStops);
   const topBarHeight = branding?.headerConfig?.topBarHeight;
+  const mobileHeaderHeight = resolveMobileHeaderHeight(branding?.headerConfig?.mobileHeaderHeight);
   const secondaryBarConfig = branding?.headerConfig?.secondaryBar;
   const secondaryBarEnabled = !!secondaryBarConfig?.enabled;
   const secondaryBarHeight = secondaryBarConfig?.height || 48;
@@ -1533,13 +1535,13 @@ export default function PublicHeader() {
               (logoHeight, logoShrinkOnScroll, margins, container box) and is
               simply constrained to fit the toolbar height. */}
           <div className="lg:hidden bg-white border-b border-slate-200">
-            <div className="max-w-7xl mx-auto px-4 py-3">
-              <div className="flex justify-between items-center gap-3">
+            <div className="max-w-7xl mx-auto px-4 py-3" style={{ height: mobileHeaderHeight }} data-testid="mobile-header-toolbar">
+              <div className="flex justify-between items-center gap-3 h-full">
                 {/* Mobile logo, sits inside the bar */}
                 {headerIconsConfig.logo ? (
                   <Link
                     to={logoHomePath}
-                    className="flex items-center min-w-0"
+                    className="flex items-center min-w-0 flex-1 h-full"
                     data-testid="link-header-logo-mobile"
                   >
                     {hasLogoUrl ? (
@@ -1547,9 +1549,9 @@ export default function PublicHeader() {
                         src={headerLogoUrl}
                         alt={tenantName}
                         style={{
-                          height: '40px',
+                          height: `${mobileHeaderHeight - 24}px`,
                           width: 'auto',
-                          maxWidth: 'calc(100vw - 120px)',
+                          maxWidth: '100%',
                           objectFit: 'contain',
                           objectPosition: 'left center',
                           display: 'block'
@@ -1575,7 +1577,7 @@ export default function PublicHeader() {
 
                 {/* Mobile Menu Button */}
                 <button 
-                  className="p-2 -mr-2"
+                  className="p-2 -mr-2 shrink-0"
                   onClick={() => setMobileMenuOpen(true)}
                   aria-label="Open menu"
                 >
