@@ -642,6 +642,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "cpd.certificate-templates",
         label: "Certificate Templates"
+      },
+      {
+        id: "cpd.points-corrections",
+        label: "Correct Member CPD Points"
       }
     ]
   },

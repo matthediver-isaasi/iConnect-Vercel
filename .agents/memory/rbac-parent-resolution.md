@@ -11,4 +11,10 @@ Many RBAC resource ids nest under parents whose id does NOT match their dot-pref
 
 **How to apply:** after editing ROLE_ACCESS_MAP, re-run the generator; a drift test in `roleAccessMap.test.ts` fails otherwise. Never hand-roll `featureKey.split('.')` exclusion checks — import `isResourceExcluded` from the shared lib (client or `api/_lib/roleVisibility.js`).
 
+**New write capabilities fail closed:** when adding a sensitive leaf capability to this exclusion-based model, seed that leaf into every existing role's `excluded_features`. Do not exclude its parent module if that would revoke unrelated existing access.
+
+**Why:** absence means allowed. Registering a new correction or mutation capability without seeding exclusions silently grants it to existing roles, including roles that only had access to a sibling feature.
+
+**How to apply:** add an idempotent role update in the feature migration and test that existing sibling exclusions remain intact. Tenant-user bypasses must be explicit; member-role admins must still pass the dedicated feature check.
+
 **DB-tree overlay (role_access_item):** the Role Management UI renders from the `role_access_item` table, whose module/page PLACEMENT can differ per prod data from ROLE_ACCESS_MAP (e.g. `events.discount-codes` under module `commerce`). Enforcement matches exclusions as a fail-safe UNION: hardcoded map + any passed accessMap + a DB-tree overlay (client singleton `setDbRoleAccessOverlay` set by Layout from the shared `['role-access-items']` query; server module-level cache with 60s TTL + 2.5s-capped init prime in `api/_lib/roleVisibility.js`, test hook `__setRoleAccessOverlayForTests`). Union only ever ADDS matches, so a missing/stale overlay can never widen access; empty table = old behavior. `LEGACY_TO_NEW_MAPPING` is now emitted into the generated hierarchy file too — the server's hand-copied version had drifted by ~58 entries, producing silently dead toggles. Reconciliation of stored `excluded_features` onto DB keys: `scripts/reconcile-role-exclusions-to-db-keys.mjs` (DEST only, idempotent).

@@ -31,7 +31,16 @@ BEGIN
   FROM public.member_cpd_points_ledger
   WHERE tenant_id=p_tenant_id AND member_id=p_member_id;
 
-  SELECT COALESCE(jsonb_agg(to_jsonb(history_row) ORDER BY history_row.sort_date DESC,history_row.id DESC),'[]'::jsonb)
+  SELECT COALESCE(jsonb_agg(
+      to_jsonb(history_row)
+      ORDER BY history_row.sort_date DESC,
+        CASE history_row.entry_kind
+          WHEN 'reversal' THEN 2
+          WHEN 'manual_adjustment' THEN 1
+          ELSE 0
+        END DESC,
+        history_row.id DESC
+    ),'[]'::jsonb)
     INTO v_items
   FROM (
     SELECT
@@ -83,7 +92,13 @@ BEGIN
       ) AS is_reversed
     FROM public.member_cpd_points_ledger ledger
     WHERE ledger.tenant_id=p_tenant_id AND ledger.member_id=p_member_id
-    ORDER BY COALESCE(ledger.activity_date::timestamptz,ledger.created_at) DESC,ledger.id DESC
+    ORDER BY COALESCE(ledger.activity_date::timestamptz,ledger.created_at) DESC,
+      CASE ledger.entry_kind
+        WHEN 'reversal' THEN 2
+        WHEN 'manual_adjustment' THEN 1
+        ELSE 0
+      END DESC,
+      ledger.id DESC
     OFFSET (v_page-1)*v_page_size
     LIMIT v_page_size
   ) history_row;

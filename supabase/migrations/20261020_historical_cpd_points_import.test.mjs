@@ -8,10 +8,12 @@ import { createLocalPostgresHarness } from '../../scripts/test-support/local-pos
 const baseline = readFileSync(new URL('./20261012_event_cpd_points_awards.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('./20261020_historical_cpd_points_import.sql', import.meta.url), 'utf8');
 const historyMigration = readFileSync(new URL('./20261118_member_cpd_points_history.sql', import.meta.url), 'utf8');
+const corrections = readFileSync(new URL('./20261119_auditable_cpd_points_corrections.sql', import.meta.url), 'utf8');
 const tenant = '10000000-0000-0000-0000-000000000001';
 const otherTenant = '10000000-0000-0000-0000-000000000002';
 const member = '20000000-0000-0000-0000-000000000001';
 const otherMember = '20000000-0000-0000-0000-000000000002';
+const role = '60000000-0000-0000-0000-000000000001';
 const event = '30000000-0000-0000-0000-000000000001';
 const booking = '40000000-0000-0000-0000-000000000001';
 const literal = value => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
@@ -66,6 +68,7 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
       GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;
       CREATE TABLE tenant(id uuid PRIMARY KEY);
       CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,email text);
+      CREATE TABLE role(id uuid PRIMARY KEY,tenant_id uuid,excluded_features text[]);
       CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid,pricing_config jsonb);
       CREATE TABLE complex_event(id uuid PRIMARY KEY,tenant_id uuid);
       CREATE TABLE complex_event_ticket_class(id uuid PRIMARY KEY,tenant_id uuid,complex_event_id uuid,name text);
@@ -76,10 +79,18 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
       CREATE TABLE attendance_outcome_transition(id uuid PRIMARY KEY);
       INSERT INTO tenant VALUES('${tenant}'),('${otherTenant}');
       INSERT INTO member VALUES('${member}','${tenant}','test@example.invalid'),('${otherMember}','${otherTenant}','other@example.invalid');
+      INSERT INTO role VALUES('${role}','${tenant}',ARRAY['cpd.certificate-templates']);
     `);
     sql(baseline);
     sql(migration);
     sql(historyMigration);
+    sql(corrections);
+
+    await t.test('existing roles deny corrections without disrupting other CPD capabilities', () => {
+      assert.equal(sql(`SELECT excluded_features @> ARRAY['cpd.points-corrections']
+        AND excluded_features @> ARRAY['cpd.certificate-templates']
+        AND NOT excluded_features @> ARRAY['cpd'] FROM role WHERE id='${role}';`), 't');
+    });
 
     await t.test('exact points, native-free historical context, durable provenance', () => {
       assert.deepEqual(call('first', [row('1'), row('2')]), {
@@ -188,6 +199,29 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
         WHERE r.id='${reversal}' AND r.points_value=-a.points_value AND r.activity_date=a.activity_date
           AND r.import_batch_id=a.import_batch_id AND r.source_metadata=a.source_metadata AND r.row_hash=a.row_hash;`), '1');
       assert.equal(call('after-reversal', [row('1')]).skipped_count, 1);
+    });
+    await t.test('signed corrections are linked, auditable, idempotent and tenant scoped', () => {
+      const id = sql(`SELECT id FROM member_cpd_points_ledger
+        WHERE source_entry_id='2' AND tenant_id='${tenant}' AND entry_kind='imported_award';`);
+      const key = '50000000-0000-0000-0000-000000000001';
+      const correct = (overrides = {}) => `SELECT id FROM correct_member_cpd_points(
+        '${overrides.tenant || tenant}','${overrides.member || member}','${id}',
+        'adjust',${overrides.points || "'-0.025001'"},'${overrides.reason || 'approved exception'}',
+        'tenant_user:test','${key}');`;
+      const correctionId = sql(service + correct());
+      assert.equal(sql(service + correct()), correctionId, 'exact retry returns original correction');
+      assert.equal(sql(`SELECT count(*) FROM member_cpd_points_ledger
+        WHERE id='${correctionId}' AND entry_kind='manual_adjustment' AND correction_of='${id}'
+          AND correction_key='${key}' AND points_value=-0.025001
+          AND reason='approved exception' AND created_by='tenant_user:test'
+          AND activity_date='2021-05-18' AND import_batch_id IS NOT NULL;`), '1');
+      fails(correct({ tenant: otherTenant }), /not found|conflicts/);
+      fails(correct({ member: otherMember }), /not found|conflicts/);
+      fails(correct({ points: "'1'" }), /conflicts/);
+      fails(`SELECT correct_member_cpd_points('${tenant}','${member}','${id}',
+        'adjust',0,'reason','actor','50000000-0000-0000-0000-000000000002');`, /non-zero/);
+      fails(`UPDATE member_cpd_points_ledger SET reason='changed' WHERE id='${correctionId}';`, /immutable/);
+      fails(`DELETE FROM member_cpd_points_ledger WHERE id='${correctionId}';`, /immutable/);
     });
     await t.test('native RPC still awards, deduplicates and reverses; null native context cannot pass CHECK', () => {
       sql(service + `
