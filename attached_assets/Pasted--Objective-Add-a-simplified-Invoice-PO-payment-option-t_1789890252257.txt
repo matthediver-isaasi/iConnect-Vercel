@@ -1,0 +1,127 @@
+## Objective
+
+Add a simplified **Invoice / PO payment option** to both Simple and Complex event ticket setup.
+
+This is intentionally a lightweight implementation. We do **not** want to trigger any existing downstream invoice creation, accounting integrations, payment collection, or member invoicing workflows.
+
+### 1. Event Ticket Setup
+
+On both **Simple Event** and **Complex Event** ticket setup, add a toggle:
+
+**Allow public payment by Invoice / PO**
+
+Default: `false`
+
+When enabled, public/non-member purchasers should be offered a **new payment option**:
+
+**Invoice / PO**
+
+This must be a completely new payment method and must **not** reuse or trigger the existing invoice payment option or any of its downstream logic.
+
+### 2. Public Registration Flow
+
+When a public/non-member purchaser selects **Invoice / PO**:
+
+* Allow them to complete the event registration without making an online payment.
+* Display an optional field:
+
+**Purchase Order Number**
+
+The PO number must not be required.
+
+The registration should complete normally and the relevant ticket allocation/capacity must be consumed in the same way as any other successful registration.
+
+### 3. Data to Record
+
+Record against the event registration:
+
+* That the registration was submitted using the new **Invoice / PO** payment method.
+* The optional PO number, where supplied.
+* All normal registration details already collected.
+
+This new payment type must be clearly distinguishable from the existing invoice payment functionality.
+
+Do **not** at this stage:
+
+* Generate an invoice.
+* Create an invoice in iConnect.
+* Send anything to Xero or QuickBooks.
+* Trigger existing invoice workflows.
+* Attempt to collect payment.
+* Require the purchaser to already be a member.
+* Require an Organisation relationship.
+
+This is simply recording the purchaser's intention to be invoiced later.
+
+### 4. Event Registration Report
+
+On `/EventRegistrationReport` (or the existing equivalent route), add a new card immediately below the current **Registrations** card.
+
+Suggested title:
+
+**Public Invoice / PO Registrations**
+
+The card should show registrations where:
+
+* The purchaser was a public/non-member purchaser; and
+* The new **Invoice / PO** payment method was selected.
+
+Each entry should provide enough summary information to identify the registration, for example:
+
+* Purchaser / attendee name.
+* Email address.
+* Event/ticket information where relevant.
+* PO number if supplied.
+* Registration date.
+
+Follow the existing report/card UI patterns.
+
+### 5. Registration Detail Modal
+
+Each entry within the new card must be clickable.
+
+Clicking an entry should open a modal showing **all information submitted by the non-member during the registration process**.
+
+This should include:
+
+* Contact details.
+* Attendee details.
+* Ticket information.
+* Organisation information where collected.
+* Any answers supplied through the event registration form.
+* The selected payment method.
+* PO number if supplied.
+* Any other data already stored against that registration.
+
+Reuse the existing registration data and form-response rendering functionality wherever possible rather than creating a separate representation of the registration.
+
+### 6. Important Separation From Existing Invoice Functionality
+
+The key requirement is that this functionality remains isolated from the existing invoice payment method.
+
+Think of the new option as:
+
+> **"Register now and tell us you want to be invoiced later."**
+
+It is **not**:
+
+> **"Create/process an invoice now."**
+
+Use a distinct payment method/type/value in the database so that future functionality can safely identify these registrations without confusing them with existing invoice transactions.
+
+### Acceptance Criteria
+
+The task is complete when:
+
+1. Simple Event ticket setup has the new toggle.
+2. Complex Event ticket setup has the new toggle.
+3. When disabled, public booking behaviour is unchanged.
+4. When enabled, public purchasers see the new **Invoice / PO** payment option.
+5. Selecting it allows registration without online payment.
+6. An optional PO number can be entered.
+7. No existing invoicing or accounting workflow is triggered.
+8. The selected payment method and PO number are stored against the registration.
+9. `/EventRegistrationReport` contains a new **Public Invoice / PO Registrations** card below the Registrations card.
+10. Relevant registrations appear in this card.
+11. Clicking a registration opens a modal showing all submitted registration information.
+12. Ticket allocation/capacity is still correctly consumed when the registration is completed.

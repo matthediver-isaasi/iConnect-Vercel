@@ -186,11 +186,24 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
   // determines this safety gate, including retries of existing reservations.
   const bnmsPilot = agreement.tenant_id === 'ff2df806-b321-4254-b651-3af11fccf1db'
     && agreement.member_id === '33e5d54d-162e-436d-9bff-ec6676d198f9';
-  if (bnmsPilot) {
+  const bnmsBeta = agreement.tenant_id === 'ff2df806-b321-4254-b651-3af11fccf1db'
+    && plan.metadata?.bnms_beta_held === true;
+  if (bnmsBeta) {
+    // BNMS beta processing-not-before. A mutable plan flag is not release
+    // authority: require the append-only, tenant/owner/plan-bound release.
+    const release = checked(await db.from('bnms_dd_beta_release').select('*')
+      .eq('tenant_id', agreement.tenant_id).eq('member_id', agreement.member_id)
+      .eq('plan_id', plan.id).maybeSingle(), 'Load reviewed beta release');
+    if (!release || Date.parse(release.processing_not_before) !== Date.parse('2026-09-30T23:00:00Z')) {
+      throw new Error('BNMS beta reviewed release and processing gate are required');
+    }
+  }
+  const bnmsProcessing = bnmsPilot || bnmsBeta;
+  if (bnmsProcessing) {
     const timestamp = now().getTime();
     if (!Number.isFinite(timestamp)) throw new Error('BNMS pilot processing clock is invalid');
     if (timestamp < Date.parse('2026-09-30T23:00:00Z')) {
-      return { plan, detail: 'BNMS pilot processing starts 1 October 2026 Europe/London' };
+      return { plan, detail: 'BNMS processing starts 1 October 2026 Europe/London' };
     }
   }
   const arrears = checked(await db.from('membership_monthly_arrears_period').select('id')
@@ -214,10 +227,10 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
   const client = gc || await gocardlessForTenant(plan.tenant_id);
   const mandate = await client.getMandate(agreement.gocardless_mandate_id);
   if (mandate?.status !== 'active' || !mandate.next_possible_charge_date) throw new Error('Dynamic mandate is not active or has no earliest provider charge date');
-  const today = bnmsPilot
+  const today = bnmsProcessing
     ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now())
     : day(now());
-  if (bnmsPilot && mandate.next_possible_charge_date < today) {
+  if (bnmsProcessing && mandate.next_possible_charge_date < today) {
     throw new Error('BNMS pilot provider charge date is in the past; refresh provider evidence');
   }
   if (!reservation) {
@@ -241,7 +254,7 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
       p_idempotency_key: buildIdempotencyKey('dd-dynamic-payment', plan.tenant_id, plan.id, term.term_key, number),
     }), 'Reserve dynamic collection');
   }
-  if (bnmsPilot && reservation.requested_charge_date < today) {
+  if (bnmsProcessing && reservation.requested_charge_date < today) {
     throw new Error('BNMS pilot reserved charge date is in the past; reconcile before retry');
   }
   // Revalidate serialized owner pause, arrears, cancellation and consent after

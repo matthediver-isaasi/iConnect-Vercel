@@ -139,6 +139,26 @@ test('pilot fails closed for expired dates, grace-window drift and invalid clock
   await assert.rejects(collectDynamicPlan(invalid.plan, invalid), /clock is invalid/);
 });
 
+test('beta requires immutable owner-bound release and cannot reserve before London processing boundary', async () => {
+  const f = pilotFixture();
+  f.agreement.member_id = 'beta-member';
+  f.rows.member[0].id = 'beta-member';
+  f.plan.metadata.bnms_beta_held = true;
+  await assert.rejects(collectDynamicPlan(f.plan, f), /reviewed release/);
+  f.rows.bnms_dd_beta_release = [{ tenant_id: f.plan.tenant_id, member_id: 'wrong-owner', plan_id: f.plan.id,
+    processing_not_before: '2026-09-30T23:00:00Z' }];
+  await assert.rejects(collectDynamicPlan(f.plan, f), /reviewed release/);
+  f.rows.bnms_dd_beta_release[0].member_id = 'beta-member';
+  f.now = () => new Date('2026-09-30T22:59:59.999Z');
+  assert.match((await collectDynamicPlan(f.plan, f)).detail, /processing starts/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 0);
+  f.now = () => new Date('2026-09-30T23:00:00Z');
+  await collectDynamicPlan(f.plan, f);
+  assert.equal(f.calls[0].chargeDate, '2026-10-07');
+  assert.equal(f.calls[0].amountMinor, 1300);
+});
+
 test('missing/overlapping scopes, changed currencies and non-consented dynamic pricing fail closed', async () => {
   const f = fixture();
   f.rows.membership_tier_config.push({ ...f.config, id: 'overlap' });
