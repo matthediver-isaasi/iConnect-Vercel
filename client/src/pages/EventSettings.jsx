@@ -21,6 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes, AGENDA_TYPE_BEHAVIOUR_OPTIONS, inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import { INTERNAL_EVENT_TYPES_SETTING_KEY, parseInternalEventTypes } from "@/lib/internalEventTypes";
+import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -150,6 +151,10 @@ export default function EventSettingsPage() {
   
   // Allow vouchers to be used for events after their expiry date
   const [allowVoucherAfterExpiry, setAllowVoucherAfterExpiry] = useState(true);
+
+  // Event checkout payment methods (default on for backwards compatibility)
+  const [allowVoucherPayment, setAllowVoucherPayment] = useState(true);
+  const [allowTrainingFundPayment, setAllowTrainingFundPayment] = useState(true);
   
   // Collect dietary & accessibility needs at booking (default on)
   const [collectAttendeeOptions, setCollectAttendeeOptions] = useState(true);
@@ -178,7 +183,7 @@ export default function EventSettingsPage() {
     refetchOnMount: true,
   });
 
-  const { data: settings = [], isLoading: loadingSettings } = useQuery({
+  const { data: settings = [], isLoading: loadingSettings, isError: settingsLoadFailed } = useQuery({
     queryKey: ['system-settings'],
     queryFn: () => base44.entities.SystemSettings.list(),
     staleTime: 0,
@@ -376,6 +381,10 @@ export default function EventSettingsPage() {
       setAllowVoucherAfterExpiry(voucherExpirySetting.setting_value !== 'false');
     }
 
+    const eventPaymentPolicy = resolveEventPaymentPolicy(settings);
+    setAllowVoucherPayment(eventPaymentPolicy.allowVoucherPayment);
+    setAllowTrainingFundPayment(eventPaymentPolicy.allowTrainingFundPayment);
+
     const collectAttendeeOptionsSetting = settings.find(s => s.setting_key === 'collect_attendee_options');
     if (collectAttendeeOptionsSetting) {
       setCollectAttendeeOptions(collectAttendeeOptionsSetting.setting_value !== 'false');
@@ -439,6 +448,14 @@ export default function EventSettingsPage() {
   });
 
   const handleSaveSettings = async () => {
+    if (loadingSettings || settingsLoadFailed) {
+      toast.error(
+        loadingSettings
+          ? 'Please wait for settings to finish loading before saving.'
+          : 'Settings could not be loaded. Reload the page before saving.'
+      );
+      return;
+    }
     const trimmedPoEmail = (poSubmissionNotificationEmail || '').trim();
     if (trimmedPoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedPoEmail)) {
       toast.error('Please enter a valid PO submission notification email address (or leave it blank).');
@@ -804,6 +821,34 @@ export default function EventSettingsPage() {
           setting_key: 'allow_voucher_use_after_expiry',
           setting_value: allowVoucherAfterExpiry.toString(),
           description: 'Allow training vouchers to be used for events that take place after the voucher expiry date'
+        });
+      }
+
+      const allowVoucherPaymentSetting = settings.find(s => s.setting_key === 'event_allow_voucher_payment');
+      if (allowVoucherPaymentSetting) {
+        await base44.entities.SystemSettings.update(allowVoucherPaymentSetting.id, {
+          setting_value: allowVoucherPayment.toString(),
+          description: 'Allow vouchers as a payment method for event bookings'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_allow_voucher_payment',
+          setting_value: allowVoucherPayment.toString(),
+          description: 'Allow vouchers as a payment method for event bookings'
+        });
+      }
+
+      const allowTrainingFundPaymentSetting = settings.find(s => s.setting_key === 'event_allow_training_fund_payment');
+      if (allowTrainingFundPaymentSetting) {
+        await base44.entities.SystemSettings.update(allowTrainingFundPaymentSetting.id, {
+          setting_value: allowTrainingFundPayment.toString(),
+          description: 'Allow training funds as a payment method for event bookings'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_allow_training_fund_payment',
+          setting_value: allowTrainingFundPayment.toString(),
+          description: 'Allow training funds as a payment method for event bookings'
         });
       }
 
@@ -1900,6 +1945,69 @@ export default function EventSettingsPage() {
                   onClick={handleSaveSettings}
                   disabled={isSaving}
                   data-testid="button-save-donation-settings"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Event Payment Methods Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-blue-600" />
+              <CardTitle>Event Payment Methods</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="allow-voucher-payment-toggle">
+                    Allow voucher payment
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, eligible organisations can use available vouchers towards event bookings.
+                  </p>
+                </div>
+                <Switch
+                  id="allow-voucher-payment-toggle"
+                  checked={allowVoucherPayment}
+                  onCheckedChange={setAllowVoucherPayment}
+                  disabled={loadingSettings || settingsLoadFailed || isSaving}
+                  data-testid="switch-event-allow-voucher-payment"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="allow-training-fund-payment-toggle">
+                    Allow training fund payment
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, eligible organisations can use available training funds towards event bookings.
+                  </p>
+                </div>
+                <Switch
+                  id="allow-training-fund-payment-toggle"
+                  checked={allowTrainingFundPayment}
+                  onCheckedChange={setAllowTrainingFundPayment}
+                  disabled={loadingSettings || settingsLoadFailed || isSaving}
+                  data-testid="switch-event-allow-training-fund-payment"
+                />
+              </div>
+              {settingsLoadFailed && (
+                <p className="text-sm text-red-600" role="alert">
+                  Payment method settings could not be loaded. Reload the page before making changes.
+                </p>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving || loadingSettings || settingsLoadFailed}
+                  data-testid="button-save-event-payment-methods"
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save

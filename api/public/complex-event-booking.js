@@ -33,6 +33,8 @@ import {
   refundBoundAllocationPayment,
   runAuthorizedCardCompensation,
 } from '../_lib/allocationPaymentBinding.js';
+import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import { compensateRejectedEventCreditPayment } from '../_lib/eventPaymentPolicyCompensation.js';
 
 function generateBookingReference() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -147,6 +149,97 @@ export default async function handler(req, res) {
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+
+    const voucherPaymentRequested = payment_method === 'voucher'
+      || (Array.isArray(selected_voucher_ids) && selected_voucher_ids.length > 0);
+    const trainingFundPaymentRequested = payment_method === 'training_fund'
+      || Number(requestedTrainingFundAmount) > 0;
+    if (voucherPaymentRequested || trainingFundPaymentRequested) {
+      try {
+        const paymentPolicy = await loadEventPaymentPolicy(supabase, tenant.id);
+        assertEventPaymentMethodsAllowed(paymentPolicy, {
+          voucherRequested: voucherPaymentRequested,
+          trainingFundRequested: trainingFundPaymentRequested,
+        });
+      } catch (policyError) {
+        if (payment_method === 'card' && stripe_payment_intent_id) {
+          const { data: existingPaidBooking } = await supabase
+            .from('complex_event_booking')
+            .select('id')
+            .eq('tenant_id', tenant.id)
+            .eq('stripe_payment_intent_id', stripe_payment_intent_id)
+            .limit(1);
+          if (!existingPaidBooking?.length) {
+            try {
+              const creds = await getStripeCredentials(tenant.id, 'events');
+              if (!creds?.secret_key) throw new Error('Payment processing not configured');
+              const retrieveResponse = await fetch(
+                `https://api.stripe.com/v1/payment_intents/${stripe_payment_intent_id}`,
+                { headers: { Authorization: `Bearer ${creds.secret_key}` } },
+              );
+              if (!retrieveResponse.ok) throw new Error('Failed to verify card payment');
+              const paymentIntent = await retrieveResponse.json();
+              const providerAction = async (path, idempotencyKey, body = null) => {
+                const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${creds.secret_key}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Idempotency-Key': idempotencyKey,
+                  },
+                  ...(body ? { body: new URLSearchParams(body) } : {}),
+                });
+                if (!response.ok) throw new Error(`Stripe compensation failed (${response.status})`);
+              };
+              const compensation = await compensateRejectedEventCreditPayment({
+                paymentIntent,
+                expectedIntentId: stripe_payment_intent_id,
+                tenantId: tenant.id,
+                eventId: event_id,
+                purchaserEmail: authenticatedMember?.email || purchaserInfo?.email,
+                allocationContext,
+                expectedCreditSnapshot: {
+                  voucherIds: selected_voucher_ids,
+                  voucherOrderManual,
+                  trainingFundAmount: requestedTrainingFundAmount,
+                },
+                refundSucceeded: () => providerAction(
+                  'refunds',
+                  `event-credit-policy:${tenant.id}:${stripe_payment_intent_id}`,
+                  { payment_intent: stripe_payment_intent_id, reason: 'requested_by_customer' },
+                ),
+                cancelAuthorization: () => providerAction(
+                  `payment_intents/${stripe_payment_intent_id}/cancel`,
+                  `event-credit-policy-cancel:${tenant.id}:${stripe_payment_intent_id}`,
+                ),
+              });
+              if (!compensation.ok) {
+                return res.status(502).json({
+                  error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
+                  refund_failed: true,
+                  stripe_payment_intent_id,
+                });
+              }
+              if (!compensation.compensated) {
+                return res.status(policyError.statusCode || 403).json({ error: policyError.message });
+              }
+              return res.status(policyError.statusCode || 403).json({
+                error: `${policyError.message}. Your card payment has been automatically ${compensation.action === 'cancelled' ? 'cancelled' : 'refunded'}.`,
+                refunded: compensation.action === 'refunded',
+                payment_cancelled: compensation.action === 'cancelled',
+              });
+            } catch (compensationError) {
+              return res.status(502).json({
+                error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
+                refund_failed: true,
+                stripe_payment_intent_id,
+              });
+            }
+          }
+        }
+        return res.status(policyError.statusCode || 503).json({ error: policyError.message });
+      }
+    }
 
     let purchaserContext = null;
     if (payment_method === PUBLIC_INVOICE_PO) {

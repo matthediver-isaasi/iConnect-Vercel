@@ -26,6 +26,11 @@ import {
   isPublicInvoicePurchaserComplete,
   normalizePublicInvoicePurchaser,
 } from "@/lib/publicInvoicePo.mjs";
+import {
+  resolveEffectiveEventPaymentSelection,
+  resolveSavedPaidEventPaymentSelection,
+} from "@/lib/eventPaymentSelection.mjs";
+import { resolveEventPaymentPolicy } from "../../../../shared/eventPaymentPolicy.js";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -519,6 +524,45 @@ export default function PaymentOptions({
   const [applyingDiscount, setApplyingDiscount] = useState(false);
 
   const queryClient = useQueryClient();
+  const {
+    data: eventPaymentSettings,
+    isLoading: eventPaymentSettingsLoading,
+    isError: eventPaymentSettingsError,
+    refetch: refetchEventPaymentSettings,
+  } = useQuery({
+    queryKey: ['/api/public/system-settings'],
+    queryFn: () => publicClient.listSystemSettings(),
+    staleTime: 5 * 60 * 1000,
+  });
+  // Do not treat a request which is still loading (or failed) as an empty,
+  // successfully-loaded settings collection. Missing rows intentionally use
+  // the shared policy's backwards-compatible defaults only after a successful
+  // response.
+  const eventPaymentPolicy = !eventPaymentSettingsLoading
+    && !eventPaymentSettingsError
+    && Array.isArray(eventPaymentSettings)
+    ? resolveEventPaymentPolicy(eventPaymentSettings)
+    : null;
+  const trainingFundAllowedRoles = organizationInfo?.training_fund_allowed_role_ids || [];
+  const voucherAllowedRoles = organizationInfo?.voucher_allowed_role_ids || [];
+  const memberRoleId = memberInfo?.role_id;
+  const isTrainingFundRoleAllowed = trainingFundAllowedRoles.length === 0
+    || (memberRoleId && trainingFundAllowedRoles.includes(memberRoleId));
+  const isVoucherRoleAllowed = voucherAllowedRoles.length === 0
+    || (memberRoleId && voucherAllowedRoles.includes(memberRoleId));
+  const effectivePaymentSelection = resolveEffectiveEventPaymentSelection({
+    policy: eventPaymentPolicy,
+    selectedVoucherIds: selectedVouchers,
+    trainingFundAmount,
+    voucherEligible: !isFeatureExcluded('element_EventUseVouchers') && isVoucherRoleAllowed,
+    trainingFundEligible: !isFeatureExcluded('element_EventUseTrainingFund') && isTrainingFundRoleAllowed,
+  });
+  const {
+    voucherEnabled: voucherPaymentEnabled,
+    trainingFundEnabled: trainingFundPaymentEnabled,
+    selectedVoucherIds: effectiveSelectedVouchers,
+    trainingFundAmount: effectiveTrainingFundAmount,
+  } = effectivePaymentSelection;
 
   // Realtime callbacks for balance updates during booking
   const handleVoucherUpdated = useCallback(({ eventType, voucher }) => {
@@ -637,17 +681,21 @@ export default function PaymentOptions({
       toast.error('Payment reference mismatch. Please contact support.');
       return;
     }
-    
+
     console.log('[PaymentOptions] Completing booking after 3D Secure return with saved payload');
     setCompletingPayment(true);
     
     const completeBookingAfterRedirect = async () => {
       try {
         if (savedPayload.isComplexEvent && complexEventApi) {
+          const savedPaymentSelection = resolveSavedPaidEventPaymentSelection(savedPayload);
           const complexPayload = {
             payment_method: 'card',
             stripe_payment_intent_id: paymentIntentFromUrl,
-            _savedCartItems: savedPayload.complexCartItems || []
+            _savedCartItems: savedPayload.complexCartItems || [],
+            selected_voucher_ids: savedPaymentSelection.selectedVoucherIds,
+            voucher_order_manual: savedPaymentSelection.voucherOrderManual,
+            training_fund_amount: savedPaymentSelection.trainingFundAmount,
           };
           if (typeof savedPayload.thirdPartyConsent === 'boolean') {
             complexPayload.third_party_consent = savedPayload.thirdPartyConsent;
@@ -721,7 +769,6 @@ export default function PaymentOptions({
         }
       } catch (error) {
         console.error('[PaymentOptions] Error completing booking after 3D Secure:', error);
-        sessionStorage.removeItem(savedPayloadKey);
         toast.error('Failed to complete your booking. Your payment was successful - please contact support to confirm your registration.');
       } finally {
         setCompletingPayment(false);
@@ -729,9 +776,17 @@ export default function PaymentOptions({
     };
     
     completeBookingAfterRedirect();
-  }, [event?.id, paymentReturnHandled, isGuestCheckout, refreshOrganizationInfo, isComplexEvent, complexEventApi, onComplexBookingComplete]);
+  }, [
+    event?.id,
+    paymentReturnHandled,
+    isGuestCheckout,
+    refreshOrganizationInfo,
+    isComplexEvent,
+    complexEventApi,
+    onComplexBookingComplete,
+  ]);
 
-  // Fetch vouchers for one-off events
+  // Fetch vouchers for paid standard and complex events.
   const { data: vouchers = [] } = useQuery({
     queryKey: ['vouchers', organizationInfo?.id],
     queryFn: async () => {
@@ -747,7 +802,7 @@ export default function PaymentOptions({
         (!v.expires_at || new Date(v.expires_at) > now)
       );
     },
-    enabled: isOneOffEvent && !!organizationInfo?.id
+    enabled: (isOneOffEvent || isComplexEvent) && !!organizationInfo?.id
   });
 
   const ticketsRequired = isComplexEvent 
@@ -762,7 +817,6 @@ export default function PaymentOptions({
   // Check if we have enough tickets (for program events)
   const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
 
-  const trainingFundAllowedRoles = organizationInfo?.training_fund_allowed_role_ids || [];
   // Tenant setting: can a voucher pay for an event that starts after the voucher expires?
   const { data: voucherExpirySetting } = useQuery({
     queryKey: ['/api/public/system-settings', 'allow_voucher_use_after_expiry'],
@@ -771,10 +825,27 @@ export default function PaymentOptions({
   });
   const restrictVouchersToEventDate = voucherExpirySetting?.setting_value === 'false';
 
-  const voucherAllowedRoles = organizationInfo?.voucher_allowed_role_ids || [];
-  const memberRoleId = memberInfo?.role_id;
-  const isTrainingFundRoleAllowed = trainingFundAllowedRoles.length === 0 || (memberRoleId && trainingFundAllowedRoles.includes(memberRoleId));
-  const isVoucherRoleAllowed = voucherAllowedRoles.length === 0 || (memberRoleId && voucherAllowedRoles.includes(memberRoleId));
+  // If an administrator disables a method while this checkout is open, remove
+  // the stale allocation rather than silently carrying it into a different
+  // payment method. Only clear after a successful settings response.
+  useEffect(() => {
+    if (!eventPaymentPolicy) return;
+    if (!voucherPaymentEnabled && selectedVouchers.length > 0) {
+      setSelectedVouchers([]);
+      setVoucherOrderManual(false);
+      toast.info('Voucher payment is no longer available. Please review the updated amount due.');
+    }
+    if (!trainingFundPaymentEnabled && trainingFundAmount > 0) {
+      setTrainingFundAmount(0);
+      toast.info('Training fund payment is no longer available. Please review the updated amount due.');
+    }
+  }, [
+    eventPaymentPolicy,
+    voucherPaymentEnabled,
+    trainingFundPaymentEnabled,
+    selectedVouchers.length,
+    trainingFundAmount,
+  ]);
 
   // For one-off events: apply discount code FIRST against the base totalCost,
   // then cap vouchers and training fund against the discounted remainder.
@@ -791,22 +862,25 @@ export default function PaymentOptions({
 
   // Calculate voucher amount from selected vouchers - capped at (costAfterDiscount - trainingFundAmount)
   // This ensures vouchers only cover the remaining cost after discount and training fund are applied
-  const voucherAmountRaw = selectedVouchers.reduce((sum, voucherId) => {
+  const voucherAmountRaw = effectiveSelectedVouchers.reduce((sum, voucherId) => {
     const voucher = vouchers.find((v) => v.id === voucherId);
     return sum + (voucher?.value || 0);
   }, 0);
-  const voucherAmount = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed)
+  const voucherAmount = !voucherPaymentEnabled
     ? 0
-    : Math.max(0, Math.min(voucherAmountRaw, costAfterDiscount - trainingFundAmount));
+    : Math.max(0, Math.min(voucherAmountRaw, costAfterDiscount - effectiveTrainingFundAmount));
 
   // Max available for training fund - capped at (costAfterDiscount - voucherAmount)
-  const maxTrainingFund = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : Math.max(0, Math.min(
+  const maxTrainingFund = !trainingFundPaymentEnabled ? 0 : Math.max(0, Math.min(
     organizationInfo?.training_fund_balance || 0,
     costAfterDiscount - voucherAmount
   ));
 
   // Calculate remaining balance automatically (discount applied before vouchers/TF)
-  const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - trainingFundAmount);
+  const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - effectiveTrainingFundAmount);
+  const coveredPaymentMethod = isComplexEvent
+    ? (voucherAmount > 0 ? 'voucher' : (effectiveTrainingFundAmount > 0 ? 'training_fund' : 'free'))
+    : 'fully_covered';
   const publicInvoicePoAvailable = isPublicInvoicePoAvailable({
     event,
     isGuestCheckout,
@@ -1083,7 +1157,10 @@ export default function PaymentOptions({
         const piPayload = {
           event_id: event.id,
           ticket_class_id: selectedTicketClass?.id,
-          attendee_count: ticketsRequired
+          attendee_count: ticketsRequired,
+          selected_voucher_ids: effectiveSelectedVouchers,
+          voucher_order_manual: voucherOrderManual && effectiveSelectedVouchers.length > 1,
+          training_fund_amount: effectiveTrainingFundAmount,
         };
         if (appliedDiscount?.code) {
           piPayload.discount_code = appliedDiscount.code;
@@ -1123,6 +1200,9 @@ export default function PaymentOptions({
           amount: chargeAmount,
           currency: 'gbp',
           memberEmail: paymentEmail,
+          selectedVoucherIds: effectiveSelectedVouchers,
+          voucherOrderManual: voucherOrderManual && effectiveSelectedVouchers.length > 1,
+          trainingFundAmount: effectiveTrainingFundAmount,
           metadata: {
             event_id: event.id,
             event_title: (event.title || '').substring(0, 200),
@@ -1158,7 +1238,7 @@ export default function PaymentOptions({
         ticketsRequired: ticketsRequired,
         totalCost: totalCost,
         pricingDetails: oneOffCostDetails,
-        paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
+        paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : coveredPaymentMethod,
         stripePaymentIntentId: paymentIntentId,
         ticketClassId: selectedTicketClass?.id || null,
         ticketClassName: selectedTicketClass?.name || null,
@@ -1169,13 +1249,16 @@ export default function PaymentOptions({
         discountCodeAmount: discountCodeSavings || 0,
         thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null,
         complexCartItems: isComplexEvent ? (complexEventApi?._getCartItems?.() || []) : undefined,
+        selectedVoucherIds: effectiveSelectedVouchers,
+        voucherOrderManual: voucherOrderManual && effectiveSelectedVouchers.length > 1,
+        trainingFundAmount: effectiveTrainingFundAmount,
       };
       
       if (!isGuestCheckout && !isComplexEvent) {
         savedPayload.memberEmail = memberInfo?.email;
-        savedPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
+        savedPayload.selectedVoucherIds = effectiveSelectedVouchers;
         savedPayload.voucherOrderManual = voucherOrderManual && savedPayload.selectedVoucherIds.length > 1;
-        savedPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
+        savedPayload.trainingFundAmount = effectiveTrainingFundAmount;
         savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
         savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
         savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
@@ -1207,11 +1290,25 @@ export default function PaymentOptions({
   };
 
 
-  const processOneOffBooking = async (stripePaymentId = null, testMode = false) => {
+  const processOneOffBooking = async (stripePaymentId = null, testMode = false, paidPaymentSnapshot = null) => {
     console.log('[PaymentOptions] processOneOffBooking started');
     doSetSubmitting(true);
 
     try {
+      // Once Stripe has confirmed payment, the booking request must retain the
+      // exact credit allocation which was bound to that PaymentIntent. Current
+      // policy/state may have changed while the card form was open; the server
+      // must receive the original allocation so it can verify and, when needed,
+      // reject with compensation rather than booking at a different amount.
+      const paidPaymentSelection = paidPaymentSnapshot
+        ? resolveSavedPaidEventPaymentSelection(paidPaymentSnapshot)
+        : null;
+      const bookingVoucherIds = paidPaymentSelection?.selectedVoucherIds ?? effectiveSelectedVouchers;
+      const bookingVoucherOrderManual = paidPaymentSelection
+        ? paidPaymentSelection.voucherOrderManual
+        : voucherOrderManual && bookingVoucherIds.length > 1;
+      const bookingTrainingFundAmount = paidPaymentSelection?.trainingFundAmount ?? effectiveTrainingFundAmount;
+
       if (isComplexEvent && complexEventApi) {
         const complexPayload = {
           event_id: event.id,
@@ -1227,7 +1324,10 @@ export default function PaymentOptions({
             accessibility_selections: a.accessibility_selections || []
           })),
           ticket_class_id: selectedTicketClass?.id || null,
-          payment_method: remainingBalance > 0 ? remainingBalancePaymentMethod : 'free',
+          payment_method: remainingBalance > 0 ? remainingBalancePaymentMethod : coveredPaymentMethod,
+          selected_voucher_ids: bookingVoucherIds,
+          voucher_order_manual: bookingVoucherOrderManual,
+          training_fund_amount: bookingTrainingFundAmount,
         };
         if (isPublicInvoicePo) {
           complexPayload.purchase_order_number = purchaseOrderNumber.trim() || null;
@@ -1272,8 +1372,10 @@ export default function PaymentOptions({
             toast.success("Registration confirmed!");
           }
           onComplexBookingComplete?.();
+          return true;
         } else {
           toast.error(result.error || "Failed to complete booking");
+          return false;
         }
       } else {
         console.log('[PaymentOptions] All attendees before filter:', JSON.stringify(attendees));
@@ -1287,7 +1389,7 @@ export default function PaymentOptions({
           ticketsRequired: ticketsRequired,
           totalCost: totalCost,
           pricingDetails: oneOffCostDetails,
-          paymentMethod: remainingBalance > 0 ? remainingBalancePaymentMethod : 'fully_covered',
+          paymentMethod: remainingBalance > 0 ? remainingBalancePaymentMethod : coveredPaymentMethod,
           stripePaymentIntentId: stripePaymentId,
           ticketClassId: selectedTicketClass?.id || null,
           ticketClassName: selectedTicketClass?.name || null,
@@ -1305,9 +1407,9 @@ export default function PaymentOptions({
 
         if (!isGuestCheckout) {
           bookingPayload.memberEmail = memberInfo.email;
-          bookingPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
-          bookingPayload.voucherOrderManual = voucherOrderManual && bookingPayload.selectedVoucherIds.length > 1;
-          bookingPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
+          bookingPayload.selectedVoucherIds = bookingVoucherIds;
+          bookingPayload.voucherOrderManual = bookingVoucherOrderManual;
+          bookingPayload.trainingFundAmount = bookingTrainingFundAmount;
           bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
           bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
           bookingPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
@@ -1367,8 +1469,10 @@ export default function PaymentOptions({
               window.location.href = createPageUrl('Bookings');
             }, 1500);
           }
+          return true;
         } else {
           toast.error(response.data.error || "Failed to create booking");
+          return false;
         }
       }
     } catch (error) {
@@ -1395,6 +1499,7 @@ export default function PaymentOptions({
       } else {
         toast.error(errMsg);
       }
+      return false;
     } finally {
       doSetSubmitting(false);
     }
@@ -1403,10 +1508,25 @@ export default function PaymentOptions({
   // Handle Stripe payment success (non-redirect flow)
   const handleStripePaymentSuccess = async () => {
     setShowStripeModal(false);
-    // Clean up saved payload since we're completing normally (no redirect needed)
     const savedPayloadKey = `pending_booking_payload_${event.id}`;
-    sessionStorage.removeItem(savedPayloadKey);
-    await processOneOffBooking(stripePaymentIntentId);
+    const savedPayloadJson = sessionStorage.getItem(savedPayloadKey);
+    let savedPayload;
+    try {
+      savedPayload = savedPayloadJson ? JSON.parse(savedPayloadJson) : null;
+    } catch (error) {
+      console.error('[PaymentOptions] Failed to parse paid booking snapshot:', error);
+    }
+
+    if (!savedPayload || savedPayload.stripePaymentIntentId !== stripePaymentIntentId) {
+      console.error('[PaymentOptions] Missing or mismatched paid booking snapshot');
+      toast.error('Your payment succeeded, but the original booking details could not be verified. Please contact support with your payment reference.');
+      return;
+    }
+
+    const bookingCompleted = await processOneOffBooking(stripePaymentIntentId, false, savedPayload);
+    if (bookingCompleted) {
+      sessionStorage.removeItem(savedPayloadKey);
+    }
   };
 
   // Check for duplicate registrations before proceeding
@@ -1450,6 +1570,12 @@ export default function PaymentOptions({
 
   // Main submit handler with duplicate check
   const handleSubmit = async () => {
+    if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {
+      toast.error(eventPaymentSettingsError
+        ? 'Payment options could not be loaded. Please retry before booking.'
+        : 'Payment options are still loading. Please wait before booking.');
+      return;
+    }
     // Check for duplicate registrations first
     const { hasDuplicates, duplicates } = await checkForDuplicates();
     
@@ -1544,6 +1670,23 @@ export default function PaymentOptions({
         {/* Payment Options */}
         {totalCost > 0 && ticketsRequired > 0 && (
           <div className="space-y-4">
+            {memberInfo && eventPaymentSettingsLoading && (
+              <div className="flex items-center gap-2 p-3 rounded-lg border border-blue-200 bg-blue-50 text-sm text-blue-800" data-testid="event-payment-policy-loading">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                Loading available payment methods...
+              </div>
+            )}
+            {memberInfo && eventPaymentSettingsError && (
+              <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-red-200 bg-red-50" data-testid="event-payment-policy-error">
+                <div className="flex items-start gap-2 text-sm text-red-800">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>Payment methods could not be loaded. Retry before booking.</span>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => refetchEventPaymentSettings()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             {/* Live updates indicator */}
             {realtimeConnected && memberInfo && (
               <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live balance updates enabled">
@@ -1552,8 +1695,8 @@ export default function PaymentOptions({
               </div>
             )}
             
-            {/* Vouchers - only for logged-in members (not supported for complex events due to split payment limitations) */}
-            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseVouchers') && isVoucherRoleAllowed && (
+            {/* Vouchers - only for logged-in members when enabled by tenant policy and role. */}
+            {memberInfo && voucherPaymentEnabled && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -1593,8 +1736,8 @@ export default function PaymentOptions({
               </div>
             )}
 
-            {/* Training Fund - only for logged-in members (not supported for complex events due to split payment limitations) */}
-            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseTrainingFund') && isTrainingFundRoleAllowed && (
+            {/* Training Fund - only for logged-in members when enabled by tenant policy and role. */}
+            {memberInfo && trainingFundPaymentEnabled && (
               <div className="p-4 rounded-lg border border-slate-200 bg-green-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -1846,7 +1989,7 @@ export default function PaymentOptions({
             )}
 
             {/* Payment Summary */}
-            {(voucherAmount > 0 || trainingFundAmount > 0) && (
+            {(voucherAmount > 0 || effectiveTrainingFundAmount > 0) && (
               <div className="p-4 rounded-lg border-2 border-green-200 bg-green-50">
                 <h4 className="text-sm font-medium text-green-900 mb-2">Payment Summary</h4>
                 <div className="space-y-1 text-sm">
@@ -1860,10 +2003,10 @@ export default function PaymentOptions({
                       <span>-£{voucherAmount.toFixed(2)}</span>
                     </div>
                   )}
-                  {trainingFundAmount > 0 && (
+                  {effectiveTrainingFundAmount > 0 && (
                     <div className="flex justify-between text-green-700">
                       <span>Training Fund:</span>
-                      <span>-£{trainingFundAmount.toFixed(2)}</span>
+                      <span>-£{effectiveTrainingFundAmount.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between pt-2 border-t border-green-200 font-bold text-green-900">
@@ -1946,7 +2089,8 @@ export default function PaymentOptions({
   // Also block if event is sold out or if attendees are missing required names
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
-  const canProceed = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
+  const paymentPolicyReady = !memberInfo || totalCost <= 0 || eventPaymentPolicy !== null;
+  const canProceed = paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
     (isComplexEvent || isOneOffEvent)
       ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
       : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)

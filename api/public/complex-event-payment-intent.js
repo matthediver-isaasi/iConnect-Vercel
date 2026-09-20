@@ -11,6 +11,16 @@ import {
   computeDiscountedPrice
 } from '../_lib/complexEventPricing.js';
 import { resolveAllocationInvitation } from '../_lib/allocationInvitation.js';
+import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import { buildEventCreditSnapshotMetadata } from '../_lib/eventPaymentPolicyCompensation.js';
+import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
+import {
+  ComplexEventCreditQuoteError,
+  assertCreditRoleAllowed,
+  buildComplexEventCreditBinding,
+  calculateComplexEventCreditQuote,
+  normalizeRequestedVoucherIds,
+} from '../_lib/complexEventCreditQuote.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -31,7 +41,15 @@ export default async function handler(req, res) {
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
     const { event_id: requestedEventId, ticket_class_id: requestedTicketClassId, attendee_count = 1, discount_code, items,
+      selected_voucher_ids: selectedVoucherIds, training_fund_amount: trainingFundAmount,
+      voucher_order_manual: voucherOrderManual,
       allocation_invitation_token: allocationInvitationToken } = req.body;
+    let requestedVoucherIds;
+    try {
+      requestedVoucherIds = normalizeRequestedVoucherIds(selectedVoucherIds);
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ error: error.message });
+    }
     let allocationContext = null;
     if (allocationInvitationToken) {
       allocationContext = await resolveAllocationInvitation(supabase, allocationInvitationToken);
@@ -57,13 +75,23 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, tenant_id, status, event_state')
+      .select('id, title, tenant_id, status, event_state, start_date')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+
+    try {
+      const paymentPolicy = await loadEventPaymentPolicy(supabase, tenant.id);
+      assertEventPaymentMethodsAllowed(paymentPolicy, {
+        voucherRequested: requestedVoucherIds.length > 0,
+        trainingFundRequested: Number(trainingFundAmount) > 0,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 503).json({ error: error.message });
+    }
 
     if (event.event_state === 'draft') {
       return res.status(404).json({ error: 'Event not found' });
@@ -98,6 +126,48 @@ export default async function handler(req, res) {
     } catch (e) {}
 
     const isMember = member && memberTenantId === tenant.id;
+
+    let organization = null;
+    const creditsRequested = requestedVoucherIds.length > 0 || Number(trainingFundAmount) > 0;
+    if (creditsRequested) {
+      if (!isMember) {
+        return res.status(401).json({ error: 'You must be logged in to use event credits' });
+      }
+      if (!member.email) {
+        return res.status(400).json({ error: 'A verified member email is required to use event credits' });
+      }
+      if (!member.organization_id) {
+        return res.status(400).json({ error: 'Organization is required to use event credits' });
+      }
+      const { data: organizationData, error: organizationError } = await supabase
+        .from('organization')
+        .select('id, training_fund_balance, training_fund_allowed_role_ids, voucher_allowed_role_ids')
+        .eq('id', member.organization_id)
+        .eq('tenant_id', tenant.id)
+        .single();
+      if (organizationError || !organizationData) {
+        return res.status(400).json({ error: 'Organization is required to use event credits' });
+      }
+      organization = organizationData;
+      try {
+        if (Number(trainingFundAmount) > 0) {
+          assertCreditRoleAllowed(
+            organization.training_fund_allowed_role_ids,
+            member.role_id,
+            'the training fund',
+          );
+        }
+        if (requestedVoucherIds.length > 0) {
+          assertCreditRoleAllowed(
+            organization.voucher_allowed_role_ids,
+            member.role_id,
+            'training vouchers',
+          );
+        }
+      } catch (error) {
+        return res.status(error.statusCode || 403).json({ error: error.message });
+      }
+    }
 
     const normalizedItems = isMultiTicket
       ? items.map(item => ({
@@ -207,6 +277,71 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Total is zero — use free registration instead', free_registration: true });
     }
 
+    let validatedVouchers = [];
+    if (requestedVoucherIds.length > 0) {
+      const { data: voucherRows, error: voucherError } = await supabase
+        .from('voucher')
+        .select('id, value, expires_at, issued_at')
+        .in('id', requestedVoucherIds)
+        .eq('organization_id', organization.id)
+        .eq('status', 'active');
+      if (voucherError || !Array.isArray(voucherRows) || voucherRows.length !== requestedVoucherIds.length) {
+        return res.status(400).json({ error: 'One or more selected vouchers are invalid or unavailable' });
+      }
+
+      const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, tenant.id);
+      let voucherPolicyEventStart = event.start_date || null;
+      if (!allowVoucherAfterExpiry && !voucherPolicyEventStart) {
+        const { data: earliestSession, error: sessionError } = await supabase
+          .from('complex_event_session')
+          .select('start_time')
+          .eq('complex_event_id', event.id)
+          .not('start_time', 'is', null)
+          .order('start_time', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (sessionError) {
+          return res.status(503).json({ error: 'Unable to verify voucher eligibility' });
+        }
+        voucherPolicyEventStart = earliestSession?.start_time || null;
+      }
+      if (voucherRows.some((voucher) => !isVoucherUsableForEventDate(
+        voucher,
+        voucherPolicyEventStart,
+        allowVoucherAfterExpiry,
+      ))) {
+        return res.status(400).json({
+          error: 'One or more selected vouchers expire before the event takes place and cannot be used for this booking.',
+        });
+      }
+      validatedVouchers = voucherRows;
+    }
+
+    let creditQuote;
+    try {
+      creditQuote = calculateComplexEventCreditQuote({
+        totalMinor: grandTotalMinor,
+        requestedTrainingFundAmount: trainingFundAmount,
+        trainingFundBalance: organization?.training_fund_balance || 0,
+        requestedVoucherIds,
+        vouchers: validatedVouchers,
+        voucherOrderManual,
+      });
+    } catch (error) {
+      if (error instanceof ComplexEventCreditQuoteError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      throw error;
+    }
+
+    if (creditQuote.remainingMinor <= 0) {
+      return res.status(400).json({
+        error: 'Total is zero after event credits — use credit-funded registration instead',
+        free_registration: true,
+        credits_cover_total: true,
+      });
+    }
+
     const creds = await getStripeCredentials(tenant.id, 'events');
     if (!creds?.secret_key || !creds.is_enabled) {
       return res.status(503).json({ error: 'Stripe not configured for this tenant' });
@@ -214,12 +349,37 @@ export default async function handler(req, res) {
 
     const stripe = new Stripe(creds.secret_key);
 
+    const creditSnapshotMetadata = buildEventCreditSnapshotMetadata({
+      voucherIds: requestedVoucherIds,
+      voucherOrderManual,
+      trainingFundAmount,
+    });
+    if (creditSnapshotMetadata.event_credit_voucher_ids.length > 500) {
+      return res.status(400).json({ error: 'Too many vouchers selected for one card payment' });
+    }
+
     const metadata = {
       event_id,
       ticket_class_ids: ticketClassIds.join(','),
       tenant_id: tenant.id,
       type: 'complex_event_booking',
-      is_multi_ticket: isMultiTicket ? 'true' : 'false'
+      is_multi_ticket: isMultiTicket ? 'true' : 'false',
+      gross_total_minor: String(grandTotalMinor),
+      training_fund_minor: String(creditQuote.trainingFundMinor),
+      voucher_minor: String(creditQuote.voucherMinor),
+      credit_member_id: String(member?.id || ''),
+      credit_organization_id: String(organization?.id || ''),
+      credit_voucher_count: String(requestedVoucherIds.length),
+      credit_binding_sha256: buildComplexEventCreditBinding({
+        eventId: event_id,
+        memberId: member?.id,
+        organizationId: organization?.id,
+        requestedTrainingFundAmount: trainingFundAmount,
+        requestedVoucherIds,
+        voucherOrderManual,
+      }),
+      member_email: member?.email || '',
+      ...creditSnapshotMetadata,
     };
     if (allocationContext) {
       // Never stamp the bearer token itself into Stripe metadata.
@@ -235,7 +395,7 @@ export default async function handler(req, res) {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: grandTotalMinor,
+      amount: creditQuote.remainingMinor,
       currency,
       metadata,
       ...(isMember && member.email ? { receipt_email: member.email } : {})
@@ -244,7 +404,10 @@ export default async function handler(req, res) {
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
       publishableKey: creds.publishable_key,
-      amount: grandTotalMinor,
+      amount: creditQuote.remainingMinor,
+      grossAmount: grandTotalMinor,
+      trainingFundAmount: creditQuote.trainingFundMinor,
+      voucherAmount: creditQuote.voucherMinor,
       currency,
       items: itemDetails
     });

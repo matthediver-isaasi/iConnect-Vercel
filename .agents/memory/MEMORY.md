@@ -155,3 +155,4 @@
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
 - [Payment report evidence](payment-report-evidence.md) — legacy pending payment mirrors may lack trustworthy mode/date evidence; retain strict checks and verify provider schedules instead.
 - [Resource import audit evidence](resource-import-audit-evidence.md) — terminal execution IDs supersede proposal holds and URL-only matching; absence and execution failure are separate findings.
+- [Event credit policy transitions](event-credit-policy-transitions.md) — paid recovery preserves original credits for verified compensation; visibility tests alone miss overcharges.

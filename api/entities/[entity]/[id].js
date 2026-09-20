@@ -107,6 +107,7 @@ import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaA
 import { computeAuthoritativeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
+import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
@@ -417,6 +418,27 @@ export default async function handler(req, res, dependencies = {}) {
     const isAdmin = await hasAdminAccess(tenantCtx);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  if (entityNorm === 'systemsettings' && ['PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+    const { data: paymentSetting, error: paymentSettingError } = await requestDatabase
+      .from('system_settings')
+      .select('setting_key')
+      .eq('id', id)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .maybeSingle();
+    if (paymentSettingError) {
+      return res.status(500).json({ error: 'Failed to validate event payment setting' });
+    }
+    if (
+      isEventPaymentPolicyKey(req.body?.setting_key)
+      || isEventPaymentPolicyKey(paymentSetting?.setting_key)
+    ) {
+      if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+      if (!(await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx))) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
     }
   }
 

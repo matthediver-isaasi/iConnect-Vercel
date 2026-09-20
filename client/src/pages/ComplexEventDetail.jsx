@@ -777,6 +777,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       return publicClient.createComplexEventPaymentIntent({
         event_id: event.id,
         items,
+        selected_voucher_ids: data.selected_voucher_ids || [],
+        voucher_order_manual: data.voucher_order_manual === true,
+        training_fund_amount: Number(data.training_fund_amount) || 0,
         allocation_invitation_token: allocationContext?.token || undefined,
       });
     },
@@ -810,6 +813,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null,
         purchase_order_number: data.purchase_order_number || null,
         purchaser_info: data.purchaser_info || null,
+        selected_voucher_ids: data.selected_voucher_ids || [],
+        voucher_order_manual: data.voucher_order_manual === true,
+        training_fund_amount: Number(data.training_fund_amount) || 0,
         allocation_invitation_token: allocationContext?.token || undefined
       });
     },

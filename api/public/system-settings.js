@@ -68,6 +68,8 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'support_ticket_instructions',
   'support_areas',
   'allow_voucher_use_after_expiry',
+  'event_allow_voucher_payment',
+  'event_allow_training_fund_payment',
   'collect_attendee_options',
   'event_agenda_item_types',
 ];

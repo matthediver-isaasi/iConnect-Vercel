@@ -101,6 +101,7 @@ import {
   validateFutureDateFields,
 } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
+import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
@@ -495,6 +496,17 @@ export default async function handler(req, res) {
   // For non-global entities, require authentication and valid tenant context
   // Tenant users (admins) can access tenant-scoped AND organization-scoped entities via tenantId
   const isTenantAdmin = !!tenantCtx.tenantUserId;
+
+  if (
+    entityNorm === 'systemsettings'
+    && req.method === 'POST'
+    && isEventPaymentPolicyKey(req.body?.setting_key)
+  ) {
+    if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await hasAdminAccess(tenantCtx))) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
   
   if (isAdminOnlyEntity(entityNorm)) {
     if (!tenantCtx.isAuthenticated) {

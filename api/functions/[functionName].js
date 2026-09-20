@@ -21,6 +21,11 @@ import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPT
 import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
+import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import {
+  buildEventCreditSnapshotMetadata,
+  compensateRejectedEventCreditPayment,
+} from '../_lib/eventPaymentPolicyCompensation.js';
 import { loadMemberCommunicationCategoryEligibility } from '../_lib/communicationCategoryEligibility.js';
 import {
   resolveConfiguredJobPostingPrice,
@@ -685,10 +690,36 @@ const functionHandlers = {
       throw new Error('Unable to determine tenant context');
     }
     
+    const {
+      amount,
+      currency = 'gbp',
+      metadata,
+      memberEmail,
+      selectedVoucherIds = [],
+      voucherOrderManual = false,
+      trainingFundAmount = 0,
+    } = params;
+
+    const voucherRequested = Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0;
+    const trainingFundRequested = Number(trainingFundAmount) > 0;
+    if (voucherRequested || trainingFundRequested) {
+      const eventId = metadata?.event_id;
+      if (!eventId) throw new Error('event_id is required when applying event credits');
+      const { data: event, error: eventError } = await supabase
+        .from('event')
+        .select('id, tenant_id')
+        .eq('id', eventId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (eventError || !event) throw new Error('Event not found');
+      const paymentPolicy = await loadEventPaymentPolicy(supabase, tenantId);
+      assertEventPaymentMethodsAllowed(paymentPolicy, { voucherRequested, trainingFundRequested });
+    }
+
+    // Do not initialize Stripe or create/find a customer until the authoritative
+    // event-credit policy gate above has passed.
     const stripe = await getStripeClient(tenantId, 'events');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
-    
-    const { amount, currency = 'gbp', metadata, memberEmail } = params;
 
     let stripeCustomer = null;
     if (memberEmail) {
@@ -716,7 +747,16 @@ const functionHandlers = {
       currency,
       customer: stripeCustomer?.id || undefined,
       receipt_email: memberEmail || undefined,
-      metadata
+      metadata: {
+        ...(metadata || {}),
+        tenant_id: tenantId,
+        member_email: String(memberEmail || '').trim().toLowerCase(),
+        ...buildEventCreditSnapshotMetadata({
+          voucherIds: selectedVoucherIds,
+          voucherOrderManual,
+          trainingFundAmount,
+        }),
+      }
     });
 
     return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
@@ -1855,10 +1895,15 @@ const functionHandlers = {
     }
 
     // Get event details first (needed for tenant scoping)
+    const requestTenant = await resolveTenantFromRequest(req);
+    if (!requestTenant) {
+      return { success: false, error: 'Event not found' };
+    }
     const { data: event, error: eventError } = await supabase
       .from('event')
       .select('*')
       .eq('id', eventId)
+      .eq('tenant_id', requestTenant.id)
       .single();
 
     if (eventError || !event) {
@@ -1984,6 +2029,83 @@ const functionHandlers = {
         return { success: false, error: 'Delegate does not belong to the allocation organisation' };
       }
       org = allocationOrg;
+    }
+
+    const voucherPaymentRequested = paymentMethod === 'voucher'
+      || (Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0);
+    const trainingFundPaymentRequested = paymentMethod === 'training_fund'
+      || Number(trainingFundAmount) > 0;
+    if (voucherPaymentRequested || trainingFundPaymentRequested) {
+      try {
+        const paymentPolicy = await loadEventPaymentPolicy(supabase, event.tenant_id);
+        assertEventPaymentMethodsAllowed(paymentPolicy, {
+          voucherRequested: voucherPaymentRequested,
+          trainingFundRequested: trainingFundPaymentRequested,
+        });
+      } catch (policyError) {
+        if (paymentMethod === 'card' && stripePaymentIntentId && !_testMode) {
+          const { data: existingPaidBooking } = await supabase
+            .from('booking')
+            .select('id')
+            .eq('tenant_id', event.tenant_id)
+            .eq('stripe_payment_intent_id', stripePaymentIntentId)
+            .limit(1);
+          if (!existingPaidBooking?.length) {
+            try {
+              const stripe = await getStripeClient(event.tenant_id, 'events');
+              if (!stripe) throw new Error('Stripe is not configured for this tenant');
+              const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+              const compensation = await compensateRejectedEventCreditPayment({
+                paymentIntent,
+                expectedIntentId: stripePaymentIntentId,
+                tenantId: event.tenant_id,
+                eventId,
+                purchaserEmail: member?.email || guestInfo?.email || memberEmail,
+                allocationContext,
+                expectedCreditSnapshot: {
+                  voucherIds: selectedVoucherIds,
+                  voucherOrderManual,
+                  trainingFundAmount,
+                },
+                refundSucceeded: () => stripe.refunds.create(
+                  { payment_intent: stripePaymentIntentId, reason: 'requested_by_customer' },
+                  { idempotencyKey: `event-credit-policy:${event.tenant_id}:${stripePaymentIntentId}` },
+                ),
+                cancelAuthorization: () => stripe.paymentIntents.cancel(
+                  stripePaymentIntentId,
+                  {},
+                  { idempotencyKey: `event-credit-policy-cancel:${event.tenant_id}:${stripePaymentIntentId}` },
+                ),
+              });
+              if (!compensation.ok) {
+                return {
+                  success: false,
+                  error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
+                  refund_failed: true,
+                  stripe_payment_intent_id: stripePaymentIntentId,
+                };
+              }
+              if (!compensation.compensated) {
+                return { success: false, error: policyError.message };
+              }
+              return {
+                success: false,
+                error: `${policyError.message}. Your card payment has been automatically ${compensation.action === 'cancelled' ? 'cancelled' : 'refunded'}.`,
+                refunded: compensation.action === 'refunded',
+                payment_cancelled: compensation.action === 'cancelled',
+              };
+            } catch (compensationError) {
+              return {
+                success: false,
+                error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
+                refund_failed: true,
+                stripe_payment_intent_id: stripePaymentIntentId,
+              };
+            }
+          }
+        }
+        return { success: false, error: policyError.message };
+      }
     }
 
     // Task #1519: Group events (member_group_id set) are SELF-ONLY. A caller may
