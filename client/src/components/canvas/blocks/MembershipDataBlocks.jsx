@@ -13,7 +13,7 @@ import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
 import {
   normalizeCanvasMembershipContent, normalizeCanvasMembershipSummary,
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
-  formatMembershipDate, safeMembershipLink,
+  formatMembershipAmount, formatMembershipDate, safeMembershipLink,
 } from '@/lib/canvasMembershipData';
 import {
   BREAKPOINT_MAX_PX, hasResponsiveOverride, resolveResponsiveValue, writeResponsiveValue,
@@ -83,18 +83,39 @@ export function MembershipDataView({
   ` : '';
   const ref = useReportReflowHeight(block.id, extraHeight, { includeExtraHeightPublic: true });
   const href = safeMembershipLink(content.manageLink);
-  const paidWithoutNextPayment = summary.payment.state === 'paid' && !summary.payment.nextPayment;
-  const renewalDate = formatMembershipDate(summary.membership.renewalDate);
+  const plannedPayment = summary.payment.plannedPayment;
+  const confirmedPayment = summary.payment.confirmedPayment;
+  const nextCollection = summary.payment.nextCollection
+    || (plannedPayment ? { ...plannedPayment, status: 'planned' } : null);
+  // A nextCollection is independently future-scoped backend evidence. A
+  // confirmedPayment is historical context only and can never become next.
+  const paymentDate = nextCollection?.date
+    || (summary.payment.collectionStatus === 'planned' ? summary.payment.nextPayment : null);
+  const paymentDateLabel = nextCollection?.status === 'confirmed'
+    ? content.fields.confirmedPaymentDate
+    : nextCollection?.status === 'planned' ? content.fields.plannedPaymentDate : content.fields.nextPayment;
+  const displayMethod = summary.payment.method === 'flat_rate' || content.methods[summary.payment.method] === 'Flat Rate'
+    ? null : content.methods[summary.payment.method];
+  const nextPaymentAmount = formatMembershipAmount(summary.payment.amount, summary.payment.currency)
+    || content.messages.amountUnknown;
+  const confirmedAmount = formatMembershipAmount(confirmedPayment?.amount, confirmedPayment?.currency)
+    || content.messages.amountUnknown;
   const values = {
-    memberSince: formatMembershipDate(summary.membership.memberSince, true) || content.messages.missing,
-    membershipType: summary.membership.membershipType || content.messages.missing,
-    method: content.methods[summary.payment.method],
-    nextPayment: formatMembershipDate(summary.payment.nextPayment)
-      || (paidWithoutNextPayment ? content.messages.noPaymentScheduled : content.messages.missing),
-    renewalDate: renewalDate || content.messages.noPaymentScheduled,
+    memberSince: formatMembershipDate(summary.membership.memberSince, true) || content.messages.joinDateNotRecorded,
+    amount: nextPaymentAmount,
+    membershipType: summary.membership.membershipType === 'Flat Rate' ? null : summary.membership.membershipType,
+    method: displayMethod || content.messages.missing,
+    nextPayment: formatMembershipDate(paymentDate)
+      || (summary.payment.collectionStatus === 'unscheduled' ? content.messages.noPaymentScheduled : content.messages.missing),
+    paymentHistoryFrom: summary.membership.paymentHistoryFrom
+      ? new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' })
+        .format(new Date(summary.membership.paymentHistoryFrom)) : content.messages.missing,
   };
-  const fieldKeys = ['memberSince', 'membershipType', 'method',
-    paidWithoutNextPayment && renewalDate ? 'renewalDate' : 'nextPayment'];
+  const paymentFactsAvailable = !['unavailable', 'none', 'paid'].includes(summary.payment.state);
+  const fieldKeys = ['memberSince',
+    ...(content.fields.membershipType && values.membershipType ? ['membershipType'] : []),
+    ...(paymentFactsAvailable ? ['amount', 'method', 'nextPayment'] : []),
+    ...(summary.membership.paymentHistoryFrom ? ['paymentHistoryFrom'] : [])];
   return (
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
       data-membership-state={state} aria-labelledby={`${id}-heading`}
@@ -131,22 +152,38 @@ export function MembershipDataView({
           border: `${content.panel.borderWidth}px solid ${content.panel.borderColor || 'transparent'}`,
           borderRadius: content.panel.borderRadius, minWidth: 0,
         }}>
-          <p {...role('value', { fontSize: 24 })}>{content.methods[summary.payment.method]}</p>
-          <p {...role('status', { marginTop: 8, color: stateColors[state] })}>{copy.status}</p>
-          <p {...role('supporting', { marginTop: 8, color: stateColors[state], fontWeight: 600 })}>{copy.supporting}</p>
-          {state === 'paid' && <dl style={{ margin: '16px 0 0' }}>
-            <dt {...role('fieldLabel')}>
-              {renewalDate ? content.fields.renewalDate : content.fields.nextPayment}
-            </dt>
-            <dd {...role('value')}>{renewalDate || content.messages.noPaymentScheduled}</dd>
-          </dl>}
+          <dl className="membership-fields" style={{ margin: 0 }}>
+            {paymentFactsAvailable && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.amount}</dt>
+              <dd {...role('value', { fontSize: 24 })}>{nextPaymentAmount}</dd>
+            </div>}
+            {paymentFactsAvailable && paymentDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{paymentDateLabel}</dt>
+              <dd {...role('value')}>{formatMembershipDate(paymentDate)}</dd>
+            </div>}
+            {paymentFactsAvailable && confirmedPayment && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>
+                {confirmedPayment.historical ? content.fields.historicalPayment : content.fields.confirmedPayment}
+              </dt>
+              <dd {...role('value')}>{formatMembershipDate(confirmedPayment.date)} · {confirmedAmount}</dd>
+            </div>}
+            {paymentFactsAvailable && displayMethod && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.method}</dt>
+              <dd {...role('value')}>{displayMethod}</dd>
+            </div>}
+            {paymentFactsAvailable && summary.payment.mandateStatus && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.mandateStatus}</dt>
+              <dd {...role('value', { color: stateColors[state] })}>{summary.payment.mandateStatus}</dd>
+            </div>}
+          </dl>
+          <p {...role('supporting', { marginTop: 16 })}>{copy.supporting}</p>
         </div>
       ) : (
         <>
           <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>
           <dl className="membership-fields">
             {fieldKeys.map(key => <div key={key} style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{content.fields[key]}</dt>
+              <dt {...role('fieldLabel')}>{key === 'nextPayment' ? paymentDateLabel : content.fields[key]}</dt>
               <dd {...role('value')}>{values[key]}</dd>
             </div>)}
           </dl>

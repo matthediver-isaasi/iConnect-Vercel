@@ -2,21 +2,75 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getCanvasMembershipDefaults, normalizeCanvasMembershipContent, safeMembershipLink,
-  normalizeCanvasMembershipSummary, formatMembershipDate, canvasMembershipQueryKey,
+  normalizeCanvasMembershipSummary, formatMembershipAmount, formatMembershipDate, canvasMembershipQueryKey,
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } from './canvasMembershipData.js';
 
-test('active existing mandate wording remains distinct from paid membership and new setup', () => {
+test('payment wording avoids first-ever-payment claims for migrated members', () => {
   const defaults = getCanvasMembershipDefaults('payment-details');
-  assert.equal(defaults.states.first_payment_pending.heading, 'Direct Debit mandate active');
-  assert.equal(defaults.states.first_payment_pending.status, 'Awaiting first payment');
-  assert.match(defaults.states.first_payment_pending.supporting, /does not establish membership entitlement/);
-  assert.equal(defaults.states.pending.heading, 'Payment setup pending');
+  assert.equal(defaults.states.first_payment_pending.heading, 'Payment details');
+  assert.equal(defaults.states.first_payment_pending.status, 'Payment pending');
+  assert.doesNotMatch(defaults.states.first_payment_pending.supporting, /first payment/i);
   const normalized = normalizeCanvasMembershipSummary({
     membership: { state: 'pending' }, payment: { state: 'first_payment_pending', method: 'direct_debit' },
   });
   assert.equal(normalized.membership.state, 'pending');
   assert.equal(normalized.payment.state, 'first_payment_pending');
+});
+
+test('payment facts preserve zero, validate currency and keep planned dates unconfirmed', () => {
+  const data = normalizeCanvasMembershipSummary({
+    membership: { state: 'active', paymentHistoryFrom: '2021-03-01' },
+    payment: {
+      state: 'active', method: 'direct_debit', amount: 0, currency: 'GBP',
+      nextPayment: '2030-11-01',
+      plannedPayment: { date: '2030-11-01', amount: 0, currency: 'GBP' },
+      nextCollection: { date: '2030-11-01', amount: 0, currency: 'GBP', status: 'planned' },
+      confirmedPayment: { date: '2030-10-01', amount: 12, currency: 'GBP', historical: true },
+      collectionStatus: 'planned',
+    },
+  });
+  assert.equal(data.payment.amount, 0);
+  assert.equal(formatMembershipAmount(data.payment.amount, data.payment.currency), '£0.00');
+  assert.equal(data.payment.collectionStatus, 'planned');
+  assert.equal(data.payment.nextPayment, '2030-11-01');
+  assert.deepEqual(data.payment.plannedPayment, { date: '2030-11-01', amount: 0, currency: 'GBP', historical: false });
+  assert.deepEqual(data.payment.nextCollection, { date: '2030-11-01', amount: 0, currency: 'GBP', historical: false, status: 'planned' });
+  assert.deepEqual(data.payment.confirmedPayment, { date: '2030-10-01', amount: 12, currency: 'GBP', historical: true });
+  assert.equal(data.membership.paymentHistoryFrom, '2021-03-01');
+  assert.equal(normalizeCanvasMembershipSummary({
+    membership: {}, payment: { amount: 12, currency: 'gbp', collectionStatus: 'confirmed' },
+  }).payment.currency, null);
+});
+
+test('exact old generated copy upgrades while authored copy is retained', () => {
+  const upgraded = normalizeCanvasMembershipContent({
+    fields: { membershipType: 'Membership type', nextPayment: 'Next payment' },
+    states: { active: { heading: 'Membership Active', supporting: 'Thank you for being a valued member.' } },
+  });
+  assert.equal(upgraded.fields.membershipType, '');
+  assert.equal(upgraded.states.active.heading, 'Your membership');
+  const authored = normalizeCanvasMembershipContent({
+    fields: { membershipType: 'My renewal amount' },
+    states: { active: { heading: 'A personal welcome' } },
+  });
+  assert.equal(authored.fields.membershipType, 'My renewal amount');
+  assert.equal(authored.states.active.heading, 'A personal welcome');
+});
+
+test('legacy authored date labels seed both semantic date fields and normalization is idempotent', () => {
+  const custom = normalizeCanvasMembershipContent({ fields: {
+    membershipType: 'Membership level', nextPayment: 'Your scheduled collection',
+  } });
+  assert.equal(custom.fields.membershipType, 'Membership level');
+  assert.equal(custom.fields.plannedPaymentDate, 'Your scheduled collection');
+  assert.equal(custom.fields.confirmedPaymentDate, 'Your scheduled collection');
+  assert.deepEqual(normalizeCanvasMembershipContent(custom), custom);
+  const specific = normalizeCanvasMembershipContent({ fields: {
+    nextPayment: 'Your scheduled collection', plannedPaymentDate: 'Planned debit date',
+  } });
+  assert.equal(specific.fields.plannedPaymentDate, 'Planned debit date');
+  assert.equal(specific.fields.confirmedPaymentDate, 'Your scheduled collection');
 });
 
 test('presentation normalization excludes private records and preview samples', () => {
@@ -27,7 +81,7 @@ test('presentation normalization excludes private records and preview samples', 
     panel: { borderWidth: -10, borderRadius: 999, background: 'var(--brand-panel)' },
   });
   assert.equal(content.states.active.heading, 'Welcome');
-  assert.equal(content.states.paused.heading, 'Membership paused');
+  assert.equal(content.states.paused.heading, 'Your membership');
   assert.equal(content.typography.heading, 'tenant-heading');
   assert.deepEqual(Object.keys(content.typography), MEMBERSHIP_TEXT_ROLES);
   assert.equal(content.memberId, undefined);
@@ -55,12 +109,12 @@ test('outer minimum height normalizes responsive Auto and custom values', () => 
   assert.equal(normalizeCanvasMembershipContent({ minHeight: { desktop: 'bad' } }).minHeight, 0);
 });
 
-test('every non-active state has independent non-success headings and support', () => {
+test('every state has clear state-specific support while membership retains one calm heading', () => {
   for (const type of ['membership-summary', 'payment-details']) {
     const defaults = getCanvasMembershipDefaults(type);
     const states = type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
     for (const state of states.filter(value => value !== 'active')) {
-      assert.notEqual(defaults.states[state].heading, defaults.states.active.heading);
+      if (type !== 'payment-details') assert.equal(defaults.states[state].heading, 'Your membership');
       assert.notEqual(defaults.states[state].supporting, defaults.states.active.supporting);
     }
     const first = getCanvasMembershipDefaults(type);
@@ -69,7 +123,7 @@ test('every non-active state has independent non-success headings and support', 
   }
 });
 
-test('paid is a payment state only and preserves paid-upfront term dates', () => {
+test('paid is a payment state only and preserves historical dates', () => {
   assert.equal(MEMBERSHIP_DATA_STATES.includes('paid'), false);
   assert.equal(MEMBERSHIP_PAYMENT_STATES.includes('paid'), true);
   const data = normalizeCanvasMembershipSummary({
@@ -86,7 +140,7 @@ test('paid is a payment state only and preserves paid-upfront term dates', () =>
   assert.equal(data.payment.nextPayment, null);
   const paymentDefaults = getCanvasMembershipDefaults('payment-details');
   assert.deepEqual(paymentDefaults.states.paid, {
-    heading: 'Membership paid',
+    heading: 'Payment details',
     supporting: 'Your current membership has been paid in full.',
     status: 'Paid in full',
   });

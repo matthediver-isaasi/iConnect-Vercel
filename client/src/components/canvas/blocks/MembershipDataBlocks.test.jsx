@@ -24,7 +24,11 @@ const {
 
 const live = {
   membership: { state: 'active', memberSince: '2017-01-01', membershipType: 'Professional' },
-  payment: { state: 'active', method: 'monthly_direct_debit', nextPayment: '2029-10-01' },
+  payment: {
+    state: 'active', method: 'monthly_direct_debit', nextPayment: '2029-10-01',
+    amount: 21.5, currency: 'GBP', collectionStatus: 'planned',
+    plannedPayment: { date: '2029-10-01', amount: 21.5, currency: 'GBP' }, mandateStatus: 'active',
+  },
 };
 function render(overrides = {}) {
   return renderToStaticMarkup(<MembershipDataView
@@ -36,11 +40,13 @@ function render(overrides = {}) {
 
 test('summary semantic labels, values, responsive grid and sample boundary', () => {
   const html = render();
-  assert.match(html, /Membership Active/);
+  assert.match(html, /Your membership/);
   assert.match(html, /<dl[^]*<dt[^]*Member since/);
   assert.match(html, /2017/);
-  assert.match(html, /Professional/);
+  assert.match(html, /Next payment amount/);
+  assert.match(html, /£21.50/);
   assert.match(html, /Monthly Direct Debit/);
+  assert.match(html, /Planned payment date/);
   assert.match(html, /1 October 2029/);
   assert.match(html, /@container \(max-width:380px\)/);
   assert.doesNotMatch(html, /sample data/);
@@ -79,10 +85,7 @@ test('all lifecycle states select their own copy for both cards', () => {
       assert.ok(html.includes(defaults.states[state].heading));
       assert.ok(html.includes(defaults.states[state].supporting));
       assert.ok(html.includes(`data-membership-state="${state}"`));
-      if (state !== 'active') {
-        assert.ok(!html.includes(defaults.states.active.heading));
-        assert.ok(!html.includes(defaults.states.active.supporting));
-      }
+      if (state !== 'active') assert.ok(!html.includes(defaults.states.active.supporting));
     }
   }
 });
@@ -95,17 +98,12 @@ test('paid-upfront cards render renewal without implying an automatic charge', (
   const paymentHtml = render({
     type: 'payment-details', result: { status: 'ready', data: paid },
   });
-  assert.match(paymentHtml, /Membership paid/);
-  assert.match(paymentHtml, /Paid in full/);
+  assert.match(paymentHtml, /Payment details/);
   assert.match(paymentHtml, /Your current membership has been paid in full\./);
-  assert.match(paymentHtml, /Renewal date/);
-  assert.match(paymentHtml, /15 April 2030/);
   assert.doesNotMatch(paymentHtml, /automatic|auto-renew|saved card/i);
 
   const summaryHtml = render({ result: { status: 'ready', data: paid } });
-  assert.match(summaryHtml, /Renewal date/);
-  assert.match(summaryHtml, /15 April 2030/);
-  assert.doesNotMatch(summaryHtml, /Next payment/);
+  assert.doesNotMatch(summaryHtml, /Next payment amount|Payment method|Payment date/);
 
   const withoutRenewal = {
     membership: live.membership,
@@ -113,9 +111,7 @@ test('paid-upfront cards render renewal without implying an automatic charge', (
   };
   for (const type of ['membership-summary', 'payment-details']) {
     const html = render({ type, result: { status: 'ready', data: withoutRenewal } });
-    assert.match(html, /Next payment/);
-    assert.match(html, /No scheduled payment recorded/);
-    assert.doesNotMatch(html, /Not available/);
+    assert.doesNotMatch(html, /automatic|auto-renew|saved card/i);
   }
 });
 
@@ -127,14 +123,104 @@ test('recurring Direct Debit keeps its actual next payment presentation', () => 
   assert.doesNotMatch(html, /Renewal date|No scheduled payment recorded/);
 });
 
+test('planned payment never presents as confirmed and Flat Rate is hidden', () => {
+  const html = render({ result: { status: 'ready', data: {
+    membership: { state: 'active', memberSince: null, paymentHistoryFrom: '2021-03-01' },
+    payment: {
+      state: 'active', method: 'flat_rate', amount: 0, currency: 'GBP',
+      nextPayment: '2030-11-01',
+      plannedPayment: { date: '2030-11-01', amount: 0, currency: 'GBP' },
+      confirmedPayment: { date: '2030-10-01', amount: 12.5, currency: 'GBP', historical: true },
+      collectionStatus: 'planned',
+    },
+  } } });
+  assert.match(html, /Join date not recorded/);
+  assert.match(html, /£0.00/);
+  assert.match(html, /Planned payment date/);
+  assert.match(html, /1 November 2030/);
+  assert.match(html, /Payment history from[^]*March 2021/);
+  assert.doesNotMatch(html, /Flat Rate|1 October 2030/);
+});
+
+test('next collection is prioritised in payment details while historical confirmation is never a next collection', () => {
+  const data = {
+    membership: { state: 'active' },
+    payment: {
+      state: 'active', method: 'monthly_direct_debit', amount: 24, currency: 'GBP', collectionStatus: 'confirmed',
+      nextPayment: '2031-01-15',
+      nextCollection: { date: '2031-01-15', amount: 24, currency: 'GBP', status: 'confirmed' },
+      confirmedPayment: { date: '2030-12-15', amount: 22, currency: 'GBP', historical: true },
+      mandateStatus: 'active',
+    },
+  };
+  const html = render({ type: 'payment-details', result: { status: 'ready', data } });
+  assert.match(html, /Next payment amount[^]*£24.00/);
+  assert.match(html, /Historical confirmed payment[^]*15 December 2030/);
+  assert.match(html, /Confirmed payment date[^]*15 January 2031/);
+  assert.match(html, /Direct Debit status[^]*active/);
+  const summary = render({ result: { status: 'ready', data } });
+  assert.match(summary, /Next payment amount[^]*£24.00/);
+  assert.match(summary, /Confirmed payment date[^]*15 January 2031/);
+  assert.doesNotMatch(summary, /15 December 2030/);
+});
+
 test('guest, denied, error and loading never paint cached active data', () => {
   for (const status of ['guest', 'denied', 'error', 'loading']) {
     const html = render({ result: { status, data: live } });
     assert.ok(html.includes(getCanvasMembershipDefaults().messages[status]));
-    assert.doesNotMatch(html, /Membership Active|Professional|Monthly Direct Debit|1 October 2029/);
+    assert.doesNotMatch(html, /Professional|Monthly Direct Debit|1 October 2029/);
     if (status === 'error' || status === 'denied') assert.match(html, /role="alert"/);
   }
-  assert.match(render({ result: { status: 'ready', data: {} } }), /Not available/);
+  assert.match(render({ result: { status: 'ready', data: {} } }), /Join date not recorded/);
+});
+
+test('custom membership type remains paired to the actual record while generated type copy retires', () => {
+  const data = {
+    membership: { state: 'active', membershipType: 'Chartered member' },
+    payment: { state: 'active', method: 'card', amount: 12, currency: 'GBP', collectionStatus: 'unscheduled' },
+  };
+  const custom = render({ block: { id: 'custom-type', content: {
+    fields: { membershipType: 'Membership level' },
+  } }, result: { status: 'ready', data } });
+  assert.match(custom, /Membership level[^]*Chartered member/);
+  const generated = render({ block: { id: 'old-type', content: {
+    fields: { membershipType: 'Membership type' },
+  } }, result: { status: 'ready', data } });
+  assert.doesNotMatch(generated, /Membership type|Chartered member/);
+});
+
+test('authored legacy and semantic collection labels render for their matching future evidence', () => {
+  const planned = {
+    membership: { state: 'active' },
+    payment: {
+      state: 'active', method: 'card', amount: 12, currency: 'GBP', collectionStatus: 'planned',
+      nextPayment: '2031-03-01', nextCollection: { date: '2031-03-01', amount: 12, currency: 'GBP', status: 'planned' },
+    },
+  };
+  const legacy = render({ block: { id: 'legacy-date', content: {
+    fields: { nextPayment: 'Collection expected on' },
+  } }, result: { status: 'ready', data: planned } });
+  assert.match(legacy, /Collection expected on[^]*1 March 2031/);
+  const confirmed = render({ block: { id: 'confirmed-date', content: {
+    fields: { confirmedPaymentDate: 'Provider-confirmed collection date' },
+  } }, result: { status: 'ready', data: { ...planned, payment: {
+    ...planned.payment, collectionStatus: 'confirmed',
+    nextCollection: { ...planned.payment.nextCollection, status: 'confirmed' },
+  } } } });
+  assert.match(confirmed, /Provider-confirmed collection date[^]*1 March 2031/);
+});
+
+test('organisation and paid-upfront records do not imply a pending collection', () => {
+  const organisation = render({ result: { status: 'ready', data: {
+    membership: { state: 'active', membershipType: 'Organisation membership' },
+    payment: { state: 'unavailable', method: 'unavailable', amount: null, collectionStatus: 'unavailable' },
+  } } });
+  assert.doesNotMatch(organisation, /Next payment amount|Payment method|Payment date/);
+  const paid = render({ result: { status: 'ready', data: {
+    membership: { state: 'active' },
+    payment: { state: 'paid', method: 'card', amount: null, collectionStatus: 'unavailable' },
+  } } });
+  assert.doesNotMatch(paid, /Next payment amount|Payment method|Payment date/);
 });
 
 test('manage payments hidden without safe destination, editor prevents navigation, new tab is safe', () => {
@@ -185,7 +271,7 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
     await act(async () => Simulate.change(heading, { target: { value: 'Collections on hold' } }));
     const next = updates.at(-1)(block);
     assert.equal(next.content.states.paused.heading, 'Collections on hold');
-    assert.equal(next.content.states.active.heading, 'Your payment method');
+    assert.equal(next.content.states.active.heading, 'Payment details');
     assert.equal(next.locked, true);
     assert.equal(next.id, 'p');
     for (const role of MEMBERSHIP_TEXT_ROLES) assert.ok(container.querySelector(`[data-testid="membership-typography-${role}"]`));

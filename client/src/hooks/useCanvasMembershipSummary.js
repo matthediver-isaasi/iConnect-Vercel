@@ -8,7 +8,13 @@ import { canvasMembershipQueryKey, normalizeCanvasMembershipSummary } from '@/li
 // Deliberately separate from saved configuration and never used on the public path.
 const EDITOR_SAMPLE = {
   membership: { state: 'active', memberSince: '2020-01-01', membershipType: 'Example membership' },
-  payment: { state: 'active', method: 'monthly_direct_debit', nextPayment: '2030-10-01' },
+  payment: {
+    state: 'active', method: 'monthly_direct_debit', nextPayment: '2030-10-01',
+    amount: 18.5, currency: 'GBP', collectionStatus: 'planned',
+    nextCollection: { date: '2030-10-01', amount: 18.5, currency: 'GBP', status: 'planned' },
+    plannedPayment: { date: '2030-10-01', amount: 18.5, currency: 'GBP' },
+    mandateStatus: 'active',
+  },
 };
 
 export async function fetchCanvasMembershipSummary({ signal, tenantId } = {}) {

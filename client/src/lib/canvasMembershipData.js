@@ -2,21 +2,17 @@
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'unavailable'];
+export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'flat_rate', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
-  first_payment_pending: 'Awaiting first payment',
+  first_payment_pending: 'Payment pending',
   active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
   failed: 'Payment failed', unavailable: 'Unavailable', none: 'No membership',
 };
-const membershipHeadings = {
-  active: 'Membership Active', pending: 'Membership pending', paused: 'Membership paused',
-  expired: 'Membership expired', failed: 'Membership needs attention',
-  unavailable: 'Membership details unavailable', none: 'No current membership',
-};
+const membershipHeadings = Object.fromEntries(MEMBERSHIP_DATA_STATES.map(state => [state, 'Your membership']));
 const membershipSupport = {
-  active: 'Thank you for being a valued member.',
+  active: 'Your membership is active.',
   pending: 'Your membership is pending confirmation.',
   paused: 'Your membership is currently paused.',
   expired: 'Your membership has expired.',
@@ -25,14 +21,14 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
-  first_payment_pending: 'Direct Debit mandate active',
-  active: 'Your payment method', paid: 'Membership paid', pending: 'Payment setup pending', paused: 'Payments paused',
+  first_payment_pending: 'Payment details',
+  active: 'Payment details', paid: 'Payment details', pending: 'Payment details', paused: 'Payment details',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
-  first_payment_pending: 'Your existing Direct Debit mandate is active. This membership term is awaiting its first payment. The mandate alone does not establish membership entitlement.',
-  active: 'Your membership payment is set up',
+  first_payment_pending: 'Your payment is awaiting confirmation.',
+  active: 'Your payment arrangement is active.',
   paid: 'Your current membership has been paid in full.',
   pending: 'Your payment setup is awaiting confirmation.',
   paused: 'Your payment arrangement is paused.',
@@ -70,13 +66,18 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       status: payment && state === 'paid' ? 'Paid in full' : payment && state === 'none' ? 'Not set up' : statuses[state],
     }])),
     fields: {
-      memberSince: 'Member since', membershipType: 'Membership type', method: 'Payment method',
-      nextPayment: 'Next payment', renewalDate: 'Renewal date',
+      memberSince: 'Member since', membershipType: '', amount: 'Next payment amount', method: 'Payment method',
+      // nextPayment is retained only as a migration source for author wording.
+      nextPayment: 'Payment date', plannedPaymentDate: 'Planned payment date',
+      confirmedPaymentDate: 'Confirmed payment date', renewalDate: 'Renewal date', paymentHistoryFrom: 'Payment history from',
+      confirmedPayment: 'Confirmed payment', historicalPayment: 'Historical confirmed payment',
+      confirmedPaymentAmount: 'Confirmed payment amount', plannedPayment: 'Planned payment',
+      mandateStatus: 'Direct Debit status',
     },
     methods: {
       direct_debit: 'Direct Debit', monthly_direct_debit: 'Monthly Direct Debit',
       card: 'Card', monthly_card: 'Monthly card', bank_transfer: 'Bank transfer',
-      invoice: 'Invoice', unavailable: 'Unavailable',
+      invoice: 'Invoice', flat_rate: 'Flat Rate', unavailable: 'Unavailable',
     },
     messages: {
       loading: 'Loading your membership details…',
@@ -84,6 +85,8 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       denied: 'You do not have permission to view these details.',
       error: 'Your membership details could not be loaded. Please try again later.',
       missing: 'Not available',
+      joinDateNotRecorded: 'Join date not recorded',
+      amountUnknown: 'Amount not available',
       noPaymentScheduled: 'No scheduled payment recorded',
     },
     typography: Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [role, ''])),
@@ -94,18 +97,63 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
   };
 }
 
+// Values generated by the first release. Upgrade only exact generated strings:
+// authored variants, including a single changed word, are intentionally retained.
+const legacyGenerated = {
+  membership: {
+    active: { heading: 'Membership Active', supporting: 'Thank you for being a valued member.' },
+    pending: { heading: 'Membership pending', supporting: 'Your membership is pending confirmation.' },
+    paused: { heading: 'Membership paused', supporting: 'Your membership is currently paused.' },
+    expired: { heading: 'Membership expired', supporting: 'Your membership has expired.' },
+    failed: { heading: 'Membership needs attention', supporting: 'Your membership payment needs attention.' },
+    unavailable: { heading: 'Membership details unavailable', supporting: 'We cannot confirm your membership details right now.' },
+    none: { heading: 'No current membership', supporting: 'There is no current membership to display.' },
+  },
+  payment: {
+    first_payment_pending: {
+      heading: 'Direct Debit mandate active',
+      supporting: 'Your existing Direct Debit mandate is active. This membership term is awaiting its first payment. The mandate alone does not establish membership entitlement.',
+      status: 'Awaiting first payment',
+    },
+    active: { heading: 'Your payment method', supporting: 'Your membership payment is set up' },
+    paid: { heading: 'Membership paid', supporting: 'Your current membership has been paid in full.' },
+    pending: { heading: 'Payment setup pending', supporting: 'Your payment setup is awaiting confirmation.' },
+    paused: { heading: 'Payments paused', supporting: 'Your payment arrangement is paused.' },
+    expired: { heading: 'Payment arrangement expired', supporting: 'Your payment arrangement has expired.' },
+    failed: { heading: 'Payment needs attention', supporting: 'Your payment could not be completed.' },
+    unavailable: { heading: 'Payment details unavailable', supporting: 'We cannot confirm your payment arrangement right now.' },
+    none: { heading: 'No payment arrangement', supporting: 'There is no payment arrangement to display.' },
+  },
+  fields: { membershipType: 'Membership type', nextPayment: 'Next payment' },
+};
+
 export function normalizeCanvasMembershipContent(content, type = 'membership-summary') {
   const input = record(content);
   const defaults = getCanvasMembershipDefaults(type);
-  const strings = (source, fallback) => Object.fromEntries(Object.entries(fallback)
-    .map(([key, value]) => [key, text(record(source)[key], value)]));
+  const strings = (source, fallback, legacy = {}) => Object.fromEntries(Object.entries(fallback)
+    .map(([key, value]) => {
+      const incoming = text(record(source)[key], value);
+      return [key, incoming === legacy[key] ? value : incoming];
+    }));
   const panel = record(input.panel);
   return {
     eyebrow: text(input.eyebrow, defaults.eyebrow),
     states: Object.fromEntries((type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES).map(state => [
-      state, strings(record(input.states)[state], defaults.states[state]),
+      state, strings(record(input.states)[state], defaults.states[state],
+        (type === 'payment-details' ? legacyGenerated.payment : legacyGenerated.membership)[state]),
     ])),
-    fields: strings(input.fields, defaults.fields),
+    fields: (() => {
+      const raw = record(input.fields);
+      const normalized = strings(raw, defaults.fields, legacyGenerated.fields);
+      const legacyDateLabel = text(raw.nextPayment, '') !== 'Next payment' ? text(raw.nextPayment, '') : '';
+      // Existing authored date copy remains authoritative until an author opts
+      // into one of the more specific labels. Generated "Next payment" is not
+      // content and must not leak into the new semantic fields.
+      if (!text(raw.plannedPaymentDate, '')) normalized.plannedPaymentDate = legacyDateLabel || defaults.fields.plannedPaymentDate;
+      if (!text(raw.confirmedPaymentDate, '')) normalized.confirmedPaymentDate = legacyDateLabel || defaults.fields.confirmedPaymentDate;
+      if (raw.membershipType === legacyGenerated.fields.membershipType) normalized.membershipType = '';
+      return normalized;
+    })(),
     methods: strings(input.methods, defaults.methods),
     messages: strings(input.messages, defaults.messages),
     typography: strings(input.typography, defaults.typography),
@@ -139,6 +187,26 @@ function isoDate(value) {
     && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
+function paymentEvidence(value) {
+  const source = record(value);
+  const date = isoDate(source.date);
+  if (!date) return null;
+  return {
+    date,
+    amount: source.amount !== '' && source.amount != null && Number.isFinite(Number(source.amount))
+      ? Number(source.amount) : null,
+    currency: typeof source.currency === 'string' && /^[A-Z]{3}$/.test(source.currency) ? source.currency : null,
+    historical: source.historical === true,
+  };
+}
+
+function nextCollectionEvidence(value) {
+  const evidence = paymentEvidence(value);
+  const source = record(value);
+  return evidence && ['confirmed', 'planned'].includes(source.status)
+    ? { ...evidence, status: source.status } : null;
+}
+
 export function normalizeCanvasMembershipSummary(value) {
   const source = record(value);
   const membership = record(source.membership);
@@ -149,13 +217,30 @@ export function normalizeCanvasMembershipSummary(value) {
       memberSince: isoDate(membership.memberSince),
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,
       renewalDate: isoDate(membership.renewalDate),
+      paymentHistoryFrom: isoDate(membership.paymentHistoryFrom),
     },
     payment: {
       state: MEMBERSHIP_PAYMENT_STATES.includes(payment.state) ? payment.state : 'unavailable',
       method: MEMBERSHIP_PAYMENT_METHODS.includes(payment.method) ? payment.method : 'unavailable',
       nextPayment: isoDate(payment.nextPayment),
+      plannedPayment: paymentEvidence(payment.plannedPayment),
+      confirmedPayment: paymentEvidence(payment.confirmedPayment),
+      nextCollection: nextCollectionEvidence(payment.nextCollection),
+      amount: payment.amount !== '' && payment.amount != null && Number.isFinite(Number(payment.amount))
+        ? Number(payment.amount) : null,
+      currency: typeof payment.currency === 'string' && /^[A-Z]{3}$/.test(payment.currency) ? payment.currency : null,
+      collectionStatus: ['confirmed', 'planned', 'unscheduled', 'unavailable'].includes(payment.collectionStatus)
+        ? payment.collectionStatus : 'unavailable',
+      mandateStatus: typeof payment.mandateStatus === 'string' ? payment.mandateStatus.slice(0, 400) : null,
     },
   };
+}
+
+export function formatMembershipAmount(amount, currency) {
+  if (!Number.isFinite(amount) || !currency) return null;
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount);
+  } catch { return null; }
 }
 
 export function formatMembershipDate(value, yearOnly = false) {

@@ -53,9 +53,16 @@ export function shapePlan(plan) {
     || null;
   const arrears = Array.isArray(plan.membership_monthly_arrears_period)
     ? plan.membership_monthly_arrears_period.filter((p) => !p.settled_at) : [];
-  const arrearsAmountMinor = arrears.reduce((sum, p) => sum + (Number(p.amount_minor) || 0), 0);
+  const arrearsAmounts = arrears.map(p => p.amount_minor !== null && p.amount_minor !== undefined
+    && p.amount_minor !== '' && Number.isFinite(Number(p.amount_minor))
+    ? Number(p.amount_minor) : null);
+  const arrearsAmountMinor = arrearsAmounts.some(value => value === null)
+    ? null : arrearsAmounts.reduce((sum, value) => sum + value, 0);
   const collectionPolicy = terms.monthly_post_grace_collection_policy || 'stop_collecting';
   const collectionStopped = !!plan.collection_stopped_at;
+  const baseAmountMinor = plan.amount_minor !== null && plan.amount_minor !== undefined
+    && plan.amount_minor !== '' && Number.isFinite(Number(plan.amount_minor))
+    ? Number(plan.amount_minor) : null;
   const activeCatchUp = plan.metadata?.catch_up_intent?.status === 'created'
     ? plan.metadata.catch_up_intent : null;
   const ddPolicy = (plan.provider || 'gocardless') === 'gocardless'
@@ -79,12 +86,14 @@ export function shapePlan(plan) {
     lastPaymentAt: plan.last_payment_at,
     retryCount: plan.retry_count,
     arrearsCount: arrears.length,
-    arrearsAmount: arrearsAmountMinor / 100,
+    arrearsAmount: arrearsAmountMinor === null ? null : arrearsAmountMinor / 100,
     monthlyPostGraceCollectionPolicy: collectionPolicy,
     collectionStopped,
-    nextPlannedCollectionAmount: dynamic ? null : !collectionStopped && collectionPolicy === 'continue_catch_up'
-      ? ((Number(plan.amount_minor) || 0) + arrearsAmountMinor) / 100
-      : (collectionStopped ? null : (plan.amount_minor != null ? plan.amount_minor / 100 : null)),
+    nextPlannedCollectionAmount: dynamic || collectionStopped || baseAmountMinor === null
+      ? null
+      : collectionPolicy === 'continue_catch_up' && arrearsAmountMinor !== null
+        ? (baseAmountMinor + arrearsAmountMinor) / 100
+        : collectionPolicy === 'continue_catch_up' ? null : baseAmountMinor / 100,
     nextPlannedCollectionDate: collectionStopped ? null
       : (activeCatchUp?.provider_charge_date || (arrears.length ? null : plan.next_charge_date)),
     commitment: commitment ? {

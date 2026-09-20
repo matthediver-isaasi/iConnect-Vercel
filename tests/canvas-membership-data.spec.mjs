@@ -24,12 +24,21 @@ const VIEWERS = {
 };
 const SUMMARIES = {
   alpha: {
-    membership: { state: "active", memberSince: "2019-04-12", membershipType: "Professional — Alpha" },
-    payment: { state: "active", method: "monthly_direct_debit", nextPayment: "2031-11-03" },
+    membership: { state: "active", memberSince: null, membershipType: "Professional — Alpha" },
+    payment: {
+      state: "active", method: "monthly_direct_debit", nextPayment: "2031-11-03",
+      amount: 18.5, currency: "GBP", collectionStatus: "confirmed",
+      nextCollection: { date: "2031-11-03", amount: 18.5, currency: "GBP", status: "confirmed" },
+      plannedPayment: null, confirmedPayment: null, mandateStatus: "active",
+    },
   },
   beta: {
-    membership: { state: "paused", memberSince: "2022-08-09", membershipType: "Associate — Beta" },
-    payment: { state: "failed", method: "card", nextPayment: null },
+    membership: { state: "paused", memberSince: null, membershipType: "Associate — Beta" },
+    payment: {
+      state: "failed", method: "card", nextPayment: null, amount: 22, currency: "GBP",
+      collectionStatus: "unscheduled", plannedPayment: null, confirmedPayment: null,
+      nextCollection: null, mandateStatus: null,
+    },
   },
 };
 const TYPOGRAPHY = [
@@ -379,13 +388,14 @@ async function openPublished(page, fixture) {
 async function assertAlphaData(page) {
   const membership = page.getByTestId("canvas-membership-summary").first();
   const payment = page.getByTestId("canvas-payment-details").first();
-  await expect(membership).toContainText("Membership Active");
-  await expect(membership).toContainText("2019");
-  await expect(membership).toContainText("Professional — Alpha");
+  await expect(membership).toContainText("Your membership");
+  await expect(membership).toContainText("Join date not recorded");
+  await expect(membership).toContainText("£18.50");
   await expect(membership).toContainText("Monthly Direct Debit");
   await expect(membership).toContainText("3 November 2031");
-  await expect(payment).toContainText("Your payment method");
-  await expect(payment.getByTestId("membership-payment-panel")).toContainText("Monthly Direct Debit");
+  await expect(payment).toContainText("Payment details");
+  await expect(payment.getByTestId("membership-payment-panel")).toContainText("Confirmed payment date");
+  await expect(payment.getByTestId("membership-payment-panel")).toContainText("Direct Debit status");
   await expect(payment.getByRole("link", { name: /Manage payments/ })).toHaveAttribute("href", "/MembershipFees");
 }
 
@@ -441,16 +451,15 @@ for (const version of [1, 2]) {
     await openPublished(page, fixture);
     const membership = page.getByTestId("canvas-membership-summary").first();
     const payment = page.getByTestId("canvas-payment-details").first();
-    await expect(membership).toContainText("Membership Active");
-    await expect(membership).toContainText("Renewal date");
-    await expect(membership).toContainText("18 September 2027");
-    await expect(membership).not.toContainText("Next payment");
-    await expect(payment).toContainText("Paid in full");
-    await expect(payment).not.toContainText("unavailable");
+    await expect(membership).toContainText("Your membership");
+    await expect(membership).not.toContainText("Next payment amount");
+    await expect(membership).not.toContainText("18 September 2027");
+    await expect(payment).toContainText("Payment details");
+    await expect(payment).not.toContainText("Next payment amount");
     await expect(payment).not.toContainText("payment is set up");
     await page.screenshot({ path: testInfo.outputPath(`paid-upfront-v${version}.png`), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(payment).toContainText("Paid in full");
+    await expect(payment).not.toContainText("Next payment amount");
     expect(fixture.writes).toEqual([]);
     expect(fixture.pageErrors).toEqual([]);
   });
@@ -657,12 +666,12 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
 
 test("isolated viewer identities, guest, denied, errors and no-membership states never leak success data", async ({ browser }) => {
   const cases = [
-    { viewer: "alpha", apiState: "ready", text: "Professional — Alpha", absent: "Associate — Beta" },
-    { viewer: "beta", apiState: "ready", text: "Associate — Beta", absent: "Professional — Alpha" },
-    { viewer: "guest", apiState: "ready", text: "Sign in to view your membership details.", absent: "Membership Active" },
-    { viewer: "alpha", apiState: "denied", text: "You do not have permission", absent: "Membership Active" },
-    { viewer: "alpha", apiState: "error", text: "could not be loaded", absent: "Membership Active" },
-    { viewer: "alpha", apiState: "none", text: "No current membership", absent: "Membership Active" },
+    { viewer: "alpha", apiState: "ready", text: "Monthly Direct Debit", absent: "Associate — Beta" },
+    { viewer: "beta", apiState: "ready", text: "Card", absent: "Monthly Direct Debit" },
+    { viewer: "guest", apiState: "ready", text: "Sign in to view your membership details.", absent: "Your membership is active." },
+    { viewer: "alpha", apiState: "denied", text: "You do not have permission", absent: "Your membership is active." },
+    { viewer: "alpha", apiState: "error", text: "could not be loaded", absent: "Your membership is active." },
+    { viewer: "alpha", apiState: "none", text: "Nothing to display.", absent: "Your membership is active." },
   ];
   for (const item of cases) {
     const context = await browser.newContext();

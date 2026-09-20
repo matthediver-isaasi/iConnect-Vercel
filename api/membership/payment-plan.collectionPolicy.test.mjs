@@ -30,6 +30,22 @@ test('existing Stripe plan amounts and arrears behaviour remain unchanged', () =
   assert.equal(Object.hasOwn(result, 'collectionPolicy'), false);
 });
 
+test('catch-up arithmetic never fabricates a missing base amount', () => {
+  const result = shapePlan({
+    ...plan, provider: 'stripe', amount_minor: null,
+    membership_monthly_arrears_period: [
+      { amount_minor: 1200, settled_at: null },
+      { amount_minor: null, settled_at: null },
+    ],
+    membership_billing_agreements: { metadata: { card: {
+      monthly_post_grace_collection_policy: 'continue_catch_up',
+    } } },
+  });
+  assert.equal(result.monthlyAmount, null);
+  assert.equal(result.arrearsAmount, null);
+  assert.equal(result.nextPlannedCollectionAmount, null);
+});
+
 test('explicit legacy stop differs from absent consent and neither becomes dynamic', () => {
   const legacy = (dd) => shapePlan({
     ...plan, membership_billing_agreements: { metadata: { dd } },

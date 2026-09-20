@@ -32,6 +32,8 @@ test('existing migrated mandate is active while upcoming term remains unpaid and
   assert.equal(value.membership.memberSince, null);
   assert.equal(value.payment.state, 'first_payment_pending');
   assert.equal(value.payment.nextPayment, null, 'a cutover is not a provider-scheduled charge');
+  assert.equal(value.payment.mandateStatus, 'active');
+  assert.equal(value.payment.collectionStatus, 'unscheduled');
   assert.equal(history.payment_status, 'unpaid');
   assert.equal(summary([history], [], { plan: { ...plan, collection_stopped_at: today } }).payment.state, 'paused');
   assert.equal(summary([history], [], { plan: { ...plan, migratedMandateStatus: 'cancelled' } }).payment.state, 'pending');
@@ -46,7 +48,8 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
       calls.push(call);
       const result = () => {
         let data = rows[table] || [];
-        if (!unfiltered) data = data.filter(row => call.filters.every(([key, value]) => row[key] === value));
+        if (!unfiltered) data = data.filter(row => call.filters.every(([key, value, operator]) =>
+          operator === 'in' ? value.includes(row[key]) : row[key] === value));
         data = data.slice(call.offset, call.end + 1);
         // Real PostgREST returns only selected columns. Do not let fixture-only
         // fields conceal an incomplete production query projection.
@@ -57,6 +60,7 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
       const chain = {
         select(columns) { call.columns = columns; return chain; },
         eq(key, value) { call.filters.push([key, value]); return chain; },
+        in(key, values) { call.filters.push([key, values, 'in']); return chain; },
         is(key, value) { call.filters.push([key, value]); return chain; },
         order() { return chain; },
         range(offset, end) { call.offset = offset; call.end = end; return chain; },
@@ -109,21 +113,28 @@ test('current organisation wins over past or future personal; billing remains un
     term({ term_start_date: '2020-01-01', membership_renewal_date: '2021-01-01' }),
   ], [orgTerm(), orgTerm({ id: 'older-org', term_start_date: '2024-01-01', membership_renewal_date: '2025-01-01' })]);
   assert.deepEqual(result, {
-    membership: { state: 'active', memberSince: '2024-01-01', membershipType: 'Organisation', renewalDate: '2027-01-01' },
-    payment: { state: 'unavailable', method: 'unavailable', nextPayment: null },
+    membership: {
+      state: 'active', memberSince: null, membershipType: 'Organisation',
+      renewalDate: '2027-01-01', paymentHistoryFrom: null,
+    },
+    payment: {
+      state: 'unavailable', method: 'unavailable', nextPayment: null,
+      amount: null, currency: null, collectionStatus: 'unavailable',
+      plannedPayment: null, confirmedPayment: null, nextCollection: null, mandateStatus: null,
+    },
   });
   assert.equal(summary([term({ status: 'expired' })], [orgTerm()]).membership.membershipType, 'Organisation');
 });
 
-test('member since uses earliest valid retained commencement only in selected source', () => {
+test('member since is unavailable without a real persisted original-commencement source', () => {
   const result = summary([
     term(),
     term({ term_start_date: '2023-01-01', membership_renewal_date: null }),
     term({ term_start_date: '2022-02-30', membership_renewal_date: '2023-01-01' }),
     term({ term_start_date: '2001-01-01', membership_renewal_date: '2000-01-01' }),
   ], [orgTerm({ term_start_date: '2000-01-01' })]);
-  assert.equal(result.membership.memberSince, '2023-01-01');
-  assert.equal(summary([term(), { id: 'retained', term_start_date: '2005-01-01' }]).membership.memberSince, '2005-01-01');
+  assert.equal(result.membership.memberSince, null);
+  assert.equal(summary([term(), { id: 'retained', term_start_date: '2005-01-01' }]).membership.memberSince, null);
 });
 
 test('date validation rejects rollover dates, arbitrary strings and non-strings', () => {
@@ -147,7 +158,7 @@ test('explicit end date is inclusive, missing or inverted dates never become act
 test('legacy dated terms without rolling key, renewal or snapshot retain current/past lifecycle', () => {
   const legacy = term({ term_key: null, membership_renewal_date: null, term_end_date: '2026-12-31' });
   assert.equal(summary([legacy]).membership.state, 'active');
-  assert.equal(summary([legacy]).membership.memberSince, '2026-01-01');
+  assert.equal(summary([legacy]).membership.memberSince, null);
   assert.equal(summary([{ ...legacy, term_end_date: '2026-08-31' }]).membership.state, 'expired');
   assert.equal(summary([{ ...legacy, term_start_date: '2027-01-01', term_end_date: '2027-12-31' }]).membership.state, 'pending');
   assert.equal(summary([{ ...legacy, term_end_date: '2025-12-31' }]).membership.state, 'unavailable');
@@ -197,7 +208,11 @@ test('paid annual card term without a recurring plan retains settlement and sepa
   assert.equal(response.statusCode, 200);
   assert.equal(response.payload.membership.state, 'active');
   assert.equal(response.payload.membership.renewalDate, '2027-09-18');
-  assert.deepEqual(response.payload.payment, { state: 'paid', method: 'card', nextPayment: null });
+  assert.deepEqual(response.payload.payment, {
+    state: 'paid', method: 'card', nextPayment: null, amount: null, currency: null,
+    collectionStatus: 'unavailable', plannedPayment: null, confirmedPayment: null,
+    nextCollection: null, mandateStatus: null,
+  });
   assert.ok(!h.db.calls.some(call => call.table === 'membership_payment_plans'));
 });
 
@@ -218,6 +233,13 @@ test('unconfirmed, monthly, expired or unlinked recurring records cannot become 
   });
   assert.equal(withPlan.payment.state, 'active');
   assert.equal(withPlan.payment.nextPayment, '2026-10-01');
+  assert.deepEqual(withPlan.payment.plannedPayment, {
+    date: '2026-10-01', amount: null, currency: null,
+  });
+  assert.deepEqual(withPlan.payment.nextCollection, {
+    date: '2026-10-01', amount: null, currency: null, status: 'planned',
+  });
+  assert.equal(withPlan.payment.collectionStatus, 'planned');
 });
 
 test('monthly billing without a matching plan never reports setup success', () => {
@@ -238,10 +260,13 @@ test('empty and ambiguous histories are distinct; no creation date or membership
 test('persisted snapshot supplies type and date without consulting live configuration', () => {
   const result = summary([term({
     tier_label: null, term_start_date: null, membership_renewal_date: null,
-    commitment_snapshot: { term_start_date: '2026-02-01', membership_renewal_date: '2027-02-01', config: { name: 'Retained tier' } },
+    commitment_snapshot: {
+      term_start_date: '2026-02-01', membership_renewal_date: '2027-02-01',
+      config: { name: 'Retained tier' },
+    },
   })]);
   assert.equal(result.membership.membershipType, 'Retained tier');
-  assert.equal(result.membership.memberSince, '2026-02-01');
+  assert.equal(result.membership.memberSince, null);
 });
 
 for (const [stored, expected] of [
@@ -279,8 +304,13 @@ test('authenticated response is minimal, tenant scoped and private no-store', as
   const res = await h.request();
   assert.equal(res.statusCode, 200);
   assert.deepEqual(Object.keys(res.payload), ['membership', 'payment']);
-  assert.deepEqual(Object.keys(res.payload.membership), ['state', 'memberSince', 'membershipType', 'renewalDate']);
-  assert.deepEqual(Object.keys(res.payload.payment), ['state', 'method', 'nextPayment']);
+  assert.deepEqual(Object.keys(res.payload.membership), [
+    'state', 'memberSince', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
+  ]);
+  assert.deepEqual(Object.keys(res.payload.payment), [
+    'state', 'method', 'nextPayment', 'amount', 'currency', 'collectionStatus',
+    'plannedPayment', 'confirmedPayment', 'nextCollection', 'mandateStatus',
+  ]);
   assert.match(res.headers['Cache-Control'], /private, no-store/);
   assert.match(res.headers.Vary, /Cookie/);
   assert.ok(h.db.calls.every(call => call.filters.some(([key, value]) => key === 'tenant_id' && value === 'tenant-a')));
@@ -378,10 +408,13 @@ test('two viewers sharing a tenant receive only their own commitments; unlinked 
   assert.ok(!second.db.calls.some(call => call.table === 'organisation_membership_history'));
 });
 
-test('retained history is paged to preserve earliest commencement beyond default row caps', async () => {
-  const rows = Array.from({ length: 501 }, (_, index) => term({ id: `row-${index}`, term_start_date: index === 500 ? '2000-01-01' : '2026-01-01' }));
+test('retained history is paged beyond default row caps without inventing commencement', async () => {
+  const rows = Array.from({ length: 501 }, (_, index) => term({
+    id: `row-${index}`,
+    term_start_date: index === 500 ? '2000-01-01' : '2026-01-01',
+  }));
   const h = harness({ rows: { member_membership_history: rows } });
-  assert.equal((await h.request()).payload.membership.memberSince, '2000-01-01');
+  assert.equal((await h.request()).payload.membership.memberSince, null);
   assert.equal(h.db.calls.filter(call => call.table === 'member_membership_history').length, 2);
 });
 
@@ -423,11 +456,137 @@ test('self API reads scoped migration mandate evidence and preserves upcoming te
 });
 
 test('matching agreement/plan supplies collection and never returns billing identifiers', async () => {
-  const res = await harness({ rows: billingRows() }).request();
+  const rows = billingRows();
+  Object.assign(rows.membership_payment_plans[0], { amount_minor: 0, currency: 'gbp' });
+  const res = await harness({ rows }).request();
   assert.equal(res.statusCode, 200);
   assert.equal(res.payload.payment.nextPayment, '2026-10-01');
   assert.equal(res.payload.payment.method, 'monthly_card');
+  assert.equal(res.payload.payment.amount, 0, 'zero is a known amount, not missing');
+  assert.equal(res.payload.payment.currency, 'GBP');
+  assert.equal(res.payload.payment.collectionStatus, 'planned');
+  assert.equal(res.payload.payment.nextCollection.status, 'planned');
   assert.ok(!JSON.stringify(res.payload).includes('agreement-a'));
+});
+
+test('pilot immutable payments provide historical context without becoming commencement or schedule', async () => {
+  const rows = billingRows();
+  Object.assign(rows.member_membership_history[0], {
+    id: 'history-pilot', payment_method: 'direct_debit', status: 'pending_payment_setup',
+    term_start_date: '2026-10-01',
+  });
+  Object.assign(rows.membership_billing_agreements[0], {
+    provider: 'gocardless',
+    metadata: { dd: { billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment' } },
+  });
+  Object.assign(rows.membership_payment_plans[0], {
+    provider: 'gocardless', status: 'first_payment_pending', next_charge_date: null,
+    environment: 'live', gocardless_mandate_id: 'mandate-a',
+  });
+  rows.gocardless_mandates = [{
+    tenant_id: 'tenant-a', environment: 'live', gocardless_mandate_id: 'mandate-a', status: 'active',
+  }];
+  rows.bnms_dd_pilot_adoption = [{
+    tenant_id: 'tenant-a', member_id: 'member-a', agreement_id: 'agreement-a',
+    plan_id: 'plan-a', history_id: 'history-pilot', historical_import_id: 'import-a',
+  }];
+  rows.bnms_dd_historical_payment = [
+    {
+      tenant_id: 'tenant-a', member_id: 'member-a', import_id: 'import-a',
+      period: '2026-01-01', charge_date: '2026-01-06', amount_minor: 1304,
+      currency: 'GBP', provider_status: 'paid_out', historical_only: true,
+    },
+    {
+      tenant_id: 'tenant-a', member_id: 'member-a', import_id: 'import-a',
+      period: '2026-09-01', charge_date: '2026-09-04', amount_minor: 1304,
+      currency: 'GBP', provider_status: 'paid_out', historical_only: true,
+    },
+  ];
+  const response = await harness({ rows }).request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.membership.memberSince, null);
+  assert.equal(response.payload.membership.paymentHistoryFrom, '2026-01-01');
+  assert.equal(response.payload.payment.nextPayment, null);
+  assert.equal(response.payload.payment.collectionStatus, 'unscheduled');
+  assert.deepEqual(response.payload.payment.confirmedPayment, {
+    date: '2026-09-04', amount: 13.04, currency: 'GBP', historical: true,
+  });
+  assert.equal(response.payload.payment.amount, null, 'historical payment is never the next amount');
+  assert.equal(response.payload.payment.mandateStatus, 'active');
+});
+
+test('past payment and confirmed future provider schedule remain distinct', async () => {
+  const rows = billingRows();
+  Object.assign(rows.member_membership_history[0], { payment_method: 'direct_debit' });
+  Object.assign(rows.membership_billing_agreements[0], { provider: 'gocardless' });
+  Object.assign(rows.membership_payment_plans[0], {
+    provider: 'gocardless', next_charge_date: null, amount_minor: null, currency: 'GBP',
+  });
+  rows.gocardless_payments = [{
+    tenant_id: 'tenant-a', plan_id: 'plan-a', amount_minor: 975, currency: 'gbp',
+    charge_date: '2026-09-10', confirmed_at: '2026-09-12T08:30:00Z', status: 'paid_out',
+  }, {
+    tenant_id: 'tenant-a', plan_id: 'plan-a', amount_minor: 1100, currency: 'GBP',
+    charge_date: '2026-10-10', confirmed_at: '2026-09-15T08:30:00Z', status: 'confirmed',
+  }];
+  const response = await harness({ rows }).request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.payment.nextPayment, '2026-10-10');
+  assert.equal(response.payload.payment.plannedPayment, null);
+  assert.equal(response.payload.payment.collectionStatus, 'confirmed');
+  assert.deepEqual(response.payload.payment.nextCollection, {
+    date: '2026-10-10', amount: 11, currency: 'GBP', status: 'confirmed',
+  });
+  assert.deepEqual(response.payload.payment.confirmedPayment, {
+    date: '2026-09-12', amount: 9.75, currency: 'GBP', historical: false,
+  });
+  assert.equal(response.payload.payment.amount, 11);
+  for (const status of ['pending_submission', 'submitted', 'paid_out']) {
+    rows.gocardless_payments[1].status = status;
+    const variant = await harness({ rows }).request();
+    assert.equal(variant.payload.payment.collectionStatus, 'confirmed', status);
+    assert.equal(variant.payload.payment.nextCollection.status, 'confirmed', status);
+  }
+});
+
+test('unscheduled fixed plan retains authoritative amount without borrowing a prior payment', async () => {
+  const rows = billingRows();
+  Object.assign(rows.member_membership_history[0], { payment_method: 'direct_debit' });
+  Object.assign(rows.membership_billing_agreements[0], { provider: 'gocardless' });
+  Object.assign(rows.membership_payment_plans[0], {
+    provider: 'gocardless', next_charge_date: null, amount_minor: 1300, currency: 'GBP',
+  });
+  const response = await harness({ rows }).request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.payment.collectionStatus, 'unscheduled');
+  assert.equal(response.payload.payment.nextPayment, null);
+  assert.equal(response.payload.payment.amount, 13);
+  assert.equal(response.payload.payment.confirmedPayment, null);
+});
+
+test('all unresolved arrears are paged into catch-up arithmetic and unknown amounts fail closed', async () => {
+  const arrears = Array.from({ length: 501 }, (_, index) => ({
+    id: `arrears-${String(index).padStart(3, '0')}`, tenant_id: 'tenant-a',
+    plan_id: 'plan-a', amount_minor: 1, settled_at: null,
+  }));
+  const rows = billingRows({
+    membership_monthly_arrears_period: arrears,
+  });
+  Object.assign(rows.membership_billing_agreements[0], {
+    metadata: { card: { monthly_post_grace_collection_policy: 'continue_catch_up' } },
+  });
+  Object.assign(rows.membership_payment_plans[0], { amount_minor: 100, currency: 'GBP' });
+  const complete = harness({ rows });
+  const response = await complete.request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.payment.amount, 6.01);
+  assert.equal(complete.db.calls.filter(call => call.table === 'membership_monthly_arrears_period').length, 2);
+
+  arrears[500].amount_minor = null;
+  const unknown = await harness({ rows }).request();
+  assert.equal(unknown.statusCode, 200);
+  assert.equal(unknown.payload.payment.amount, null);
+  assert.equal(unknown.payload.payment.plannedPayment, null);
 });
 
 test('renewed agreement and unrelated member plans cannot supply next collection', async () => {
