@@ -6,6 +6,7 @@ import { alphaProviderReader } from './bnms-dd-alpha-review.mjs';
 import { readAllProviderPages } from './bnms-dd-pilot.mjs';
 import { getTenantGocardlessCredentials } from '../api/_lib/gocardlessCredentials.js';
 import { resolveDynamicCollectionPrice } from '../api/_lib/gocardlessDynamicCollections.js';
+import { BNMS_BETA_BANK, betaAccountingMapping, assertBnmsBetaAccountingContext } from '../api/_lib/bnmsBetaAccounting.js';
 export const PROCESSING_START='2026-09-30T23:00:00Z';
 export const MAX_EVIDENCE_AGE_MS=15*60*1000;
 export const MAX_HANDOVER_AGE_MS=24*60*60*1000;
@@ -85,14 +86,13 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
   };
   const accounts=(await xero('Accounts')).Accounts;
   if(!Array.isArray(accounts))fail('Complete Xero account evidence required');
-  const bankCode=settings.find(s=>s.setting_key==='xero_gocardless_bank_account_code')?.setting_value;
-  const banks=accounts.filter(a=>bankCode&&a.Code===String(bankCode)&&a.Type==='BANK'&&a.Status==='ACTIVE'&&a.CurrencyCode==='GBP');
+  const banks=accounts.filter(a=>a.AccountID===BNMS_BETA_BANK.bank_account_id&&a.Type==='BANK'&&a.Status==='ACTIVE'&&a.CurrencyCode==='GBP');
   const globalBlockers=[];
   try{validateBetaHandover(handover,ids);const age=now().getTime()-Date.parse(handover.confirmedAt);
     if(age<0||age>MAX_HANDOVER_AGE_MS)fail('Reattest handover within 24 hours');}
   catch{globalBlockers.push('Explicit exact-beta legacy automatic collector handover confirmation required; empty provider schedules alone are not proof');}
   if(provider?.active_provider!=='xero')globalBlockers.push('Dedicated Xero accounting provider must be explicitly configured');
-  if(banks.length!==1)globalBlockers.push('Dedicated GoCardless bank code must resolve to one ACTIVE GBP BANK; pilot-only AccountID exception does not cover beta');
+  if(banks.length!==1)globalBlockers.push('Approved beta existing bank must resolve to the pinned ACTIVE GBP BANK');
   const get=alphaProviderReader(await getTenantGocardlessCredentials(TENANT_ID,{db}),transport);
   const members=[];
   for(const a of adoptions){
@@ -119,6 +119,8 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
     try{price=await resolveDynamicCollectionPrice(agreement,'2026-10-01',{db});}catch(e){blockers.push(e.message);}
     const revenueCode=String(price?.nominal_code||settings.find(s=>s.setting_key==='membership_nominal_ledger')?.setting_value
       ||settings.find(s=>s.setting_key==='xero_sales_account_code')?.setting_value||'200');
+    const mapping=betaAccountingMapping(a.member_id);
+    if(revenueCode!==mapping.revenue_account_code)blockers.push('Beta revenue code differs from approved scoped mapping');
     if(accounts.filter(x=>x.Code===revenueCode&&x.Status==='ACTIVE'&&x.Type==='REVENUE').length!==1)blockers.push('Current Xero revenue account unavailable');
     const mandate=(await get(`mandates/${a.mandate_id}`)).mandates;
     const customer=(await get(`customers/${a.customer_id}`)).customers;
@@ -153,7 +155,7 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
     members.push({adoptionId:a.id,memberId:a.member_id,planId:a.plan_id,agreementId:a.agreement_id,historyId:a.history_id,
       mandateId:a.mandate_id,customerId:a.customer_id,adoptionHash:fingerprint(a),price,blockers,
       provider:{mandate,customer,subscriptions,payments,mandateCount:mandates.length},futureInvoices,
-      accounting:{xeroTenantId:XERO_TENANT_ID,bankAccountId:banks[0]?.AccountID||null,bankCode:bankCode||null,revenueCode,contactId:contactIds[0]||null},
+      accounting:{xeroTenantId:XERO_TENANT_ID,bankAccountId:banks[0]?.AccountID||null,bankCode:banks[0]?.Code||null,revenueCode,contactId:contactIds[0]||null,mapping},
       historicalInvoiceCount:stored.length});
   }
   const completedAt=now().toISOString();
@@ -166,6 +168,12 @@ export function betaReleaseManifest(report,proof){
     ||new Set(report.members.map(m=>m.memberId)).size!==10)fail('Exact ten-member readiness scope required');
   if(report.globalBlockers.length||report.members.some(m=>m.blockers.length))fail('Beta release blocked by unresolved readiness evidence');
   validateBetaHandover(report.handover,report.members.map(m=>m.memberId));
+  for(const member of report.members){
+    const mapping=assertBnmsBetaAccountingContext(TENANT_ID,{memberId:member.memberId,environment:'live',
+      provider:'gocardless',snapshot:member.accounting?.mapping});
+    if(member.accounting.bankAccountId!==mapping.bank_account_id||member.accounting.xeroTenantId!==mapping.xero_tenant_id
+      ||member.accounting.revenueCode!==mapping.revenue_account_code)fail('Beta reviewed accounting mapping mismatch');
+  }
   if(!proof?.sourceHashes||!proof.deploymentId||!proof.commit)fail('Verified active deployment proof required');
   return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,processingNotBefore:PROCESSING_START,
     stateHash:report.stateHash,production:proof,handover:report.handover,

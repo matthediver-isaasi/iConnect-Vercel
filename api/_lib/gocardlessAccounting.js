@@ -19,7 +19,8 @@
 // Dependencies injectable for tests: { db, getProvider }.
 
 import { supabase } from './database.js';
-import { assertBnmsPilotAccountingContext } from './xero.js';
+import { assertBnmsAccountingContext } from './xero.js';
+import { resolveBetaAccountingContext, BNMS_BETA_TENANT, BNMS_BETA_REVENUE } from './bnmsBetaAccounting.js';
 import {
   getAccountingProvider,
   PROVIDER_NONE,
@@ -49,7 +50,7 @@ export async function postDdArrearsPeriodToAccounting({
   const provider = await (deps.getProvider || getAccountingProvider)(agreement.tenant_id);
   if (!provider || provider.name === PROVIDER_NONE) return { status: 'skipped', reason: 'no accounting provider connected' };
   const snapshot = agreement.metadata?.dd;
-  if (snapshot?.accounting_migration) {
+  if (snapshot?.accounting_migration || (agreement.tenant_id === BNMS_BETA_TENANT && Object.hasOwn(BNMS_BETA_REVENUE, agreement.member_id))) {
     throw new Error('BNMS pilot accounting requires a confirmed canonical dynamic payment, not arrears/history');
   }
   const outcome = await mintOrPayInstalmentInvoice({
@@ -94,19 +95,20 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
 
   try {
     const migration = agreement.metadata?.dd?.accounting_migration;
-    const ddAccountingMigration = migration ? {
+    const betaContext = await resolveBetaAccountingContext(agreement, db);
+    const ddAccountingMigration = betaContext || (migration ? {
       snapshot: migration, memberId: agreement.member_id,
       environment: agreement.environment, provider: agreement.provider,
-    } : null;
+    } : null);
     if (ddAccountingMigration) {
-      assertBnmsPilotAccountingContext(agreement.tenant_id, ddAccountingMigration);
+      assertBnmsAccountingContext(agreement.tenant_id, ddAccountingMigration);
       if (!isPerInstalmentAgreement(agreement)
         || agreement.metadata.dd.collection_policy?.version !== 1
         || agreement.metadata.dd.collection_policy.pricing_policy !== 'dynamic') {
         throw new Error('BNMS pilot accounting requires dynamic per-instalment collections');
       }
       // Re-read canonical evidence; caller metadata and historical imports
-      // cannot authorize new invoices. This is deliberately pilot-only.
+      // cannot authorize new invoices. Only explicitly scoped pilot/beta releases.
       const { data: canonical, error } = await db.from('gocardless_payments').select('*')
         .eq('id', paymentRow.id).eq('tenant_id', agreement.tenant_id).maybeSingle();
       if (error || !canonical || !['confirmed', 'paid_out'].includes(canonical.status)

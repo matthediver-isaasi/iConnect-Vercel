@@ -19,6 +19,7 @@ import {
 } from './membershipInstalmentInvoicing.js';
 import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
 import { BNMS_PILOT_ACCOUNTING } from './xero.js';
+import { betaAccountingMapping, BNMS_BETA_BATCH, BNMS_BETA_REVENUE } from './bnmsBetaAccounting.js';
 import { resolveDdOffer, buildAgreementSnapshot } from './gocardlessDirectDebit.js';
 import { resolveCardMonthlyOffer, buildCardAgreementSnapshot } from './stripeMonthlyCard.js';
 
@@ -227,7 +228,7 @@ const contextHandlers = {
   system_settings: () => ({ data: null, error: null }),
 };
 
-function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonical = false, missingReservation = false } = {}) {
+function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonical = false, missingReservation = false, betaMember = null, betaHeld = false } = {}) {
   const agreement = perInstalmentAgreement({
     tenant_id: 'ff2df806-b321-4254-b651-3af11fccf1db',
     member_id: '33e5d54d-162e-436d-9bff-ec6676d198f9',
@@ -239,6 +240,12 @@ function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonic
     collection_policy: { version: 1, pricing_policy: 'dynamic', end_policy: 'continue' },
   };
   delete agreement.metadata.card;
+  const mapping = betaMember ? betaAccountingMapping(betaMember) : null;
+  if (betaMember) {
+    agreement.member_id = betaMember;
+    agreement.gocardless_customer_id = 'CUbeta';
+    delete agreement.metadata.dd.accounting_migration;
+  }
   const payment = {
     id: 'pay-pilot', tenant_id: agreement.tenant_id, plan_id: 'plan-pilot',
     gocardless_payment_id: 'PMpilot', gocardless_mandate_id: 'MDpilot',
@@ -248,10 +255,17 @@ function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonic
   const reservation = {
     plan_id: payment.plan_id, amount_minor: 1300, currency: 'GBP', due_date: '2026-10-01',
     term_key: 'pilot:2026', requested_charge_date: '2026-10-01',
-    price_snapshot: { currency: 'GBP', vat_rate: null, nominal_code: '4000', config: { pricing_model: 'flat' } }, ...reservationPatch,
+    price_snapshot: { currency: 'GBP', vat_rate: null, nominal_code: mapping?.revenue_account_code || '4000', config: { pricing_model: 'flat' } }, ...reservationPatch,
   };
   const db = fakeDb({
     ...contextHandlers,
+    bnms_dd_beta_adoption: () => ({ data: { id: 'adoption', batch_id: 'batch', plan_id: payment.plan_id,
+      mandate_id: agreement.gocardless_mandate_id, customer_id: agreement.gocardless_customer_id } }),
+    bnms_dd_beta_batch: () => ({ data: { evidence_sha256: BNMS_BETA_BATCH } }),
+    bnms_dd_beta_release: () => ({ data: betaHeld ? null : { evidence: {
+      adoptionId: 'adoption', agreementId: agreement.id, memberId: betaMember, planId: payment.plan_id,
+      accounting: { mapping, bankAccountId: mapping?.bank_account_id, xeroTenantId: mapping?.xero_tenant_id, revenueCode: mapping?.revenue_account_code },
+    } } }),
     gocardless_payments: state => {
       if (state.op === 'select') return { data: missingCanonical ? null : { ...payment } };
       Object.assign(payment, state.payload);
@@ -261,6 +275,33 @@ function pilotFixture({ paymentPatch = {}, reservationPatch = {}, missingCanonic
   });
   return { agreement, payment, db };
 }
+
+test('beta canonical collection threads journal-approved account mapping to invoice creation and linked retry', async () => {
+  for (const existing of [false, true]) {
+    const betaMember = Object.keys(BNMS_BETA_REVENUE)[0];
+    const { agreement, payment, db } = pilotFixture({ betaMember,
+      paymentPatch: existing ? { accounting_invoice_id: 'existing', accounting_sync_status: 'invoice_unpaid' } : {} });
+    const calls = [], provider = fakeProvider(calls, { applyCalls: calls });
+    const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, { db, getProvider: async () => provider });
+    assert.equal(result.status, 'posted');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].ddAccountingMigration.snapshot, betaAccountingMapping(betaMember));
+    if (!existing) assert.equal(calls[0].nominalCode, '201');
+    assert.equal(agreement.metadata.dd.accounting_migration, undefined);
+  }
+});
+
+test('beta hold and changed reservation revenue fail closed before accounting writes', async () => {
+  for (const options of [{ betaHeld: true }, { reservationPatch: {
+    price_snapshot: { currency: 'GBP', vat_rate: null, nominal_code: '999', config: { pricing_model: 'flat' } },
+  } }]) {
+    const { agreement, payment, db } = pilotFixture({ betaMember: Object.keys(BNMS_BETA_REVENUE)[0], ...options });
+    const calls = [];
+    const result = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, { db, getProvider: async () => fakeProvider(calls) });
+    assert.equal(result.status, 'failed');
+    assert.equal(calls.length, 0);
+  }
+});
 
 test('BNMS pilot passes exact immutable mapping and revenue 200 only for canonical future collection', async () => {
   const { agreement, payment, db } = pilotFixture();

@@ -530,6 +530,10 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     if (provider.name !== 'xero' || context.currency !== 'GBP') {
       throw new Error('BNMS pilot accounting requires Xero and GBP');
     }
+    if (ddAccountingMigration.snapshot.source === 'bnms_beta_approved_existing_bank'
+      && context.nominalCode !== ddAccountingMigration.snapshot.revenue_account_code) {
+      throw new Error('BNMS beta reservation revenue differs from approved accounting evidence');
+    }
     context.nominalCode = ddAccountingMigration.snapshot.revenue_account_code;
   }
   const invoice = await createInstalmentInvoice({

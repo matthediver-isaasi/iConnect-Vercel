@@ -9,19 +9,23 @@ import { betaReleaseManifest, validateBetaScope, validateBetaHandover, verifyBet
 import { parseBetaReleaseArgs } from './run-bnms-dd-beta-release.mjs';
 import { TENANT_ID,BATCH_HASH } from './bnms-dd-beta-invoices.mjs';
 import { fingerprint } from './bnms-dd-pilot-history.mjs';
-const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+import { BNMS_BETA_REVENUE, betaAccountingMapping } from '../api/_lib/bnmsBetaAccounting.js';
+const betaIds=Object.keys(BNMS_BETA_REVENUE);
+const uuid=n=>n>=11&&n<=20?betaIds[n-11]:`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const accountingFor=memberId=>{const mapping=betaAccountingMapping(memberId);return {mapping,
+  bankAccountId:mapping.bank_account_id,xeroTenantId:mapping.xero_tenant_id,revenueCode:mapping.revenue_account_code};};
 test('release CLI/scope/readiness refuse identity overrides, ambiguous handover and unreviewed apply',()=>{
   for(const args of [['--apply'],['--out','/tmp/a','--member','x'],['--schema','--out','/tmp/a'],['--out','/tmp/a','--replay','/tmp/old'],['--apply','--out','/tmp/a',`--review-sha256=${'a'.repeat(64)}`]])assert.throws(()=>parseBetaReleaseArgs(args));
   assert.equal(parseBetaReleaseArgs(['--schema']).apply,false);
   assert.throws(()=>validateBetaScope({tenant_id:TENANT_ID,evidence_sha256:BATCH_HASH,evidence:{}},Array(10).fill({})),/immutable/);
   assert.throws(()=>validateBetaHandover({tenantId:TENANT_ID,batchHash:BATCH_HASH,automaticLegacyCollectionsDisabled:true},[uuid(1)]));
-  const memberIds=Array.from({length:10},(_,n)=>uuid(n+1));
+  const memberIds=betaIds;
   const handover={tenantId:TENANT_ID,batchHash:BATCH_HASH,memberIds,automaticLegacyCollectionsDisabled:true,
     confirmedAt:'2026-09-20T00:00:00Z',confirmedBy:'Fixture reviewer',evidenceReference:'isolated fixture'};
   validateBetaHandover(handover,memberIds);
   assert.throws(()=>validateBetaHandover({...handover,memberIds:memberIds.slice(1)},memberIds));
   const report={tenantId:TENANT_ID,batchHash:BATCH_HASH,handover,globalBlockers:[],stateHash:'fixture',
-    members:memberIds.map(memberId=>({memberId,blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}))};
+    members:memberIds.map(memberId=>({memberId,accounting:accountingFor(memberId),blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}))};
   assert.throws(()=>betaReleaseManifest(report,null),/deployment proof/);
   const proof={deploymentId:'fixture',commit:'fixture',sourceHashes:{}};
   const manifest=betaReleaseManifest(report,proof);
@@ -131,7 +135,7 @@ test('isolated PostgreSQL beta arming is atomic, immutable, October-gated and fi
       await assert.rejects(verifyBetaReleaseSchema(c),/differs|differ/);await c.query('ROLLBACK');
     }
     const replayMembers=Array.from({length:10},(_,index)=>({memberId:uuid(index+11),adoptionId:uuid(index+1),planId:uuid(index+21),
-      blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}));
+      accounting:accountingFor(uuid(index+11)),blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}));
     const replayReport={tenantId:TENANT_ID,batchHash:BATCH_HASH,globalBlockers:[],members:replayMembers,
       handover:{tenantId:TENANT_ID,batchHash:BATCH_HASH,memberIds:replayMembers.map(m=>m.memberId),automaticLegacyCollectionsDisabled:true,
         confirmedBy:'Fixture operator',evidenceReference:'Fixture handover',confirmedAt:'2026-09-20T00:00:00Z'}};
