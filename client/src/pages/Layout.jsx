@@ -60,6 +60,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/comp
 import { ScrollArea } from "@/components/ui/scroll-area";
 import PublicLayout from "@/components/layouts/PublicLayout";
 import BarePublicLayout from "@/components/layouts/BarePublicLayout";
+import PortalReadiness from "@/components/layouts/PortalReadiness";
 import FloaterDisplay from "@/components/floaters/FloaterDisplay";
 import NewsTickerBar from "@/components/news/NewsTickerBar";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
@@ -1078,6 +1079,7 @@ export default function Layout({ children, currentPageName }) {
   });
   const authGenerationRef = useRef(0);
   const [authRevision, setAuthRevision] = useState(0);
+  const [sessionError, setSessionError] = useState(null);
   const viewerSessionScope = getViewerSessionScope({
     tenantSlug: tenantBranding?.tenantSlug,
     hostname: window.location.hostname,
@@ -1323,8 +1325,8 @@ const viewableCustomObjectIds = useMemo(
 );
 
 // Fetch page visibility settings from public system_settings API
-const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched } = useQuery({
-  queryKey: ['page-visibility-settings'],
+const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched, error: visibilitySettingsError, refetch: retryVisibilitySettings } = useQuery({
+  queryKey: ['page-visibility-settings', viewerSessionScope.split(':')[0]],
   refetchOnMount: false,
   staleTime: 60000,
   queryFn: async () => {
@@ -1333,17 +1335,19 @@ const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched 
       if (setting?.setting_value) {
         try {
           const parsed = JSON.parse(setting.setting_value);
-          if (typeof parsed === 'object' && parsed !== null) {
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            && Object.values(parsed).every(value => ['public', 'hybrid', 'portal'].includes(value))) {
             return parsed;
           }
+          throw new Error('Page visibility settings are invalid.');
         } catch (parseError) {
-          console.error('Error parsing page visibility settings JSON:', parseError);
+          throw parseError;
         }
       }
       return {};
     } catch (error) {
       console.error('Error loading page visibility settings:', error);
-      return {};
+      throw error;
     }
   },
 });
@@ -1897,15 +1901,18 @@ useEffect(() => {
   useEffect(() => {
     const lease = createViewerRequestLease(authGenerationRef);
     const isCancelled = () => !lease.isCurrent();
-    if (!visibilitySettingsFetched) {
-      return () => lease.cancel();
-    }
     const sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
 
     // Check server session first for multi-tab persistence
     const checkServerSession = async () => {
+      let timeout;
       try {
-        const { response, member } = await sessionRequest.promise;
+        const { response, member } = await Promise.race([
+          sessionRequest.promise,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('Session validation timed out.')), 15000);
+          }),
+        ]);
         if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
         if (response.ok) {
           // API returns member directly (not wrapped in data.member)
@@ -1956,136 +1963,41 @@ useEffect(() => {
         return { valid: false, serverResponded: false }; // Other server errors (500, network issues)
       } catch (error) {
         if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
-        console.log('[Layout] Server session check failed, falling back to sessionStorage');
+        console.error('[Layout] Server session could not be verified:', error);
         return { valid: false, serverResponded: false };
+      } finally {
+        clearTimeout(timeout);
       }
     };
 
     const handleAuth = async () => {
-      // Get dynamic visibility for the current page
-      const visibility = getPageVisibility(currentPageName);
-      
       // Every layout needs validated viewer state for audience-targeted content.
       // Reset both flags before the request so stale authenticated state cannot
       // briefly classify a guest as authenticated after logout/session expiry.
       setAuthResolved(false);
       setSessionValidated(false);
+      setSessionError(null);
 
       // Try server session first (for password-based auth with cross-tab persistence)
       const sessionResult = await checkServerSession();
       if (isCancelled() || sessionResult.cancelled) return;
-      
-      // If server explicitly said the session is invalid (e.g., member deleted/disabled)
-      // and we have cached data in localStorage, we need to clear it and log out
-      if (sessionResult.serverResponded && !sessionResult.valid) {
-        const storedMember = localStorage.getItem('agcas_member');
-        if (storedMember) {
-          console.log('[Layout] Server invalidated session - clearing localStorage and logging out');
-          localStorage.removeItem('agcas_member');
-          localStorage.removeItem('agcas_organization');
-          clearInboxPopupSessionFlags();
-          setMemberInfo(null);
-          setOrganizationInfo(null);
-          // SECURITY: Clear validation flag when session is invalidated
-          setSessionValidated(false);
-          // SECURITY: Mark auth resolution complete (session is now known to be invalid)
-          setAuthResolved(true);
-          
-          // For portal pages, redirect to login with return path so user lands back here after login
-          if (visibility !== 'hybrid' && visibility !== 'public') {
-            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
-          }
-          return;
-        }
-        // No stored member but server says session invalid
-        // For portal pages, redirect guests to login with return path
+      // Session validation is independent of route metadata. Redirect decisions
+      // below are made by a separate effect only after visibility has resolved.
+      setSessionError(!sessionResult.valid && !sessionResult.serverResponded
+        ? new Error('Unable to verify your session. Please try again.')
+        : null);
+      if (!sessionResult.valid) {
         setMemberInfo(null);
         setOrganizationInfo(null);
+        setContextMemberInfo(null);
         setSessionValidated(false);
-        if (visibility !== 'hybrid' && visibility !== 'public') {
-          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
-          return;
-        }
-        setAuthResolved(true);
-        return;
-      }
-      
-      if (sessionResult.valid) {
-        // SECURITY: Mark auth as resolved (session is valid)
-        setAuthResolved(true);
-        return; // Already authenticated via server session
-      }
-
-      // Public and hybrid pages allow a confirmed guest to continue.
-      if (visibility === 'hybrid' || visibility === 'public') {
-        const storedMember = localStorage.getItem('agcas_member');
-        if (!storedMember) {
-          setMemberInfo(null);
-          setOrganizationInfo(null);
-          setSessionValidated(false);
-          setAuthResolved(true);
-          return;
-        }
-        // Cached member data may keep non-sensitive UI usable during a server
-        // outage, but it never counts as a validated authenticated audience.
-      }
-
-      // Fall back to sessionStorage for backward compatibility (only if server didn't respond)
-      if (!sessionResult.serverResponded) {
-        const storedMember = localStorage.getItem('agcas_member');
-        if (!storedMember) {
-          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
-          return;
-        }
-
-        let member;
-        try {
-          member = stripTrustedMemberProjections(JSON.parse(storedMember));
-        } catch {
+        if (sessionResult.serverResponded) {
           localStorage.removeItem('agcas_member');
-          setMemberInfo(null);
-          setOrganizationInfo(null);
-          setSessionValidated(false);
-          if (visibility !== 'hybrid' && visibility !== 'public') {
-            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
-            return;
-          }
-          setAuthResolved(true);
-          return;
-        }
-
-        if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
-          localStorage.removeItem('agcas_member');
-          clearInboxPopupSessionFlags();
-          setMemberInfo(null);
-          setOrganizationInfo(null);
-          setSessionValidated(false);
-          if (visibility !== 'hybrid' && visibility !== 'public') {
-            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
-            return;
-          }
-          setAuthResolved(true);
-          return;
-        }
-
-        // Only update memberInfo if it's actually different (prevent unnecessary re-renders)
-        if (!memberInfo || JSON.stringify(memberInfo) !== JSON.stringify(member)) {
-          setMemberInfo(member);
-        }
-
-        // Only fetch organization info for regular members (not team members)
-        if (member.organization_id && !member.is_team_member) {
-          fetchOrganizationInfo(member.organization_id);
-        } else {
           localStorage.removeItem('agcas_organization');
-          setOrganizationInfo(null);
+          clearInboxPopupSessionFlags();
         }
-        
-        // The server could not validate this cached session. Finish resolution
-        // without treating it as an authenticated floater audience.
-        setSessionValidated(false);
-        setAuthResolved(true);
       }
+      setAuthResolved(true);
     };
 
     handleAuth();
@@ -2093,7 +2005,18 @@ useEffect(() => {
       lease.cancel();
       sessionRequest.cancel();
     };
-  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname, authRevision, viewerSessionScope]); // Also revalidate after account/profile changes
+  }, [location.pathname, authRevision, viewerSessionScope]); // Visibility must not restart session validation.
+
+  useEffect(() => {
+    if (!authResolved || sessionValidated || sessionError
+      || !visibilitySettingsFetched || visibilitySettingsError) return;
+    const visibility = getPageVisibility(currentPageName);
+    if (visibility !== 'hybrid' && visibility !== 'public') {
+      window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+    }
+  }, [authResolved, sessionValidated, sessionError, visibilitySettingsFetched,
+    visibilitySettingsError, pageVisibilitySettings, location.pathname, currentPageName]);
+
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
   useEffect(() => {
@@ -2547,26 +2470,6 @@ useEffect(() => {
     );
   }
 
-  // Suppress portal page content until auth has resolved to prevent a flash of
-  // portal content (spinners, empty fields, sidebar-less render) before a guest
-  // redirect fires. Conditions for gating:
-  //   1. Auth hasn't resolved for this navigation (authResolved is reset at the
-  //      start of each handleAuth run for portal pages, so this re-fires on
-  //      every in-app navigation to a portal page, not just first load).
-  //   2. No localStorage member data — authenticated users (who have cached auth)
-  //      are never gated so they see portal content immediately without blank delay.
-  //   3. The current page is portal-only (not public/hybrid/forcePublicLayout).
-  // Public and hybrid pages are unaffected; forceBlankLayout is also exempt.
-  if (!authResolved && !forceBlankLayout && !forcePublicLayout) {
-    const pendingVisibility = getPageVisibility(currentPageName);
-    if (pendingVisibility !== 'public' && pendingVisibility !== 'hybrid') {
-      const hasLocalAuth = !!localStorage.getItem('agcas_member');
-      if (!hasLocalAuth) {
-        return <div style={{ visibility: 'hidden' }}>{children}</div>;
-      }
-    }
-  }
-
   // Resolve effective page name for dynamic article routes and public page variants
   // When _DynamicPage is rendering a public page, pass the canonical component name
   // Also handles mapping portal pages to their public equivalents for unauthenticated users
@@ -2650,24 +2553,33 @@ useEffect(() => {
     if (bareLayoutPages.includes(currentPageName)) {
       return (
         <div style={publicVisibility}>
+          <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
           <BarePublicLayout>
             {children}
             {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
           </BarePublicLayout>
+          </PortalReadiness>
         </div>
       );
     }
     return (
       <div style={publicVisibility}>
+        <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
         <PublicLayout currentPageName={effectivePageName}>
           {children}
           {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
         </PublicLayout>
+        </PortalReadiness>
       </div>
     );
   }
 
   return (
+    <PortalReadiness
+      ready={!visibilitySettingsError && chromeReady && authResolved && sessionValidated && roleStatus === 'ready'}
+      error={visibilitySettingsError || sessionError || (roleStatus === 'error' || roleStatus === 'missing' ? roleError || new Error('Your navigation role is unavailable.') : null)}
+      onRetry={visibilitySettingsError ? retryVisibilitySettings : sessionError ? retrySessionRoleValidation : retryRole}
+    >
     <div style={{
       fontFamily: portalRootFont,
       // Keep the portal root mounted while auth/chrome settles; visibility
@@ -3414,7 +3326,8 @@ useEffect(() => {
         </>
       )}
 
-      {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
+      {chromeReady && authResolved && sessionValidated && roleStatus === 'ready' && !forceBlankLayout ? inboxUnreadPopupElement : null}
     </div>
+    </PortalReadiness>
   );
 }

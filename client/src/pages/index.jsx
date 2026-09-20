@@ -1,3 +1,4 @@
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -123,11 +124,11 @@ import IEditPageManagement from "./IEditPageManagement";
 
 import IEditTemplateManagement from "./IEditTemplateManagement";
 
-import IEditPageEditor from "./IEditPageEditor";
+const IEditPageEditor = lazy(() => import("./IEditPageEditor"));
 
-import CanvasPageEditor from "./CanvasPageEditor";
+const CanvasPageEditor = lazy(() => import("./CanvasPageEditor"));
 import CanvasFooterManagement from "./CanvasFooterManagement";
-import CanvasFooterEditor from "./CanvasFooterEditor";
+const CanvasFooterEditor = lazy(() => import("./CanvasFooterEditor"));
 
 import testpage from "./testpage";
 
@@ -185,7 +186,7 @@ import FloaterManagement from "./FloaterManagement";
 
 import FormManagement from "./FormManagement";
 
-import FormBuilder from "./FormBuilder";
+const FormBuilder = lazy(() => import("./FormBuilder"));
 
 import FormView from "./FormView";
 
@@ -210,7 +211,7 @@ import FormSubmissionView from "./FormSubmissionView";
 
 import FormSettings from "./FormSettings";
 
-import NewsEditor from "./NewsEditor";
+const NewsEditor = lazy(() => import("./NewsEditor"));
 
 import NewsView from "./NewsView";
 
@@ -226,7 +227,7 @@ import ArticlePreview from "./ArticlePreview";
 
 import DataExport from "./DataExport";
 
-import ImportManager from "./ImportManager";
+const ImportManager = lazy(() => import("./ImportManager"));
 
 import SiteMap from "./SiteMap";
 
@@ -302,7 +303,7 @@ import PageVisibilitySettings from "./PageVisibilitySettings";
 
 import CommunicationsManagement from "./CommunicationsManagement";
 
-import EmailCampaignEdit from "./EmailCampaignEdit";
+const EmailCampaignEdit = lazy(() => import("./EmailCampaignEdit"));
 
 import AdminMemberEdit from "./AdminMemberEdit";
 
@@ -328,20 +329,20 @@ import ReportsDashboard from "./ReportsDashboard";
 import Sales from "./Sales";
 import EventAllocationManager from "@/components/sales/EventAllocationManager";
 
-import AIReports from "./AIReports";
-import AccessibilityAudits from "./AccessibilityAudits";
-import CanvasLinksManager from "./CanvasLinksManager";
+const AIReports = lazy(() => import("./AIReports"));
+const AccessibilityAudits = lazy(() => import("./AccessibilityAudits"));
+const CanvasLinksManager = lazy(() => import("./CanvasLinksManager"));
 import EventCheckIn from "./EventCheckIn";
 import EventCheckInDashboard from "./EventCheckInDashboard";
 
-import EventRegistrationReport from "./EventRegistrationReport";
+const EventRegistrationReport = lazy(() => import("./EventRegistrationReport"));
 
-import EventBudgetReport from "./EventBudgetReport";
+const EventBudgetReport = lazy(() => import("./EventBudgetReport"));
 
-import FormConversionReport from "./FormConversionReport";
-import SurveyReports from "./SurveyReports";
+const FormConversionReport = lazy(() => import("./FormConversionReport"));
+const SurveyReports = lazy(() => import("./SurveyReports"));
 
-import OrganisationEngagementReport from "./OrganisationEngagementReport";
+const OrganisationEngagementReport = lazy(() => import("./OrganisationEngagementReport"));
 
 import MembershipTierManagement from "./MembershipTierManagement";
 
@@ -396,7 +397,7 @@ import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
 import OnboardingWizard from "./admin/OnboardingWizard";
 import PlanUsage from "./admin/PlanUsage";
-import AiDesignStudio from "./admin/AiDesignStudio";
+const AiDesignStudio = lazy(() => import("./admin/AiDesignStudio"));
 import AdminBranding from "./admin/AdminBranding";
 import MicrositeManagement from "./MicrositeManagement";
 import AdminLmicCountries from "./admin/AdminLmicCountries";
@@ -429,7 +430,7 @@ import PublicSalesQuote from "./PublicSalesQuote";
 
 import PhotoGalleries from "./PhotoGalleries";
 
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { RouteLoadingBoundary } from '@/components/routing/RouteLoadingBoundary';
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useParams, createRoutesFromChildren, matchRoutes } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { useLayoutContext, usePageLayoutDecision } from '@/contexts/LayoutContext';
@@ -1389,7 +1390,9 @@ function PagesContent() {
             prerequisitesReady={!brandingLoading && authResolved && micrositesLoaded && !micrositeBrandingLoading}>
             <ScrollToTop />
             <Layout currentPageName={currentPage}>
-                <Routes>{routes}</Routes>
+                <RouteLoadingBoundary resetKey={location.pathname}>
+                    <Routes>{routes}</Routes>
+                </RouteLoadingBoundary>
             </Layout>
         </RouteLayoutProvider>
     );
@@ -1568,9 +1571,21 @@ export default function Pages() {
     return (
         <Router>
             <LayoutProvider>
-                <AppRoutes />
+                <AppRouteBoundary />
                 <PlanQuotaDialog />
             </LayoutProvider>
         </Router>
+    );
+}
+
+// Keep the portal shell outside its inner Suspense boundary. Standalone/admin
+// routes use this outer boundary; neither boundary wraps individual elements,
+// whose type is used above to decide page-owned layout.
+function AppRouteBoundary() {
+    const location = useLocation();
+    return (
+        <RouteLoadingBoundary resetKey={location.pathname}>
+            <AppRoutes />
+        </RouteLoadingBoundary>
     );
 }

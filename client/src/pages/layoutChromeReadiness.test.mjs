@@ -10,7 +10,7 @@ test('chrome readiness never replaces or hides the public form parent', () => {
   assert.match(publicBranch, /const publicVisibility = \{\}/);
   for (const layout of ['BarePublicLayout', 'PublicLayout']) {
     assert.match(publicBranch, new RegExp(
-      `<div style=\\{publicVisibility\\}>\\s*<${layout}[^>]*>\\s*\\{children\\}`,
+      `<div style=\\{publicVisibility\\}>\\s*<PortalReadiness[^>]*>\\s*<${layout}[^>]*>\\s*\\{children\\}`,
     ));
   }
   assert.match(publicBranch, /fontFamily: portalRootFont,[\s\S]*?visibility: chromeReady \? 'visible' : 'hidden'/);
@@ -24,6 +24,16 @@ test('every inbox popup is explicitly gated because portaled dialogs escape root
   assert.doesNotMatch(publicBranch, /\{inboxUnreadPopupElement\}/);
   assert.equal(
      publicBranch.match(/\{chromeReady && !forceBlankLayout \? inboxUnreadPopupElement : null\}/g)?.length,
-    3,
+    2,
   );
+  assert.match(publicBranch, /chromeReady && authResolved && sessionValidated && roleStatus === 'ready' && !forceBlankLayout \? inboxUnreadPopupElement : null/);
+});
+
+test('session commits independently of visibility and redirects wait for metadata', () => {
+  const effect = source.slice(source.indexOf('const sessionRequest = acquireViewerSessionRequest'), source.indexOf('// Update last_activity'));
+  assert.match(effect, /\[location.pathname, authRevision, viewerSessionScope\]/);
+  assert.doesNotMatch(effect, /if \(!visibilitySettingsFetched\)/);
+  assert.match(effect, /!visibilitySettingsFetched \|\| visibilitySettingsError/);
+  assert.doesNotMatch(source, /if \(!hasLocalAuth\)/);
+  assert.match(source, /ready=\{!visibilitySettingsError && chromeReady && authResolved && sessionValidated && roleStatus === 'ready'\}/);
 });

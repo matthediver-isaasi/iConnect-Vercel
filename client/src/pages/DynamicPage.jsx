@@ -20,6 +20,7 @@ import ArticleEditor from "./ArticleEditor";
 import PublicArticles from "./PublicArticles";
 import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from "./dynamicPageRequest";
 import {
   createDynamicPageRequestScope,
   getEarlyPublicPageRequest,
@@ -306,6 +307,7 @@ export default function DynamicPage() {
   const {
     data: earlyPublicPageResult,
     isFetched: earlyPublicPageFetched,
+    error: earlyPublicPageError,
   } = useQuery({
     queryKey: [
       'iedit-dynamic-page-public',
@@ -315,17 +317,10 @@ export default function DynamicPage() {
       earlyPublicRequest?.slug || null,
       audienceGeneration,
     ],
-    queryFn: async () => {
-      try {
-        const data = await publicClient.getPage(
-          earlyPublicRequest.slug,
-          earlyPublicRequest.micrositePrefix,
-        );
-        return { data: data || null };
-      } catch {
-        return { data: null };
-      }
-    },
+    queryFn: () => readPublicPage(() => publicClient.getPage(
+      earlyPublicRequest.slug,
+      earlyPublicRequest.micrositePrefix,
+    )),
     enabled: !!earlyPublicRequest
       && !audienceTransitionPending
       && !storageInvalidationPending
@@ -335,7 +330,7 @@ export default function DynamicPage() {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError &&
+  const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError && !earlyPublicPageError &&
     !!slug && !dynamicArticleRoute && (canPreviewDrafts || earlyPublicPageFetched) &&
     (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
 
@@ -541,13 +536,13 @@ export default function DynamicPage() {
   const isLoggedIn = authResolved && sessionValidated && !!memberInfo;
 
   // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = routePrerequisitesReady && pageFetched && !pageFetching && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
-  const { data: redirectResult, isLoading: redirectLoading, isError: redirectError } = useQuery({
+  const shouldCheckRedirect = routePrerequisitesReady && !pageError && pageFetched && !pageFetching && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
+  const { data: redirectResult, isLoading: redirectLoading, isError: redirectError, error: redirectRequestError } = useQuery({
     queryKey: ['redirect-resolve', branding?.id, slug],
     queryFn: async () => {
       const currentPath = '/' + slug;
       const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
-      if (!response.ok) return { found: false };
+      if (!response.ok) throw new Error('Unable to check page redirects.');
       return response.json();
     },
     enabled: shouldCheckRedirect,
@@ -560,8 +555,8 @@ export default function DynamicPage() {
   // form matches the slug. If so we render the FormView experience at the
   // pretty URL (/{form-slug}) instead of the not-found screen.
   const redirectMissed = shouldCheckRedirect &&
-    (redirectResult !== undefined || redirectError) && !redirectLoading && !redirectResult?.found;
-  const { data: fallbackForm, isLoading: formFallbackLoading, isFetched: formFallbackFetched } = useQuery({
+    redirectResult !== undefined && !redirectError && !redirectLoading && !redirectResult?.found;
+  const { data: fallbackForm, isLoading: formFallbackLoading, isFetched: formFallbackFetched, error: formFallbackError } = useQuery({
     queryKey: ['public-form-by-slug', branding?.id, slug, pageAudience, memberInfo?.id],
     queryFn: async () => {
       try {
@@ -574,8 +569,8 @@ export default function DynamicPage() {
         if (e?.errorData?.access) {
           return { __access: e.errorData.access };
         }
-        // 404 (no form with this slug) or any other failure → no fallback.
-        return null;
+        if (e?.status === 404) return null;
+        throw e;
       }
     },
     enabled: redirectMissed,
@@ -590,9 +585,27 @@ export default function DynamicPage() {
   const fallbackSettled = !shouldCheckRedirect || (
     redirectMissed && formFallbackFetched && !formFallbackLoading
   );
-  const decisionReady = routePrerequisitesReady && (
+  const pageRequestError = routeMetadataError || earlyPublicPageError || pageError ||
+    redirectRequestError || formFallbackError;
+  const routePending = !routePrerequisitesReady || pageLoading || pageQueryPending ||
+    (!canPreviewDrafts && !!earlyPublicRequest && !earlyPublicPageFetched) ||
+    (shouldCheckRedirect && redirectResult === undefined && !redirectError) ||
+    formFallbackPending || (isMemberPage && isLoggedIn && !isAccessReady);
+  const pendingScope = `${location.key}|${audienceGeneration}|${publicTenantRequestIdentity}`;
+  const [timedOutScope, setTimedOutScope] = useState(null);
+  useEffect(() => {
+    if (!routePending || pageRequestError) {
+      setTimedOutScope(null);
+      return;
+    }
+    const timer = setTimeout(() => setTimedOutScope(pendingScope), DYNAMIC_PAGE_PENDING_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [routePending, pageRequestError, pendingScope]);
+  const pendingTimedOut = routePending && timedOutScope === pendingScope;
+  const terminalError = pageRequestError || pendingTimedOut;
+  const decisionReady = !!terminalError || (routePrerequisitesReady && (
     !!routeMetadataError || !!dynamicArticleRoute || unknownMicrosite || (terminalPage && (!!page || fallbackSettled))
-  );
+  ));
   const shouldForcePublic = dynamicArticleRoute
     ? dynamicArticleRoute.component === 'PublicArticles' || !isLoggedIn
     : page ? (forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn))
@@ -602,7 +615,7 @@ export default function DynamicPage() {
     forceBlankLayout: !!page?.hide_chrome || !!fallbackForm?.blank_layout,
     // A missing/error response proves no chrome settings. Render its message,
     // not a default header/footer; forms/articles have an explicit policy.
-    publicChrome: routeMetadataError || fallbackForm?.__access ? 'none' : dynamicArticleRoute || hasFormFallback ? 'both'
+    publicChrome: terminalError || fallbackForm?.__access ? 'none' : dynamicArticleRoute || hasFormFallback ? 'both'
       : page ? (page.public_chrome || 'both') : 'none',
   } : null);
 
@@ -651,12 +664,17 @@ export default function DynamicPage() {
   console.log('[DynamicPage] dynamicArticleRoute:', dynamicArticleRoute);
   console.log('[DynamicPage] mySlug:', mySlug, 'isCustomSlug:', isCustomSlug);
 
-  if (routeMetadataError) {
+  if (terminalError) {
     return (
       <div className="min-h-screen flex items-center justify-center" role="alert">
         <div>
           <h1 className="text-2xl font-bold mb-4">Page unavailable</h1>
-          <p>We couldn't load the site settings. Please refresh and try again.</p>
+          <p>{pendingTimedOut
+            ? 'Loading this page took too long. Please try again.'
+            : "We couldn't load this page. Please try again."}</p>
+          <button type="button" className="underline mr-4" onClick={() => window.location.reload()}>
+            Retry loading page
+          </button>
           <a href="/">Go to homepage</a>
         </div>
       </div>
