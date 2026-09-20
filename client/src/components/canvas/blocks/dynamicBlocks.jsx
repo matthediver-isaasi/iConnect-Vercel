@@ -7459,9 +7459,12 @@ function MemberGroupRender({ block, breakpoint, asEditor }) {
   const { columns, pageSize } = resolveMemberGroupGrid(c, activeBreakpoint);
   const selectedRoles = Array.isArray(c.roleFilter) ? c.roleFilter.filter(Boolean) : [];
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageNavigation, setPageNavigation] = useState(null);
+  const navigationScope = JSON.stringify([block.id, c.groupId, pageSize, selectedRoles, asEditor, c.showMembers]);
 
   useEffect(() => {
     setCurrentPage(1);
+    setPageNavigation(null);
   }, [c.groupId, pageSize, selectedRoles.join('\u0000')]);
 
   const {
@@ -7487,9 +7490,20 @@ function MemberGroupRender({ block, breakpoint, asEditor }) {
     // belongs to the preceding page/query and is used to keep navigation
     // stable while the requested page is in flight.
     if (!isPlaceholderData && data && currentPage > totalPages) {
+      setPageNavigation(null);
       setCurrentPage(totalPages);
     }
   }, [currentPage, data, isPlaceholderData, totalPages]);
+
+  useEffect(() => {
+    if (isError) setPageNavigation(null);
+  }, [isError]);
+
+  const navigatePage = (page) => {
+    if (page === currentPage || isFetching) return;
+    setPageNavigation({ page, scope: navigationScope });
+    setCurrentPage(page);
+  };
 
   if (!c.groupId) return <EmptyState icon={Users} text="Pick a member group in the inspector." />;
 
@@ -7509,8 +7523,11 @@ function MemberGroupRender({ block, breakpoint, asEditor }) {
       errorMessage={String(error?.message || '')}
       isFetching={isFetching}
       asEditor={asEditor}
-      onPrevious={() => setCurrentPage((page) => Math.max(1, page - 1))}
-      onNext={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+      pageNavigation={!isPlaceholderData && !isLoading && !isError && data
+        && currentPage <= totalPages && pageNavigation?.page === currentPage
+        && pageNavigation.scope === navigationScope ? pageNavigation : null}
+      onPrevious={() => navigatePage(Math.max(1, currentPage - 1))}
+      onNext={() => navigatePage(Math.min(totalPages, currentPage + 1))}
     />
   );
 }

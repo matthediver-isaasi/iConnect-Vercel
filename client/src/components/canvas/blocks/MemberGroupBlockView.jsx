@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard } from '@/components/directory/DirectoryCards';
 import { sanitizeRichText } from './sanitize';
 import { useReportReflowHeight } from '../AccordionReflowContext';
+import { scrollMemberGroupToTop } from './memberGroupScroll';
 
 function clampInteger(value, min, max, fallback) {
   const parsed = Number(value);
@@ -88,6 +89,7 @@ export default function MemberGroupBlockView({
   errorMessage,
   isFetching,
   asEditor,
+  pageNavigation,
   onPrevious,
   onNext,
 }) {
@@ -99,6 +101,23 @@ export default function MemberGroupBlockView({
     { includeExtraHeightPublic: true },
   );
   const totalPages = Math.max(1, Math.ceil(Number(total || 0) / pageSize));
+  const completedNavigation = React.useRef(null);
+  React.useEffect(() => {
+    if (asEditor || !pageNavigation || c.showMembers === false
+      || completedNavigation.current === pageNavigation) return;
+    const win = reflowRef.current?.ownerDocument.defaultView;
+    if (!win) return;
+    // Let ResizeObserver publish the new card height and public Canvas commit
+    // its reflow before measuring, including a shorter final page.
+    let frame = win.requestAnimationFrame(() => {
+      frame = win.requestAnimationFrame(() => {
+        if (!reflowRef.current) return;
+        completedNavigation.current = pageNavigation;
+        scrollMemberGroupToTop(reflowRef.current);
+      });
+    });
+    return () => win.cancelAnimationFrame(frame);
+  }, [pageNavigation, asEditor, c.showMembers, reflowRef]);
   const H = `h${Math.max(1, Math.min(6, Number(c.headingLevel) || 2))}`;
   const cardGuard = asEditor ? { onClickCapture: guardEditorCardClick } : {};
   const controlGuard = asEditor
