@@ -176,6 +176,42 @@ async function ownedRows(db,table,ids,column='member_id'){
   return result;
 }
 
+// Only known header formats and fixed route templates may enter audit output.
+// Never persist response bodies, query strings, resource IDs or auth headers.
+export function alphaRateLimitDiagnostic(target,response,instant){
+  if(!['api.xero.com','api.gocardless.com'].includes(target.hostname))
+    fail('Rate-limit diagnostics require a pinned provider');
+  const xero=target.hostname==='api.xero.com';
+  const route=xero
+    ? /^\/api\.xro\/2\.0\/(Accounts|Contacts|Invoices)(?:\/[^/]+)?\/?$/.exec(target.pathname)
+    : /^\/(customers|mandates|payments|subscriptions)(?:\/[^/]+)?\/?$/.exec(target.pathname);
+  const resource=route?.[1];
+  const prefix=xero?'/api.xro/2.0/':'/';
+  const endpoint=resource?`${prefix}${resource}${target.pathname.replace(/\/$/,'')===prefix+resource?'':'/:id'}`:'[unrecognized route]';
+  const header=name=>{
+    const value=response.headers?.get?.(name);
+    return typeof value==='string'&&value.length<=128?value.trim():null;
+  };
+  const timing=name=>{
+    const value=header(name);
+    if(value===null)return null;
+    if(/^\d{1,13}$/.test(value))return {value,format:'numeric'};
+    if(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value)
+      &&Number.isFinite(Date.parse(value)))return {value:new Date(value).toUTCString(),format:'http-date'};
+    return {value:null,format:'discarded-invalid'};
+  };
+  const resetHeaders={};
+  for(const name of ['ratelimit-reset','x-ratelimit-reset','x-rate-limit-reset'])
+    resetHeaders[name]=timing(name);
+  const requestIds={};
+  for(const name of ['request-id','x-request-id','x-correlation-id','xero-correlation-id']){
+    const value=header(name);
+    requestIds[name]=value&&/^[A-Za-z0-9_-]{1,128}$/.test(value)?value:null;
+  }
+  return {provider:xero?'Xero':'GoCardless',observedAt:instant.toISOString(),status:429,endpoint,
+    retryAfter:timing('retry-after'),resetHeaders,requestIds};
+}
+
 // No automatic retries: a 429 or incomplete page invalidates this scan. The
 // oldest timestamp is retained through pacing, all reads, review and locking.
 export function boundedAlphaTransport({transport=fetch,now=()=>new Date(),observedAt,
@@ -197,6 +233,7 @@ export function boundedAlphaTransport({transport=fetch,now=()=>new Date(),observ
     const result=await transport(url,{...options,redirect:'error',signal:AbortSignal.timeout(Math.max(1,Math.min(30000,remaining)))});
     if(!result.ok){
       const error=Error(result.status===429?'Provider rate limit: scan stopped; refresh evidence before retry':`Provider GET failed (HTTP ${result.status})`);
+      if(result.status===429)error.rateLimitDiagnostic=alphaRateLimitDiagnostic(target,result,now());
       error.status=result.status;throw error;
     }
     return result;

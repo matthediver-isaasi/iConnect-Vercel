@@ -138,6 +138,54 @@ test('Pacing consumes original freshness budget and never advances observation t
   assert.equal(calls,1);
 });
 
+test('429 diagnostics retain only safe timing, request identifiers and route templates',async()=>{
+  for(const [host,path,provider,endpoint]of [
+    ['api.xero.com','/api.xro/2.0/Contacts/private-member?email=private-email','Xero','/api.xro/2.0/Contacts/:id'],
+    ['api.gocardless.com','/mandates/private-member?token=private-token','GoCardless','/mandates/:id'],
+  ]){
+    let calls=0,bodyRead=false;
+    const get=boundedAlphaTransport({observedAt:now.toISOString(),now:()=>now,
+      transport:async()=>{calls++;return {ok:false,status:429,headers:new Headers({
+        'retry-after':'60','x-ratelimit-reset':'1789918800','x-request-id':'safe-request_123',
+        authorization:'Bearer private-token','set-cookie':'private-cookie',
+        'x-correlation-id':'private@email.example',
+      }),json:async()=>{bodyRead=true;return {secret:'private-body'};}};}});
+    await assert.rejects(get(`https://${host}${path}`,{method:'GET'}),error=>{
+      const d=error.rateLimitDiagnostic;
+      assert.equal(d.provider,provider);assert.equal(d.endpoint,endpoint);
+      assert.equal(d.observedAt,now.toISOString());assert.equal(d.status,429);
+      assert.deepEqual(d.retryAfter,{value:'60',format:'numeric'});
+      assert.deepEqual(d.resetHeaders['x-ratelimit-reset'],{value:'1789918800',format:'numeric'});
+      assert.equal(d.resetHeaders['ratelimit-reset'],null);
+      assert.equal(d.requestIds['x-request-id'],'safe-request_123');
+      assert.equal(d.requestIds['x-correlation-id'],null);
+      assert.doesNotMatch(JSON.stringify(d),/private|authorization|set-cookie|email|token/i);
+      return true;
+    });
+    assert.equal(calls,1);assert.equal(bodyRead,false);
+  }
+});
+
+test('429 diagnostics handle absent, HTTP-date and invalid timing without guessing reset semantics',async()=>{
+  for(const [value,expected]of [
+    [null,null],
+    ['Sun, 20 Sep 2026 16:00:00 GMT',{value:'Sun, 20 Sep 2026 16:00:00 GMT',format:'http-date'}],
+    ['0',{value:'0',format:'numeric'}],
+    ['secret@example.com',{value:null,format:'discarded-invalid'}],
+    ['-1',{value:null,format:'discarded-invalid'}],
+  ]){
+    const get=boundedAlphaTransport({observedAt:now.toISOString(),now:()=>now,
+      transport:async()=>({ok:false,status:429,headers:new Headers(value===null?{}:{'retry-after':value})})});
+    await assert.rejects(get('https://api.xero.com/unknown/private-id?email=private',{method:'GET'}),error=>{
+      assert.deepEqual(error.rateLimitDiagnostic.retryAfter,expected);
+      assert.equal(error.rateLimitDiagnostic.endpoint,'[unrecognized route]');
+      assert.ok(Object.values(error.rateLimitDiagnostic.resetHeaders).every(x=>x===null));
+      assert.ok(Object.values(error.rateLimitDiagnostic.requestIds).every(x=>x===null));
+      return true;
+    });
+  }
+});
+
 test('Canonical hashes ignore audit time and row order but retain economic changes',()=>{
   const one={member:[{id:'b',status:'active',updated_at:'old'},{id:'a',status:'active'}]};
   const two={member:[{id:'a',status:'active'},{id:'b',status:'active',updated_at:'new'}]};
