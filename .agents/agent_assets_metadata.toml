@@ -859,3 +859,17 @@ mtime_ms = 1789909950427
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/98d3a18b-f050-4d24-96a4-13181b34c0f3/2ac75a19-c6c8-4d8c-b461-b734df908254"
 storage_version_token = "1789909969793934"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "EfdOUHNmq25Xfdj_Ju4Y0"
+uri = "file://exports/.bnms-remaining-member/BNMS-Remaining-Member-Role-Review-After-Honorary-Update-2026-09-20.xlsx"
+type = "table"
+title = "BNMS — Remaining Member Role Review (After Honorary Update)"
+description = "179 BNMS records still assigned Member, with the same five fields and an updated member-class summary."
+logical_id = "576c1324-1568-4c51-8f80-f6826e23d314"
+content_hash = "sha256:7d8d4e8fb9495863e37f30694ed3c2fa4cc5a4018312537df0d82c79c9789e96"
+size = 18732
+mtime_ms = 1789910109020
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/576c1324-1568-4c51-8f80-f6826e23d314/7f5294e3-93fb-4003-a92b-34edc7626faa"
+storage_version_token = "1789910127479379"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
