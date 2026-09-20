@@ -36,7 +36,8 @@ import {
   Mail,
   Eye,
   AlertCircle,
-  QrCode
+  QrCode,
+  Receipt
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createFilterTagKey, parseFilterTagKey, parseEventTypes, serializeEventTypes } from "@/lib/utils";
@@ -250,6 +251,7 @@ export default function CreateEvent() {
   }, [isGroupLimited, groupTicketTypeName]);
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
+  const [allowPublicInvoicePo, setAllowPublicInvoicePo] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
   
   // Slug state
@@ -1185,7 +1187,8 @@ export default function CreateEvent() {
       documents_section_title: documentsSectionTitle.trim() || null,
       dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
       allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
-      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean)
+      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean),
+      allow_public_invoice_po: !isProgramEvent && !isGroupLimited && allowPublicInvoicePo === true
     };
 
     // Group-limited mode: lock the event to its group, carry the audience choice,
@@ -3318,6 +3321,25 @@ export default function CreateEvent() {
                         checked={allowGuestsToViewAllTickets}
                         onCheckedChange={setAllowGuestsToViewAllTickets}
                         data-testid="switch-allow-guests-view-all"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mt-3">
+                      <div className="flex items-start gap-3">
+                        <Receipt className="h-5 w-5 text-slate-600 mt-0.5" />
+                        <div>
+                          <Label htmlFor="allow-public-invoice-po" className="text-sm font-medium text-slate-900 cursor-pointer">
+                            Allow public payment by Invoice / PO
+                          </Label>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Lets non-members register paid public tickets now and provide an optional PO number. No invoice is created automatically.
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        id="allow-public-invoice-po"
+                        checked={allowPublicInvoicePo}
+                        onCheckedChange={setAllowPublicInvoicePo}
+                        data-testid="switch-allow-public-invoice-po"
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mt-3">

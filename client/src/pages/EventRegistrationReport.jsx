@@ -26,6 +26,7 @@ import {
   isRelationshipDropdownField,
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
+import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 
 function formatDietarySelections(value) {
   if (!Array.isArray(value)) return '';
@@ -238,6 +239,7 @@ function formatCurrency(amount) {
 }
 
 function PaymentMethodBadge({ method, totalCost }) {
+  if (method === 'public_invoice_po') return <Badge variant="outline">Invoice / PO</Badge>;
   if (method === 'card') {
     return (
       <Badge variant="outline" className="gap-1">
@@ -369,7 +371,7 @@ export default function EventRegistrationReport() {
 
   const queryUrl = buildQueryUrl();
 
-  const { data: reportData, isLoading, isFetching } = useQuery({
+  const { data: reportData, isLoading, isFetching, error: reportError } = useQuery({
     queryKey: ['event-registration-report', appliedFilters],
     queryFn: async () => {
       const url = queryUrl;
@@ -867,7 +869,7 @@ export default function EventRegistrationReport() {
     return s;
   }, [filteredGroups]);
 
-  const { data: allForms = [] } = useQuery({
+  const { data: allForms = [], isLoading: loadingReportForms, error: reportFormsError } = useQuery({
     queryKey: ['event-report-forms'],
     queryFn: () => Form.list(),
     enabled: reportGenerated,
@@ -887,7 +889,7 @@ export default function EventRegistrationReport() {
     return map;
   }, [linkedForms]);
 
-  const { data: linkedSubmissions = [] } = useQuery({
+  const { data: linkedSubmissions = [], isLoading: loadingLinkedSubmissions, error: linkedSubmissionsError } = useQuery({
     queryKey: ['event-report-linked-submissions', linkedFormIds],
     queryFn: async () => {
       if (linkedFormIds.length === 0) return [];
@@ -975,6 +977,34 @@ export default function EventRegistrationReport() {
     }
     return map;
   }, [linkedFormsById, linkedSubmissions, relationshipLabelsByRecordId]);
+
+  const renderPublicInvoiceFormAnswers = (group, email) => {
+    if (loadingReportForms || loadingLinkedSubmissions) return <p className="text-sm">Loading form answers…</p>;
+    if (reportFormsError || linkedSubmissionsError) return <p role="alert" className="text-sm text-destructive">Unable to load submitted form answers. Please refresh and try again.</p>;
+    const submissions = linkedSubmissions.filter(sub => {
+      const form = linkedFormsById[sub.form_id];
+      return email && form && String(form.related_event_id) === String(group.eventId)
+        && normEmail(extractSubmissionEmail(sub, form.fields)) === normEmail(email);
+    });
+    return <div className="space-y-3">
+      {submissions.length === 0 ? <p className="text-sm text-muted-foreground">No linked form submissions found for this email.</p> :
+        submissions.map(sub => {
+          const form = linkedFormsById[sub.form_id];
+          const data = sub.submission_data || {};
+          return <section key={sub.id} className="rounded-md border p-3 space-y-2">
+            <h4 className="text-sm font-medium">{form.title || form.name || 'Registration form'}</h4>
+            <p className="text-xs text-muted-foreground">Linked by event and email{ sub.created_at ? ` · Submitted ${new Date(sub.created_at).toLocaleString()}` : ''}</p>
+            {(form.fields || []).filter(field => field?.id).map(field => {
+              const value = getSubmissionFieldValue(data, field);
+              const answer = isRelationshipDropdownField(field)
+                ? formatRelationshipAnswerDisplayValue(field, value, relationshipLabelsByRecordId, data)
+                : formatLinkedAnswer(value);
+              return <div key={field.id} className="text-sm"><p className="text-muted-foreground">{field.label || field.id}</p><p className="whitespace-pre-wrap break-words">{answer || 'Not supplied'}</p></div>;
+            })}
+          </section>;
+        })}
+    </div>;
+  };
 
   const standardColumns = useMemo(() => ([
     { key: 'std:event', label: 'Event', get: ({ group }) => group.eventTitle || '' },
@@ -2176,6 +2206,16 @@ export default function EventRegistrationReport() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {reportError && (
+        <Card><CardContent className="py-6 text-destructive" role="alert">
+          {reportError.message || 'Unable to load registration report. Please try again.'}
+        </CardContent></Card>
+      )}
+
+      {reportGenerated && reportData && (
+        <PublicInvoicePoRegistrations groups={filteredGroups} allGroups={bookingGroups} organizations={organizations} renderFormAnswers={renderPublicInvoiceFormAnswers} />
       )}
 
       {!reportGenerated && !isLoading && (

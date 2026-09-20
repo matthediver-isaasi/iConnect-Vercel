@@ -9,7 +9,7 @@ const EVENT_FIELDS = [
   'end_date', 'registration_closes_at', 'location', 'image_url',
   'image_focal_point', 'available_seats', 'is_unlimited_registration',
   'show_ticket_availability', 'is_online', 'speaker_ids', 'filter_tags',
-  'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
+  'allow_guests_to_view_all_tickets', 'collect_third_party_consent', 'allow_public_invoice_po',
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'timezone',
   'organization_id', 'program_id', 'pricing_config',
   'attached_documents', 'documents_section_title',

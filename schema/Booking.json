@@ -2,6 +2,10 @@
     "name": "Booking",
     "type": "object",
     "properties": {
+      "purchaser_context": {
+        "type": "object",
+        "description": "Immutable server-created public Invoice / PO purchaser snapshot"
+      },
       "event_id": {
         "type": "string",
         "description": "Reference to Event entity"
@@ -31,6 +35,7 @@
           "voucher",
           "training_fund",
           "account",
+          "public_invoice_po",
           "program_ticket"
         ],
         "description": "How this ticket was paid for"

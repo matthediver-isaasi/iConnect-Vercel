@@ -1,6 +1,21 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
+
+// Continue until an empty page, not a short page: a deployment's PostgREST
+// maximum may be smaller than our requested range. A unique tie-breaker keeps
+// same-date/group records from moving between pages.
+export async function readAllReportRows(query) {
+  const rows = [];
+  for (let offset = 0; ; ) {
+    const { data, error } = await query.range(offset, offset + 499);
+    if (error) return { data: null, error };
+    if (!data?.length) return { data: rows, error: null };
+    rows.push(...data);
+    offset += data.length;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -13,26 +28,33 @@ export default async function handler(req, res) {
 
   try {
     const tenantContext = await getTenantContext(req);
-    if (!tenantContext?.tenantId) {
+    if (!tenantContext?.tenantId || !tenantContext.isAuthenticated) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (tenantContext.tenantMismatch) {
+      return res.status(409).json({ error: 'Tenant context changed. Reload this page.' });
+    }
+    if (!(await hasAdminAccess(tenantContext)) ||
+        (tenantContext.roleId && !(await hasFeatureAccess(tenantContext.roleId, 'events.event-report', tenantContext.memberExcludedFeatures)))) {
+      return res.status(403).json({ error: 'You do not have access to the Event Registration Report' });
     }
 
     const { tenantId } = tenantContext;
     const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate } = req.query;
 
-    let { data: regularEvents, error: eventsError } = await supabase
+    let { data: regularEvents, error: eventsError } = await readAllReportRows(supabase
       .from('event')
       .select('id, title, start_date, end_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id, attendance_tracking_enabled, attendance_provider')
       .eq('tenant_id', tenantId)
-      .order('start_date', { ascending: false });
+      .order('start_date', { ascending: false }).order('id'));
 
     if (eventsError && /end_date/i.test(eventsError.message || '')) {
       console.warn('[Event Registration Report] event.end_date column unavailable, retrying without it');
-      const fallback = await supabase
+      const fallback = await readAllReportRows(supabase
         .from('event')
         .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id, attendance_tracking_enabled, attendance_provider')
         .eq('tenant_id', tenantId)
-        .order('start_date', { ascending: false });
+        .order('start_date', { ascending: false }).order('id'));
       regularEvents = fallback.data;
       eventsError = fallback.error;
     }
@@ -42,25 +64,26 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch events' });
     }
 
-    let { data: complexEvents, error: complexEventsError } = await supabase
+    let { data: complexEvents, error: complexEventsError } = await readAllReportRows(supabase
       .from('complex_event')
       .select('id, title, start_date, end_date, status, attendance_tracking_enabled, attendance_provider')
       .eq('tenant_id', tenantId)
-      .order('start_date', { ascending: false });
+      .order('start_date', { ascending: false }).order('id'));
 
     if (complexEventsError && /end_date/i.test(complexEventsError.message || '')) {
       console.warn('[Event Registration Report] complex_event.end_date column unavailable, retrying without it');
-      const fallback = await supabase
+      const fallback = await readAllReportRows(supabase
         .from('complex_event')
         .select('id, title, start_date, status, attendance_tracking_enabled, attendance_provider')
         .eq('tenant_id', tenantId)
-        .order('start_date', { ascending: false });
+        .order('start_date', { ascending: false }).order('id'));
       complexEvents = fallback.data;
       complexEventsError = fallback.error;
     }
 
     if (complexEventsError) {
       console.error('[Event Registration Report] Error fetching complex events:', complexEventsError);
+      return res.status(500).json({ error: 'Failed to fetch complex events' });
     }
 
     // Exclude "To be confirmed" events: they are interest-gatherers that
@@ -262,11 +285,11 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, purchaser_context, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title, attendee_phone, guest_organisation_name')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }).order('id');
 
         if (dateFrom) {
           bookingQuery = bookingQuery.gte('created_at', new Date(dateFrom + 'T00:00:00.000Z').toISOString());
@@ -277,7 +300,7 @@ export default async function handler(req, res) {
           bookingQuery = bookingQuery.lt('created_at', toDate.toISOString());
         }
 
-        const { data: bookingData, error: bookingsError } = await bookingQuery;
+        const { data: bookingData, error: bookingsError } = await readAllReportRows(bookingQuery);
 
         if (bookingsError) {
           console.error('[Event Registration Report] Error fetching bookings:', bookingsError);
@@ -290,11 +313,11 @@ export default async function handler(req, res) {
       if (targetComplexEventIds.length > 0) {
         let complexBookingQuery = supabase
           .from('complex_event_booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
           .in('event_id', targetComplexEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }).order('id');
 
         if (dateFrom) {
           complexBookingQuery = complexBookingQuery.gte('created_at', new Date(dateFrom + 'T00:00:00.000Z').toISOString());
@@ -305,16 +328,18 @@ export default async function handler(req, res) {
           complexBookingQuery = complexBookingQuery.lt('created_at', toDate.toISOString());
         }
 
-        const { data: complexBookingData, error: complexBookingsError } = await complexBookingQuery;
+        const { data: complexBookingData, error: complexBookingsError } = await readAllReportRows(complexBookingQuery);
 
         if (complexBookingsError) {
           console.error('[Event Registration Report] Error fetching complex event bookings:', complexBookingsError);
+          return res.status(500).json({ error: 'Failed to fetch complex event bookings' });
         } else {
           const normalizedComplexBookings = (complexBookingData || []).map(b => ({
             ...b,
-            total_cost: b.total_paid || 0,
+            // Invoice intentions have no payment, but retain a registration value.
+            total_cost: b.payment_method === 'public_invoice_po' ? (b.ticket_price || 0) : (b.total_paid || 0),
             account_amount: b.account_balance_amount || 0,
-            purchase_order_number: null,
+            purchase_order_number: b.purchase_order_number || null,
             po_to_follow: null,
             xero_invoice_id: null,
             xero_invoice_number: null,
@@ -354,6 +379,7 @@ export default async function handler(req, res) {
         const { data: orgs, error: orgsError } = await supabase
           .from('organization')
           .select('id, name')
+          .eq('tenant_id', tenantId)
           .in('id', orgIds);
 
         if (!orgsError && orgs) {
@@ -667,6 +693,7 @@ export default async function handler(req, res) {
         const { data: memberRows } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, job_title')
+          .eq('tenant_id', tenantId)
           .in('id', [...memberIdsToLookup]);
         if (memberRows) {
           for (const m of memberRows) {
@@ -769,6 +796,8 @@ export default async function handler(req, res) {
         const eventInfo = eventMap[first.event_id] || {};
 
         bookingGroups.push({
+          isPublicInvoicePo: members.some(isPublicInvoicePo),
+          publicInvoicePurchaser: publicInvoicePurchaser(members.find(isPublicInvoicePo)?.purchaser_context),
           groupRef: groupRef.startsWith('single_') ? null : groupRef,
           isGroup,
           attendeeCount: members.length,
@@ -879,6 +908,11 @@ export default async function handler(req, res) {
 
             return {
               id: b.id,
+              payment_method: b.payment_method,
+              purchase_order_number: b.purchase_order_number || null,
+              booking_reference: b.booking_reference,
+              attendee_phone: b.attendee_phone || null,
+              attendee_organization: b.guest_organisation_name || b.attendee_organization || null,
               attendee_first_name: b.attendee_first_name,
               attendee_last_name: b.attendee_last_name,
               attendee_email: b.attendee_email,

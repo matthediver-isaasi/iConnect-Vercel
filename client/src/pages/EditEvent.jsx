@@ -44,7 +44,8 @@ import {
   Bird,
   AlertCircle,
   Handshake,
-  QrCode
+  QrCode,
+  Receipt
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -304,6 +305,7 @@ export default function EditEvent() {
   }, [isGroupLimited, groupTicketTypeName, ticketClasses]);
 
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
+  const [allowPublicInvoicePo, setAllowPublicInvoicePo] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
   // Email configuration state
@@ -1139,6 +1141,7 @@ export default function EditEvent() {
 
       // Load the group audience choice (group-limited mode).
       setGroupEventPublic(event.group_event_public === true);
+      setAllowPublicInvoicePo(event.allow_public_invoice_po === true);
 
       // Load the agenda lines for any regular event (Tasks #3419, #3512) —
       // agenda is no longer training-only.
@@ -1848,6 +1851,7 @@ export default function EditEvent() {
       dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
       allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
       accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean),
+      allow_public_invoice_po: isOneOffEvent && !isGroupLimited && allowPublicInvoicePo === true,
       budgeted_costs: formData.budgeted_costs !== "" && formData.budgeted_costs != null ? Number(formData.budgeted_costs) : null,
       budgeted_income: formData.budgeted_income !== "" && formData.budgeted_income != null ? Number(formData.budgeted_income) : null
     };
@@ -4222,6 +4226,25 @@ export default function EditEvent() {
                         checked={allowGuestsToViewAllTickets}
                         onCheckedChange={setAllowGuestsToViewAllTickets}
                         data-testid="switch-allow-guests-view-all"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mt-3">
+                      <div className="flex items-start gap-3">
+                        <Receipt className="h-5 w-5 text-slate-600 mt-0.5" />
+                        <div>
+                          <Label htmlFor="edit-allow-public-invoice-po" className="text-sm font-medium text-slate-900 cursor-pointer">
+                            Allow public payment by Invoice / PO
+                          </Label>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Lets non-members register paid public tickets now and provide an optional PO number. No invoice is created automatically.
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        id="edit-allow-public-invoice-po"
+                        checked={allowPublicInvoicePo}
+                        onCheckedChange={setAllowPublicInvoicePo}
+                        data-testid="switch-allow-public-invoice-po"
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mt-3">

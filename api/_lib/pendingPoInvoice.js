@@ -1290,6 +1290,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   });
 
   (bookings || []).forEach((b) => {
+    if (b.payment_method === 'public_invoice_po') return;
     const hasInvoice = (b.xero_invoice_id && b.xero_invoice_id.trim() !== '')
       || (b.xero_invoice_number && b.xero_invoice_number.trim() !== '');
     const missingPO = !b.purchase_order_number || b.purchase_order_number.trim() === '';

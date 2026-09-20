@@ -2,6 +2,11 @@
   "name": "ComplexEvent",
   "type": "object",
   "properties": {
+    "allow_public_invoice_po": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allow public non-member registration with an unpaid Invoice / PO intention; never generates an invoice"
+    },
     "title": {
       "type": "string",
       "description": "Event title"

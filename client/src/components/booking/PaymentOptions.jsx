@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, CheckCircle2, Users, Wifi, LogIn, Lock, Calendar, MapPin, Copy, ArrowRight, Heart } from "lucide-react";
+import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, CheckCircle2, Users, Wifi, LogIn, Lock, Calendar, MapPin, Copy, ArrowRight, Heart, Receipt } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -21,6 +21,11 @@ import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { publicClient } from "@/api/publicClient";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import { isTbcReplacementDisplayActive, resolveTbcCtaLabel, resolveTbcSummaryTitle } from "@/lib/tbcBookingReplacement.mjs";
+import {
+  isPublicInvoicePoAvailable,
+  isPublicInvoicePurchaserComplete,
+  normalizePublicInvoicePurchaser,
+} from "@/lib/publicInvoicePo.mjs";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -463,11 +468,38 @@ export default function PaymentOptions({
     isComplexEvent ? 'card' : (memberInfo ? 'account' : 'card')
   );
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
+  const [purchaserInfo, setPurchaserInfo] = useState(() => ({
+    first_name: guestInfo?.first_name || '',
+    last_name: guestInfo?.last_name || '',
+    email: guestInfo?.email || '',
+    organization: guestInfo?.organization || '',
+    phone: guestInfo?.phone || '',
+    job_title: guestInfo?.job_title || ''
+  }));
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
   const [stripeAvailable, setStripeAvailable] = useState(false);
   const [poSupplyLater, setPoSupplyLater] = useState(true);
+
+  useEffect(() => {
+    if (!guestInfo) return;
+    setPurchaserInfo({
+      first_name: guestInfo.first_name || '',
+      last_name: guestInfo.last_name || '',
+      email: guestInfo.email || '',
+      organization: guestInfo.organization || '',
+      phone: guestInfo.phone || '',
+      job_title: guestInfo.job_title || ''
+    });
+  }, [
+    guestInfo?.first_name,
+    guestInfo?.last_name,
+    guestInfo?.email,
+    guestInfo?.organization,
+    guestInfo?.phone,
+    guestInfo?.job_title
+  ]);
   
   // 3D Secure return handling state
   const [completingPayment, setCompletingPayment] = useState(false);
@@ -775,6 +807,20 @@ export default function PaymentOptions({
 
   // Calculate remaining balance automatically (discount applied before vouchers/TF)
   const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - trainingFundAmount);
+  const publicInvoicePoAvailable = isPublicInvoicePoAvailable({
+    event,
+    isGuestCheckout,
+    remainingBalance,
+    ticket: selectedTicketClass,
+  });
+  const isPublicInvoicePo = remainingBalancePaymentMethod === 'public_invoice_po';
+  const purchaserInfoComplete = isPublicInvoicePurchaserComplete(purchaserInfo);
+
+  useEffect(() => {
+    if (!publicInvoicePoAvailable && remainingBalancePaymentMethod === 'public_invoice_po') {
+      setRemainingBalancePaymentMethod('card');
+    }
+  }, [publicInvoicePoAvailable, remainingBalancePaymentMethod]);
 
   // Clamp trainingFundAmount down whenever the cap shrinks (e.g. user applies
   // a discount code or selects vouchers that reduce the post-discount ceiling),
@@ -855,11 +901,10 @@ export default function PaymentOptions({
   };
 
   // Check if fully paid for one-off events
-  // For guest checkout, card is the only payment option
   const isFullyPaid = Math.abs(remainingBalance) < 0.01 || 
     (remainingBalance > 0 && (
-      isGuestCheckout || // Guest checkout always uses card
       remainingBalancePaymentMethod === 'card' || 
+      (publicInvoicePoAvailable && isPublicInvoicePo && purchaserInfoComplete) ||
       (remainingBalancePaymentMethod === 'account' && (purchaseOrderNumber.trim() || poSupplyLater))
     ));
 
@@ -992,16 +1037,15 @@ export default function PaymentOptions({
       ? (attendees[0]?.email || memberInfo?.email)
       : (isGuestCheckout ? guestInfo?.email : memberInfo?.email);
 
-    // If paying by card and there's a remaining balance, create Stripe payment intent
-    // For guest checkout, card is the only payment option
+    // If paying by card and there's a remaining balance, create Stripe payment intent.
     console.log('[PaymentOptions] Checking Stripe condition:', {
       remainingBalance,
       remainingBalancePaymentMethod,
       isGuestCheckout,
-      conditionResult: remainingBalance > 0 && (remainingBalancePaymentMethod === 'card' || isGuestCheckout)
+      conditionResult: remainingBalance > 0 && remainingBalancePaymentMethod === 'card'
     });
 
-    if (remainingBalance > 0 && (remainingBalancePaymentMethod === 'card' || isGuestCheckout)) {
+    if (remainingBalance > 0 && remainingBalancePaymentMethod === 'card') {
       if (!paymentEmail) {
         toast.error("Please provide a valid email address");
         console.log('[PaymentOptions] No payment email, returning early');
@@ -1009,6 +1053,11 @@ export default function PaymentOptions({
       }
 
       await proceedToStripePayment(paymentEmail);
+      return;
+    }
+
+    if (isPublicInvoicePo && !purchaserInfoComplete) {
+      toast.error("Please provide the purchaser's first name, last name and email address");
       return;
     }
 
@@ -1180,6 +1229,10 @@ export default function PaymentOptions({
           ticket_class_id: selectedTicketClass?.id || null,
           payment_method: remainingBalance > 0 ? remainingBalancePaymentMethod : 'free',
         };
+        if (isPublicInvoicePo) {
+          complexPayload.purchase_order_number = purchaseOrderNumber.trim() || null;
+          complexPayload.purchaser_info = normalizePublicInvoicePurchaser(purchaserInfo);
+        }
         if (stripePaymentId) {
           complexPayload.stripe_payment_intent_id = stripePaymentId;
           complexPayload.payment_method = 'card';
@@ -1207,9 +1260,13 @@ export default function PaymentOptions({
             totalCost: totalCost,
             ticketClassName: selectedTicketClass?.name || 'Standard',
             ticketClassPrice: ticketPrice,
-            pricingDetails: oneOffCostDetails
+            pricingDetails: oneOffCostDetails,
+            paymentMethod: complexPayload.payment_method,
+            purchaseOrderNumber: complexPayload.purchase_order_number || null
           });
-          if (isPending) {
+          if (isPublicInvoicePo) {
+            toast.success("Registration confirmed. Payment is due by Invoice / PO.");
+          } else if (isPending) {
             toast.success("Booking submitted! Your registration is pending payment confirmation.");
           } else {
             toast.success("Registration confirmed!");
@@ -1230,7 +1287,7 @@ export default function PaymentOptions({
           ticketsRequired: ticketsRequired,
           totalCost: totalCost,
           pricingDetails: oneOffCostDetails,
-          paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
+          paymentMethod: remainingBalance > 0 ? remainingBalancePaymentMethod : 'fully_covered',
           stripePaymentIntentId: stripePaymentId,
           ticketClassId: selectedTicketClass?.id || null,
           ticketClassName: selectedTicketClass?.name || null,
@@ -1266,6 +1323,10 @@ export default function PaymentOptions({
             allergy_selections: guestInfo.allergy_selections || [],
             accessibility_selections: guestInfo.accessibility_selections || []
           };
+          if (isPublicInvoicePo) {
+            bookingPayload.purchase_order_number = purchaseOrderNumber.trim() || null;
+            bookingPayload.purchaser_info = normalizePublicInvoicePurchaser(purchaserInfo);
+          }
         }
 
         console.log('[PaymentOptions] Calling createOneOffEventBooking API with payload:', JSON.stringify(bookingPayload));
@@ -1293,9 +1354,13 @@ export default function PaymentOptions({
               totalCost: totalCost,
               ticketClassName: selectedTicketClass?.name || 'Standard',
               ticketClassPrice: ticketPrice,
-              pricingDetails: oneOffCostDetails
+              pricingDetails: oneOffCostDetails,
+              paymentMethod: bookingPayload.paymentMethod,
+              purchaseOrderNumber: bookingPayload.purchase_order_number || null
             });
-            toast.success("Booking confirmed!");
+            toast.success(isPublicInvoicePo
+              ? "Registration confirmed. Payment is due by Invoice / PO."
+              : "Booking confirmed!");
           } else {
             toast.success("Booking confirmed!");
             setTimeout(() => {
@@ -1627,17 +1692,92 @@ export default function PaymentOptions({
                 </div>
 
                 {!memberInfo ? (
-                  <div className="flex items-start space-x-3 p-3 rounded-lg border-2 border-indigo-500 bg-white">
-                    <CreditCard className="w-5 h-5 text-indigo-600 mt-0.5" />
-                    <div className="flex-1">
-                      <Label className="text-sm font-medium">Pay by Credit/Debit Card</Label>
-                      {stripeAvailable ? (
-                        <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
-                      ) : (
-                        <p className="text-xs text-warning mt-1">Card payments not currently available</p>
-                      )}
+                  publicInvoicePoAvailable ? (
+                    <RadioGroup value={remainingBalancePaymentMethod} onValueChange={setRemainingBalancePaymentMethod}>
+                      <div className="space-y-3">
+                        <div
+                          className={`flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors ${stripeAvailable ? 'cursor-pointer hover:bg-slate-100' : 'opacity-60 cursor-not-allowed'}`}
+                          style={{ borderColor: remainingBalancePaymentMethod === 'card' ? '#6366f1' : '#e2e8f0' }}
+                          onClick={() => stripeAvailable && setRemainingBalancePaymentMethod('card')}
+                        >
+                          <RadioGroupItem value="card" id="guest-card" className="mt-1" disabled={!stripeAvailable} />
+                          <CreditCard className="w-5 h-5 text-indigo-600 mt-0.5" />
+                          <div className="flex-1">
+                            <Label htmlFor="guest-card" className="text-sm font-medium cursor-pointer">Pay by Credit/Debit Card</Label>
+                            <p className={`text-xs mt-1 ${stripeAvailable ? 'text-slate-500' : 'text-warning'}`}>
+                              {stripeAvailable ? 'Secure payment via Stripe' : 'Card payments not currently available'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className="flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors cursor-pointer hover:bg-slate-100"
+                          style={{ borderColor: isPublicInvoicePo ? '#6366f1' : '#e2e8f0' }}
+                          onClick={() => setRemainingBalancePaymentMethod('public_invoice_po')}
+                          data-testid="payment-option-public-invoice-po"
+                        >
+                          <RadioGroupItem value="public_invoice_po" id="public-invoice-po" className="mt-1" />
+                          <Receipt className="w-5 h-5 text-indigo-600 mt-0.5" />
+                          <div className="flex-1">
+                            <Label htmlFor="public-invoice-po" className="text-sm font-medium cursor-pointer">Invoice / PO</Label>
+                            <p className="text-xs text-slate-500 mt-1">Register now and request an invoice later. No online payment is taken.</p>
+                          </div>
+                        </div>
+
+                        {isPublicInvoicePo && (
+                          <div className="space-y-3 rounded-lg border border-indigo-200 bg-white p-4" data-testid="public-invoice-po-details">
+                            <p className="text-sm font-medium">Purchaser details</p>
+                            <p className="text-xs text-slate-500">These details identify the person requesting the invoice and may differ from the attendees.</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <Input
+                                placeholder="First name *"
+                                value={purchaserInfo.first_name}
+                                onChange={(e) => setPurchaserInfo(prev => ({ ...prev, first_name: e.target.value }))}
+                                data-testid="input-purchaser-first-name"
+                              />
+                              <Input
+                                placeholder="Last name *"
+                                value={purchaserInfo.last_name}
+                                onChange={(e) => setPurchaserInfo(prev => ({ ...prev, last_name: e.target.value }))}
+                                data-testid="input-purchaser-last-name"
+                              />
+                            </div>
+                            <Input
+                              type="email"
+                              placeholder="Email address *"
+                              value={purchaserInfo.email}
+                              onChange={(e) => setPurchaserInfo(prev => ({ ...prev, email: e.target.value }))}
+                              data-testid="input-purchaser-email"
+                            />
+                            <Input
+                              placeholder="Organisation"
+                              value={purchaserInfo.organization}
+                              onChange={(e) => setPurchaserInfo(prev => ({ ...prev, organization: e.target.value }))}
+                              data-testid="input-purchaser-organization"
+                            />
+                            <Input
+                              placeholder="Purchase Order Number (optional)"
+                              value={purchaseOrderNumber}
+                              onChange={(e) => setPurchaseOrderNumber(e.target.value)}
+                              data-testid="input-public-purchase-order"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </RadioGroup>
+                  ) : (
+                    <div className="flex items-start space-x-3 p-3 rounded-lg border-2 border-indigo-500 bg-white">
+                      <CreditCard className="w-5 h-5 text-indigo-600 mt-0.5" />
+                      <div className="flex-1">
+                        <Label className="text-sm font-medium">Pay by Credit/Debit Card</Label>
+                        {stripeAvailable ? (
+                          <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
+                        ) : (
+                          <p className="text-xs text-warning mt-1">Card payments not currently available</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )
                 ) : (
                   <RadioGroup value={remainingBalancePaymentMethod} onValueChange={setRemainingBalancePaymentMethod}>
                     <div className="space-y-3">
@@ -1864,10 +2004,12 @@ export default function PaymentOptions({
                 </div>
               </div>
               <h2 className="text-xl font-semibold" data-testid="text-booking-confirmed">
-                Booking Confirmed
+                Registration Confirmed
               </h2>
               <p className="text-sm text-muted-foreground">
-                Your booking has been confirmed. A confirmation email will be sent to you shortly.
+                {conf.paymentMethod === 'public_invoice_po'
+                  ? 'Your registration has been confirmed. Payment is due by Invoice / PO; no online payment has been taken.'
+                  : 'Your booking has been confirmed. A confirmation email will be sent to you shortly.'}
               </p>
             </div>
 
@@ -1966,6 +2108,20 @@ export default function PaymentOptions({
                   <div className="flex items-center justify-between text-sm pt-2 border-t font-semibold">
                     <span>Paid by card</span>
                     <span>{'\u00a3'}{paymentAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                {conf.paymentMethod === 'public_invoice_po' && (
+                  <div className="space-y-1 text-sm pt-2 border-t">
+                    <div className="flex items-center justify-between font-semibold">
+                      <span>Payment due by Invoice / PO</span>
+                      <span>{'\u00a3'}{Number(conf.totalCost || 0).toFixed(2)}</span>
+                    </div>
+                    {conf.purchaseOrderNumber && (
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Purchase Order Number</span>
+                        <span>{conf.purchaseOrderNumber}</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 {conf.xeroInvoice?.invoice_number && (
@@ -2156,7 +2312,9 @@ export default function PaymentOptions({
               ) : isSoldOut ? (
                 'Sold Out'
               ) : (isOneOffEvent || isComplexEvent) ? (
-                totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : resolveTbcCtaLabel(tbcBookingReplacement)
+                totalCost > 0
+                  ? (isPublicInvoicePo ? 'Confirm Invoice / PO Registration' : `Book & Pay £${remainingBalance.toFixed(2)}`)
+                  : resolveTbcCtaLabel(tbcBookingReplacement)
               ) : (
                 resolveTbcCtaLabel(tbcBookingReplacement)
               )}

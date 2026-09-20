@@ -2255,6 +2255,7 @@ export default async function handler(req, res, dependencies = {}) {
       let xeroPoSyncResult = null;
       const isBookingPoUpdate =
         (entityNormalized === 'booking' || entityNormalized === 'programtickettransaction')
+        && data?.payment_method !== 'public_invoice_po'
         && Object.prototype.hasOwnProperty.call(sanitizedBody, 'purchase_order_number')
         && typeof sanitizedBody.purchase_order_number === 'string'
         && sanitizedBody.purchase_order_number.trim() !== '';

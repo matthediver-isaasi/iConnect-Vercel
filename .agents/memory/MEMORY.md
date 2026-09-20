@@ -155,3 +155,4 @@
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
 - [Renewal reminder quotes](renewal-reminder-payment-links.md) — browser completion and webhook reconciliation must honor the same successor quote; preparation must not send a second email.
 - [Membership card evidence](membership-card-evidence.md) — joining provenance, historical payments, mandate readiness and future collections must remain distinct.
+- [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.

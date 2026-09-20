@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
 import { getSessionMember } from '../_lib/session.js';
@@ -65,6 +66,7 @@ export default async function handler(req, res) {
       attendees: legacyAttendees,
       ticket_class_id: legacyTicketClassId,
       payment_method,
+      purchaser_info: purchaserInfo,
       stripe_payment_intent_id,
       discount_code: legacyDiscountCode,
       items,
@@ -90,6 +92,7 @@ export default async function handler(req, res) {
     }
 
     let authenticatedMember = null;
+    let purchaserSessionError = null;
     try {
       const sessionMember = await getSessionMember(req);
       if (sessionMember) {
@@ -98,7 +101,7 @@ export default async function handler(req, res) {
           authenticatedMember = sessionMember;
         }
       }
-    } catch (e) {}
+    } catch (e) { purchaserSessionError = e; }
     const member_id = authenticatedMember?.id || null;
     const organization_id = allocationContext?.organizationId
       || authenticatedMember?.organization_id || null;
@@ -137,13 +140,28 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date')
+      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+
+    let purchaserContext = null;
+    if (payment_method === PUBLIC_INVOICE_PO) {
+      try {
+        if (purchaserSessionError) throw new Error('Unable to verify purchaser session');
+        purchaserContext = await validatePublicInvoicePo({
+          client: supabase, event, authenticatedMember, purchaserInfo,
+          stripePaymentIntentId: stripe_payment_intent_id, voucherIds: selected_voucher_ids,
+          trainingFundAmount: requestedTrainingFundAmount, accountAmount: req.body.account_amount,
+          allocationContext, purchaseOrderNumber,
+        });
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+    }
 
     if (event.event_state === 'draft') {
       return res.status(404).json({ error: 'Event not found' });
@@ -298,6 +316,10 @@ export default async function handler(req, res) {
 
     const isFree = grandTotalMinor === 0;
     const totalCostPounds = grandTotalMinor / 100;
+    if (payment_method === PUBLIC_INVOICE_PO) {
+      try { requirePublicInvoicePoBalance(totalCostPounds); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
 
     let paymentStatus = 'free';
     let confirmedPaymentMethod = 'free';
@@ -318,14 +340,17 @@ export default async function handler(req, res) {
     }
 
     if (!isFree) {
-      const validPaidMethods = ['card', 'account', 'account_balance', 'training_fund', 'voucher', 'invoice'];
+      const validPaidMethods = ['card', 'account', 'account_balance', 'training_fund', 'voucher', 'invoice', PUBLIC_INVOICE_PO];
       if (!payment_method || !validPaidMethods.includes(payment_method)) {
         return res.status(400).json({
           error: `Invalid payment method. Supported methods: ${validPaidMethods.join(', ')}`
         });
       }
 
-      if (payment_method === 'card') {
+      if (payment_method === PUBLIC_INVOICE_PO) {
+        paymentStatus = 'pending';
+        confirmedPaymentMethod = PUBLIC_INVOICE_PO;
+      } else if (payment_method === 'card') {
         if (!stripe_payment_intent_id) {
           return res.status(400).json({ error: 'stripe_payment_intent_id is required for card payments' });
         }
@@ -818,6 +843,7 @@ export default async function handler(req, res) {
           ticket_class_name: item.serverTicket.name || null,
           ticket_price: item.authoritativePrice,
           payment_method: confirmedPaymentMethod,
+          ...(purchaserContext ? { purchaser_context: purchaserContext } : {}),
           payment_status: paymentStatus,
           stripe_payment_intent_id: isFirstAttendeeOverall ? (stripe_payment_intent_id || null) : null,
           discount_code: isFirstInGroup && item.validatedDiscountCode ? item.validatedDiscountCode.code : null,
@@ -1196,7 +1222,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (validatedRemainingBalance > 0) {
+    if (confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0) {
       const appTenantId = event.tenant_id || tenant.id;
       try {
         const { data: xeroSettings } = await supabase

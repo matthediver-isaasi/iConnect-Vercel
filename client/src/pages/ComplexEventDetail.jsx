@@ -807,8 +807,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         items,
         payment_method: data.payment_method,
         stripe_payment_intent_id: data.stripe_payment_intent_id || null,
-        third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null
-        ,allocation_invitation_token: allocationContext?.token || undefined
+        third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null,
+        purchase_order_number: data.purchase_order_number || null,
+        purchaser_info: data.purchaser_info || null,
+        allocation_invitation_token: allocationContext?.token || undefined
       });
     },
     _getCartItems: () => {
@@ -1036,6 +1038,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       collectThirdPartyConsent={collectThirdPartyConsent}
       thirdPartyConsent={thirdPartyConsent}
       setThirdPartyConsent={setThirdPartyConsent}
+      isGuestCheckout={isGuest}
     />
   ) : null;
 

@@ -580,7 +580,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
     }
 
     // --- Consolidated Xero credit note (one credit note for the group) ---
-    const bookingsWithXero = bookings.filter(b => b.accounting_invoice_id || b.xero_invoice_id);
+    const bookingsWithXero = bookings.filter(b => b.payment_method !== 'public_invoice_po' && (b.accounting_invoice_id || b.xero_invoice_id));
     if (bookingsWithXero.length > 0) {
       try {
         const xeroInvoiceId = bookingsWithXero[0].accounting_invoice_id || bookingsWithXero[0].xero_invoice_id;

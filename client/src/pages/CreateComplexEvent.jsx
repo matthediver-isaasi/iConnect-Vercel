@@ -734,6 +734,7 @@ export default function CreateComplexEvent() {
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
   const [qrOnConfirmation, setQrOnConfirmation] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
+  const [allowPublicInvoicePo, setAllowPublicInvoicePo] = useState(false);
 
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
     queryKey: ['/api/entities/Role'],
@@ -1106,8 +1107,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1230,6 +1231,7 @@ export default function CreateComplexEvent() {
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
       setQrOnConfirmation(existingEvent.qr_on_confirmation !== false);
       setCollectThirdPartyConsent(existingEvent.pricing_config?.collectThirdPartyConsent === true);
+      setAllowPublicInvoicePo(existingEvent.allow_public_invoice_po === true);
 
       // Only (re)load sponsors when the event ID changes. A post-save refetch
       // returns a new existingEvent object with the SAME id, so we skip the
@@ -1942,6 +1944,7 @@ export default function CreateComplexEvent() {
         show_seat_count: showSeatCount,
         show_ticket_availability: showTicketAvailability,
         qr_on_confirmation: qrOnConfirmation,
+        allow_public_invoice_po: !isGroupLimited && allowPublicInvoicePo === true,
         pricing_config: { collectThirdPartyConsent: collectThirdPartyConsent === true },
         internal_reference: formData.internal_reference || null,
         internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
@@ -3392,6 +3395,19 @@ export default function CreateComplexEvent() {
                   )}
 
                   {!isGroupLimited && (<>
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="allow-public-invoice-po" className="text-sm">Allow public payment by Invoice / PO</Label>
+                      <p className="text-xs text-slate-500">Lets non-members register paid public tickets now with an optional PO number. No invoice is created automatically.</p>
+                    </div>
+                    <Switch
+                      id="allow-public-invoice-po"
+                      checked={allowPublicInvoicePo}
+                      onCheckedChange={setAllowPublicInvoicePo}
+                      data-testid="switch-allow-public-invoice-po"
+                    />
+                  </div>
+
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div>
                       <Label htmlFor="show-ticket-availability" className="text-sm">Show ticket availability</Label>

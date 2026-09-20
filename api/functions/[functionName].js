@@ -1,4 +1,7 @@
 import Stripe from 'stripe';
+import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveTicketPrice } from '../_lib/complexEventPricing.js';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -1744,7 +1747,7 @@ const functionHandlers = {
       voucherOrderManual = false,
       trainingFundAmount = 0,
       accountAmount = 0,
-      purchaseOrderNumber = null,
+      purchaseOrderNumber = params.purchase_order_number ?? null,
       poToFollow = false,
       paymentMethod: requestedPaymentMethod = 'account',
       stripePaymentIntentId = null,
@@ -1753,6 +1756,7 @@ const functionHandlers = {
       ticketClassPrice = null,
       isGuestBooking = false,
       guestInfo = null,
+      purchaser_info: purchaserInfo = null,
       discountCodeId = null,
       discountCodeAmount = 0,
       donationData = null,
@@ -1860,6 +1864,48 @@ const functionHandlers = {
     if (eventError || !event) {
       console.error('[createOneOffEventBooking] Event query error:', eventError);
       return { success: false, error: 'Event not found' };
+    }
+
+    let purchaserContext = null;
+    if (paymentMethod === PUBLIC_INVOICE_PO) {
+      try {
+        const tenant = await resolveTenantFromRequest(req);
+        if (!tenant || tenant.id !== event.tenant_id) throw new Error('Event not found');
+        if (event.event_state === 'draft' || !['published', 'tbc', 'immediate'].includes(event.status)) {
+          throw new Error('Event is not available for public registration');
+        }
+        if (!isGuestBooking || registrationMode === 'links') throw new Error('Invoice / PO requires public attendee registration');
+        purchaserContext = await validatePublicInvoicePo({
+          client: supabase, event, authenticatedMember: await getSessionMember(req),
+          purchaserInfo, stripePaymentIntentId, voucherIds: selectedVoucherIds,
+          trainingFundAmount, accountAmount, allocationContext, purchaseOrderNumber,
+        });
+        if (donationData) throw new Error('Invoice / PO cannot include a payment donation');
+        // Never let client prices turn a free ticket into an unpaid receivable.
+        const ticket = (event.pricing_config?.ticket_classes || []).find(t => String(t.id) === String(ticketClassId));
+        const resolvedPrice = resolveTicketPrice(event.pricing_config, ticketClassId);
+        if (!ticket || !resolvedPrice.found) throw new Error('A valid paid ticket class is required');
+        const visibility = ticket.visibility_mode || (ticket.is_public === true ? 'members_and_public' : 'members_only');
+        if (!['members_and_public', 'public_only'].includes(visibility)) throw new Error('This ticket is not available to public purchasers');
+        requirePublicInvoicePoBalance(resolvedPrice.price);
+        ticketsRequired = bookingAttendees.length;
+        let payableTickets = ticketsRequired;
+        const buy = Number(ticket.bogo_buy_quantity);
+        const free = Number(ticket.bogo_get_free_quantity);
+        if (ticket.offer_type === 'bogo' && buy > 0 && free > 0) {
+          const remainder = ticketsRequired % (buy + free);
+          payableTickets = Math.floor(ticketsRequired / (buy + free)) * buy
+            + (ticket.bogo_logic_type === 'enter_total_pay_less' ? remainder : Math.min(remainder, buy));
+        }
+        totalCost = resolvedPrice.price * payableTickets;
+        if (ticket.offer_type === 'bulk_discount' && Number(ticket.bulk_discount_threshold) > 0
+            && ticketsRequired >= Number(ticket.bulk_discount_threshold)) {
+          totalCost *= 1 - Math.min(100, Math.max(0, Number(ticket.bulk_discount_percentage) || 0)) / 100;
+        }
+        totalCost = Math.round(totalCost * 100) / 100;
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
     }
 
     // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
@@ -2306,6 +2352,10 @@ const functionHandlers = {
 
     // Ceiling for vouchers + training fund is the cost AFTER the discount code is applied.
     const costAfterDiscount = Math.max(0, totalCost - validatedDiscountAmount);
+    if (paymentMethod === PUBLIC_INVOICE_PO) {
+      try { requirePublicInvoicePoBalance(costAfterDiscount); }
+      catch (error) { return { success: false, error: error.message }; }
+    }
 
     if (!isGuestBooking && org) {
       // Server-side role restriction validation for training fund
@@ -2623,7 +2673,8 @@ const functionHandlers = {
       // Calculate ticket price - use ticket class price if provided, otherwise from pricing config or total cost
       const ticketPriceValue = allocationContext
         ? 0
-        : (ticketClassPrice || event.pricing_config?.ticketPrice || (totalCost / ticketsRequired));
+        : (paymentMethod === PUBLIC_INVOICE_PO ? totalCost / ticketsRequired
+          : (ticketClassPrice || event.pricing_config?.ticketPrice || (totalCost / ticketsRequired)));
       
       // Generate unique booking reference for each attendee (append index if multiple attendees)
       // Keep the base reference in booking_group_reference for grouping all attendees together
@@ -2642,6 +2693,7 @@ const functionHandlers = {
         attendee_last_name: attendee.last_name || attendee.lastName,
         status: 'confirmed',
         payment_method: paymentMethod,
+        ...(purchaserContext ? { purchaser_context: purchaserContext } : {}),
         ticket_price: ticketPriceValue,
         total_cost: totalCost / ticketsRequired,
         voucher_amount: voucherAmountApplied / ticketsRequired,
@@ -2652,7 +2704,9 @@ const functionHandlers = {
         stripe_payment_intent_id: stripePaymentIntentId,
         is_one_off_event: true,
         ticket_class_id: ticketClassId,
-        ticket_class_name: ticketClassName,
+        ticket_class_name: paymentMethod === PUBLIC_INVOICE_PO
+          ? event.pricing_config.ticket_classes.find(t => String(t.id) === String(ticketClassId))?.name
+          : ticketClassName,
         is_guest_booking: isGuestBooking,
         guest_organisation_name: attendee.organization || null,
         attendee_phone: attendee.phone || null,
@@ -3110,7 +3164,7 @@ const functionHandlers = {
     // Xero invoices are created for ANY payment method when there's a balance due
     // Only skip when training funds/vouchers completely cover the cost (zero balance)
     // Invoice to: organization (if linked) > plain text org > individual name
-    if (validatedRemainingBalance > 0) {
+    if (paymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0) {
       // Resolve invoice contact using priority: linked org > guest plain text org > individual name
       let invoiceContactInfo = null;
       

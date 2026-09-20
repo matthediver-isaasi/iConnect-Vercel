@@ -479,7 +479,7 @@ export async function cancelBooking({
 
   // 8. Xero credit note.
   const _invoiceIdForCredit = booking.accounting_invoice_id || booking.xero_invoice_id;
-  if (!skipXeroCreditNote && _invoiceIdForCredit) {
+  if (booking.payment_method !== 'public_invoice_po' && !skipXeroCreditNote && _invoiceIdForCredit) {
     let creditAmount = totalCost;
     if (refundAllocation && refundAllocation.invoiceAmount !== undefined) {
       const invoiceAlloc = parseFloat(refundAllocation.invoiceAmount);

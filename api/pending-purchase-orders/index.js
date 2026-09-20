@@ -580,12 +580,17 @@ export default async function handler(req, res) {
       
       const { data: existingRecord, error: fetchError } = await supabase
         .from(tableName)
-        .select('id, organization_id, member_id, xero_invoice_id')
+        .select(entityType === 'booking'
+          ? 'id, organization_id, member_id, xero_invoice_id, payment_method'
+          : 'id, organization_id, member_id, xero_invoice_id')
         .eq('id', entityId)
         .single();
       
       if (fetchError || !existingRecord) {
         return res.status(404).json({ error: 'Record not found' });
+      }
+      if (existingRecord.payment_method === 'public_invoice_po') {
+        return res.status(400).json({ error: 'Public Invoice / PO registrations do not participate in invoice recovery' });
       }
       
       let recordBelongsToTenant = tenantOrgIds.includes(existingRecord.organization_id);
