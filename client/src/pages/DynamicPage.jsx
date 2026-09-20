@@ -20,6 +20,7 @@ import ArticleEditor from "./ArticleEditor";
 import PublicArticles from "./PublicArticles";
 import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { getUnknownPageRedirectTarget, resolveUnknownPage } from "./unknownPageRedirect";
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from "./dynamicPageRequest";
 import {
   createDynamicPageRequestScope,
@@ -535,32 +536,18 @@ export default function DynamicPage() {
   // has become unresolved/invalid.
   const isLoggedIn = authResolved && sessionValidated && !!memberInfo;
 
-  // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = routePrerequisitesReady && !pageError && pageFetched && !pageFetching && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
-  const { data: redirectResult, isLoading: redirectLoading, isError: redirectError, error: redirectRequestError } = useQuery({
-    queryKey: ['redirect-resolve', branding?.id, slug],
-    queryFn: async () => {
-      const currentPath = '/' + slug;
-      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
-      if (!response.ok) throw new Error('Unable to check page redirects.');
-      return response.json();
-    },
-    enabled: shouldCheckRedirect,
-    staleTime: 60000,
-    retry: false,
-  });
-
-  // Task #2785: form fallback — when the page lookup AND redirect lookup both
-  // miss for a top-level slug (default site only), check whether an active
-  // form matches the slug. If so we render the FormView experience at the
-  // pretty URL (/{form-slug}) instead of the not-found screen.
-  const redirectMissed = shouldCheckRedirect &&
-    redirectResult !== undefined && !redirectError && !redirectLoading && !redirectResult?.found;
-  const { data: fallbackForm, isLoading: formFallbackLoading, isFetched: formFallbackFetched, error: formFallbackError } = useQuery({
-    queryKey: ['public-form-by-slug', branding?.id, slug, pageAudience, memberInfo?.id],
+  // A pretty form is a real route; resolve it before any redirect rule.
+  const unknownMicrosite = isMicrositeRoute && micrositesLoaded && !micrositeMatch;
+  const missingPage = routePrerequisitesReady && !routeMetadataError && !earlyPublicPageError &&
+    !pageError && !page && !dynamicArticleRoute && !!slug &&
+    (canPreviewDrafts || !earlyPublicRequest || earlyPublicPageFetched) &&
+    (unknownMicrosite || (pageFetched && !pageFetching));
+  const shouldCheckForm = missingPage && !isAnyMicrositeRoute;
+  const { data: fallbackForm, isFetching: formFallbackLoading, isFetched: formFallbackFetched, error: formFallbackError } = useQuery({
+    queryKey: ['public-form-by-slug', publicRequestScope, publicTenantRequestIdentity, slug, pageAudience, memberInfo?.id, audienceGeneration],
     queryFn: async () => {
       try {
-        const form = await publicClient.getForm(slug, { authenticated: !!memberInfo });
+        const form = await publicClient.getForm(slug, { authenticated: isLoggedIn });
         return form || null;
       } catch (e) {
         // A policy-denied form still exists at this pretty URL. Preserve the
@@ -573,18 +560,28 @@ export default function DynamicPage() {
         throw e;
       }
     },
-    enabled: redirectMissed,
+    enabled: shouldCheckForm,
     retry: false,
-    staleTime: 60000
+    staleTime: 0,
+    gcTime: 0,
   });
-  const formFallbackPending = redirectMissed && (!formFallbackFetched || formFallbackLoading);
-  const hasFormFallback = redirectMissed && !!fallbackForm;
+  const formFallbackPending = shouldCheckForm && (!formFallbackFetched || formFallbackLoading);
+  const hasFormFallback = shouldCheckForm && !!fallbackForm;
+  const shouldCheckRedirect = missingPage && !formFallbackError && !hasFormFallback &&
+    (!shouldCheckForm || (formFallbackFetched && !formFallbackLoading));
+  const { data: redirectResult, isLoading: redirectLoading, isError: redirectError, error: redirectRequestError } = useQuery({
+    queryKey: ['redirect-resolve', publicRequestScope, publicTenantRequestIdentity, location.pathname, location.key, audienceGeneration],
+    queryFn: ({ signal }) => resolveUnknownPage(location.pathname, signal),
+    enabled: shouldCheckRedirect,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const redirectTarget = shouldCheckRedirect ? getUnknownPageRedirectTarget(redirectResult, location.pathname) : null;
 
-  const unknownMicrosite = isMicrositeRoute && micrositesLoaded && !micrositeMatch;
   const terminalPage = pageFetched && !pageFetching;
-  const fallbackSettled = !shouldCheckRedirect || (
-    redirectMissed && formFallbackFetched && !formFallbackLoading
-  );
+  const fallbackSettled = !formFallbackPending && (!shouldCheckRedirect || redirectResult !== undefined || redirectError);
   const pageRequestError = routeMetadataError || earlyPublicPageError || pageError ||
     redirectRequestError || formFallbackError;
   const routePending = !routePrerequisitesReady || pageLoading || pageQueryPending ||
@@ -619,13 +616,7 @@ export default function DynamicPage() {
       : page ? (page.public_chrome || 'both') : 'none',
   } : null);
 
-  // Handle 404 - check redirect mappings first, then fall back to default behavior
-  // We need to wait for access state to be determined:
-  // - For guests: memberInfo is null (from localStorage init, not undefined)
-  // - For logged-in users: isAccessReady will be true after role is loaded
-  const isGuest = memberInfo === null;
-  const authCheckComplete = isGuest || isAccessReady;
-  
+  // Only a confirmed route miss can consume the server's final redirect decision.
   // Determine if redirect check is complete:
   // - If we should check redirects, wait for the result to be defined (not just not loading)
   // - If we shouldn't check redirects, consider it complete
@@ -635,7 +626,7 @@ export default function DynamicPage() {
   
   useEffect(() => {
     // Wait for page loading to complete and we're in a 404 scenario
-    if (pageLoading || page || dynamicArticleRoute) {
+    if (terminalError || !shouldCheckRedirect || pageLoading || page || dynamicArticleRoute) {
       return;
     }
     
@@ -646,18 +637,18 @@ export default function DynamicPage() {
     }
     
     // Check if we have a redirect mapping
-    if (redirectResult?.found && redirectResult?.target_url) {
+    if (redirectTarget) {
       console.log('[DynamicPage] Redirect mapping found:', redirectResult.target_url);
       // Handle external vs internal redirects
-      if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
-        window.location.href = redirectResult.target_url;
+      if (redirectTarget.startsWith('http://') || redirectTarget.startsWith('https://')) {
+        window.location.replace(redirectTarget);
       } else {
-        navigate(redirectResult.target_url, { replace: true });
+        navigate(redirectTarget, { replace: true });
       }
       return;
     }
     
-  }, [page, pageLoading, dynamicArticleRoute, redirectCheckComplete, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
+  }, [page, pageLoading, dynamicArticleRoute, redirectCheckComplete, redirectTarget, shouldCheckRedirect, terminalError, navigate]);
 
   // Debug: Log what's being rendered
   console.log('[DynamicPage] slug:', slug);
@@ -712,7 +703,7 @@ export default function DynamicPage() {
   if (!routePrerequisitesReady) {
     return <NeutralPageLoading testId="loading-microsite" />;
   }
-  if (isMicrositeRoute && !micrositeMatch) {
+  if (unknownMicrosite && fallbackSettled && !redirectTarget) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
         <div className="text-center max-w-md px-4">
@@ -740,7 +731,7 @@ export default function DynamicPage() {
   }
 
   if (!page) {
-    if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete) || formFallbackPending) {
+    if (redirectTarget || redirectLoading || (shouldCheckRedirect && !redirectCheckComplete) || formFallbackPending) {
       return <NeutralPageLoading testId="page-checking-redirect" label="Checking page…" />;
     }
 

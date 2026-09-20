@@ -688,6 +688,9 @@ export type RoleMemberFieldPermission = typeof roleMemberFieldPermission.$inferS
 // URL Redirect mappings for legacy URL handling
 export const redirectMapping = pgTable("redirect_mapping", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Nullable for safe adoption by legacy installations: rows whose tenant
+  // ownership is unknown remain quarantined from tenant-scoped reads.
+  tenant_id: varchar("tenant_id").references(() => tenant.id),
   source_pattern: text("source_pattern").notNull(), // The incoming URL path to match
   target_url: text("target_url").notNull(), // The destination URL to redirect to
   match_type: text("match_type").notNull().default('exact'), // 'exact', 'prefix', 'regex'
@@ -696,7 +699,12 @@ export const redirectMapping = pgTable("redirect_mapping", {
   is_active: boolean("is_active").default(true),
   notes: text("notes"), // Optional notes about the redirect
   created_at: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  tenantIdIdx: index("idx_redirect_mapping_tenant_id").on(table.tenant_id),
+  activePriorityIdx: index("idx_redirect_mapping_active_priority")
+    .on(table.is_active, table.priority)
+    .where(sql`${table.is_active} = true`),
+}));
 
 export const insertRedirectMappingSchema = createInsertSchema(redirectMapping).omit({
   id: true,

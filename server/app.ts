@@ -8,6 +8,7 @@ import express, {
 } from "express";
 
 import { registerVercelApiRoutes } from "./vercel-api-adapter";
+import { applyUnknownPageHttpPolicy } from "../api/_lib/unknownPageHttp.js";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -84,6 +85,10 @@ export default async function runApp(
 ) {
   // Route /api/* requests to the Vercel serverless functions in /api/
   registerVercelApiRoutes(app);
+  app.use(async (req, res, next) => {
+    if (await applyUnknownPageHttpPolicy(req, res)) return;
+    next();
+  });
 
   const server = createServer(app);
 

@@ -46,6 +46,33 @@ Browser harnesses are separate: a browser is not protected by a Node fetch mock.
 Legacy commands elsewhere in this repository are not automatically certified
 safe merely because their names contain “test”. Use the guarded entry points.
 
+### Unknown-page homepage fallback
+
+Run the route policy, HTTP/prerender handlers, and settings authorization checks
+without connecting to application databases:
+
+```sh
+node scripts/run-isolated-tests.mjs node --test api/_lib/unknownPagePolicy.test.mjs api/_lib/unknownPageIntegration.test.mjs api/redirects/settings.test.mjs
+npx playwright test --config=tests/task-4634-unknown-page.config.mjs
+npx playwright test --config=tests/task-4634-redirect-settings.config.mjs
+node scripts/run-isolated-tests.mjs --allow-local-postgres node --test supabase/migrations/redirectMappingTenantScopeMigration.test.mjs
+```
+
+The browser suite bundles actual routing components with in-memory dependencies
+and intercepts all requests. Registered route leaves are stubbed: those checks
+prove routing precedence, not event/article content rendering. The handler tests
+exercise direct HTML, crawler and resolver decisions with controlled tenant data.
+Neither suite enables the fallback or edits redirect rules on a live tenant.
+The fallback defaults off; existing prefix/regex mappings remain unchanged.
+The separate settings browser suite uses the real switch and project CSS,
+covering load/save failures, toggling, persistence, and broad-rule warnings.
+The disposable SQL check covers legacy redirect ownership adoption and
+tenant-isolated operations. The tracked compatibility migration
+`20261120_redirect_mapping_tenant_scope.sql` does not infer ownership for old
+unscoped rows; those remain excluded from tenant-scoped reads. The destination
+schema was verified read-only to already have the column, foreign key and
+indexes, so no production migration was applied for this feature.
+
 ## 2. Disposable-database integration tests
 
 These create their own temporary PostgreSQL cluster, apply fixture schemas,

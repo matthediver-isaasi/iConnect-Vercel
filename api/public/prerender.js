@@ -1,10 +1,12 @@
 import { supabase } from '../_lib/database.js';
+import { resolveUnknownPagePolicy } from '../_lib/unknownPagePolicy.js';
+import { renderTenantHtml } from '../_lib/renderHtml.js';
 import { projectCanvasMemberTokensForGuest } from '../../shared/canvasMemberTokens.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
   isImmediateEvent,
 } from '../../shared/eventTiming.js';
-import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolvePageTenant } from '../_lib/pageTenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
 import { buildStaticPageSsrHtml } from '../_lib/staticPageSsr.js';
@@ -1366,7 +1368,9 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
   };
 }
 
-export default async function handler(req, res) {
+export function createPrerenderHandler({ database = supabase, resolveTenant = resolvePageTenant, renderShell = renderTenantHtml } = {}) {
+const supabase = database;
+return async function handler(req, res) {
   // A prerender response is a public representation and must not be shared
   // between guest/member sessions (or vice versa). It is deliberately always
   // guest-projected even if a crawler forwards a logged-in cookie.
@@ -1381,7 +1385,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await resolveTenant(req);
     if (!tenant) {
       return res.status(404).send('<html><body>Not found</body></html>');
     }
@@ -1392,6 +1396,14 @@ export default async function handler(req, res) {
     }
 
     const requestPath = req.query.path || '/';
+    // Resolve independently of crawler rendering coverage. In particular forms,
+    // protected pages and registered app routes are not missing just because
+    // this renderer has no body implementation for them.
+    const routeResult = await resolveUnknownPagePolicy(supabase, tenant, requestPath);
+    if (routeResult.found) {
+      res.setHeader('Location', routeResult.target_url);
+      return res.status(routeResult.status_code).end();
+    }
     const baseUrl = getBaseUrl(req, tenant);
 
     const articleConfig = await getArticleUrlConfig(supabase, tenant.id);
@@ -1545,57 +1557,11 @@ export default async function handler(req, res) {
     }
 
     if (!pageData) {
-      try {
-        const { data: mappings } = await supabase
-          .from('redirect_mapping')
-          .select('source_pattern, target_url, match_type, status_code')
-          .eq('is_active', true)
-          .order('priority', { ascending: true });
-
-        if (mappings && mappings.length > 0) {
-          const normalizedPath = requestPath.replace(/\/+$/, '') || '/';
-          const normalizedPathLower = normalizedPath.toLowerCase();
-
-          for (const mapping of mappings) {
-            let sourcePattern = (mapping.source_pattern || '').replace(/\/+$/, '') || '/';
-            if (sourcePattern !== '/' && !sourcePattern.startsWith('/')) {
-              sourcePattern = '/' + sourcePattern;
-            }
-            const sourcePatternLower = sourcePattern.toLowerCase();
-
-            let matched = false;
-            let targetUrl = mapping.target_url;
-
-            if (mapping.match_type === 'exact') {
-              matched = normalizedPathLower === sourcePatternLower;
-            } else if (mapping.match_type === 'prefix') {
-              if (normalizedPathLower.startsWith(sourcePatternLower)) {
-                matched = true;
-                if (targetUrl.endsWith('*')) {
-                  const remainingPath = normalizedPath.slice(sourcePattern.length);
-                  targetUrl = targetUrl.slice(0, -1) + remainingPath;
-                }
-              }
-            } else if (mapping.match_type === 'regex') {
-              try {
-                const regex = new RegExp(mapping.source_pattern, 'i');
-                if (regex.test(normalizedPath)) {
-                  matched = true;
-                  targetUrl = normalizedPath.replace(regex, mapping.target_url);
-                }
-              } catch (e) {}
-            }
-
-            if (matched) {
-              const statusCode = mapping.status_code || 301;
-              const absoluteTarget = targetUrl.startsWith('http') ? targetUrl : `${baseUrl}${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
-              res.setHeader('Location', absoluteTarget);
-              return res.status(statusCode).end();
-            }
-          }
-        }
-      } catch (redirectErr) {
-        console.error('[Prerender] Redirect lookup error:', redirectErr);
+      if (routeResult.route_outcome !== 'missing') {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(200).send(await renderShell({
+          ...req, headers: { ...req.headers, 'x-original-uri': requestPath },
+        }));
       }
 
       // Tenant-configurable 404: if settings.not_found_page_slug points at
@@ -1689,4 +1655,7 @@ export default async function handler(req, res) {
     console.error('[Prerender] Error:', error);
     return res.status(500).send('<html><body>Internal server error</body></html>');
   }
+};
 }
+
+export default createPrerenderHandler();

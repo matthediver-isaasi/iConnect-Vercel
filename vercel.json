@@ -168,7 +168,7 @@
   "rewrites": [
     { "source": "/robots.txt", "destination": "/api/public/robots.txt" },
     { "source": "/sitemap.xml", "destination": "/api/public/sitemap.xml" },
-    { "source": "/((?!api/|assets/|favicon\\.ico|favicon[^/]*\\.png|apple-touch-icon\\.png|og-image\\.png|site\\.webmanifest|robots\\.txt|sitemap\\.xml).*\\.[a-zA-Z0-9]+)", "destination": "/$1" },
+    { "source": "/((?!api/).*\\.(?:js|mjs|css|map|json|xml|txt|ico|png|jpg|jpeg|gif|webp|avif|svg|woff|woff2|ttf|otf|eot|pdf|zip|mp3|mp4|webm|wav|webmanifest|wasm))", "destination": "/$1" },
     { "source": "/((?!api/).*)", "destination": "/api/render" }
   ],
   "headers": [

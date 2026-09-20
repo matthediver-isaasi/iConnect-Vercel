@@ -44,6 +44,15 @@ export default async function handler(req, res) {
     }
   } else if (req.method === 'PATCH') {
     try {
+      if (Object.prototype.hasOwnProperty.call(
+        req.body?.settings || {},
+        'redirect_unknown_pages_to_homepage'
+      )) {
+        return res.status(400).json({
+          error: 'Use the redirect settings endpoint to change the unknown-page fallback'
+        });
+      }
+
       const allowedFields = [
         'name', 
         'logo_url', 

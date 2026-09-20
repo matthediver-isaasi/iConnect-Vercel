@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { getRedirectTenantIdentity, getUnknownPageRedirectTarget, resolveUnknownPage } from "./unknownPageRedirect";
+import { createDynamicPageRequestScope } from "./dynamicPageFirstLoad";
 
 export default function CatchAllNotFound() {
   const location = useLocation();
@@ -9,6 +11,8 @@ export default function CatchAllNotFound() {
   const { setForcePublicLayout, setChromeReady } = useLayoutContext();
 
   const fullPath = location.pathname;
+  const [requestScope] = useState(createDynamicPageRequestScope);
+  const tenantIdentity = getRedirectTenantIdentity();
 
   useLayoutEffect(() => {
     setForcePublicLayout(true);
@@ -22,30 +26,42 @@ export default function CatchAllNotFound() {
     };
   }, [setForcePublicLayout, setChromeReady]);
 
-  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
-    queryKey: ['redirect-resolve', fullPath],
-    queryFn: async () => {
-      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(fullPath)}`);
-      if (!response.ok) return { found: false };
-      return response.json();
-    },
+  const { data: redirectResult, isLoading: redirectLoading, error: redirectError } = useQuery({
+    queryKey: ['redirect-resolve', requestScope, tenantIdentity, fullPath, location.key],
+    queryFn: ({ signal }) => resolveUnknownPage(fullPath, signal),
     enabled: !!fullPath,
-    staleTime: 60000
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
+  const redirectTarget = getUnknownPageRedirectTarget(redirectResult, fullPath);
 
   useEffect(() => {
-    if (redirectLoading || redirectResult === undefined) {
+    if (redirectError || redirectLoading || redirectResult === undefined) {
       return;
     }
 
-    if (redirectResult?.found && redirectResult?.target_url) {
-      if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
-        window.location.href = redirectResult.target_url;
+    if (redirectTarget) {
+      if (redirectTarget.startsWith('http://') || redirectTarget.startsWith('https://')) {
+        window.location.replace(redirectTarget);
       } else {
-        navigate(redirectResult.target_url, { replace: true });
+        navigate(redirectTarget, { replace: true });
       }
     }
-  }, [redirectResult, redirectLoading, navigate]);
+  }, [redirectResult, redirectTarget, redirectError, redirectLoading, navigate]);
+
+  if (redirectError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" role="alert">
+        <div>
+          <h1 className="text-2xl font-bold mb-4">Page unavailable</h1>
+          <p>We couldn't check this page. Please try again.</p>
+          <button type="button" className="underline" onClick={() => window.location.reload()}>Try again</button>
+        </div>
+      </div>
+    );
+  }
 
   if (redirectLoading || (redirectResult === undefined)) {
     return (
@@ -55,7 +71,7 @@ export default function CatchAllNotFound() {
     );
   }
 
-  if (redirectResult?.found && redirectResult?.target_url) {
+  if (redirectTarget) {
     return (
       <div className="min-h-screen" data-testid="page-redirecting" aria-busy="true">
         <div className="sr-only">Redirecting...</div>

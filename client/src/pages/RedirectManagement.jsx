@@ -100,6 +100,46 @@ export default function RedirectManagement() {
     enabled: isAuthenticated,
   });
 
+  const {
+    data: fallbackSettings,
+    isLoading: fallbackSettingsLoading,
+    isError: fallbackSettingsError,
+    error: fallbackSettingsQueryError,
+  } = useQuery({
+    queryKey: ['redirect-settings'],
+    queryFn: async () => {
+      const response = await fetch('/api/redirects/settings', { credentials: 'include' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Failed to load fallback setting');
+      return body;
+    },
+    enabled: isAuthenticated && accessChecked,
+    staleTime: 0,
+  });
+
+  const fallbackSettingsMutation = useMutation({
+    mutationFn: async (enabled) => {
+      const response = await fetch('/api/redirects/settings', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ redirect_unknown_pages_to_homepage: enabled }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Failed to update fallback setting');
+      return body;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['redirect-settings'], data);
+      toast.success(data.redirect_unknown_pages_to_homepage
+        ? 'Unknown pages will redirect to the homepage'
+        : 'Unknown-page homepage fallback disabled');
+    },
+    onError: (error) => {
+      toast.error('Failed to update fallback setting: ' + error.message);
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.RedirectMapping.create(data),
     onSuccess: () => {
@@ -148,6 +188,10 @@ export default function RedirectManagement() {
       redirect.notes?.toLowerCase().includes(query)
     );
   });
+  const broadActiveRedirects = redirects.filter(
+    (redirect) => redirect.is_active
+      && (redirect.match_type === 'prefix' || redirect.match_type === 'regex')
+  );
 
   const handleCreateNew = () => {
     setEditingRedirect({
@@ -274,6 +318,62 @@ export default function RedirectManagement() {
           Add Redirect
         </Button>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Unknown-page fallback</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start justify-between gap-6">
+            <div className="space-y-1">
+              <Label htmlFor="redirect-unknown-pages-home">
+                Redirect confirmed unknown pages to the homepage
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                After page and redirect checks confirm that a URL does not exist, send visitors
+                to <code className="rounded bg-muted px-1">/</code> with a temporary 302 redirect.
+                Loading, access-denied, and service-error responses are never redirected.
+              </p>
+            </div>
+            <Switch
+              id="redirect-unknown-pages-home"
+              checked={fallbackSettings?.redirect_unknown_pages_to_homepage === true}
+              onCheckedChange={(checked) => fallbackSettingsMutation.mutate(checked)}
+              disabled={
+                fallbackSettingsLoading
+                || fallbackSettingsError
+                || fallbackSettingsMutation.isPending
+                || !fallbackSettings
+              }
+              aria-label="Redirect unknown pages to homepage"
+              data-testid="switch-unknown-page-homepage-fallback"
+            />
+          </div>
+          {fallbackSettingsLoading && (
+            <p className="text-sm text-muted-foreground" role="status">
+              Loading fallback setting…
+            </p>
+          )}
+          {fallbackSettingsError && (
+            <p className="text-sm text-destructive" role="alert" data-testid="error-fallback-setting">
+              {fallbackSettingsQueryError?.message || 'Failed to load fallback setting'}
+            </p>
+          )}
+          {broadActiveRedirects.length > 0 && (
+            <div
+              className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+              data-testid="warning-broad-redirects"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <p>
+                {broadActiveRedirects.length} active broad prefix or regex redirect
+                {broadActiveRedirects.length === 1 ? '' : 's'} will be checked before this fallback.
+                Review them carefully because they can match URLs that would otherwise be unknown.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mb-6">
         <CardContent className="p-4">

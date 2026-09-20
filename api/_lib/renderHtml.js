@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.js';
+import { getHostFromRequest } from './tenantResolver.js';
+import { resolvePageTenant } from './pageTenantResolver.js';
 import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
 import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
@@ -368,7 +369,7 @@ export async function renderTenantHtml(req) {
   const template = loadTemplate();
   let tenant = null;
   try {
-    tenant = await resolveTenantFromRequest(req);
+    tenant = await resolvePageTenant(req);
   } catch (err) {
     console.error('[renderHtml] tenant resolution failed:', err?.message);
   }
