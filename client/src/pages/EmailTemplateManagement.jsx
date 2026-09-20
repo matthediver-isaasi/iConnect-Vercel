@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useEmailFooterSettings } from "@/hooks/useEmailFooterSettings";
 import { createPageUrl } from "@/utils";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -311,7 +312,8 @@ export default function EmailTemplateManagement() {
   
   // Email footer state
   const [footerOpen, setFooterOpen] = useState(false);
-  const [footerHtml, setFooterHtml] = useState('');
+  const footer = useEmailFooterSettings({ getActiveTenantId, subscribeToActiveTenantId });
+  const { html: footerHtml, setHtml: setFooterHtml, socialIcons } = footer;
   const [footerCodeView, setFooterCodeView] = useState(true); // Default to code view to preserve complex HTML
   const [footerPreviewOpen, setFooterPreviewOpen] = useState(false);
   const footerQuillRef = useRef(null);
@@ -427,9 +429,6 @@ export default function EmailTemplateManagement() {
   };
 
   const queryClient = useQueryClient();
-  const [activeTenantId, setActiveTenantIdState] = useState(() => getActiveTenantId());
-
-  useEffect(() => subscribeToActiveTenantId(setActiveTenantIdState), []);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -459,68 +458,14 @@ export default function EmailTemplateManagement() {
     enabled: editorOpen,
   });
 
-  // Fetch email footer setting
-  const { data: footerSetting } = useQuery({
-    queryKey: ['email-footer-setting', activeTenantId],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'email_footer_html') || null;
-    },
-    enabled: !!activeTenantId,
-  });
-
-  // Fetch social icons for dynamic replacement
-  const { data: socialIcons } = useQuery({
-    queryKey: ['social-icons-for-footer', activeTenantId],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
-      if (setting?.setting_value) {
-        try {
-          return JSON.parse(setting.setting_value);
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    },
-    enabled: !!activeTenantId,
-  });
-
-  // Clear immediately on a tenant change so the previous tenant's footer can
-  // never remain visible while the new tenant's setting is loading.
-  useEffect(() => {
-    setFooterHtml('');
-  }, [activeTenantId]);
-
-  // A missing setting is intentionally represented by an empty editor.
-  useEffect(() => {
-    setFooterHtml(footerSetting?.setting_value ?? '');
-  }, [footerSetting]);
-
-  // Save footer mutation
-  const saveFooterMutation = useMutation({
-    mutationFn: async (html) => {
-      if (footerSetting?.id) {
-        return await base44.entities.SystemSettings.update(footerSetting.id, {
-          setting_value: html
-        });
-      } else {
-        return await base44.entities.SystemSettings.create({
-          setting_key: 'email_footer_html',
-          setting_value: html,
-          description: 'HTML footer appended to all outgoing emails'
-        });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['email-footer-setting', activeTenantId] });
+  const saveFooter = async () => {
+    try {
+      await footer.save();
       toast.success('Email footer saved successfully');
-    },
-    onError: (error) => {
+    } catch (error) {
       toast.error('Failed to save footer: ' + (error.message || 'Unknown error'));
-    },
-  });
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -765,6 +710,14 @@ export default function EmailTemplateManagement() {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent className="space-y-4 pt-0">
+                {footer.loading && <p role="status">Resolving organisation and loading saved footer…</p>}
+                {footer.error && (
+                  <div role="alert">
+                    <p>Unable to load footer: {footer.error.message}</p>
+                    <Button variant="outline" onClick={() => footer.retry()}>Retry</Button>
+                  </div>
+                )}
+                {footer.missing && <p role="status">No email footer has been saved for this organisation.</p>}
                 {/* Editor Mode Toggle */}
                 {/* Warning for complex HTML */}
                 {footerHtml && (footerHtml.includes('<table') || footerHtml.includes('data:image') || footerHtml.includes('base64')) && !footerCodeView && (
@@ -810,6 +763,7 @@ export default function EmailTemplateManagement() {
                       variant="outline"
                       size="sm"
                       onClick={() => setFooterPreviewOpen(true)}
+                      disabled={!footer.ready}
                       data-testid="button-preview-footer"
                     >
                       <Eye className="w-4 h-4 mr-1" />
@@ -817,11 +771,11 @@ export default function EmailTemplateManagement() {
                     </Button>
                     <Button
                       size="sm"
-                      onClick={() => saveFooterMutation.mutate(footerHtml)}
-                      disabled={saveFooterMutation.isPending}
+                      onClick={saveFooter}
+                      disabled={!footer.ready || footer.saving}
                       data-testid="button-save-footer"
                     >
-                      {saveFooterMutation.isPending ? (
+                      {footer.saving ? (
                         <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                       ) : (
                         <Save className="w-4 h-4 mr-1" />
@@ -834,6 +788,7 @@ export default function EmailTemplateManagement() {
                 {/* Editor */}
                 {footerCodeView ? (
                   <Textarea
+                    disabled={!footer.ready || footer.saving}
                     value={footerHtml}
                     onChange={(e) => setFooterHtml(e.target.value)}
                     className="font-mono text-sm min-h-[300px]"
@@ -843,6 +798,7 @@ export default function EmailTemplateManagement() {
                 ) : (
                   <div className="border rounded-lg">
                     <ReactQuill
+                    readOnly={!footer.ready || footer.saving}
                       ref={footerQuillRef}
                       value={footerHtml}
                       onChange={setFooterHtml}
