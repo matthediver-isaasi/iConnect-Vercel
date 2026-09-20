@@ -92,6 +92,32 @@ test('authorized admin can load report options', async () => {
 const adminContext = { tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' };
 const contextSnapshot = { classification: 'public_non_member', details: { first_name: 'Public', last_name: 'Purchaser', email: 'public@example.invalid' } };
 
+test('confirmed non-member one-off Invoice / PO registration is returned without invoice or payment', async () => {
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      event: [{ id: 'simple', title: 'Meeting', tenant_id: 'tenant', status: 'published', is_complex: false }],
+      booking: [{
+        id: 'public-booking', event_id: 'simple', tenant_id: 'tenant',
+        booking_reference: 'OOE-regression', booking_group_reference: 'OOE-regression',
+        member_id: null, is_guest_booking: true, status: 'confirmed',
+        payment_method: 'public_invoice_po', purchaser_context: contextSnapshot,
+        total_cost: 318.6, ticket_price: 318.6,
+        xero_invoice_id: null, stripe_payment_intent_id: null,
+        created_at: '2026-09-20T16:25:00.000Z',
+      }],
+    },
+    query: { generate: 'true', eventId: 'simple' },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.bookingGroups.length, 1);
+  const group = result.body.bookingGroups[0];
+  assert.equal(group.isPublicInvoicePo, true);
+  assert.equal(group.groupPayment.bookingReference, 'OOE-regression');
+  assert.equal(group.groupPayment.totalCost, 318.6);
+  assert.equal(group.attendees[0].status, 'confirmed');
+  assert.equal(group.attendees[0].member_id, null);
+});
+
 test('handler pages past server cap, scopes tenant/event/date and preserves complete PO group and value', async () => {
   const events = Array.from({ length: 5 }, (_, i) => ({ id: `event-${i}`, title: `Event ${i}`, tenant_id: 'tenant', status: 'published' }));
   const bookings = Array.from({ length: 5 }, (_, i) => ({

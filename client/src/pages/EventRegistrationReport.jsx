@@ -371,7 +371,7 @@ export default function EventRegistrationReport() {
 
   const queryUrl = buildQueryUrl();
 
-  const { data: reportData, isLoading, isFetching, error: reportError } = useQuery({
+  const { data: reportData, isLoading, isFetching, error: reportError, refetch: refetchReport } = useQuery({
     queryKey: ['event-registration-report', appliedFilters],
     queryFn: async () => {
       const url = queryUrl;
@@ -726,7 +726,7 @@ export default function EventRegistrationReport() {
 
   const handleGenerateReport = () => {
     const exactEvent = selectedEvent && selectedEvent.title === filterEventName.trim() ? selectedEvent : null;
-    setAppliedFilters({
+    const nextFilters = {
       eventId: exactEvent ? exactEvent.id : null,
       eventName: filterEventName.trim(),
       internalReference: filterInternalRef.trim(),
@@ -734,7 +734,14 @@ export default function EventRegistrationReport() {
       dateTo: filterDateTo,
       eventDateFrom: filterEventDateFrom,
       eventDateTo: filterEventDateTo,
-    });
+    };
+    // React Query hashes filters by value, not object identity. Re-generating
+    // the same report must explicitly fetch newly created registrations.
+    if (JSON.stringify(nextFilters) === JSON.stringify(appliedFilters)) {
+      refetchReport();
+    } else {
+      setAppliedFilters(nextFilters);
+    }
     setCurrentPage(1);
     setSearchQuery("");
   };
