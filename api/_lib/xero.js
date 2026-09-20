@@ -4,6 +4,28 @@ import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
 import { BNMS_BETA_BANK, assertBnmsBetaAccountingContext } from './bnmsBetaAccounting.js';
+import { BNMS_ALPHA_BANK, assertBnmsAlphaAccountingContext } from './bnmsAlphaAccounting.js';
+
+async function alphaContact({ appTenantId, context, xeroTenantId, accessToken, fetch }) {
+  assertBnmsAlphaAccountingContext(appTenantId, context);
+  if (xeroTenantId !== context.snapshot.xero_tenant_id) throw new Error('Alpha Xero tenant mismatch');
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts/${encodeURIComponent(context.contactId)}`, {
+    method: 'GET', headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  });
+  const contacts = (await safeXeroJson(response, 'alpha-exact-contact'))?.Contacts;
+  if (contacts?.length !== 1 || contacts[0].ContactID !== context.contactId
+    || contacts[0].ContactStatus !== 'ACTIVE'
+    || contacts[0].EmailAddress?.trim().toLowerCase() !== context.contactEmail) {
+    throw new Error('Alpha exact Xero contact is inactive or ownership/email changed; review required');
+  }
+  return context.contactId;
+}
+
+async function alphaInvoiceRpc(database, name, args) {
+  const { data, error } = await database.rpc(name, args);
+  if (error || !data) throw new Error(`Alpha invoice operation blocked; review required: ${error?.message || 'missing durable evidence'}`);
+  return data;
+}
 
 // Task #4533: code-less historical BANK account, approved for this pilot only.
 // This is an allowlist, NOT a generic metadata-provided AccountID override.
@@ -35,6 +57,9 @@ export async function validateBnmsPilotXeroAccount({
 }
 
 export function assertBnmsAccountingContext(appTenantId, context) {
+  if (context?.snapshot?.source === BNMS_ALPHA_BANK.source) {
+    return assertBnmsAlphaAccountingContext(appTenantId, context);
+  }
   return context?.snapshot?.source === BNMS_BETA_BANK.source
     ? assertBnmsBetaAccountingContext(appTenantId, context)
     : assertBnmsPilotAccountingContext(appTenantId, context);
@@ -65,7 +90,7 @@ export async function validateBnmsXeroAccount({
   }
   const revenues = (await get(`Accounts?where=Code=="${mapping.revenue_account_code}"`))?.Accounts;
   if (revenues?.length !== 1 || revenues[0].Code !== mapping.revenue_account_code || revenues[0].Status !== 'ACTIVE'
-    || (mapping.source === BNMS_BETA_BANK.source && revenues[0].Type !== 'REVENUE')) {
+    || ([BNMS_BETA_BANK.source, BNMS_ALPHA_BANK.source].includes(mapping.source) && revenues[0].Type !== 'REVENUE')) {
     throw new Error('BNMS pilot Xero revenue account 200 must be ACTIVE');
   }
   return bank;
@@ -576,7 +601,10 @@ export async function createXeroMembershipInvoice({
     settlementMoney(finalCost, 'BNMS pilot canonical amount');
     if (!idempotencyKey || !paymentIdempotencyKey) throw new Error('BNMS pilot invoice and payment idempotency keys required');
   }
-  const contactId = await contactResolver(accessToken, xeroTenantId, {
+  const isAlpha = ddAccountingMigration?.snapshot?.source === BNMS_ALPHA_BANK.source;
+  const contactId = isAlpha ? await alphaContact({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch: transportFetch,
+  }) : await contactResolver(accessToken, xeroTenantId, {
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
@@ -690,7 +718,22 @@ export async function createXeroMembershipInvoice({
       ? accountingOperationIdentity(idempotencyKey, 'inv', 128)
       : String(idempotencyKey).slice(0, 128);
   }
-  const invoiceResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Invoices', {
+  // The non-expiring database claim is committed BEFORE any POST. An unknown
+  // provider outcome is quarantined, never blindly replayed after key expiry.
+  let alphaOperation = null;
+  if (isAlpha) {
+    const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
+    if (!paymentId) throw new Error('Alpha canonical collection reference required');
+    alphaOperation = await alphaInvoiceRpc(database, 'bnms_alpha_claim_invoice', {
+      p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
+      p_identity: { contactId, xeroTenantId, amountMinor: Math.round(Number(finalCost) * 100),
+        currency, revenueCode: String(nominalCode), paymentReference, idempotencyKey, paymentIdempotencyKey },
+    });
+  }
+  const invoiceResponse = alphaOperation?.invoice_id
+    ? await transportFetch(`https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(alphaOperation.invoice_id)}`, {
+      method: 'GET', headers: createHeaders,
+    }) : await transportFetch('https://api.xero.com/api.xro/2.0/Invoices', {
     method: 'POST',
     headers: createHeaders,
     body: JSON.stringify(invoicePayload)
@@ -704,6 +747,13 @@ export async function createXeroMembershipInvoice({
   }
 
   const invoice = invoiceData.Invoices[0];
+  if (isAlpha) {
+    assertPilotInvoice(invoice, contactId, finalCost, alphaOperation.invoice_id || undefined,
+      invoice.Status === 'PAID', ddAccountingMigration.snapshot.revenue_account_code);
+    if (!alphaOperation.invoice_id) await alphaInvoiceRpc(database, 'bnms_alpha_link_invoice', {
+      p_operation: alphaOperation.id, p_token: alphaOperation.token, p_invoice: invoice.InvoiceID,
+    });
+  }
   if (pilotBankAccount) {
     if (invoice.Status === 'PAID') return recoverBnmsSettlement({
       invoice, contactId, amount: finalCost, mapping: ddAccountingMigration.snapshot,
@@ -1143,6 +1193,15 @@ export async function applyStripePaymentToXeroInvoice({
   if (!invoice) throw new Error(`Xero invoice ${xeroInvoiceId} not found`);
   let pilotContactId = null;
   if (pilotBankAccount) {
+    if (ddAccountingMigration.snapshot.source === BNMS_ALPHA_BANK.source) {
+      pilotContactId = await alphaContact({ appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch });
+      const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
+      if (!paymentId) throw new Error('Alpha canonical collection reference required');
+      await alphaInvoiceRpc(dependencies.supabase || supabase, 'bnms_alpha_assert_invoice', {
+        p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
+        p_invoice: xeroInvoiceId, p_contact: pilotContactId,
+      });
+    } else {
     if (!expectedContact?.name || !idempotencyKey) throw new Error('BNMS pilot expected contact and payment key required');
     const escaped = String(expectedContact.name).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
@@ -1155,6 +1214,7 @@ export async function applyStripePaymentToXeroInvoice({
       throw new Error('BNMS pilot expected contact is ambiguous or mismatched');
     }
     pilotContactId = contacts[0].ContactID;
+    }
     if (invoice.Status === 'PAID') return recoverBnmsSettlement({
       invoice, contactId: pilotContactId, amount, mapping: ddAccountingMigration.snapshot,
       paymentReference, paymentKey: idempotencyKey, fetch, accessToken, xeroTenantId,

@@ -4,6 +4,10 @@ import {
   BNMS_PILOT_ACCOUNTING, createXeroMembershipInvoice, applyStripePaymentToXeroInvoice,
 } from './xero.js';
 import { betaAccountingMapping, BNMS_BETA_REVENUE, resolveBetaAccountingContext, BNMS_BETA_BATCH } from './bnmsBetaAccounting.js';
+import {
+  alphaAccountingMapping, resolveAlphaAccountingContext, assertBnmsAlphaAccountingContext,
+  BNMS_ALPHA_MANIFEST, BNMS_ALPHA_PROCESSING_NOT_BEFORE,
+} from './bnmsAlphaAccounting.js';
 
 const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
 const context = () => ({
@@ -13,7 +17,8 @@ const context = () => ({
 function fixture(change = {}) {
   const calls = [];
   let storedPayment = null, faultUsed = false;
-  const mapping = change.betaMember ? betaAccountingMapping(change.betaMember) : BNMS_PILOT_ACCOUNTING;
+  let invoiceOperation = null;
+  const mapping = change.alphaContext?.snapshot || (change.betaMember ? betaAccountingMapping(change.betaMember) : BNMS_PILOT_ACCOUNTING);
   const bank = {
     AccountID: BNMS_PILOT_ACCOUNTING.bank_account_id, Status: 'ACTIVE', Type: 'BANK',
     CurrencyCode: 'GBP', EnablePaymentsToAccount: false, ...change.bank,
@@ -28,7 +33,23 @@ function fixture(change = {}) {
     async maybeSingle() { return { data: null, error: null }; },
   };
   const deps = {
-    supabase: { from: () => chain },
+    supabase: { from: () => chain, async rpc(name, params) {
+      if (name === 'bnms_alpha_claim_invoice') {
+        if (!invoiceOperation) invoiceOperation = { id: 'op', token: 'token', invoice_id: null };
+        else if (!invoiceOperation.invoice_id) return { error: { message: 'submission outcome uncertain; review required' } };
+        return { data: { ...invoiceOperation } };
+      }
+      if (name === 'bnms_alpha_link_invoice') {
+        if (change.fault === 'lost-link-write') return { error: { message: 'injected lost local linkage' } };
+        invoiceOperation.invoice_id = params.p_invoice;
+        return { data: { ...invoiceOperation } };
+      }
+      if (name === 'bnms_alpha_assert_invoice') {
+        return invoiceOperation?.invoice_id === params.p_invoice
+          ? { data: { ...invoiceOperation } } : { error: { message: 'missing durable collection linkage' } };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    } },
     getValidXeroAccessToken: async () => ({ accessToken: 'test-only', tenantId: change.tenantId || BNMS_PILOT_ACCOUNTING.xero_tenant_id }),
     findOrCreateXeroContact: async () => { calls.push({ method: 'CONTACT' }); return 'contact'; },
     fetch: async (url, init = {}) => {
@@ -40,6 +61,10 @@ function fixture(change = {}) {
       else if (url.includes('/Accounts/')) data = { Accounts: [bank] };
       else if (url.includes('/Accounts?')) data = { Accounts: [{ Code: mapping.revenue_account_code, Status: 'ACTIVE', Type: 'REVENUE', ...change.revenue }] };
       else if (url.includes('/Contacts?')) data = { Contacts: [{ ContactID: 'contact', Name: 'Pilot' }] };
+      else if (url.includes('/Contacts/')) data = { Contacts: [{
+        ContactID: 'contact', ContactStatus: 'ACTIVE', EmailAddress: 'owner@example.test', Name: 'Original name',
+        ...change.contact,
+      }] };
       else if (url.includes('/Payments/')) data = { Payments: storedPayment ? [{ ...storedPayment, ...change.recoveredPayment }] : [] };
       else if (url.endsWith('/Payments')) {
         storedPayment = { PaymentID: 'payment', Amount: 13,
@@ -56,6 +81,9 @@ function fixture(change = {}) {
       }
       else if (url.endsWith('/OnlineInvoice')) data = { OnlineInvoices: [] };
       else if (url.includes('/Invoices')) {
+        if (change.fault === 'lost-invoice-response' && init.method === 'POST') {
+          throw new Error('Provider accepted invoice but response lost');
+        }
         if (change.fault === 'failed-verification-get' && invoice.Status === 'PAID' && init.method === 'GET' && !faultUsed) {
           faultUsed = true;
           throw new Error('Injected verification GET failure after provider commit');
@@ -75,7 +103,128 @@ function fixture(change = {}) {
     expectedContact: { name: 'Pilot' },
   };
   if (change.betaMember) args.ddAccountingMigration = { ...context(), memberId: change.betaMember, snapshot: mapping };
+  if (change.alphaContext) {
+    args.ddAccountingMigration = change.alphaContext;
+    args.nominalCode = mapping.revenue_account_code;
+  }
   return { calls, deps, args, remoteInvoice: invoice };
+}
+
+function alphaFixture(revenue = '200') {
+  const memberId = 'alpha-test-member', mapping = alphaAccountingMapping(revenue);
+  const agreement = { id: 'alpha-agreement', tenant_id: tenant, member_id: memberId,
+    environment: 'live', provider: 'gocardless', gocardless_mandate_id: 'alpha-mandate',
+    gocardless_customer_id: 'alpha-customer' };
+  const a = { id: 'alpha-adoption', tenant_id: tenant, member_id: memberId,
+    agreement_id: agreement.id, plan_id: 'alpha-plan', mandate_id: 'alpha-mandate', customer_id: 'alpha-customer',
+    manifest_sha256: BNMS_ALPHA_MANIFEST,
+    evidence: { identity: { memberId }, ids: { adoption: 'alpha-adoption', agreement: agreement.id, plan: 'alpha-plan' },
+      structure: { structure_match_value: revenue === '200' ? 'Full' : 'Full junior' },
+      links: [{ member_id: memberId, tenant_id: tenant, xero_tenant_id: mapping.xero_tenant_id, xero_contact_id: 'contact',
+        evidence: { contact: { ContactID: 'contact', EmailAddress: 'owner@example.test' },
+          invoice: { Contact: { ContactID: 'contact' }, LineItems: [{ AccountCode: revenue, TaxType: 'ZERORATEDOUTPUT', TaxAmount: 0 }] } } }] } };
+  const r = { processing_not_before: BNMS_ALPHA_PROCESSING_NOT_BEFORE,
+    evidence: { adoptionId: a.id, agreementId: agreement.id, memberId, planId: a.plan_id,
+      accounting: { contactId: 'contact', mapping, bankAccountId: mapping.bank_account_id, xeroTenantId: mapping.xero_tenant_id, revenueCode: revenue } } };
+  const records = { bnms_dd_alpha_adoption: a, bnms_dd_alpha_release: r };
+  const db = { from(table) { return { select() { return this; }, eq() { return this; },
+    async maybeSingle() { return { data: records[table] || null, error: null }; } }; } };
+  return { agreement, a, r, records, db };
+}
+
+test('alpha contexts require immutable released ownership, economics and cannot be forged or mutated', async () => {
+  const f = alphaFixture();
+  f.records.bnms_dd_alpha_release = null;
+  await assert.rejects(resolveAlphaAccountingContext(f.agreement, f.db), /immutable adoption and release/);
+  f.records.bnms_dd_alpha_release = f.r;
+  const resolved = await resolveAlphaAccountingContext(f.agreement, f.db);
+  assert.equal(assertBnmsAlphaAccountingContext(tenant, resolved).revenue_account_code, '200');
+  assert.throws(() => assertBnmsAlphaAccountingContext(tenant, { ...resolved }), /Invalid/);
+  assert.throws(() => { resolved.snapshot.bank_account_id = 'other'; }, TypeError);
+  assert.throws(() => assertBnmsAlphaAccountingContext('other', resolved), /Invalid/);
+  for (const mutate of [
+    x => { x.a.manifest_sha256 = BNMS_BETA_BATCH; },
+    x => { x.a.agreement_id = 'other'; },
+    x => { x.a.mandate_id = 'other'; },
+    x => { x.a.customer_id = 'other'; },
+    x => { x.r.evidence.planId = 'other'; },
+    x => { x.r.processing_not_before = '2026-09-01T00:00:00Z'; },
+    x => { x.r.evidence.accounting.mapping.source = 'bnms_beta_approved_existing_bank'; },
+    x => { x.a.evidence.links[0].evidence.invoice.LineItems[0].TaxType = 'OUTPUT2'; },
+    x => { x.a.evidence.links[0].evidence.invoice.LineItems[0].AccountCode = '999'; },
+  ]) {
+    const bad = alphaFixture(); mutate(bad);
+    await assert.rejects(resolveAlphaAccountingContext(bad.agreement, bad.db));
+  }
+  assert.equal(await resolveAlphaAccountingContext({ ...f.agreement, tenant_id: 'other' }, f.db), null);
+  const changedClass = alphaFixture('201');
+  changedClass.a.evidence.links[0].evidence.invoice.LineItems[0].AccountCode = '200';
+  assert.equal((await resolveAlphaAccountingContext(changedClass.agreement, changedClass.db)).snapshot.revenue_account_code, '201');
+});
+
+for (const fault of ['lost-invoice-response', 'lost-link-write']) {
+  test(`alpha quarantines ${fault} indefinitely without a second invoice POST`, async () => {
+    const f = alphaFixture();
+    const alphaContext = await resolveAlphaAccountingContext(f.agreement, f.db);
+    const { args, deps, calls } = fixture({ alphaContext, fault });
+    args.paymentReference = 'GoCardless DD: PM1';
+    await assert.rejects(createXeroMembershipInvoice(args, deps), /lost|linkage/);
+    // This test has no elapsed-time lease: retries at any later time have the
+    // same durable operation and cannot acquire a second submission permit.
+    await assert.rejects(createXeroMembershipInvoice(args, deps), /uncertain; review required/);
+    assert.equal(calls.filter(c => c.method === 'POST' && c.url.endsWith('/Invoices')).length, 1);
+  });
+}
+
+test('alpha durable linked invoice recovers missing payment-row linkage with GET, not POST', async () => {
+  const f = alphaFixture(), alphaContext = await resolveAlphaAccountingContext(f.agreement, f.db);
+  const { args, deps, calls } = fixture({ alphaContext });
+  args.paymentReference = 'GoCardless DD: PM1';
+  await createXeroMembershipInvoice(args, deps);
+  assert.equal((await createXeroMembershipInvoice(args, deps)).payment_recorded, true);
+  assert.equal(calls.filter(c => c.method === 'POST' && c.url.endsWith('/Invoices')).length, 1);
+  assert.equal(calls.filter(c => c.method === 'POST' && c.url.endsWith('/Payments')).length, 1);
+});
+
+test('alpha ignores renamed member/name collisions and never searches or writes contacts', async () => {
+  const f = alphaFixture(), alphaContext = await resolveAlphaAccountingContext(f.agreement, f.db);
+  const { args, deps, calls } = fixture({ alphaContext });
+  args.paymentReference = 'GoCardless DD: PM1';
+  args.organizationName = 'Renamed member with colliding name';
+  await createXeroMembershipInvoice(args, deps);
+  await applyStripePaymentToXeroInvoice({ ...args, idempotencyKey: args.paymentIdempotencyKey }, deps);
+  assert.ok(calls.some(c => c.url?.endsWith('/Contacts/contact')));
+  assert.ok(!calls.some(c => c.method === 'CONTACT' || c.url?.includes('/Contacts?')));
+});
+
+for (const contact of [{ ContactID: 'same-name-other-owner' }, { EmailAddress: 'other@example.test' }, { ContactStatus: 'ARCHIVED' }]) {
+  test(`alpha rejects exact-contact drift ${JSON.stringify(contact)}`, async () => {
+    const f = alphaFixture(), alphaContext = await resolveAlphaAccountingContext(f.agreement, f.db);
+    const { args, deps, calls } = fixture({ alphaContext, contact });
+    args.paymentReference = 'GoCardless DD: PM1';
+    await assert.rejects(createXeroMembershipInvoice(args, deps), /exact Xero contact/);
+    await assert.rejects(applyStripePaymentToXeroInvoice(args, deps), /exact Xero contact/);
+    assert.equal(calls.filter(c => c.method === 'POST').length, 0);
+  });
+}
+
+for (const revenue of ['200', '201']) {
+  for (const fault of [null, 'lost-payment-response', 'failed-verification-get']) {
+    test(`alpha ${revenue} create/retry/settlement preserves one payment (${fault})`, async () => {
+      const f = alphaFixture(revenue);
+      const alphaContext = await resolveAlphaAccountingContext(f.agreement, f.db);
+      const { calls, deps, args } = fixture({ alphaContext, fault });
+      args.paymentReference = 'GoCardless DD: PM1';
+      assert.equal((await createXeroMembershipInvoice(args, deps)).payment_recorded, !fault);
+      const retry = await applyStripePaymentToXeroInvoice({ ...args, idempotencyKey: args.paymentIdempotencyKey }, deps);
+      assert.equal(retry.payment_recorded, true);
+      assert.equal(calls.filter(c => c.method === 'POST' && c.url.endsWith('/Payments')).length, 1);
+      const payment = calls.find(c => c.method === 'POST' && c.url.endsWith('/Payments'));
+      assert.equal(JSON.parse(payment.body).Payments[0].Account.AccountID, alphaContext.snapshot.bank_account_id);
+      const create = calls.find(c => c.method === 'POST' && c.url.endsWith('/Invoices'));
+      assert.equal(JSON.parse(create.body).Invoices[0].LineItems[0].AccountCode, revenue);
+    });
+  }
 }
 
 for (const betaMember of [null, Object.keys(BNMS_BETA_REVENUE)[0]]) {

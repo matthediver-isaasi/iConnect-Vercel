@@ -503,6 +503,11 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
   if (existingInvoiceId) {
     const pilotContext = ddAccountingMigration
       ? await resolveInstalmentInvoiceContext({ agreement, snapshot, db }) : null;
+    if (ddAccountingMigration?.snapshot.source === 'bnms_alpha_approved_existing_bank'
+      && (provider.name !== 'xero' || pilotContext.currency !== 'GBP'
+        || pilotContext.nominalCode !== ddAccountingMigration.snapshot.revenue_account_code)) {
+      throw new Error('BNMS alpha retry revenue/currency differs from approved accounting evidence');
+    }
     const result = await provider.applyStripePaymentToInvoice({
       appTenantId: agreement.tenant_id,
       invoiceId: existingInvoiceId,
@@ -530,7 +535,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     if (provider.name !== 'xero' || context.currency !== 'GBP') {
       throw new Error('BNMS pilot accounting requires Xero and GBP');
     }
-    if (ddAccountingMigration.snapshot.source === 'bnms_beta_approved_existing_bank'
+    if (['bnms_beta_approved_existing_bank', 'bnms_alpha_approved_existing_bank'].includes(ddAccountingMigration.snapshot.source)
       && context.nominalCode !== ddAccountingMigration.snapshot.revenue_account_code) {
       throw new Error('BNMS beta reservation revenue differs from approved accounting evidence');
     }

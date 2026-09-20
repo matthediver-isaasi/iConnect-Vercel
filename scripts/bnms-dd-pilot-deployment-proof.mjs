@@ -6,6 +6,7 @@ const BASELINE_SHA='83ceae1732fb5b63e7312fe5c0baf438831b31f2';
 const GITHUB_REPOSITORY_ID=1104295583;
 export const REQUIRED_SOURCES=[
   'api/_lib/bnmsBetaAccounting.js',
+  'api/_lib/bnmsAlphaAccounting.js',
   'api/_lib/gocardlessAccounting.js','api/_lib/membershipInstalmentInvoicing.js',
   'api/_lib/xero.js','api/_lib/gocardlessDdRenewals.js','api/_lib/gocardlessDynamicCollections.js',
 ];

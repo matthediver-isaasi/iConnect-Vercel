@@ -4,6 +4,7 @@ import { supabase } from './database.js';
 import { buildIdempotencyKey, gocardlessForTenant } from './gocardless.js';
 import { matchBand } from './tierBandMatcher.js';
 import { matchesSelections } from './selectionMatcher.js';
+import { findAlphaAdoption, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
 
 export const DYNAMIC_RESERVATIONS = 'gocardless_collection_reservations';
 const LIVE_STATUSES = ['active', 'mandate_pending', 'first_payment_pending'];
@@ -198,7 +199,26 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
       throw new Error('BNMS beta reviewed release and processing gate are required');
     }
   }
-  const bnmsProcessing = bnmsPilot || bnmsBeta;
+  // Identity-bound immutable adoption, not the mutable held flag, determines
+  // alpha scope. Both normal submission and reservation retry use this gate.
+  const alphaAdoption = bnmsPilot || bnmsBeta ? null : await findAlphaAdoption(agreement, db);
+  if (alphaAdoption) {
+    const release = checked(await db.from('bnms_dd_alpha_release').select('*')
+      .eq('adoption_id', alphaAdoption.id).eq('tenant_id', agreement.tenant_id)
+      .eq('member_id', agreement.member_id).eq('plan_id', plan.id).maybeSingle(),
+    'Load reviewed alpha release');
+    if (alphaAdoption.plan_id !== plan.id || !release
+      || Date.parse(release.processing_not_before) !== Date.parse(BNMS_ALPHA_PROCESSING_NOT_BEFORE)
+      || release.evidence?.agreementId !== agreement.id
+      || release.evidence?.adoptionId !== alphaAdoption.id
+      || release.evidence?.memberId !== agreement.member_id
+      || release.evidence?.planId !== plan.id) {
+      throw new Error('BNMS alpha reviewed release and processing gate are required');
+    }
+  } else if (plan.metadata?.bnms_alpha_held === true) {
+    throw new Error('BNMS alpha plan requires immutable adoption');
+  }
+  const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption);
   if (bnmsProcessing) {
     const timestamp = now().getTime();
     if (!Number.isFinite(timestamp)) throw new Error('BNMS pilot processing clock is invalid');

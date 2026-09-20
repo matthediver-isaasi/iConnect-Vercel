@@ -5,6 +5,7 @@ import {
   assertDynamicPayment, reconcileDynamicCollections, resolveDynamicPayment,
 } from './gocardlessDynamicCollections.js';
 import { resolveInstalmentInvoiceContext } from './membershipInstalmentInvoicing.js';
+import { BNMS_ALPHA_TENANT, BNMS_ALPHA_MANIFEST, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
 
 function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027-04-06', end = '2028-03-31' } = {}) {
   const config = { id: 'config', tenant_id: 'tenant', start_mode: 'immediate', structure_scope_type: 'member',
@@ -326,4 +327,59 @@ test('pilot accepts provider dates after the processing gate, while unrelated pl
   other.now = () => new Date('2026-09-25T12:00:00Z');
   await collectDynamicPlan(other.plan, other);
   assert.equal(other.calls.length, 1);
+});
+
+function alphaCollectionFixture(providerDate = '2026-10-02') {
+  const f = fixture({ firstDate: '2026-10-01', providerDate, end: '2027-09-30' });
+  for (const rows of Object.values(f.rows)) {
+    for (const row of rows) if (row.tenant_id === 'tenant') row.tenant_id = BNMS_ALPHA_TENANT;
+  }
+  f.agreement.gocardless_customer_id = 'CU_ALPHA';
+  f.agreement.metadata.dd.commitment.term_start_date = '2026-10-01';
+  const adoption = { id: 'alpha-adoption', tenant_id: BNMS_ALPHA_TENANT, member_id: f.agreement.member_id,
+    agreement_id: f.agreement.id, plan_id: f.plan.id, mandate_id: f.agreement.gocardless_mandate_id,
+    customer_id: 'CU_ALPHA', manifest_sha256: BNMS_ALPHA_MANIFEST };
+  f.rows.bnms_dd_alpha_adoption = [adoption];
+  f.rows.bnms_dd_alpha_release = [{ adoption_id: adoption.id, tenant_id: BNMS_ALPHA_TENANT,
+    member_id: f.agreement.member_id, plan_id: f.plan.id, processing_not_before: BNMS_ALPHA_PROCESSING_NOT_BEFORE,
+    evidence: { adoptionId: adoption.id, agreementId: f.agreement.id, memberId: f.agreement.member_id, planId: f.plan.id } }];
+  f.now = () => new Date(BNMS_ALPHA_PROCESSING_NOT_BEFORE);
+  return f;
+}
+
+test('alpha identity gate prevents provider reads and reservations before London October 1 even without held metadata', async () => {
+  const f = alphaCollectionFixture();
+  let reads = 0, reservations = 0;
+  f.gc.getMandate = async () => { reads++; throw Error('must not read'); };
+  f.db.rpc = async () => { reservations++; throw Error('must not reserve'); };
+  f.now = () => new Date('2026-09-30T22:59:59.999Z');
+  assert.match((await collectDynamicPlan(f.plan, f)).detail, /1 October/);
+  assert.equal(reads, 0); assert.equal(reservations, 0); assert.equal(f.calls.length, 0);
+});
+
+test('alpha missing release or changed owner/gate fails closed before provider reads', async () => {
+  for (const change of [
+    f => { f.rows.bnms_dd_alpha_release = []; },
+    f => { f.rows.bnms_dd_alpha_release[0].processing_not_before = '2026-09-01T00:00:00Z'; },
+    f => { f.rows.bnms_dd_alpha_adoption[0].agreement_id = 'other'; },
+    f => { f.rows.bnms_dd_alpha_release[0].evidence.agreementId = 'other'; },
+    f => { f.rows.bnms_dd_alpha_adoption = []; f.plan.metadata.bnms_alpha_held = true; },
+  ]) {
+    const f = alphaCollectionFixture(); change(f);
+    let reads = 0;
+    f.gc.getMandate = async () => { reads++; throw Error('must not read'); };
+    await assert.rejects(collectDynamicPlan(f.plan, f), /[Aa]lpha/);
+    assert.equal(reads, 0); assert.equal(f.calls.length, 0);
+  }
+});
+
+test('alpha respects provider dates after gate and the existing seven-day safety window', async () => {
+  for (const date of ['2026-10-01', '2026-10-02', '2026-10-08']) {
+    const f = alphaCollectionFixture(date);
+    await collectDynamicPlan(f.plan, f);
+    assert.equal(f.calls[0].chargeDate, date);
+  }
+  const late = alphaCollectionFixture('2026-10-09');
+  await assert.rejects(collectDynamicPlan(late.plan, late));
+  assert.equal(late.calls.length, 0);
 });
