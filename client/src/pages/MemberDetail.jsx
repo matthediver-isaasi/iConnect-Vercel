@@ -8,6 +8,7 @@ import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
+import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -1673,6 +1674,10 @@ export default function MemberDetail() {
             <Award className="w-4 h-4" />
             Badges
           </TabsTrigger>
+          <TabsTrigger value="cpd-points" className="gap-1" data-testid="tab-member-cpd-points">
+            <Trophy className="w-4 h-4" />
+            CPD points
+          </TabsTrigger>
           <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
             <FolderTree className="w-4 h-4" />
             Categories
@@ -2165,6 +2170,10 @@ export default function MemberDetail() {
 
         <TabsContent value="badges" className="space-y-6">
           <MemberBadgesTab memberId={id} enabled={activeTab === 'badges'} />
+        </TabsContent>
+
+        <TabsContent value="cpd-points" className="space-y-6">
+          <MemberCpdPointsTab memberId={id} enabled={activeTab === 'cpd-points'} />
         </TabsContent>
 
         {/* Activity Tab */}

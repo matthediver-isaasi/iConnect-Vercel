@@ -7,6 +7,7 @@ export const PAGE_NAMES = [
   "Login",
   "Balances",
   "Dashboard",
+  "CpdPoints",
   "UnpackedInternationalEmployability",
   "Articles",
   "ArticleEditor",

@@ -138,6 +138,12 @@ const navigationItems = [
     featureId: "page_History"
   },
   {
+    title: "My CPD points",
+    url: createPageUrl("CpdPoints"),
+    icon: Trophy,
+    featureId: "page_CpdPoints"
+  },
+  {
     title: "CPD Certificate Templates",
     url: createPageUrl("CPDCertificateTemplates"),
     icon: FileText,
@@ -1597,6 +1603,7 @@ useEffect(() => {
     'MyTickets': 'page_user_MyTickets',
     'Balances': 'page_user_Balances',
     'History': 'page_user_History',
+    'CpdPoints': 'page_user_CpdPoints',
     'Team': 'page_user_Team',
     'MemberDirectory': 'page_user_MemberDirectory',
     'OrganisationDirectory': 'page_user_OrganisationDirectory',

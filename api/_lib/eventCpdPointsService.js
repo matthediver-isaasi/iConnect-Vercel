@@ -20,6 +20,28 @@ export class RetryableCpdPointsOutcomeError extends Error {
   }
 }
 
+export function parseCpdPointsHistoryPagination(query = {}) {
+  const page = Number.parseInt(query.page, 10);
+  const pageSize = Number.parseInt(query.pageSize, 10);
+  return {
+    page: Number.isSafeInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 100) : 20,
+  };
+}
+
+export async function loadMemberCpdPointsHistory({
+  tenantId, memberId, page = 1, pageSize = 20,
+}, { db = supabase } = {}) {
+  if (!db || !tenantId || !memberId) throw new Error('Incomplete CPD points history request');
+  const data = await rpc(db, 'get_member_cpd_points_history', {
+    p_tenant_id: tenantId,
+    p_member_id: memberId,
+    p_page: page,
+    p_page_size: pageSize,
+  });
+  return data;
+}
+
 async function loadBooking(db, tenantId, bookingType, bookingId) {
   if (!['booking', 'complex_event_booking'].includes(bookingType)) {
     throw new Error('Invalid booking type');

@@ -28,6 +28,7 @@ import ResetPassword from "./ResetPassword";
 import Balances from "./Balances";
 
 import Dashboard from "./Dashboard";
+import CpdPoints from "./CpdPoints";
 
 import UnpackedInternationalEmployability from "./UnpackedInternationalEmployability";
 
@@ -521,6 +522,7 @@ const PAGES = {
     Balances: Balances,
     
     Dashboard: Dashboard,
+    CpdPoints: CpdPoints,
     
     UnpackedInternationalEmployability: UnpackedInternationalEmployability,
     
@@ -983,6 +985,7 @@ function PagesContent() {
                 <Route path="/Balances" element={<Balances />} />
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
+                <Route path="/CpdPoints" element={<CpdPoints />} />
                 <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
                 <Route path="/sales/dashboard" element={<Sales destination="dashboard" />} />
                 <Route path="/sales/pipeline" element={<Sales destination="pipeline" />} />

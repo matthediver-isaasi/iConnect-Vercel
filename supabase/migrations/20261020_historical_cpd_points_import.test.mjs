@@ -7,6 +7,7 @@ import { createLocalPostgresHarness } from '../../scripts/test-support/local-pos
 
 const baseline = readFileSync(new URL('./20261012_event_cpd_points_awards.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('./20261020_historical_cpd_points_import.sql', import.meta.url), 'utf8');
+const historyMigration = readFileSync(new URL('./20261118_member_cpd_points_history.sql', import.meta.url), 'utf8');
 const tenant = '10000000-0000-0000-0000-000000000001';
 const otherTenant = '10000000-0000-0000-0000-000000000002';
 const member = '20000000-0000-0000-0000-000000000001';
@@ -68,7 +69,7 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
       CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid,pricing_config jsonb);
       CREATE TABLE complex_event(id uuid PRIMARY KEY,tenant_id uuid);
       CREATE TABLE complex_event_ticket_class(id uuid PRIMARY KEY,tenant_id uuid,complex_event_id uuid,name text);
-      CREATE TABLE booking(id uuid PRIMARY KEY,tenant_id uuid,event_id uuid,status text,attendee_email text,
+      CREATE TABLE booking(id uuid PRIMARY KEY,tenant_id uuid,event_id uuid,status text,attendee_email text,event_name text,
         ticket_class_id text,ticket_class_name text,checked_in_at timestamptz,check_in_reversed_at timestamptz);
       CREATE TABLE complex_event_booking(LIKE booking INCLUDING ALL);
       CREATE TABLE complex_event_session_checkin(id uuid PRIMARY KEY,checked_in_at timestamptz,check_in_reversed_at timestamptz);
@@ -78,6 +79,7 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
     `);
     sql(baseline);
     sql(migration);
+    sql(historyMigration);
 
     await t.test('exact points, native-free historical context, durable provenance', () => {
       assert.deepEqual(call('first', [row('1'), row('2')]), {
@@ -90,6 +92,31 @@ test('isolated PostgreSQL historical import, replay, rollback, security and nati
       fails(`DELETE FROM member_cpd_points_ledger;`, /immutable/);
       fails(`UPDATE historical_cpd_points_import_batch SET created_by='changed';`, /immutable/);
       fails(`DELETE FROM historical_cpd_points_import_batch;`, /immutable/);
+    });
+    await t.test('member history calculates signed balance, orders snapshots and isolates tenants', () => {
+      call('history-later', [row('history-later', {
+        activity_date: '2022-06-01',
+        activity_title: 'Later activity',
+        points_value: '1.500000',
+      })]);
+      const awardId = sql(`SELECT id FROM member_cpd_points_ledger
+        WHERE tenant_id='${tenant}' AND source_entry_id='history-later' AND entry_kind='imported_award';`);
+      sql(`${service}SELECT public.reverse_historical_cpd_points_award(
+        '${tenant}','${awardId}','corrected evidence','test:operator');`);
+      const result = JSON.parse(sql(`${service}SELECT public.get_member_cpd_points_history(
+        '${tenant}','${member}',1,20);`));
+      assert.equal(result.balance, 0.200002);
+      assert.equal(result.total, 4);
+      assert.equal(result.items[0].event_name, 'Later activity');
+      assert.equal(result.items[0].entry_kind, 'reversal');
+      assert.equal(result.items[1].is_reversed, true);
+      assert.equal(result.items[1].activity_description, "Member's activity");
+      assert.deepEqual(JSON.parse(sql(`${service}SELECT public.get_member_cpd_points_history(
+        '${otherTenant}','${otherMember}',1,20);`)), {
+        balance: 0, items: [], page: 1, pageSize: 20, total: 0,
+      });
+      assert.equal(sql(`${service}SELECT public.get_member_cpd_points_history(
+        '${tenant}','20000000-0000-0000-0000-000000000099',1,20) IS NULL;`), 't');
     });
     await t.test('full replay writes nothing, including fresh batch key; changed content requires review', () => {
       const before = counts();
