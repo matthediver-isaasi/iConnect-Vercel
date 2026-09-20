@@ -285,7 +285,9 @@ export async function handleStripeMembershipWebhook(req, res, dependencies = {})
       await markEvent('skipped', `invalid: ${outcome.detail || ''}`);
       return res.status(200).json({ received: true, status: 'invalid', detail: outcome.detail || null });
     }
-    // Recoverable: 'unmatched' (history row not created yet — confirm flow
+    // Recoverable: 'accounting-pending' retains retries after local payment
+    // settlement until the original invoice provider confirms its payment.
+    // 'unmatched' (history row not created yet — confirm flow
     // may still be running) or 'conflict'. Keep the event 'pending' and
     // return 500 so Stripe redelivers with backoff; the reconcile cron and
     // admin script are the backstops after Stripe gives up.

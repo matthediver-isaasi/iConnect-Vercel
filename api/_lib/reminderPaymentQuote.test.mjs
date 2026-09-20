@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import crypto from 'node:crypto';
 import { resolveReminderPaymentQuote, requestsReminderPaymentLink, reminderRenewalSnapshot } from './reminderPaymentQuote.js';
+import { invoiceReferenceColumns, resolveFeeTokenInvoiceReference } from './feeTokenInvoiceReference.js';
 
 const config = { id: 'config', billing_period: 'annual', renewal_open_days: 30, renewal_grace_days: 7, online_card_payment: true };
 function fixture(member = true, rolling = false) {
@@ -29,7 +30,7 @@ function fixture(member = true, rolling = false) {
   };
   const prepare = async options => { calls.push(['prepare', options]); return { success: true, paymentUrl: 'https://example.test/membership-fees/fixture',
     finalCost: options.finalCost, currency: options.currency, tierLabel: options.tierLabel, costBreakdown: options.costBreakdown,
-    historyRecordId: options.historyRecordId, xeroInvoiceId: options.xeroInvoiceId }; };
+    historyRecordId: options.historyRecordId, xeroInvoiceId: options.xeroInvoiceId, invoiceReference: options.invoiceReference }; };
   return { history, histories, calls, setAgreements: value => { agreements = value; },
     setCredentials: value => { credentials = value; },
     run: (now = '2025-12-15') => resolveReminderPaymentQuote({ client, tenantId: 'tenant', history, histories,
@@ -122,6 +123,7 @@ const source = readFileSync(new URL('./membershipFeeTokenEmail.js', import.meta.
   .replace(/^import .*;\r?$/gm, '').replace(/export async function /g, 'async function ')
   .replace("await import('./rollingFeeCommitment.js')", 'await deps()');
 const load = new Function('crypto', 'defaultSupabase', 'sendTenantEmail', 'buildInboxDelivery', 'resolveTierRecipients', 'deps',
+  'invoiceReferenceColumns', 'resolveFeeTokenInvoiceReference',
   `${source}\nreturn {prepareMembershipFeeToken,sendMembershipFeeTokenEmail};`);
 test('preparation emits no email; ordinary Email Fees still sends its original template', async () => {
   let sends = 0;
@@ -130,7 +132,8 @@ test('preparation emits no email; ordinary Email Fees still sends its original t
     from(table) { const q = { select() { return q; }, limit() { return Promise.resolve({ data: [] }); },
       eq() { return q; }, maybeSingle() { return Promise.resolve({ data: { name: 'Fixture', slug: 'fixture' } }); } }; return q; } };
   const helpers = load(crypto, client, async ({ html }) => { sends++; assert.match(html, /membership-fees\/fixture/); return { success: true }; },
-    async () => ({}), async () => ({ recipients: [] }), async () => ({ snapshotRollingFeeQuote: async (_, o) => o.costBreakdown }));
+    async () => ({}), async () => ({ recipients: [] }), async () => ({ snapshotRollingFeeQuote: async (_, o) => o.costBreakdown }),
+    invoiceReferenceColumns, resolveFeeTokenInvoiceReference);
   const options = { client, tenantId: 'tenant', memberId: 'member', organizationName: 'Member',
     membershipYear: '2026', finalCost: 120, currency: 'GBP', recipientEmails: ['fixture@example.test'], costBreakdown: {} };
   assert.equal((await helpers.prepareMembershipFeeToken(options)).success, true);
@@ -140,3 +143,18 @@ test('preparation emits no email; ordinary Email Fees still sends its original t
   assert.equal((await helpers.sendMembershipFeeTokenEmail({ ...options, memberId: null, organizationId: 'org' })).success, true);
   assert.equal(sends, 2);
 });
+
+for (const member of [true, false]) for (const rolling of [true, false]) {
+  test(`QuickBooks invoice permits PO without Stripe (${member}, ${rolling})`, async () => {
+    const f = fixture(member, rolling);
+    f.setCredentials(null);
+    f.histories.push({ id: 'next', membership_year: rolling ? 'rolling:2026-01-01' : '2026/2027',
+      final_cost: 119, annual_cost: 119, currency: 'GBP', accounting_provider: 'quickbooks',
+      accounting_invoice_id: 'qbo-123', accounting_invoice_number: 'INV-123' });
+    const result = await f.run();
+    assert.equal(result.success, true);
+    assert.equal(result.invoiceReference.provider, 'quickbooks');
+    assert.equal(result.finalCost, 119);
+    assert.equal(f.calls.find(c => c[0] === 'prepare')[1].xeroInvoiceId, null);
+  });
+}

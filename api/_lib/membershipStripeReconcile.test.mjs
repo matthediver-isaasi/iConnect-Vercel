@@ -48,7 +48,11 @@ function makeDb(state) {
       eq(col, val) { q.filters[col] = val; return chain; },
       neq(col, val) { q.filters[`neq:${col}`] = val; return chain; },
       is(col, val) { q.filters[`is:${col}`] = val; return chain; },
-      or(expr) { q.filters.or = expr; return chain; },
+      or(expr) {
+        q.filters.or = expr;
+        (q.filters.orGroups ||= []).push(expr);
+        return chain;
+      },
       maybeSingle() {
         calls.push(q);
         if (q.op === 'insert') {
@@ -135,7 +139,8 @@ test('marks an existing unpaid row paid and fires the workflow exactly once', as
   assert.equal(fired, 1);
   assert.ok(paidUpdate, 'expected a paid-marking update');
   assert.equal(paidUpdate.payload.stripe_payment_intent_id, 'pi_test_123');
-  assert.equal(paidUpdate.filters['neq:payment_status'], 'paid', 'update must be guarded against already-paid rows');
+  assert.ok(paidUpdate.filters.orGroups.includes('payment_status.neq.paid,payment_status.is.null'),
+    'NULL-safe update must still be guarded against already-paid rows');
 });
 
 test('repairs a PI-stamped but still-unpaid row (confirm crashed mid-flight) and fires workflow once', async () => {
@@ -145,7 +150,8 @@ test('repairs a PI-stamped but still-unpaid row (confirm crashed mid-flight) and
   let paidUpdate = null;
   const row = { id: 'row-stamped', tenant_id: TENANT, member_id: 'm-1', membership_year: '2026/2027', payment_status: 'unpaid', paid_at: null, total_with_vat: 1.2, stripe_payment_intent_id: 'pi_test_123' };
   const db = makeDb({
-    membership_fee_token: { maybeSingle: () => null },
+    membership_fee_token: { maybeSingle: () => ({ id: 'tok-1', tenant_id: TENANT,
+      member_id: 'm-1', membership_year: '2026/2027', status: 'pending' }) },
     member_membership_history: {
       maybeSingle: (q) => (q.filters.stripe_payment_intent_id === 'pi_test_123' ? row : null),
       exec: (q) => {
@@ -171,7 +177,8 @@ test('repairs a PI-stamped but still-unpaid row (confirm crashed mid-flight) and
 test('a settled (paid) row referencing the PI is terminal — no re-fire', async () => {
   let fired = 0;
   const db = makeDb({
-    membership_fee_token: { maybeSingle: () => null },
+    membership_fee_token: { maybeSingle: () => ({ id: 'tok-1', tenant_id: TENANT,
+      member_id: 'm-1', membership_year: '2026/2027', status: 'paid' }) },
     member_membership_history: {
       maybeSingle: (q) => (q.filters.stripe_payment_intent_id === 'pi_test_123'
         ? { id: 'row-paid', payment_status: 'paid', stripe_payment_intent_id: 'pi_test_123' }
@@ -184,6 +191,18 @@ test('a settled (paid) row referencing the PI is terminal — no re-fire', async
   );
   assert.equal(r.status, 'already-recorded');
   assert.equal(fired, 0);
+});
+
+test('a PI referencing a missing fee token remains retryable without reading or updating history', async () => {
+  const db = makeDb({ membership_fee_token: { maybeSingle: () => null } });
+  const result = await recordSucceededMembershipPaymentIntent(
+    { tenantId: TENANT, paymentIntent: makePI() },
+    { db, fireWorkflow: async () => { assert.fail('missing quote cannot trigger a workflow'); } },
+  );
+  assert.equal(result.status, 'unmatched');
+  assert.match(result.detail, /Fee token could not be loaded/);
+  assert.equal(db.calls.length, 1);
+  assert.equal(db.calls[0].table, 'membership_fee_token');
 });
 
 test('a row stamped with a DIFFERENT PI is a conflict — never overwritten', async () => {
@@ -346,10 +365,11 @@ test('RACE: webhook records mid-confirm, then the stale inline/cron reconcile mu
   // second workflow — exactly-once across confirm + webhook + cron.
   let workflowFires = 0;
   // Shared mutable "DB row" — starts as the fee-token confirm left it.
-  const dbRow = { id: 'row-race', tenant_id: TENANT, member_id: 'm-1', membership_year: '2026/2027', payment_status: 'unpaid', paid_at: null, total_with_vat: 1.2, stripe_payment_intent_id: 'pi_test_123', accounting_invoice_id: 'inv-1' };
+  const dbRow = { id: 'row-race', tenant_id: TENANT, member_id: 'm-1', membership_year: '2026/2027', payment_status: 'unpaid', paid_at: null, total_with_vat: 1.2, stripe_payment_intent_id: 'pi_test_123', accounting_provider: 'xero', accounting_invoice_id: 'inv-1' };
 
   const db = makeDb({
-    membership_fee_token: { maybeSingle: () => null },
+    membership_fee_token: { maybeSingle: () => ({ id: 'tok-1', tenant_id: TENANT,
+      member_id: 'm-1', membership_year: '2026/2027', status: 'pending' }) },
     member_membership_history: {
       maybeSingle: (q) => (q.filters.stripe_payment_intent_id === 'pi_test_123' ? { ...dbRow } : null),
       exec: (q) => {
@@ -359,7 +379,7 @@ test('RACE: webhook records mid-confirm, then the stale inline/cron reconcile mu
         // `payment_status.neq.<target>,payment_status.is.null`.
         const target = q.payload?.payment_status;
         const guarded = q.filters['neq:payment_status'] === target
-          || q.filters.or === `payment_status.neq.${target},payment_status.is.null`;
+          || q.filters.orGroups?.includes(`payment_status.neq.${target},payment_status.is.null`);
         if (guarded && dbRow.payment_status === target) {
           return { data: [], error: null }; // guard: no row matched
         }

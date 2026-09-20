@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as policy from '../../_lib/annualRenewalPolicy.js';
 import { recordSucceededMembershipPaymentIntent } from '../../_lib/membershipPaymentReconciliation.js';
+import { resolveFeeTokenInvoiceReference } from '../../_lib/feeTokenInvoiceReference.js';
 
 // Evaluate the actual handler with all imported effects supplied explicitly.
 // No configured DB, Stripe account, accounting system or mailer is reachable.
@@ -29,7 +30,7 @@ function setup(member, rolling = false) {
   const tables = {
     membership_fee_token: [token], [historyTable]: [],
     member: [{ id: 'owner', first_name: 'Test', tenant_id: 'tenant' }],
-    organization: [{ id: 'owner', name: 'Test' }], tenant: [{ id: 'tenant', name: 'Tenant' }],
+    organization: [{ id: 'owner', name: 'Test', tenant_id: 'tenant' }], tenant: [{ id: 'tenant', name: 'Tenant' }],
   };
   const db = { from(table) {
     let mode = 'select', payload, single = false;
@@ -57,6 +58,11 @@ function setup(member, rolling = false) {
     currency: 'gbp', metadata: { token_id: 'fee', tenant_id: 'tenant', ...owner } };
   let eligibility = { eligible: true, lifecycle: { termStart: '2099-01-01', termEnd: '2099-12-31', isEarly: true } };
   const deps = async name => {
+    if (name.endsWith('feeTokenInvoiceReference.js')) return { resolveFeeTokenInvoiceReference };
+    if (name.endsWith('invoicePdfToken.js')) return {
+      getOrCreateInvoicePdfToken: async args => { calls.push({ pdf: args }); return 'secure-pdf'; },
+      buildInvoicePdfUrl: value => `https://fixture.test/invoice/${value}`,
+    };
     if (name.endsWith('membershipSimulation.js')) return {
       simulateMembershipForMember() { throw new Error('Quote must not be recalculated'); },
       simulateMembershipForOrg() { throw new Error('Quote must not be recalculated'); },
@@ -77,6 +83,11 @@ function setup(member, rolling = false) {
     if (name.endsWith('membershipAddons.js')) return { buildExtraLineItems: () => [] };
     if (name.endsWith('membershipNominalCode.js')) return { resolveMembershipNominalCode: async () => null };
     if (name.endsWith('accountingProvider.js')) return {
+      getAccountingProviderByName: name => ({
+        name,
+        pushPurchaseOrder: async args => { calls.push({ po: args, provider: name }); return { xeroUpdated: true }; },
+        applyStripePaymentToInvoice: async args => { calls.push({ invoice: 'existing', provider: name, args }); return { provider: name, invoice_id: args.invoiceId, invoice_number: null }; },
+      }),
       getAccountingProvider: async () => ({
         name: 'xero', applyStripePaymentToInvoice: async () => { calls.push({ invoice: 'existing' }); return { invoice_id: 'invoice', invoice_number: 'INV-1' }; },
         createMembershipInvoice: async () => { throw new Error('Fixture accounting unavailable'); },
@@ -84,7 +95,21 @@ function setup(member, rolling = false) {
     };
     if (name.endsWith('formMembershipPaymentQuote.js')) return { formPaymentActivationFields: () => ({ status: 'scheduled', term_start_date: '2099-01-01', term_end_date: '2099-12-31' }) };
     if (name.endsWith('membershipPaymentReconciliation.js')) return {
-      recordSucceededMembershipPaymentIntent: async () => ({ status: 'recorded' }),
+      recordSucceededMembershipPaymentIntent: async (args, deps) => {
+        assert.equal(deps.applyPayment, undefined, 'Reminder settlement must not bypass the shared journal');
+        calls.push({ recorder: args });
+        return recordSucceededMembershipPaymentIntent(args, {
+          db, fireWorkflow: async () => ({ fired: true }),
+          completeReminderAccounting: async () => {
+            if (token.testAccountingPending) throw new Error('Fixture accounting pending');
+            const ref = await resolveFeeTokenInvoiceReference(db, token);
+            if (ref && !calls.some(c => c.invoice)) calls.push({
+              invoice: 'existing', provider: ref.provider, args: { invoiceId: ref.invoiceId },
+            });
+            return { reference: ref || { provider: 'quickbooks', invoiceId: 'new-invoice', invoiceNumber: null } };
+          },
+        });
+      },
       reconcileMembershipInvoicePayment: async () => {
         tables[historyTable].forEach(row => { row.payment_status = 'paid'; });
       },
@@ -106,6 +131,60 @@ function setup(member, rolling = false) {
 
 process.env.SUPABASE_URL = 'https://fixture.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'fixture-only';
+
+test('reminder confirmation surfaces shared accounting-pending and retries recorder', async () => {
+  const s = setup(true);
+  s.token.testAccountingPending = true;
+  const first = await s.request('POST', { action: 'confirm_payment', paymentIntentId: 'pi_test' });
+  assert.equal(first.code, 200);
+  assert.match(first.body.warning, /payment was received/);
+  assert.ok(first.body.accountingSyncError);
+  s.token.testAccountingPending = false;
+  const retry = await s.request('POST', { action: 'confirm_payment', paymentIntentId: 'pi_test' });
+  assert.equal(retry.code, 200);
+  assert.equal(retry.body.warning, null);
+  assert.equal(s.calls.filter(c => c.recorder).length, 2);
+  assert.equal(s.tables[s.historyTable].length, 1);
+});
+
+for (const member of [true, false]) {
+  for (const legacy of [false, true]) test(`QuickBooks public invoice ${member ? 'member' : 'org'} legacy=${legacy} preserves debt and PDF`, async () => {
+    const s = setup(member);
+    s.token.history_record_id = 'linked';
+    Object.assign(s.token, legacy ? { xero_invoice_id: 'qbo-42' } : {
+      accounting_provider: 'quickbooks', accounting_invoice_id: 'qbo-42',
+    });
+    s.tables[s.historyTable].push({
+      id: 'linked', tenant_id: 'tenant', ...(member ? { member_id: 'owner' } : { organization_id: 'owner' }),
+      membership_year: '2099', accounting_provider: 'quickbooks', accounting_invoice_id: 'qbo-42',
+      payment_status: 'unpaid', final_cost: 120,
+    });
+    const get = await s.request('GET');
+    assert.equal(get.code, 200, JSON.stringify(get.body));
+    assert.equal(get.body.poAvailable, true);
+    assert.equal(get.body.invoiceProvider, 'quickbooks');
+    assert.equal(get.body.invoiceNumber, null);
+    assert.equal(get.body.invoiceUrl, 'https://fixture.test/invoice/secure-pdf');
+    assert.equal(s.calls.find(c => c.pdf).pdf.recordId, 'linked');
+    const po = await s.request('POST', { action: 'submit_po', poNumber: 'PO-42' });
+    assert.equal(po.code, 200, JSON.stringify(po.body));
+    assert.equal(s.calls.find(c => c.po).provider, 'quickbooks');
+    assert.equal(s.calls.find(c => c.po).po.invoiceId, 'qbo-42');
+    const paid = await s.request('POST', { action: 'confirm_payment', paymentIntentId: 'pi_test' });
+    assert.equal(paid.code, 200, JSON.stringify(paid.body));
+    assert.equal(s.calls.find(c => c.invoice).provider, 'quickbooks');
+    assert.equal(s.calls.find(c => c.invoice).args.invoiceId, 'qbo-42');
+    assert.equal(s.tables[s.historyTable].length, 1);
+  });
+  test(`unowned linked invoice fails closed (${member})`, async () => {
+    const s = setup(member);
+    s.token.history_record_id = 'foreign';
+    s.token.xero_invoice_id = 'ambiguous';
+    const result = await s.request('GET');
+    assert.equal(result.code, 500);
+    assert.equal(s.calls.length, 0);
+  });
+}
 
 for (const member of [true, false]) {
   test(`saved ${member ? 'member' : 'organisation'} quote drives GET and idempotent payment setup`, async () => {
@@ -200,7 +279,8 @@ for (const member of [true, false]) {
     };
     s.tables[s.historyTable].push(current);
     const before = structuredClone(current);
-    const deps = { db: s.db, fireWorkflow: async () => ({ fired: true }) };
+    const deps = { db: s.db, fireWorkflow: async () => ({ fired: true }),
+      completeReminderAccounting: async () => ({ reference: { provider: 'quickbooks', invoiceId: 'new-invoice', invoiceNumber: null } }) };
     const result = await recordSucceededMembershipPaymentIntent({ tenantId: 'tenant', paymentIntent: s.intent }, deps);
     assert.equal(result.status, 'recorded', result.detail);
     const row = s.tables[s.historyTable].find(r => r.membership_year === '2099');

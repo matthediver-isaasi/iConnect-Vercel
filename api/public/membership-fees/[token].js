@@ -106,11 +106,14 @@ export default async function handler(req, res) {
     // organization_id. Their approval checks, history table, notes and
     // Direct Debit option all branch on this flag.
     const isMemberToken = !!feeToken.member_id;
+    const { resolveFeeTokenInvoiceReference } = await import('../../_lib/feeTokenInvoiceReference.js');
+    // Never route historical debt through the tenant's current provider.
+    const invoiceReference = await resolveFeeTokenInvoiceReference(supabase, feeToken);
     const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote;
     // Reminder checkout is an upfront renewal, not a new recurring agreement.
     // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
     // still attach a PO to the existing debt through the established path.
-    const poAvailable = !isReminderToken || !!(feeToken.history_record_id && feeToken.xero_invoice_id);
+    const poAvailable = !isReminderToken || !!(feeToken.history_record_id && invoiceReference);
     let tokenMember = null;
     if (isMemberToken) {
       const { data: m } = await supabase
@@ -303,28 +306,17 @@ export default async function handler(req, res) {
       }
       if (addonLines && addonLines.length > 0) breakdown.addonLines = addonLines;
 
-      // If the token carries a pre-created Xero invoice id but no online URL
-      // yet (e.g. the cron created the invoice but the URL fetch failed at
-      // the time, or the invoice was in DRAFT and has since been authorised),
-      // try once more to resolve the online URL so we can show it on the
-      // confirmation screen.
-      let xeroOnlineInvoiceUrl = feeToken.xero_online_invoice_url || null;
-      if (feeToken.xero_invoice_id && !xeroOnlineInvoiceUrl) {
-        try {
-          const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
-          const _provider = await getAccountingProvider(feeToken.tenant_id);
-          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(feeToken.tenant_id);
-          const r = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${feeToken.xero_invoice_id}/OnlineInvoice`, {
-            headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
-          });
-          if (r.ok) {
-            const d = await r.json();
-            xeroOnlineInvoiceUrl = d?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
-            if (xeroOnlineInvoiceUrl) {
-              await supabase.from('membership_fee_token').update({ xero_online_invoice_url: xeroOnlineInvoiceUrl, updated_at: new Date().toISOString() }).eq('id', feeToken.id);
-            }
-          }
-        } catch {}
+      // Provider-hosted links are optional. The scoped PDF token also works
+      // for QuickBooks invoices without online invoicing or a DocNumber.
+      let invoiceUrl = invoiceReference?.onlineInvoiceUrl || null;
+      if (invoiceReference && !invoiceUrl && feeToken.history_record_id) {
+        const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../../_lib/invoicePdfToken.js');
+        const pdfToken = await getOrCreateInvoicePdfToken({
+          client: supabase, tenantId: feeToken.tenant_id,
+          historyTable: isMemberToken ? 'member_membership_history' : 'organisation_membership_history',
+          recordId: feeToken.history_record_id,
+        });
+        invoiceUrl = buildInvoicePdfUrl(pdfToken, tenantBranding?.slug || null);
       }
 
       // Direct Debit option (member tokens only): offered when the member's
@@ -495,8 +487,11 @@ export default async function handler(req, res) {
         poNumber: feeToken.po_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
-        xeroInvoiceNumber: feeToken.xero_invoice_number || null,
-        xeroOnlineInvoiceUrl,
+        invoiceProvider: invoiceReference?.provider || null,
+        invoiceNumber: invoiceReference?.invoiceNumber || null,
+        invoiceUrl,
+        xeroInvoiceNumber: invoiceReference?.invoiceNumber || null,
+        xeroOnlineInvoiceUrl: invoiceUrl,
         tenant: tenantBranding ? {
           name: tenantBranding.name,
           logoUrl: tenantBranding.logo_url,
@@ -616,27 +611,26 @@ export default async function handler(req, res) {
           poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab.';
         }
 
-        // If the token carries a pre-created Xero invoice id (cron-created
-        // auto-renewal path, Task #990), push the submitted PO into the Xero
-        // invoice's Reference field so finance sees it on the invoice itself.
+        // Update the original debt, even if the active provider has changed.
         let xeroPoWarning = null;
-        if (feeToken.xero_invoice_id) {
+        if (invoiceReference) {
           try {
-            const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
-            const _provider = await getAccountingProvider(feeToken.tenant_id);
+            const { getAccountingProviderByName } = await import('../../_lib/accountingProvider.js');
+            const _provider = getAccountingProviderByName(invoiceReference.provider);
             const reference = `Membership ${feeToken.membership_year} - PO: ${poNumber.trim()}`;
             const xeroResult = await _provider.pushPurchaseOrder({
               appTenantId: feeToken.tenant_id,
-              xeroInvoiceId: feeToken.xero_invoice_id,
+              xeroInvoiceId: invoiceReference.invoiceId,
+              invoiceId: invoiceReference.invoiceId,
               purchaseOrderNumber: reference,
               contextLabel: 'Public Fee PO',
             });
             if (!xeroResult.xeroUpdated && xeroResult.xeroError) {
-              xeroPoWarning = `PO saved but could not be pushed to Xero invoice: ${xeroResult.xeroError}`;
+              xeroPoWarning = `PO saved but could not be pushed to the invoice: ${xeroResult.xeroError}`;
             }
           } catch (xeroErr) {
             console.error('[Public Fee] Xero PO push failed:', xeroErr.message);
-            xeroPoWarning = 'PO saved but could not be pushed to Xero invoice.';
+            xeroPoWarning = 'PO saved but could not be pushed to the invoice.';
           }
         }
 
@@ -646,29 +640,31 @@ export default async function handler(req, res) {
             await supabase
               .from(isMemberToken ? 'member_membership_history' : 'organisation_membership_history')
               .update({ purchase_order_number: poNumber.trim() })
-              .eq('id', feeToken.history_record_id);
+              .eq('id', feeToken.history_record_id)
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq(entityColumn, entityId);
           } catch (histErr) {
             console.warn('[Public Fee] history PO update failed:', histErr.message);
           }
         }
 
-        // Downstream the submitted PO to any training fund purchases billed on
-        // the same invoice (add-on flow) so they drop off the pending PO
-        // report. The token's xero_invoice_id column holds whichever
-        // provider's invoice id was minted (legacy name); Xero purchases key
-        // on xero_invoice_id while QuickBooks purchases only carry
-        // accounting_invoice_id, so match both columns with two updates
-        // (PostgREST .or() is unreliable on UPDATE). Non-fatal on error.
-        if (feeToken.xero_invoice_id) {
-          const invoiceId = String(feeToken.xero_invoice_id);
-          for (const invoiceColumn of ['xero_invoice_id', 'accounting_invoice_id']) {
+        // Invoice IDs can collide across providers. Scope generic references
+        // by provider, while retaining genuine legacy Xero purchase support.
+        if (invoiceReference) {
+          const invoiceId = String(invoiceReference.invoiceId);
+          for (const invoiceColumn of invoiceReference.provider === 'xero'
+            ? ['accounting_invoice_id', 'xero_invoice_id'] : ['accounting_invoice_id']) {
             try {
-              const { error: tfpErr } = await supabase
+              let purchaseQuery = supabase
                 .from('training_fund_purchase')
                 .update({ purchase_order_number: poNumber.trim(), po_to_follow: false })
                 .eq('tenant_id', feeToken.tenant_id)
                 .eq(invoiceColumn, invoiceId)
                 .eq('payment_method', 'invoice');
+              purchaseQuery = invoiceColumn === 'accounting_invoice_id'
+                ? purchaseQuery.eq('accounting_provider', invoiceReference.provider)
+                : purchaseQuery.or('accounting_provider.is.null,accounting_provider.eq.xero');
+              const { error: tfpErr } = await purchaseQuery;
               if (tfpErr) {
                 console.warn(`[Public Fee] Failed to apply PO to linked training fund purchases (${invoiceColumn}):`, tfpErr.message || tfpErr);
               }
@@ -679,7 +675,7 @@ export default async function handler(req, res) {
         }
 
         try {
-          const poNoteContent = `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${feeToken.xero_invoice_number ? ` Xero invoice: ${feeToken.xero_invoice_number}.` : ''}`;
+          const poNoteContent = `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${invoiceReference?.invoiceNumber ? ` Invoice: ${invoiceReference.invoiceNumber}.` : ''}`;
           if (isMemberToken) {
             await supabase.from('member_note').insert({
               member_id: feeToken.member_id,
@@ -699,11 +695,14 @@ export default async function handler(req, res) {
         const response = {
           success: true,
           message: 'Purchase order number submitted successfully',
-          xeroInvoiceNumber: feeToken.xero_invoice_number || null,
-          xeroOnlineInvoiceUrl: feeToken.xero_online_invoice_url || null,
+          invoiceProvider: invoiceReference?.provider || null,
+          invoiceNumber: invoiceReference?.invoiceNumber || null,
+          invoiceUrl: invoiceReference?.onlineInvoiceUrl || null,
+          xeroInvoiceNumber: invoiceReference?.invoiceNumber || null,
+          xeroOnlineInvoiceUrl: invoiceReference?.onlineInvoiceUrl || null,
         };
         if (poSyncWarning) response.warning = poSyncWarning;
-        if (xeroPoWarning) response.xeroWarning = xeroPoWarning;
+        if (xeroPoWarning) response.accountingWarning = response.xeroWarning = xeroPoWarning;
         return res.json(response);
       }
 
@@ -903,7 +902,7 @@ export default async function handler(req, res) {
           .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
           .maybeSingle();
 
-        if (existingByPI?.payment_status === 'paid') {
+        if (existingByPI?.payment_status === 'paid' && !isReminderToken) {
           console.log(`[Public Fee] Idempotent return: history row already exists for PI ${paymentIntentId}`);
           if (feeToken.status !== 'paid') {
             await supabase.from('membership_fee_token').update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', feeToken.id);
@@ -915,7 +914,7 @@ export default async function handler(req, res) {
         // history row. This is the stuck-token state. Surface it loudly
         // instead of silently re-driving Stripe verification + simulator
         // on every retry.
-        if (feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
+        if (!isReminderToken && feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
           console.error(`[Public Fee] STUCK TOKEN: token ${feeToken.id} is paid with PI ${paymentIntentId} but no history row exists. Manual recovery required (admin can run scripts/backfill-stuck-membership-fee-tokens.mjs).`);
           return res.status(409).json({
             error: 'This payment was received but the membership record was not created. The administrator has been notified and will resolve this within one business day; please do not retry.',
@@ -975,6 +974,29 @@ export default async function handler(req, res) {
         const expectedAmount = Math.round(confirmTotal * 100);
         if (paymentIntent.amount !== expectedAmount) {
           return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
+        }
+
+        if (isReminderToken) {
+          const { recordSucceededMembershipPaymentIntent } = await import('../../_lib/membershipPaymentReconciliation.js');
+          const result = await recordSucceededMembershipPaymentIntent({
+            tenantId: feeToken.tenant_id, paymentIntent,
+            baseUrl: req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : '',
+            source: 'public_reminder_fee_confirm',
+          }, { db: supabase });
+          if (!['recorded', 'already-recorded', 'raced', 'accounting-pending'].includes(result.status)) {
+            return confirmFailure(result.detail || 'The captured membership payment needs reconciliation');
+          }
+          const pending = result.status === 'accounting-pending';
+          const reference = await resolveFeeTokenInvoiceReference(supabase, feeToken);
+          return res.json({
+            success: true, recordCreated: true, already_processed: existingByPI?.payment_status === 'paid',
+            invoiceProvider: reference?.provider || null, invoiceNumber: reference?.invoiceNumber || null,
+            invoiceUrl: reference?.onlineInvoiceUrl || null,
+            xeroInvoiceNumber: reference?.invoiceNumber || null, xeroOnlineInvoiceUrl: reference?.onlineInvoiceUrl || null,
+            accountingSyncError: pending ? (result.detail || 'Invoice accounting is pending reconciliation.') : null,
+            warning: pending ? 'Your payment was received and your membership is recorded, but invoice accounting is pending reconciliation. Please do not pay again.' : null,
+            message: 'Payment confirmed successfully',
+          });
         }
 
         // Task #1112 — stamp the PI on the token (status still pending) so
@@ -1147,26 +1169,31 @@ export default async function handler(req, res) {
         let accountingSyncError = null;
         if (recordCreated) {
           try {
-            if (feeToken.xero_invoice_id) {
+            if (isReminderToken) {
+              // The recorder below owns all reminder accounting, including
+              // webhook-first creation and retries through its durable journal.
+            } else if (invoiceReference) {
               // Cron-created invoice already exists (Task #990). Apply the
               // Stripe payment to it instead of minting a duplicate. Route
               // through the provider facade so the same flow works for both
               // Xero and QuickBooks (the column is named xero_invoice_id for
               // legacy reasons, but holds whichever provider's invoice id
               // was minted by the cron).
-              const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
-              const provider = await getAccountingProvider(feeToken.tenant_id);
+              const { getAccountingProviderByName, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
+              const provider = getAccountingProviderByName(invoiceReference.provider);
               xeroInvoice = await provider.applyStripePaymentToInvoice({
                 appTenantId: feeToken.tenant_id,
-                invoiceId: feeToken.xero_invoice_id,
-                xeroInvoiceId: feeToken.xero_invoice_id,
+                invoiceId: invoiceReference.invoiceId,
+                xeroInvoiceId: invoiceReference.invoiceId,
                 stripePaymentIntentId: paymentIntentId,
               });
               if (xeroInvoice?.online_invoice_url) {
                 try {
                   await supabase
                     .from('membership_fee_token')
-                    .update({ xero_online_invoice_url: xeroInvoice.online_invoice_url, updated_at: new Date().toISOString() })
+                    .update({ accounting_online_invoice_url: xeroInvoice.online_invoice_url,
+                      ...(invoiceReference.provider === 'xero' ? { xero_online_invoice_url: xeroInvoice.online_invoice_url } : {}),
+                      updated_at: new Date().toISOString() })
                     .eq('id', feeToken.id);
                 } catch {}
               }
@@ -1175,8 +1202,8 @@ export default async function handler(req, res) {
                   await supabase
                     .from(historyTable)
                     .update(buildInvoiceColumnUpdate({
-                      invoice_id: feeToken.xero_invoice_id,
-                      invoice_number: feeToken.xero_invoice_number,
+                      invoice_id: invoiceReference.invoiceId,
+                      invoice_number: invoiceReference.invoiceNumber,
                       provider: provider.name,
                     }))
                     .eq('id', historyRecord.id);
@@ -1315,7 +1342,7 @@ export default async function handler(req, res) {
           // invoice path AND the newly-created-on-confirm path. The helper
           // is idempotent and a no-op when the row is already in a terminal
           // payment state.
-          if (historyRecord?.term_key) {
+          if (isReminderToken || historyRecord?.term_key) {
             try {
               const { recordSucceededMembershipPaymentIntent } = await import('../../_lib/membershipPaymentReconciliation.js');
               const result = await recordSucceededMembershipPaymentIntent({
@@ -1325,9 +1352,11 @@ export default async function handler(req, res) {
                 source: 'public_rolling_fee_confirm',
               }, {
                 db: supabase,
-                ...(xeroInvoice && !accountingSyncError ? { applyPayment: async () => xeroInvoice } : {}),
+                ...(!isReminderToken && xeroInvoice && !accountingSyncError ? { applyPayment: async () => xeroInvoice } : {}),
               });
-              if (!['recorded', 'already-recorded', 'raced'].includes(result.status)) {
+              if (result.status === 'accounting-pending') {
+                accountingSyncError = result.detail || 'Your payment is recorded, but invoice accounting is pending reconciliation.';
+              } else if (!['recorded', 'already-recorded', 'raced'].includes(result.status)) {
                 return confirmFailure(result.detail || 'The captured membership payment needs reconciliation');
               }
             } catch (error) {
@@ -1388,7 +1417,7 @@ export default async function handler(req, res) {
 
         try {
           const invoiceNote = xeroInvoice
-            ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
+            ? ` Accounting invoice${xeroInvoice.invoice_number ? ` ${xeroInvoice.invoice_number}` : ''} recorded.`
             : recordCreated ? ` Accounting invoice could not be created${accountingSyncError ? ` (${accountingSyncError})` : ''}; flagged for admin retry.` : '';
           const paymentNoteContent = `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(confirmTotal).toFixed(2)}${confirmBreakdown.vatAmount > 0 ? ` (incl. VAT ${parseFloat(confirmBreakdown.vatAmount).toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`;
           if (isMemberToken) {
@@ -1411,8 +1440,11 @@ export default async function handler(req, res) {
           success: true,
           recordCreated,
           xeroInvoice: xeroInvoice ? { invoice_number: xeroInvoice.invoice_number } : null,
-          xeroInvoiceNumber: xeroInvoice?.invoice_number || feeToken.xero_invoice_number || null,
-          xeroOnlineInvoiceUrl: xeroInvoice?.online_invoice_url || feeToken.xero_online_invoice_url || null,
+          invoiceProvider: xeroInvoice?.provider || invoiceReference?.provider || null,
+          invoiceNumber: xeroInvoice?.invoice_number || invoiceReference?.invoiceNumber || null,
+          invoiceUrl: xeroInvoice?.online_invoice_url || invoiceReference?.onlineInvoiceUrl || null,
+          xeroInvoiceNumber: xeroInvoice?.invoice_number || invoiceReference?.invoiceNumber || null,
+          xeroOnlineInvoiceUrl: xeroInvoice?.online_invoice_url || invoiceReference?.onlineInvoiceUrl || null,
           accountingSyncError: accountingSyncError || null,
           warning: accountingSyncError
             ? 'Your payment was received and your membership is recorded, but the accounting invoice could not be generated automatically. The administrator has been notified and will issue it manually.'

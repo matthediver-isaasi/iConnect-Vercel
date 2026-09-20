@@ -3,6 +3,7 @@ import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { buildInboxDelivery } from './transactionalInbox.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
+import { invoiceReferenceColumns, resolveFeeTokenInvoiceReference } from './feeTokenInvoiceReference.js';
 
 /**
  * Substitute the fee-link email placeholders documented under the
@@ -205,10 +206,25 @@ export async function prepareMembershipFeeToken({
   historyRecordId = null,
   requireAtomicMemberClaim = false,
   reminderQuote = false,
+  invoiceReference = null,
 }) {
   if (!client) return { success: false, error: 'Database not configured' };
   if (!organizationId && !memberId) {
     return { success: false, error: 'organizationId or memberId is required' };
+  }
+  try {
+    invoiceReference = await resolveFeeTokenInvoiceReference(client, {
+      tenant_id: tenantId, member_id: memberId, organization_id: organizationId,
+      membership_year: membershipYear, history_record_id: historyRecordId,
+      ...(invoiceReference ? invoiceReferenceColumns(invoiceReference) : {
+        xero_invoice_id: xeroInvoiceId, xero_invoice_number: xeroInvoiceNumber, xero_online_invoice_url: xeroOnlineInvoiceUrl,
+      }),
+    });
+    xeroInvoiceId = invoiceReference?.provider === 'xero' ? invoiceReference.invoiceId : null;
+    xeroInvoiceNumber = invoiceReference?.provider === 'xero' ? invoiceReference.invoiceNumber : null;
+    xeroOnlineInvoiceUrl = invoiceReference?.provider === 'xero' ? invoiceReference.onlineInvoiceUrl : null;
+  } catch (error) {
+    return { success: false, error: error.message };
   }
   try {
     const { snapshotRollingFeeQuote } = await import('./rollingFeeCommitment.js');
@@ -272,12 +288,13 @@ export async function prepareMembershipFeeToken({
   let expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   let atomicallyClaimed = false;
 
-  if (reminderQuote || !memberId) {
+  if (reminderQuote || !memberId || invoiceReference) {
     const { data: claim, error } = await client.rpc('claim_reminder_fee_token', {
       p_tenant_id: tenantId, p_member_id: memberId, p_organization_id: organizationId,
       p_membership_year: membershipYear, p_candidate_token: crypto.randomBytes(32).toString('hex'),
       p_expires_at: expiresAt.toISOString(),
       p_snapshot: { preparation_mode: reminderQuote ? 'reminder' : 'email',
+        ...invoiceReferenceColumns(invoiceReference),
         final_cost: finalCost, currency, tier_label: tierLabel, cost_breakdown: costBreakdown, po_number: poNumber,
         recipient_email: toEmails.join(', '), history_record_id: historyRecordId,
         xero_invoice_id: xeroInvoiceId, xero_invoice_number: xeroInvoiceNumber,
@@ -295,10 +312,14 @@ export async function prepareMembershipFeeToken({
     xeroInvoiceId = claim.xero_invoice_id || null;
     xeroInvoiceNumber = claim.xero_invoice_number || null;
     xeroOnlineInvoiceUrl = claim.xero_online_invoice_url || null;
+    invoiceReference = await resolveFeeTokenInvoiceReference(client, {
+      ...claim, tenant_id: tenantId, member_id: memberId, organization_id: organizationId, membership_year: membershipYear,
+    });
     atomicallyClaimed = true;
   } else if (memberId) {
     const candidateToken = crypto.randomBytes(32).toString('hex');
     const snapshot = {
+      ...invoiceReferenceColumns(invoiceReference),
       final_cost: finalCost,
       currency,
       tier_label: tierLabel,
@@ -371,6 +392,7 @@ export async function prepareMembershipFeeToken({
   if (!token) {
     token = crypto.randomBytes(32).toString('hex');
     const insertPayload = {
+      ...invoiceReferenceColumns(invoiceReference),
       token,
       tenant_id: tenantId,
       organization_id: organizationId,
@@ -477,7 +499,7 @@ export async function prepareMembershipFeeToken({
     : `https://${APP_DOMAIN}/membership-fees/${token}`;
 
   return { success: true, token, tokenId, paymentUrl, expiresAt, tenant, toEmails,
-    finalCost, currency, tierLabel, costBreakdown, historyRecordId, xeroInvoiceId };
+    finalCost, currency, tierLabel, costBreakdown, historyRecordId, xeroInvoiceId, invoiceReference };
 }
 
 export async function sendMembershipFeeTokenEmail(options) {

@@ -19,6 +19,8 @@ import { supabase } from './database.js';
 import { getAccountingProviderByName, PROVIDER_XERO } from './accountingProvider.js';
 import { triggerWorkflows } from './workflows.js';
 import { feeTokenCommitment } from './rollingFeeCommitment.js';
+import { invoiceReferenceFromRow, resolveFeeTokenInvoiceReference, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
+import { completeReminderFeeAccounting } from './reminderFeeAccounting.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -66,7 +68,8 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
   if (!row) return skipped(table, null, 'row-not-found');
 
   const recordId = row.id;
-  const invoiceId = row.accounting_invoice_id || row.xero_invoice_id;
+  const invoiceReference = invoiceReferenceFromRow(row);
+  const invoiceId = invoiceReference?.invoiceId;
   if (!invoiceId) return skipped(table, recordId, 'no-invoice-id');
 
   const beforeStatus = row.payment_status || 'unpaid';
@@ -77,7 +80,7 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
     return skipped(table, recordId, `already-${beforeStatus}`);
   }
 
-  const providerName = row.accounting_provider || PROVIDER_XERO;
+  const providerName = invoiceReference.provider;
   const provider = fetchStatus ? null : getAccountingProviderByName(providerName);
 
   if (!fetchStatus && typeof provider.fetchInvoiceStatus !== 'function') {
@@ -108,6 +111,11 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
     const { formPaymentActivationFields } = await import('./formMembershipPaymentQuote.js');
     Object.assign(update, formPaymentActivationFields(row));
   }
+  if (afterStatus === 'paid' && !row.term_key && row.term_start_date && !row.billing_agreement_id) {
+    const early = row.term_start_date > new Date().toISOString().slice(0, 10);
+    Object.assign(update, { status: early ? 'scheduled' : 'active',
+      scheduled_activation_date: early ? row.term_start_date : null, annual_renewal_state: 'renewed' });
+  }
   if (afterStatus === 'paid' && snapshot.paidAt) {
     update.paid_at = snapshot.paidAt;
   }
@@ -127,6 +135,8 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
     .from(table)
     .update(update)
     .eq('id', recordId)
+    .eq('tenant_id', row.tenant_id)
+    .or(`payment_status.eq.${beforeStatus},payment_status.is.null`)
     .or(`payment_status.neq.${afterStatus},payment_status.is.null`)
     .select('id');
 
@@ -221,6 +231,7 @@ export async function recordSucceededMembershipPaymentIntent(
       .eq('tenant_id', tenantId)
       .maybeSingle();
     feeToken = data || null;
+    if (!feeToken) return { status: 'unmatched', detail: 'Fee token could not be loaded; refusing to reconstruct without its saved quote' };
     if (feeToken) {
       // Strict token↔PI binding: the token's tenant/entity/year must all
       // match the PI metadata. A signed webhook only proves the PI is
@@ -234,6 +245,23 @@ export async function recordSucceededMembershipPaymentIntent(
         console.error(`[MEMBERSHIP-RECONCILE] TOKEN/PI BINDING MISMATCH for PI ${pi.id}: token ${feeToken.id} scope (member=${feeToken.member_id || 'none'}, org=${feeToken.organization_id || 'none'}, year=${feeToken.membership_year}) does not match PI metadata (member=${md.member_id || 'none'}, org=${md.organization_id || 'none'}, year=${md.membership_year}) — refusing to record, admin attention required`);
         return { status: 'conflict', detail: `Fee token ${feeToken.id} scope does not match PI ${pi.id} metadata` };
       }
+    }
+  }
+  let tokenInvoiceReference = null;
+  if (feeToken) {
+    try {
+      tokenInvoiceReference = await resolveFeeTokenInvoiceReference(db, feeToken);
+    } catch (error) {
+      return { status: 'conflict', detail: error.message };
+    }
+    const cb = feeToken.cost_breakdown;
+    const window = cb?.renewalQuote?.membershipYear;
+    if (cb?.renewalQuote && (!cb.renewalQuote.config?.id || window?.label !== md.membership_year
+        || !Number.isFinite(Date.parse(window?.start)) || !Number.isFinite(Date.parse(window?.end))
+        || Date.parse(window.start) > Date.parse(window.end)
+        || Math.round(Number(cb.totalWithVat ?? feeToken.final_cost) * 100) !== pi.amount
+        || String(feeToken.currency).toLowerCase() !== String(pi.currency).toLowerCase())) {
+      return { status: 'conflict', detail: 'Saved renewal quote does not match captured amount/currency' };
     }
   }
   // Org-scoped when an organization_id is present (fee tokens are strictly
@@ -255,7 +283,11 @@ export async function recordSucceededMembershipPaymentIntent(
     .eq('tenant_id', tenantId)
     .eq(entityCol, entityId)
     .maybeSingle();
-  if (existingByPI && (existingByPI.payment_status === 'paid' || existingByPI.payment_status === 'voided')) {
+  if (existingByPI && (existingByPI.payment_status === 'voided'
+      || (existingByPI.payment_status === 'paid'
+        && (feeToken?.cost_breakdown?.renewalQuote
+          ? existingByPI.accounting_sync_status == null && !!invoiceReferenceFromRow(existingByPI)
+          : !['failed', 'retrying'].includes(existingByPI.accounting_sync_status))))) {
     return { status: 'already-recorded', table, recordId: existingByPI.id, workflowFired: false, detail: `history row ${existingByPI.id} already references PI ${pi.id} (payment_status=${existingByPI.payment_status})` };
   }
 
@@ -380,6 +412,8 @@ export async function recordSucceededMembershipPaymentIntent(
         stripe_payment_intent_id: pi.id,
         status: 'active',
         ...savedFields,
+        ...invoiceReferenceColumns(tokenInvoiceReference),
+        ...(tokenInvoiceReference || feeToken?.cost_breakdown?.renewalQuote ? { accounting_sync_status: 'retrying' } : {}),
         payment_status: 'paid',
         paid_at: nowIso,
         notes: `[Stripe Reconciliation] Record reconstructed from succeeded Stripe payment ${pi.id} because the checkout confirmation step failed before creating it. Amount charged: ${(pi.currency || 'gbp').toUpperCase()} ${chargedAmount.toFixed(2)}. Tier/discount breakdown unavailable — admin review recommended.`,
@@ -430,6 +464,12 @@ export async function recordSucceededMembershipPaymentIntent(
     console.error(`[MEMBERSHIP-RECONCILE] CONFLICT: ${table}#${row.id} already references a DIFFERENT PI (${row.stripe_payment_intent_id}) than succeeded ${pi.id} — refusing to overwrite, admin attention required`);
     return { status: 'conflict', table, recordId: row.id, detail: `Row references PI ${row.stripe_payment_intent_id}, not ${pi.id}` };
   }
+  const rowInvoiceReference = invoiceReferenceFromRow(row);
+  if (rowInvoiceReference && tokenInvoiceReference
+      && (rowInvoiceReference.provider !== tokenInvoiceReference.provider
+        || rowInvoiceReference.invoiceId !== tokenInvoiceReference.invoiceId)) {
+    return { status: 'conflict', table, recordId: row.id, detail: 'Saved token and membership invoice identity differ' };
+  }
 
   const amountMismatch = Number.isFinite(pi.amount) && row.total_with_vat != null
     && Math.round(Number(row.total_with_vat) * 100) !== pi.amount;
@@ -449,22 +489,30 @@ export async function recordSucceededMembershipPaymentIntent(
   let workflowFired = false;
 
   if (!wasPaid && !reconstructed) {
+    const renewalWindow = feeToken?.cost_breakdown?.renewalQuote?.membershipYear;
+    const renewalStart = renewalWindow?.start?.slice(0, 10);
     const activation = row.term_key
       ? (await import('./formMembershipPaymentQuote.js')).formPaymentActivationFields(row)
-      : {};
+      : feeToken?.cost_breakdown?.renewalQuote ? {
+        term_start_date: renewalStart, term_end_date: renewalWindow?.end?.slice(0, 10),
+        status: renewalStart > new Date().toISOString().slice(0, 10) ? 'scheduled' : 'active',
+        scheduled_activation_date: renewalStart > new Date().toISOString().slice(0, 10) ? renewalStart : null,
+        annual_renewal_state: 'renewed',
+      } : {};
     // Atomic transition guard: only one caller (webhook vs client confirm
     // vs admin script) wins the not-yet-paid -> paid update.
     const { data: updated, error: updErr } = await db
       .from(table)
       .update({
         ...activation,
+        ...(invoiceReferenceFromRow(row) || tokenInvoiceReference || feeToken?.cost_breakdown?.renewalQuote ? { accounting_sync_status: 'retrying' } : {}),
         payment_status: 'paid',
         paid_at: row.paid_at || paidAtIso,
         payment_method: row.term_key ? row.payment_method : 'stripe',
         stripe_payment_intent_id: pi.id,
       })
       .eq('id', row.id)
-      .neq('payment_status', 'paid')
+       .or('payment_status.neq.paid,payment_status.is.null')
       .or(`stripe_payment_intent_id.is.null,stripe_payment_intent_id.eq.${pi.id}`)
       .select('id');
     if (updErr) throw new Error(`Failed to mark ${table}#${row.id} paid: ${updErr.message}`);
@@ -477,7 +525,9 @@ export async function recordSucceededMembershipPaymentIntent(
 
   // 3. Apply the payment to the attached accounting invoice (best-effort).
   let accountingApplied = false;
-  const invoiceId = row.accounting_invoice_id || row.xero_invoice_id || feeToken?.xero_invoice_id || null;
+  let invoiceReference = invoiceReferenceFromRow(row) || tokenInvoiceReference;
+  let invoiceId = invoiceReference?.invoiceId || null;
+  const reminderAccounting = !!feeToken?.cost_breakdown?.renewalQuote;
   if (!invoiceId && md.source === 'form-membership-payment') {
     try {
       await db.from(table).update({
@@ -486,11 +536,17 @@ export async function recordSucceededMembershipPaymentIntent(
       }).eq('id', row.id);
     } catch {}
   }
-  if (invoiceId) {
+  if (invoiceId || reminderAccounting) {
     try {
+      if (reminderAccounting) {
+        const complete = deps.completeReminderAccounting || completeReminderFeeAccounting;
+        const completed = await complete({ client: db, token: feeToken,
+          history: { ...row, ...invoiceReferenceColumns(invoiceReference) }, paymentIntent: pi });
+        invoiceReference = completed.reference;
+        invoiceId = invoiceReference.invoiceId;
+      } else {
       const applyPayment = deps.applyPayment || (async () => {
-        const { getAccountingProvider } = await import('./accountingProvider.js');
-        const provider = await getAccountingProvider(tenantId);
+        const provider = getAccountingProviderByName(invoiceReference.provider);
         return provider.applyStripePaymentToInvoice({
           appTenantId: tenantId,
           invoiceId,
@@ -498,7 +554,17 @@ export async function recordSucceededMembershipPaymentIntent(
           stripePaymentIntentId: pi.id,
         });
       });
-      await applyPayment();
+      const applied = await applyPayment({ invoiceReference, tenantId, paymentIntentId: pi.id });
+      if (applied === null || applied?.payment_recorded === false || applied?.raw?.payment_recorded === false) {
+        throw new Error('Accounting provider did not confirm the Stripe payment');
+      }
+      }
+      const { error: syncError } = await db.from(table).update({
+        ...invoiceReferenceColumns(invoiceReference),
+        // The established schema uses NULL for successful accounting sync.
+        accounting_sync_status: null, accounting_sync_error: null,
+      }).eq('id', row.id).eq('tenant_id', tenantId);
+      if (syncError) throw new Error(syncError.message);
       accountingApplied = true;
     } catch (accErr) {
       console.error(`[MEMBERSHIP-RECONCILE] Failed to apply Stripe payment ${pi.id} to accounting invoice ${invoiceId} (non-fatal, row already marked paid): ${accErr.message}`);
@@ -543,7 +609,8 @@ export async function recordSucceededMembershipPaymentIntent(
   } catch {}
 
   console.log(`[MEMBERSHIP-RECONCILE] Recorded succeeded PI ${pi.id} onto ${table}#${row.id} (workflowFired=${workflowFired}, accountingApplied=${accountingApplied}, source=${source})`);
-  return { status: 'recorded', table, recordId: row.id, workflowFired, accountingApplied, detail: amountMismatch ? 'amount-mismatch-flagged' : null };
+  return { status: (invoiceId || reminderAccounting) && !accountingApplied ? 'accounting-pending' : 'recorded',
+    table, recordId: row.id, workflowFired, accountingApplied, detail: amountMismatch ? 'amount-mismatch-flagged' : null };
 }
 
 function skipped(table, recordId, reason) {

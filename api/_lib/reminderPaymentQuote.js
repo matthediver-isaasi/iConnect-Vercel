@@ -2,6 +2,7 @@ import { classifyAnnualRenewal, deriveAnnualTerm, hasActiveMonthlyBillingAgreeme
 import { calculateMembershipYearWindow } from './membershipYear.js';
 import { upfrontRollingCommitment } from './upfrontRollingRenewal.js';
 import { commitmentFromQuote } from './rollingMembershipCommitment.js';
+import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
 
 export const requestsReminderPaymentLink = template => /\{\{\s*payment_link\s*\}\}/.test(`${template?.subject || ''} ${template?.body || ''}`);
 
@@ -66,7 +67,8 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
   // Monthly/DD setup is deliberately unavailable on reminder checkout. A new
   // successor therefore needs usable upfront card settings; only an already
   // linked Xero invoice can use the existing PO submission path.
-  const invoicePoAvailable = !!(successor?.id && successor.xero_invoice_id);
+  const invoiceReference = invoiceReferenceFromRow(successor);
+  const invoicePoAvailable = !!(successor?.id && invoiceReference);
   let cardAvailable = false;
   if (quote.config?.online_card_payment && resolveStripeCredentials) {
     try {
@@ -113,13 +115,14 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
     ...owner, client, membershipYear: quote.membershipYear.label,
     finalCost: quote.finalCost, currency: quote.currency, tierLabel: quote.tierLabel,
     tierConfig: quote.config, costBreakdown, recipientEmails: recipients.map(row => row.email),
+    invoiceReference,
     historyRecordId: successor?.id || null, xeroInvoiceId: successor?.xero_invoice_id || null,
     xeroInvoiceNumber: successor?.xero_invoice_number || null,
     xeroOnlineInvoiceUrl: successor?.xero_online_invoice_url || null, reminderQuote: true,
   });
   if (!prepared.success) return blocked('token_unavailable', prepared.error);
   const saved = prepared.costBreakdown?.renewalQuote;
-  const savedInvoicePoAvailable = !!(prepared.historyRecordId && prepared.xeroInvoiceId);
+  const savedInvoicePoAvailable = !!(prepared.historyRecordId && (prepared.invoiceReference || prepared.xeroInvoiceId));
   if (!savedInvoicePoAvailable && (!cardAvailable || !saved?.config?.online_card_payment)) {
     return blocked('payment_method_unavailable', 'Renewal payment link withheld: the saved quote does not offer an available upfront payment method.');
   }

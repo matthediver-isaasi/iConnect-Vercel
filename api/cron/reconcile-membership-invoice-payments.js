@@ -203,7 +203,9 @@ async function retryPendingStripeMembershipEvents(baseUrl) {
             .eq('id', evt.id);
           if (ok) summary.recorded++;
         } else {
-          // unmatched/conflict — keep pending (surfaced by logs/admin script)
+          // Includes accounting-pending: a locally paid row is not proof that
+          // its original provider invoice has received the Stripe payment.
+          // Keep the event retryable rather than creating another invoice.
           await supabase.from('payment_webhook_events')
             .update({ processing_error: `${outcome.status}: ${outcome.detail || ''}` })
             .eq('id', evt.id);

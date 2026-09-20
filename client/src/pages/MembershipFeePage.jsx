@@ -43,6 +43,7 @@ export default function MembershipFeePage() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
+  const [accountingWarning, setAccountingWarning] = useState(null);
   const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);
 
   const [startingDd, setStartingDd] = useState(false);
@@ -80,8 +81,8 @@ export default function MembershipFeePage() {
           setPoSubmitted(true);
           setPoNumber(result.poNumber || '');
         }
-        if (result.xeroInvoiceNumber) setInvoiceNumber(result.xeroInvoiceNumber);
-        if (result.xeroOnlineInvoiceUrl) setInvoiceLink(result.xeroOnlineInvoiceUrl);
+        if (result.invoiceNumber || result.xeroInvoiceNumber) setInvoiceNumber(result.invoiceNumber || result.xeroInvoiceNumber);
+        if (result.invoiceUrl || result.xeroOnlineInvoiceUrl) setInvoiceLink(result.invoiceUrl || result.xeroOnlineInvoiceUrl);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -149,8 +150,9 @@ export default function MembershipFeePage() {
         }
 
         const body = await confirmRes.json().catch(() => ({}));
-        if (body.xeroInvoiceNumber) setInvoiceNumber(body.xeroInvoiceNumber);
-        if (body.xeroOnlineInvoiceUrl) setInvoiceLink(body.xeroOnlineInvoiceUrl);
+        setAccountingWarning(body.warning || null);
+        if (body.invoiceNumber || body.xeroInvoiceNumber) setInvoiceNumber(body.invoiceNumber || body.xeroInvoiceNumber);
+        if (body.invoiceUrl || body.xeroOnlineInvoiceUrl) setInvoiceLink(body.invoiceUrl || body.xeroOnlineInvoiceUrl);
         setPaymentComplete(true);
       } catch (err) {
         setPaymentError(err.message);
@@ -176,8 +178,8 @@ export default function MembershipFeePage() {
         throw new Error(err.error || 'Failed to submit PO number');
       }
       const body = await res.json().catch(() => ({}));
-      if (body.xeroInvoiceNumber) setInvoiceNumber(body.xeroInvoiceNumber);
-      if (body.xeroOnlineInvoiceUrl) setInvoiceLink(body.xeroOnlineInvoiceUrl);
+      if (body.invoiceNumber || body.xeroInvoiceNumber) setInvoiceNumber(body.invoiceNumber || body.xeroInvoiceNumber);
+      if (body.invoiceUrl || body.xeroOnlineInvoiceUrl) setInvoiceLink(body.invoiceUrl || body.xeroOnlineInvoiceUrl);
       setPoSubmitted(true);
     } catch (err) {
       setPaymentError(err.message);
@@ -336,8 +338,9 @@ export default function MembershipFeePage() {
         }
 
         const confirmBody = await confirmRes.json().catch(() => ({}));
-        if (confirmBody.xeroInvoiceNumber) setInvoiceNumber(confirmBody.xeroInvoiceNumber);
-        if (confirmBody.xeroOnlineInvoiceUrl) setInvoiceLink(confirmBody.xeroOnlineInvoiceUrl);
+        setAccountingWarning(confirmBody.warning || null);
+        if (confirmBody.invoiceNumber || confirmBody.xeroInvoiceNumber) setInvoiceNumber(confirmBody.invoiceNumber || confirmBody.xeroInvoiceNumber);
+        if (confirmBody.invoiceUrl || confirmBody.xeroOnlineInvoiceUrl) setInvoiceLink(confirmBody.invoiceUrl || confirmBody.xeroOnlineInvoiceUrl);
         setPaymentComplete(true);
       }
     } catch (err) {
@@ -398,6 +401,7 @@ export default function MembershipFeePage() {
             <p className="text-gray-500 mb-4">
               Your membership fee for {data?.membershipYear} has been received.
             </p>
+            {accountingWarning && <p role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{accountingWarning}</p>}
             <div className="p-3 rounded-md bg-gray-50 border">
               <p className="text-sm text-gray-600">Amount Paid</p>
               <p className="text-2xl font-bold" style={{ color: primaryColor }}>
@@ -407,7 +411,7 @@ export default function MembershipFeePage() {
             {(invoiceLink || invoiceNumber) && (
               <div className="mt-4 p-3 rounded-md border bg-white text-left">
                 <p className="text-sm text-gray-600 mb-1">
-                  {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Xero invoice is available online.'}
+                  {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your invoice is available online.'}
                 </p>
                 {invoiceLink ? (
                   <a
@@ -601,7 +605,7 @@ export default function MembershipFeePage() {
               {(invoiceLink || invoiceNumber) && (
                 <div className="mt-3 pt-3 border-t">
                   <p className="text-sm text-gray-600 mb-1">
-                    {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Xero invoice is available online.'}
+                    {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your invoice is available online.'}
                   </p>
                   {invoiceLink ? (
                     <a
