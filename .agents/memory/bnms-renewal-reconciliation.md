@@ -1,3 +1,7 @@
+# Alpha live configuration comparison
+
+An unchanged membership configuration may receive a new top-level `updated_at` during unrelated maintenance. Compare every economic, eligibility, identity and effective-date field, excluding only that audit timestamp; preserve the original immutable manifest/evidence hash. Never generalize this exception to nested timestamps or other fields. Test actual pricing/eligibility drift still blocks adoption.
+
 ---
 name: BNMS renewal reconciliation scope
 description: Agreed scope and evidence boundaries for BNMS migration review spreadsheets.

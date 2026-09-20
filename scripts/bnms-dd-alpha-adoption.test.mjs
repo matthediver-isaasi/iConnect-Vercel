@@ -7,9 +7,16 @@ import pg from 'pg';
 import XLSX from 'xlsx';
 import { TENANT_ID, WORKBOOK_SHA256 } from './bnms-dd-pilot.mjs';
 import { hash, sqlHash, XERO_TENANT_ID, assertHistoricalInvoicesComplete } from './bnms-dd-beta-invoices.mjs';
-import { alphaManifest, adoptAlpha, applyAlphaSchema, verifyAlphaSchema } from './bnms-dd-alpha-adoption.mjs';
+import { alphaManifest, adoptAlpha, applyAlphaSchema, verifyAlphaSchema, alphaStructureMatches } from './bnms-dd-alpha-adoption.mjs';
 import { classifyPopulation, alphaProviderReader } from './bnms-dd-alpha-review.mjs';
 const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+test('live structure comparison ignores only top-level audit timestamp',()=>{
+  const reviewed={dd_monthly_amount:'13',is_active:true,effective_from:'2026-09-01',updated_at:'old',policy:{updated_at:'nested'}};
+  assert.equal(alphaStructureMatches({...reviewed,updated_at:'new'},reviewed),true);
+  for(const change of [{dd_monthly_amount:'14'},{is_active:false},{effective_from:'2026-10-01'},{policy:{updated_at:'changed'}},{new_eligibility:true}]){
+    assert.equal(alphaStructureMatches({...reviewed,...change},reviewed),false);
+  }
+});
 async function fixture(){
   const wb=XLSX.read(await readFile(new URL('../attached_assets/DD_matched_different_emails_1789802289108.xlsx',import.meta.url)),{type:'buffer'});
   const grid=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});

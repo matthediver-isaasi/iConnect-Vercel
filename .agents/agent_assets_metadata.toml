@@ -775,3 +775,45 @@ mtime_ms = 1789845183472
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4deb11c1-81f2-4288-bb06-a32ae695899c/fa5e0daa-be70-4320-8805-ac88962bd69a"
 storage_version_token = "1789845311117629"
 content_type = "text/csv"
+
+[[outputs]]
+id = "NrwKDJneD5H7Oy5RsZ5D9"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-completed.xlsx"
+type = "table"
+title = "BNMS alpha import — completed reconciliation"
+description = "Verified 249 imported memberships, 2,137 historical invoice links and 170 unchanged exceptions. Contains private member data. Collections remain held."
+logical_id = "22f5d875-444d-4610-8fb7-f1e5812b7abf"
+content_hash = "sha256:d074f5e04ae6c49bb5a5778780ec7935b190f44972cfa8fe2a4a80a66307df8d"
+size = 58438
+mtime_ms = 1789885314240
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/22f5d875-444d-4610-8fb7-f1e5812b7abf/c4c979d1-b121-4748-ab66-edb7308255ca"
+storage_version_token = "1789885499772325"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "CQGp8bVJnjfyb2D64Amrc"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-imported.csv"
+type = "table"
+title = "Alpha — 249 imported members"
+description = "Verified imported member list with reconciliation counts. Private member information."
+logical_id = "1d77bd56-e793-4b48-bcd3-578b2a45ede3"
+content_hash = "sha256:04028b945a26474a3df7a2187e432f668a7b8030d5c81cc72aa4a8bd49205d28"
+size = 61897
+mtime_ms = 1789885314244
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1d77bd56-e793-4b48-bcd3-578b2a45ede3/2240439b-5703-4f64-815d-ee31eafbd419"
+storage_version_token = "1789885500458786"
+content_type = "text/csv"
+
+[[outputs]]
+id = "I3aI8I49ge_Tfwd8SKywI"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-exceptions.csv"
+type = "table"
+title = "Alpha — 170 mandate exceptions"
+description = "Excluded mandate records and review reasons. These were not imported or changed."
+logical_id = "0422efbf-984f-4c83-941f-926446af8613"
+content_hash = "sha256:05f10b4f1ef46092c017155fab8ac141defae3580d48b96efb3df9f203175485"
+size = 25984
+mtime_ms = 1789885314244
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0422efbf-984f-4c83-941f-926446af8613/d07aa5bf-7018-4b56-ac85-8350617d1557"
+storage_version_token = "1789885501107236"
+content_type = "text/csv"

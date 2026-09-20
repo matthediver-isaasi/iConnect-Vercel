@@ -4,6 +4,13 @@ import { hash, reconcileHistoricalInvoices, assertHistoricalInvoicesComplete, XE
 import { TENANT_ID, WORKBOOK_SHA256 } from './bnms-dd-pilot.mjs';
 import { classifyPopulation, stableId, FROM, START, END } from './bnms-dd-alpha-review.mjs';
 const fail=m=>{throw Error(m);};
+export function alphaStructureMatches(live,reviewed){
+  const withoutAuditTimestamp=value=>{
+    const {updated_at,...terms}=JSON.parse(JSON.stringify(value));
+    return terms;
+  };
+  return hash(withoutAuditTimestamp(live))===hash(withoutAuditTimestamp(reviewed));
+}
 export function alphaManifest(source,accounting,{entitlements=[]}={}){
   if(source.tenantId!==TENANT_ID||source.xeroTenantId!==XERO_TENANT_ID
     ||source.workbookSha256!==WORKBOOK_SHA256||source.completeAccountDiscovery!==true)fail('Complete pinned source required');
@@ -157,7 +164,7 @@ export async function adoptAlpha(c,manifest,{apply=false,reviewSha256,verifiedDe
         const member=await rows('SELECT * FROM member WHERE id=$1 AND tenant_id=$2',[i.memberId,TENANT_ID]);
         if(member.length!==1||hash(JSON.parse(JSON.stringify(member[0])))!==hash(m.sourceMember))fail('Live member drift');
         const config=await rows('SELECT * FROM membership_tier_config WHERE id=$1 AND tenant_id=$2',[m.structure.id,TENANT_ID]);
-        if(config.length!==1||hash(JSON.parse(JSON.stringify(config[0])))!==hash(m.structure))fail('Live pricing drift');
+        if(config.length!==1||!alphaStructureMatches(config[0],m.structure))fail('Live pricing drift');
         const preferences=await rows(`SELECT v.member_id,f.id AS field_id,f.name,v.value FROM member_preference_value v
           JOIN preference_field f ON f.id=v.field_id WHERE v.member_id=$1 AND f.tenant_id=$2 AND f.entity_scope='member' AND f.is_active=true`,
         [i.memberId,TENANT_ID]);
