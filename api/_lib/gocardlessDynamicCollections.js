@@ -181,6 +181,18 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
   const agreement = checked(await db.from('membership_billing_agreements').select('*')
     .eq('tenant_id', plan.tenant_id).eq('id', plan.billing_agreement_id).single(), 'Load dynamic agreement');
   assertCollectible(agreement, plan);
+  // BNMS pilot processing-not-before: midnight Europe/London (BST), NOT
+  // an instruction to debit on October 1. Identity, not mutable metadata,
+  // determines this safety gate, including retries of existing reservations.
+  const bnmsPilot = agreement.tenant_id === 'ff2df806-b321-4254-b651-3af11fccf1db'
+    && agreement.member_id === '33e5d54d-162e-436d-9bff-ec6676d198f9';
+  if (bnmsPilot) {
+    const timestamp = now().getTime();
+    if (!Number.isFinite(timestamp)) throw new Error('BNMS pilot processing clock is invalid');
+    if (timestamp < Date.parse('2026-09-30T23:00:00Z')) {
+      return { plan, detail: 'BNMS pilot processing starts 1 October 2026 Europe/London' };
+    }
+  }
   const arrears = checked(await db.from('membership_monthly_arrears_period').select('id')
     .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).is('settled_at', null).limit(1), 'Check dynamic collection arrears');
   if (arrears?.length) throw new Error('Dynamic collection is blocked while arrears remain outstanding');
@@ -202,20 +214,21 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
   const client = gc || await gocardlessForTenant(plan.tenant_id);
   const mandate = await client.getMandate(agreement.gocardless_mandate_id);
   if (mandate?.status !== 'active' || !mandate.next_possible_charge_date) throw new Error('Dynamic mandate is not active or has no earliest provider charge date');
-  const today = day(now());
+  const today = bnmsPilot
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now())
+    : day(now());
+  if (bnmsPilot && mandate.next_possible_charge_date < today) {
+    throw new Error('BNMS pilot provider charge date is in the past; refresh provider evidence');
+  }
   if (!reservation) {
     // Only request the provider's authoritative working date. Sending an
     // unverified weekend/holiday date lets GC roll it forward AFTER the effect.
     // Keep the intended monthly cadence separately and never cross term end.
     if (mandate.next_possible_charge_date < intendedDate) return { plan, detail: 'Waiting for provider submission window' };
-    // The approved BNMS cutover is exact, not the generic seven-day grace
-    // window below. A missed submission slot requires explicit review.
-    if (agreement.tenant_id === 'ff2df806-b321-4254-b651-3af11fccf1db'
-      && agreement.member_id === '33e5d54d-162e-436d-9bff-ec6676d198f9'
-      && agreement.metadata?.bnms_pilot_approval?.source === 'task-4533-explicit-user-approval'
+    if (bnmsPilot
       && number === 1 && term.term_start_date === '2026-10-01'
-      && (intendedDate !== '2026-10-01' || mandate.next_possible_charge_date !== '2026-10-01')) {
-      throw new Error('BNMS pilot exact October 1 cutover missed; automatic date movement is forbidden');
+      && intendedDate !== '2026-10-01') {
+      throw new Error('BNMS pilot intended October 1 cadence drifted; review required');
     }
     const latest = day(new Date(Date.parse(`${intendedDate}T00:00:00Z`) + 7 * 86_400_000));
     if (mandate.next_possible_charge_date > term.term_end_date
@@ -227,6 +240,9 @@ export async function collectDynamicPlan(plan, { db = supabase, gc, now = () => 
       p_provider_evidence: { checked_at: now().toISOString(), status: mandate.status, next_possible_charge_date: mandate.next_possible_charge_date, notice_checked_on: today },
       p_idempotency_key: buildIdempotencyKey('dd-dynamic-payment', plan.tenant_id, plan.id, term.term_key, number),
     }), 'Reserve dynamic collection');
+  }
+  if (bnmsPilot && reservation.requested_charge_date < today) {
+    throw new Error('BNMS pilot reserved charge date is in the past; reconcile before retry');
   }
   // Revalidate serialized owner pause, arrears, cancellation and consent after
   // any pricing/provider reads, including on a crash/retry of a reservation.

@@ -173,8 +173,15 @@ test('isolated PostgreSQL atomic held adoption, rollback/resume, concurrency and
     assert.equal(releaseDry.migrationRequired,true);
     const releaseSql=await readFile(new URL('../supabase/migrations/20261111_bnms_dd_pilot_release.sql',import.meta.url),'utf8');
     await client.query(releaseSql);await client.query(releaseSql);
-    const reserve=(date)=>client.query(`INSERT INTO gocardless_collection_reservations(tenant_id,plan_id,collection_number,due_date,requested_charge_date,amount_minor,currency)
-      VALUES($1,$2,1,'2026-10-01',$3,1300,'GBP')`,[TENANT_ID,plan.id,date]);
+    await assert.rejects(releasePilot(client,releaseInput),/processing-start database guard/);
+    await client.query(`ALTER TABLE gocardless_collection_reservations ADD COLUMN IF NOT EXISTS provider_evidence jsonb;
+      CREATE FUNCTION public.test_pilot_clock() RETURNS timestamptz LANGUAGE sql AS
+      $$ SELECT '2026-10-01T00:00:00Z'::timestamptz $$;`);
+    const processingSql=await readFile(new URL('../supabase/migrations/20261114_bnms_dd_pilot_processing_start.sql',import.meta.url),'utf8');
+    await client.query(`BEGIN;${processingSql.replaceAll('clock_timestamp()', 'public.test_pilot_clock()')}COMMIT;`);
+    const reserve=(date)=>client.query(`INSERT INTO gocardless_collection_reservations(tenant_id,plan_id,collection_number,due_date,requested_charge_date,amount_minor,currency,provider_evidence)
+      VALUES($1,$2,1,'2026-10-01',$3,1300,'GBP',$4)`,[TENANT_ID,plan.id,date,
+      {status:'active',next_possible_charge_date:date,checked_at:'2026-10-01T00:00:00Z'}]);
     await assert.rejects(reserve('2026-10-01'),/not been explicitly released/);
     const releaseOpts={...releaseInput,apply:true,verifiedDestination:true,reviewSha256:releaseDry.hash};
     await client.query(`CREATE TRIGGER fail_release BEFORE UPDATE ON membership_payment_plans FOR EACH ROW EXECUTE FUNCTION fail_adoption()`);
@@ -193,8 +200,8 @@ test('isolated PostgreSQL atomic held adoption, rollback/resume, concurrency and
     assert.equal(new Date(releasedPlan.dynamic_next_collection_date).toISOString().slice(0,10),CUTOVER);
     assert.equal(releasedReplay.writes,0);assert.equal(releasedReplay.readinessRevalidated,false);
     assert.equal((await client.query('SELECT collection_stopped_at FROM membership_payment_plans')).rows[0].collection_stopped_at,null);
-    await assert.rejects(reserve('2026-10-02'),/exactly October 1/);
-    await reserve('2026-10-01'); // Local reservation fixture only: no provider called.
+    await assert.rejects(reserve('2026-10-09'),/post-gate provider date evidence/);
+    await reserve('2026-10-07'); // Local reservation fixture only: no provider called.
     await assert.rejects(client.query("UPDATE bnms_dd_pilot_release SET evidence='{}'"),/immutable/);
   }finally{
     await other?.end();await client?.end();

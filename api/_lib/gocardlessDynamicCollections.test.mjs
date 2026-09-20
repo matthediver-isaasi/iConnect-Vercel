@@ -85,6 +85,60 @@ test('dynamic price follows active flat price, never the consent-time initial am
   assert.equal((await resolveDynamicCollectionPrice(f.agreement, '2027-04-02', f)).monthly_amount_minor, 1900);
 });
 
+function pilotFixture(providerDate = '2026-10-07') {
+  const f = fixture({ amount: 13, firstDate: '2026-10-01', providerDate, end: '2027-09-30' });
+  const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  const member = '33e5d54d-162e-436d-9bff-ec6676d198f9';
+  for (const rows of Object.values(f.rows)) for (const row of rows) {
+    if (row.tenant_id === 'tenant') row.tenant_id = tenant;
+    if (row.member_id === 'member') row.member_id = member;
+  }
+  f.agreement.member_id = member;
+  f.rows.member[0].id = member;
+  f.agreement.metadata.dd.commitment.term_start_date = '2026-10-01';
+  f.agreement.metadata.dd.commitment.term_key = 'rolling:2026-10-01';
+  f.now = () => new Date('2026-09-30T23:00:00Z');
+  return f;
+}
+
+test('pilot is gated until London midnight, before provider reads or reservation writes, without approval metadata', async () => {
+  const f = pilotFixture();
+  f.now = () => new Date('2026-09-30T22:59:59.999Z');
+  f.gc.getMandate = () => { throw Error('provider must not be read before gate'); };
+  const result = await collectDynamicPlan(f.plan, f);
+  assert.match(result.detail, /processing starts/);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 0);
+  assert.equal(f.calls.length, 0);
+  f.rows.gocardless_collection_reservations.push({ status: 'reserved' });
+  assert.match((await collectDynamicPlan(f.plan, f)).detail, /processing starts/);
+});
+
+test('pilot processes at London midnight with authoritative later collection date and stable retry key', async () => {
+  const f = pilotFixture();
+  const create = f.gc.createPayment;
+  let request;
+  f.gc.createPayment = async value => { request = value; throw Error('uncertain network'); };
+  await assert.rejects(collectDynamicPlan(f.plan, f), /uncertain network/);
+  assert.equal(request.chargeDate, '2026-10-07');
+  assert.equal(request.amountMinor, 1300);
+  f.gc.createPayment = create;
+  await collectDynamicPlan(f.plan, f);
+  assert.deepEqual(f.calls[0], request);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 1);
+  assert.equal(f.rows.gocardless_collection_reservations[0].due_date, '2026-10-01');
+});
+
+test('pilot fails closed for expired dates, grace-window drift and invalid clocks', async () => {
+  const expired = pilotFixture('2026-09-30');
+  expired.now = () => new Date('2026-10-01T12:00:00Z');
+  await assert.rejects(collectDynamicPlan(expired.plan, expired), /in the past/);
+  const late = pilotFixture('2026-10-09');
+  await assert.rejects(collectDynamicPlan(late.plan, late), /no safe charge date/);
+  const invalid = pilotFixture();
+  invalid.now = () => new Date('invalid');
+  await assert.rejects(collectDynamicPlan(invalid.plan, invalid), /clock is invalid/);
+});
+
 test('missing/overlapping scopes, changed currencies and non-consented dynamic pricing fail closed', async () => {
   const f = fixture();
   f.rows.membership_tier_config.push({ ...f.config, id: 'overlap' });
@@ -242,23 +296,14 @@ test('scheduler persists fair retry backoff and respects elapsed-time budget', a
   assert.equal(noTime.processed + noTime.blocked, 0);
 });
 
-test('BNMS pilot first October collection waits for exact window and never uses generic seven-day movement',async()=>{
-  for(const providerDate of ['2026-09-30','2026-10-01','2026-10-02']){
-    const f=fixture({amount:13,firstDate:'2026-10-01',providerDate,end:'2027-09-30'});
-    f.agreement.tenant_id='ff2df806-b321-4254-b651-3af11fccf1db';
-    f.agreement.member_id='33e5d54d-162e-436d-9bff-ec6676d198f9';
-    f.agreement.metadata.bnms_pilot_approval={source:'task-4533-explicit-user-approval'};
-    f.agreement.metadata.dd.commitment.term_start_date='2026-10-01';
-    // Match the existing fixture's tenant filters to the pinned pilot.
-    f.plan.tenant_id=f.agreement.tenant_id;
-    f.config.tenant_id=f.agreement.tenant_id;
-    if(providerDate==='2026-10-02'){
-      await assert.rejects(collectDynamicPlan(f.plan,f),/exact October 1 cutover missed/);
-      assert.equal(f.calls.length,0);
-    }else{
-      await collectDynamicPlan(f.plan,f);
-      assert.equal(f.calls.length,providerDate==='2026-10-01'?1:0);
-      if(f.calls.length)assert.equal(f.calls[0].chargeDate,'2026-10-01');
-    }
+test('pilot accepts provider dates after the processing gate, while unrelated plans retain existing behavior', async () => {
+  for (const providerDate of ['2026-10-01', '2026-10-02', '2026-10-08']) {
+    const f = pilotFixture(providerDate);
+    await collectDynamicPlan(f.plan, f);
+    assert.equal(f.calls[0].chargeDate, providerDate);
   }
+  const other = fixture({ firstDate: '2026-10-01', providerDate: '2026-10-01' });
+  other.now = () => new Date('2026-09-25T12:00:00Z');
+  await collectDynamicPlan(other.plan, other);
+  assert.equal(other.calls.length, 1);
 });

@@ -49,7 +49,7 @@ export async function verifyDeploymentProof(proof,{token=process.env.VERCEL_API_
       throw Error(`Reviewed/deployed source differs: ${path}`);
     contents[path]=current.toString();
   }
-  if(!contents['api/_lib/gocardlessDynamicCollections.js'].includes('BNMS pilot exact October 1 cutover missed')
+  if(!contents['api/_lib/gocardlessDynamicCollections.js'].includes('BNMS pilot processing-not-before')
     ||!contents['api/_lib/gocardlessAccounting.js'].includes('accounting_migration')
     ||!contents['api/_lib/gocardlessDdRenewals.js'].includes('accounting_migration')
     ||!contents['api/_lib/gocardlessDdRenewals.js'].includes('nominated_day'))throw Error('Reviewed source lacks required pilot accounting/renewal/exact-date capabilities');

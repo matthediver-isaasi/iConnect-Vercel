@@ -13,10 +13,11 @@ export function releaseManifest(e,adoption,proof,accounts){
     ||accounts.revenue.Code!=='200'||accounts.revenue.Status!=='ACTIVE'
     ||accounts.revenue.Type!=='REVENUE')fail('Verified Xero bank/revenue identities are not active');
   if(!proof?.sourceHashes||!proof.deploymentId||!proof.commit)fail('Verified production proof required');
-  return {version:1,memberId:MEMBER_ID,tenantId:TENANT_ID,adoptionId:adoption.id,
+  return {version:2,memberId:MEMBER_ID,tenantId:TENANT_ID,adoptionId:adoption.id,
     adoptionHash:adoption.evidence_sha256,production:proof,accounting:ACCOUNTING,
     firstManagedDate:CUTOVER,firstManagedAmountMinor:1300,collectionMode:'dynamic',
-    purpose:'Release held management plan; existing dynamic worker alone schedules inside exact provider window'};
+    processingNotBefore:'2026-09-30T23:00:00Z',processingTimeZone:'Europe/London',
+    purpose:'Arm held management plan; worker processes from October 1 London midnight using provider-authoritative date within existing seven-day safety window'};
 }
 export async function releasePilot(client,{evidence,proof,accounts,apply=false,reviewSha256,verifiedDestination=false}={}){
   await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -42,8 +43,9 @@ export async function releasePilot(client,{evidence,proof,accounts,apply=false,r
     const schemaReady=(await rows("SELECT to_regclass('public.bnms_dd_pilot_release') IS NOT NULL AS ready"))[0].ready;
     if(schemaReady){
       const guard=await rows(`SELECT t.oid FROM pg_trigger t WHERE t.tgrelid='gocardless_collection_reservations'::regclass
-        AND t.tgname='bnms_dd_initial_reservation_guard' AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal`);
-      if(guard.length!==1)fail('Exact-date database reservation guard must be enabled');
+        AND t.tgname='bnms_dd_initial_reservation_guard' AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
+        AND pg_get_functiondef(t.tgfoid) LIKE '%BNMS pilot processing-not-before October 1 Europe/London%'`);
+      if(guard.length!==1)fail('Pilot processing-start database guard must be enabled; apply separately reviewed processing-start migration');
     }
     const prior=schemaReady?(await rows('SELECT * FROM bnms_dd_pilot_release WHERE adoption_id=$1',[a.id]))[0]:null;
     if(prior){

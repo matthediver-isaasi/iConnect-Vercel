@@ -9,7 +9,7 @@ test('release CLI never accepts an unchecked deployed flag or identity override'
   assert.equal(parseReleaseArgs(['--proof','/tmp/p','--out','/tmp/a']).apply,false);
 });
 test('deployment proof requires active production commit, project anchor, local and git source bytes',async()=>{
-  const content=Buffer.from('accounting_migration nominated_day BNMS pilot exact October 1 cutover missed');
+  const content=Buffer.from('accounting_migration nominated_day BNMS pilot processing-not-before');
   const sum=createHash('sha256').update(content).digest('hex'),commit='a'.repeat(40);
   const proof={version:1,projectId:'prj_test',deploymentId:'dpl_new',commit,
     sourceHashes:Object.fromEntries(REQUIRED_SOURCES.map(p=>[p,sum]))};
@@ -57,7 +57,7 @@ test('deployment proof requires active production commit, project anchor, local 
   await assert.rejects(verifyDeploymentProof(proof,deps),/not the active/);
 });
 test('deployment proof can use credentialless live Vercel connector requests only',async()=>{
-  const content=Buffer.from('accounting_migration nominated_day BNMS pilot exact October 1 cutover missed');
+  const content=Buffer.from('accounting_migration nominated_day BNMS pilot processing-not-before');
   const sum=createHash('sha256').update(content).digest('hex'),commit='b'.repeat(40);
   const proof={version:1,projectId:'prj_test',deploymentId:'dpl_new',commit,teamId:'team_test',
     sourceHashes:Object.fromEntries(REQUIRED_SOURCES.map(p=>[p,sum])),
