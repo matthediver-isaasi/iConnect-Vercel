@@ -405,6 +405,12 @@ const adminNavigationItems = [
     featureId: "page_MonthlyFinanceReport"
   },
   {
+    title: "Individual Membership Payment Report",
+    url: createPageUrl("MembershipPaymentReport"),
+    icon: CreditCard,
+    featureId: "page_MembershipPaymentReport"
+  },
+  {
     title: "Registration Report",
     url: createPageUrl("EventRegistrationReport"),
     icon: FileText,
@@ -1502,7 +1508,7 @@ useEffect(() => {
   // without a login redirect, while authenticated members retain portal chrome.
   const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "DirectDebitReturn", "MonthlyCardReturn", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = [];
@@ -1628,6 +1634,7 @@ useEffect(() => {
     'TicketSalesAnalytics': 'page_admin_TicketSalesAnalytics',
     'PendingPurchaseOrdersReport': 'page_admin_PendingPurchaseOrdersReport',
     'MonthlyFinanceReport': 'page_admin_MonthlyFinanceReport',
+    'MembershipPaymentReport': 'page_admin_MembershipPaymentReport',
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
     'EventBudgetReport': 'page_admin_EventBudgetReport',
     'SurveyReports': 'page_admin_SurveyReports',

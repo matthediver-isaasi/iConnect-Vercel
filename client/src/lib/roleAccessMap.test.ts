@@ -35,9 +35,11 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_admin_PageBuilder: "site-builder",
   page_admin_EventCheckInDashboard: "events.event-checkin",
   page_admin_BriefSettings: "content.brief-settings",
+  page_admin_MembershipPaymentReport: "commerce.membership-payment-report",
   // page_* family
   page_Events: "events.browse-events",
   page_CancellationRequests: "commerce.event-cancellations",
+  page_MembershipPaymentReport: "commerce.membership-payment-report",
   page_MembersList: "crm.members",
   page_BriefManagement: "publications.briefmanagement",
   page_BriefSettings: "content.brief-settings",
@@ -128,6 +130,29 @@ test("gallery directory is a separately controllable gallery capability", () => 
   assert.ok(gallery?.features?.some((feature) => feature.id === "content.gallery.directory"));
   assert.equal(migrateLegacyFeatureId("page_GalleryDirectory"), "content.gallery.directory");
   assert.equal(migrateLegacyFeatureId("page_user_GalleryDirectory"), "content.gallery.directory");
+});
+
+test("individual membership payment report is a dedicated Commerce capability", () => {
+  const commerce = ROLE_ACCESS_MAP.find((module) => module.id === "commerce");
+  assert.deepEqual(
+    commerce?.pages.find((page) => page.id === "commerce.membership-payment-report"),
+    {
+      id: "commerce.membership-payment-report",
+      label: "Individual Membership Payment Report",
+    },
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_MembershipPaymentReport"),
+    "commerce.membership-payment-report",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_MembershipPaymentReport"),
+    "commerce.membership-payment-report",
+  );
+  assert.equal(
+    isResourceExcluded(["commerce"], "commerce.membership-payment-report"),
+    true,
+  );
 });
 
 test("every LEGACY_TO_NEW_MAPPING target is a real resource in ROLE_ACCESS_MAP", () => {

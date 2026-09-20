@@ -118,6 +118,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'memberroleassignment',
   'memberrolereport',
   'membershipfees',
+  'membershippaymentreport',
   'membershipsettings',
   'membershiptiermanagement',
   'micrositemanagement',

@@ -157,3 +157,4 @@
 - [Membership card evidence](membership-card-evidence.md) — joining provenance, historical payments, mandate readiness and future collections must remain distinct.
 - [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
+- [Payment report evidence](payment-report-evidence.md) — legacy pending payment mirrors may lack trustworthy mode/date evidence; retain strict checks and verify provider schedules instead.

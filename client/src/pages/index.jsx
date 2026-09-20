@@ -60,6 +60,8 @@ import VoucherManagement from "./VoucherManagement";
 
 import MonthlyFinanceReport from "./MonthlyFinanceReport";
 
+import MembershipPaymentReport from "./MembershipPaymentReport";
+
 import DirectDebitAdmin from "./DirectDebitAdmin";
 
 import TrainingFundManagement from "./TrainingFundManagement";
@@ -550,6 +552,8 @@ const PAGES = {
     VoucherManagement: VoucherManagement,
     
     MonthlyFinanceReport: MonthlyFinanceReport,
+
+    MembershipPaymentReport: MembershipPaymentReport,
     
     DirectDebitAdmin: DirectDebitAdmin,
     
@@ -1033,6 +1037,8 @@ function PagesContent() {
                 <Route path="/VoucherManagement" element={<VoucherManagement />} />
                 
                 <Route path="/MonthlyFinanceReport" element={<MonthlyFinanceReport />} />
+
+                <Route path="/MembershipPaymentReport" element={<MembershipPaymentReport />} />
                 
                 <Route path="/DirectDebitAdmin" element={<DirectDebitAdmin />} />
                 

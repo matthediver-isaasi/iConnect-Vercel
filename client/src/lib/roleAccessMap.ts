@@ -174,6 +174,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Monthly Finance Report"
       },
       {
+        id: "commerce.membership-payment-report",
+        label: "Individual Membership Payment Report"
+      },
+      {
         id: "commerce.gocardless-dd",
         label: "Direct Debit Console"
       },
@@ -1286,6 +1290,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_MemberGroupClassificationReport": "membership.member-group-classification-report",
   "page_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_admin_MonthlyFinanceReport": "commerce.monthly-finance-report",
+  "page_MembershipPaymentReport": "commerce.membership-payment-report",
+  "page_admin_MembershipPaymentReport": "commerce.membership-payment-report",
   "page_DirectDebitAdmin": "commerce.gocardless-dd",
   "page_admin_DirectDebitAdmin": "commerce.gocardless-dd",
   "page_MembershipFees": "commerce.membership",
