@@ -104,16 +104,23 @@ async function installFixture(page, {
   canViewMembers = true,
   holdReport = false,
   reportStatuses = [],
+  holdCsv = false,
+  csvStatuses = [],
 } = {}) {
   const gate = deferred();
+  const csvGate = deferred();
   const state = {
     reportRequests: [],
+    csvRequests: [],
     writes: [],
     unexpectedExternal: [],
     reportStatuses: [...reportStatuses],
+    csvStatuses: [...csvStatuses],
     releaseReport: gate.release,
+    releaseCsv: csvGate.release,
   };
   if (!holdReport) gate.release();
+  if (!holdCsv) csvGate.release();
   const currentMember = member(excluded);
 
   await page.addInitScript(() => {
@@ -166,6 +173,33 @@ async function installFixture(page, {
       return json(route, { authenticated: false }, 401);
     }
     if (url.pathname === "/api/admin/membership-payment-report") {
+      if (url.searchParams.get("format") === "csv") {
+        state.csvRequests.push({
+          format: url.searchParams.get("format"),
+          method: url.searchParams.get("method"),
+          page: url.searchParams.get("page"),
+          pageSize: url.searchParams.get("pageSize"),
+        });
+        await csvGate.promise;
+        const status = state.csvStatuses.shift() ?? 200;
+        if (status !== 200) {
+          return json(route, {
+            error: status === 403
+              ? "Membership payment report permission required"
+              : "Payment report export temporarily unavailable",
+          }, status);
+        }
+        const selectedMethod = url.searchParams.get("method") || "all";
+        return route.fulfill({
+          status: 200,
+          contentType: "text/csv; charset=utf-8",
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": `attachment; filename="individual-membership-payments-${selectedMethod}.csv"`,
+          },
+          body: `Member,Payment method\r\nFixture member,${selectedMethod}\r\n`,
+        });
+      }
       state.reportRequests.push({
         method: url.searchParams.get("method"),
         page: url.searchParams.get("page"),
@@ -291,6 +325,63 @@ test("pagination and method filtering send server-side query parameters and rese
   expect(state.reportRequests.at(-1)).toEqual({ method: "invoice", page: "1", pageSize: "25" });
 });
 
+test("downloads the selected full-report CSV with the server filename and leaves pagination intact", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText("Page 2 of 2", { exact: true })).toBeVisible();
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("button-download-payment-report").click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe("individual-membership-payments-direct_debit.csv");
+  expect(state.csvRequests).toEqual([{
+    format: "csv",
+    method: "direct_debit",
+    page: null,
+    pageSize: null,
+  }]);
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "direct_debit",
+    page: "1",
+    pageSize: "25",
+  });
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+});
+
+test("prevents duplicate exports while pending and reports JSON export failures without hiding the report", async ({ page }) => {
+  const state = await installFixture(page, { holdCsv: true, csvStatuses: [500] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByTestId("button-download-payment-report").evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  await expect(page.getByTestId("button-download-payment-report"))
+    .toHaveText("Downloading…");
+  await expect(page.getByTestId("button-download-payment-report")).toBeDisabled();
+  expect(state.csvRequests).toHaveLength(1);
+
+  state.releaseCsv();
+  await expect(page.getByTestId("text-export-error"))
+    .toHaveText("Payment report export temporarily unavailable");
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Download CSV");
+  await expect(page.getByTestId("button-download-payment-report")).toBeEnabled();
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Invoice", exact: true }).click();
+  await expect(page.getByTestId("text-export-error")).toHaveCount(0);
+});
+
 test("member names remain plain text unless both client and endpoint allow member access", async ({ page }) => {
   await installFixture(page, {
     excluded: [MEMBERS_PERMISSION],
@@ -328,7 +419,9 @@ test("excluded users are redirected before any report request is made", async ({
   // report content must have been left before any report request is issued.
   await expect(page).not.toHaveURL(/\/MembershipPaymentReport$/);
   expect(state.reportRequests).toEqual([]);
+  expect(state.csvRequests).toEqual([]);
   await expect(page.getByTestId("text-page-title")).toHaveCount(0);
+  await expect(page.getByTestId("button-download-payment-report")).toHaveCount(0);
   await expect(page.getByRole("link", {
     name: "Individual Membership Payment Report",
     exact: true,

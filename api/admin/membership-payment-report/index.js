@@ -1,7 +1,8 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
-import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport } from '../../_lib/membershipPaymentReport.js';
+import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport, isEligiblePaymentReportMember } from '../../_lib/membershipPaymentReport.js';
 import { resolvePaymentReportSchedules } from '../../_lib/membershipPaymentReportSchedules.js';
+import { membershipPaymentReportCsv } from '../../_lib/membershipPaymentReportCsv.js';
 
 const FEATURE = 'commerce.membership-payment-report';
 const BATCH = 1000;
@@ -42,6 +43,10 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         return res.status(403).json({ error: 'Membership Payment Report permission required' });
       }
       const method = req.query?.method ?? 'all';
+      const format = req.query?.format ?? 'json';
+      if (!['json', 'csv'].includes(format)) {
+        return res.status(400).json({ error: 'Invalid report format' });
+      }
       const page = integer(req.query?.page, 1, 1000000);
       const pageSize = integer(req.query?.pageSize, 25, 100);
       if (!page || !pageSize || !['all', ...PAYMENT_REPORT_METHODS.map(item => item.value)].includes(method)) {
@@ -60,10 +65,18 @@ export function createMembershipPaymentReportHandler(deps = {}) {
           query => query.in('status', ['pending_customer_approval', 'pending_submission', 'submitted'])
             .gte('charge_date', (deps.today || new Date().toISOString().slice(0, 10)))),
       ]);
-      const input = { tenantId, members, history, agreements, plans, payments, today: deps.today };
+      const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
+        history, agreements, plans, payments, today: deps.today };
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules })
         .filter(row => method === 'all' || row.paymentMethod === method);
+      if (format === 'csv') {
+        const csv = membershipPaymentReportCsv(rows);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="membership-payment-report-${method}-${deps.today || new Date().toISOString().slice(0, 10)}.csv"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.send(csv);
+      }
       const canViewMembers = !!ctx.tenantUserId || (!!ctx.roleId
         && await checkFeature(ctx.roleId, 'crm.members', ctx.memberExcludedFeatures));
       return res.json({ rows: rows.slice((page - 1) * pageSize, page * pageSize),

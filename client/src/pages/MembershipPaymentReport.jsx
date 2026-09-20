@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, CreditCard } from "lucide-react";
+import { AlertCircle, CreditCard, Download, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -44,10 +44,23 @@ function formatDate(value) {
   });
 }
 
+function exportFilename(response, method) {
+  const disposition = response.headers.get("content-disposition") || "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quoted = disposition.match(/filename="([^"]+)"/i)?.[1];
+  const plain = disposition.match(/filename=([^;]+)/i)?.[1]?.trim();
+  let supplied = encoded ? decodeURIComponent(encoded) : quoted || plain;
+  supplied = supplied?.split(/[\\/]/).pop().replace(/[\r\n"]/g, "");
+  return supplied || `individual-membership-payment-report-${method}.csv`;
+}
+
 export default function MembershipPaymentReport() {
   const { isFeatureExcluded, isAccessReady, sessionValidated } = useMemberAccess();
   const [page, setPage] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("all");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const exportInFlight = useRef(false);
   const hasReportAccess = isAccessReady && sessionValidated && !isFeatureExcluded(FEATURE_ID);
   const clientCanViewMembers = isAccessReady && !isFeatureExcluded(MEMBERS_PERMISSION);
 
@@ -95,6 +108,38 @@ export default function MembershipPaymentReport() {
   const changeMethod = (value) => {
     setPaymentMethod(value);
     setPage(1);
+    setExportError("");
+  };
+
+  const downloadCsv = async () => {
+    if (exportInFlight.current) return;
+    exportInFlight.current = true;
+    setIsExporting(true);
+    setExportError("");
+    try {
+      const params = new URLSearchParams({ format: "csv", method: paymentMethod });
+      const response = await fetch(`/api/admin/membership-payment-report?${params}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to export membership payments");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = exportFilename(response, paymentMethod);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      setExportError(error?.message || "Failed to export membership payments");
+    } finally {
+      exportInFlight.current = false;
+      setIsExporting(false);
+    }
   };
 
   if (!hasReportAccess) {
@@ -136,14 +181,35 @@ export default function MembershipPaymentReport() {
                 </SelectContent>
               </Select>
             </div>
-            {!query.isLoading && !query.error && (
-              <p className="text-sm text-slate-500" data-testid="text-result-count">
-                {total} member{total === 1 ? "" : "s"}
-              </p>
-            )}
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {!query.isLoading && !query.error && (
+                <p className="text-sm text-slate-500" data-testid="text-result-count">
+                  {total} member{total === 1 ? "" : "s"}
+                </p>
+              )}
+              <Button
+                variant="outline"
+                onClick={downloadCsv}
+                disabled={isExporting}
+                data-testid="button-download-payment-report"
+              >
+                {isExporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                )}
+                {isExporting ? "Downloading…" : "Download CSV"}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
+          {exportError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription data-testid="text-export-error">{exportError}</AlertDescription>
+            </Alert>
+          )}
           {query.isLoading ? (
             <div className="space-y-2" data-testid="membership-payment-loading">
               <Skeleton className="h-10 w-full" />

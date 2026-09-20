@@ -113,7 +113,9 @@ function database(tables = {}, calls = []) {
   } };
 }
 async function request(deps, query = {}, method = 'GET') {
-  const res = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+  const res = { code: 200, headers: {}, setHeader(key, value) { this.headers[key] = value; },
+    send(body) { this.body = body; return this; },
+    status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
   await createMembershipPaymentReportHandler({ db: database(), today,
     getTenantContext: async () => ({ isAuthenticated: true, tenantId: 't', roleId: 'r' }),
     hasAdminAccess: async () => true, hasFeatureAccess: async () => true, ...deps })({ method, query }, res);
@@ -258,4 +260,104 @@ test('provider timeout returns promptly and keeps global concurrency bounded', a
   await resolve(fixedInput());
   assert.equal(calls, 1);
   finish({ evidence: 'unavailable', nextConfirmedDate: null });
+});
+
+test('deleted identities are excluded before projection and provider requests, not null emails or disabled logins', async () => {
+  for (const email of ['deleted_abc-123@deleted.local', 'DELETED_identity@DELETED.LOCAL']) {
+    const input = { ...fixedInput(), members: [{ ...member, email }] };
+    let calls = 0;
+    assert.deepEqual(project({ ...input, collectScheduleRequest: () => calls++ }), []);
+    await createReportScheduleResolver({ load: async () => { calls++; return {}; } })(input);
+    assert.equal(calls, 0);
+  }
+  for (const patch of [{ email: null }, { membership_paused: true }, { login_enabled: false }]) {
+    assert.equal(project(fixture({ members: [{ ...member, ...patch }] })).length, 1);
+  }
+  const db = database({ member: [{ ...member, email: 'deleted_m@deleted.local' }],
+    member_membership_history: [history], membership_billing_agreements: [agreement], membership_payment_plans: [plan] });
+  const resolveSchedules = async input => { assert.deepEqual(input.members, []); return new Map(); };
+  const json = await request({ db, resolveSchedules });
+  assert.equal(json.body.total, 0);
+  assert.deepEqual(json.body.rows, []);
+  const csv = await request({ db, resolveSchedules }, { format: 'csv' });
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule\r\n');
+});
+
+test('CSV exports full filtered batches in JSON order, excluding deleted and foreign identities', async () => {
+  const members = Array.from({ length: 1105 }, (_, i) => ({
+    ...member, id: `m${String(i).padStart(4, '0')}`, first_name: `Person ${String(i).padStart(4, '0')}`,
+    email: i === 0 ? 'deleted_m0@deleted.local' : i === 1 ? null : member.email,
+    membership_paused: i === 2, login_enabled: false,
+  }));
+  const histories = members.map((m, i) => ({ ...history, id: `h${m.id}`, member_id: m.id,
+    payment_method: i === 1104 ? 'invoice' : 'card', billing_agreement_id: null, billing_period: 'annual' }));
+  const calls = [];
+  const db = database({
+    member: [...members, { ...member, id: 'foreign', tenant_id: 'foreign' }],
+    member_membership_history: [...histories, { ...history, id: 'foreign', member_id: 'foreign', tenant_id: 'foreign' }],
+  }, calls);
+  const resolveSchedules = async input => {
+    assert.equal(input.members.length, 1104);
+    return new Map();
+  };
+  const csv = await request({ db, resolveSchedules }, { format: 'csv', method: 'card', page: '2', pageSize: '1' });
+  assert.equal(csv.code, 200);
+  assert.equal(csv.headers['Content-Type'], 'text/csv; charset=utf-8');
+  assert.match(csv.headers['Content-Disposition'], /membership-payment-report-card-2026-06-01.csv/);
+  assert.equal(csv.headers['Cache-Control'], 'private, no-store');
+  const lines = csv.body.slice(1).trimEnd().split('\r\n');
+  assert.equal(lines.length, 1104);
+  assert.ok(calls.some(call => call.table === 'member' && call.start === 1000));
+  assert.ok(calls.some(call => call.table === 'member_membership_history' && call.start === 1000));
+  assert.doesNotMatch(csv.body, /deleted_|foreign|mandate|sandbox/);
+  assert.match(lines[1], /^Person 0001,Unknown,/);
+  assert.match(lines[2], /,Paused,Card,Unknown,Not Scheduled$/);
+  const json = await request({ db, resolveSchedules }, { method: 'card', page: '2', pageSize: '100' });
+  assert.equal(json.body.total, 1103);
+  assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), json.body.rows.map(row => row.name));
+});
+
+test('CSV uses readable dates, preserves accents, escapes quotes/newlines and neutralises formulas', async () => {
+  const db = database({
+    member: [{ ...member, first_name: '=Zoë, "Test"\nNext', email: '+mail@example.org' }],
+    member_membership_history: [{ ...history, tier_label: '@Tier\r\nTwo' }],
+    membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment],
+  });
+  const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule\r\n'
+    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Active,Monthly Direct Debit,10 Jun 2026,Confirmed\r\n`);
+});
+
+test('CSV preserves next-payment ordering ahead of alphabetical unknown schedules', async () => {
+  const members = [{ ...member, first_name: 'Zed' }, { ...member, id: 'n', first_name: 'Alpha' }];
+  const db = database({ member: members,
+    member_membership_history: [history, { ...history, id: 'hn', member_id: 'n', billing_agreement_id: null, payment_method: 'invoice' }],
+    membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment] });
+  const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
+  assert.deepEqual(csv.body.split('\r\n').slice(1, 3).map(line => line.split(',')[0]), ['Zed', 'Alpha']);
+});
+
+test('CSV enforces authorization before any reads and failures never send attachment headers', async () => {
+  const db = { from() { throw new Error('Must not read'); } };
+  for (const [deps, status] of [
+    [{ getTenantContext: async () => null }, 401],
+    [{ getTenantContext: async () => ({ isAuthenticated: true, tenantId: 't', tenantMismatch: true }) }, 409],
+    [{ hasAdminAccess: async () => false }, 403],
+    [{ hasFeatureAccess: async () => false }, 403],
+  ]) {
+    const response = await request({ db, ...deps }, { format: 'csv' });
+    assert.equal(response.code, status);
+    assert.deepEqual(response.headers, {});
+  }
+  for (const deps of [
+    { db },
+    { resolveSchedules: async () => { throw new Error('Resolution failed'); } },
+  ]) {
+    const response = await request(deps, { format: 'csv' });
+    assert.equal(response.code, 500);
+    assert.deepEqual(response.headers, {});
+    assert.match(response.body.error, /could not be loaded/);
+  }
+  assert.equal((await request({}, { format: ['csv'] })).code, 400);
+  assert.equal((await request({}, { format: 'pdf' })).code, 400);
 });

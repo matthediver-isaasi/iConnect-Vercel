@@ -1,4 +1,8 @@
 import { selectCanvasCommitment, buildCanvasSummary } from '../membership/canvas-summary.js';
+import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+
+export const isEligiblePaymentReportMember = (row, tenantId) =>
+  row?.tenant_id === tenantId && !isDeletedRelationshipMember(row);
 
 export const PAYMENT_REPORT_METHODS = [
   ['card', 'Card'], ['monthly_card', 'Monthly card'],
@@ -78,7 +82,7 @@ export function projectMembershipPaymentReport({
   tenantId, members, history, agreements = [], plans = [], payments = [], today = new Date().toISOString().slice(0, 10),
   providerSchedules = new Map(), collectScheduleRequest,
 }) {
-  const memberMap = new Map(members.filter(row => row.tenant_id === tenantId).map(row => [row.id, row]));
+  const memberMap = new Map(members.filter(row => isEligiblePaymentReportMember(row, tenantId)).map(row => [row.id, row]));
   const agreementMap = new Map(agreements.filter(row => row.tenant_id === tenantId).map(row => [row.id, row]));
   const plansByAgreement = new Map();
   for (const plan of plans.filter(row => row.tenant_id === tenantId)
