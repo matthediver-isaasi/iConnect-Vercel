@@ -15,7 +15,7 @@ test("public settings exposes the three guest-directory keys", () => {
   for (const key of [
     "org_directory_guest_heading",
     "org_directory_guest_description",
-    "org_directory_guest_join_action_id",
+    "org_directory_guest_join_link",
   ]) {
     assert.match(whitelistSource, new RegExp(`['"]${key}['"]`));
   }
@@ -24,6 +24,7 @@ test("public settings exposes the three guest-directory keys", () => {
 test("authenticated organisation-directory settings remain outside the public whitelist", () => {
   assert.ok(whitelistSource, "PUBLIC_SETTINGS_WHITELIST must remain explicit");
   for (const key of [
+    "org_directory_guest_join_action_id",
     "org_directory_header",
     "org_directory_show_logo",
     "org_directory_show_domains",

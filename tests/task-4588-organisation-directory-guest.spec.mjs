@@ -12,20 +12,31 @@ const ADMIN = {
   is_team_member: true,
   viewer_kind: "administrator",
 };
-const JOIN_ACTION = {
-  id: "task-4588-join-action",
-  title: "Join BNMS",
-  location: "top_nav",
-  display_type: "button",
-  link_type: "external",
-  link_url: "https://www.bnms.org.uk/join",
-  display_order: 1,
-};
 const GUEST_KEYS = [
   "org_directory_guest_heading",
   "org_directory_guest_description",
-  "org_directory_guest_join_action_id",
+  "org_directory_guest_join_link",
 ];
+const PUBLIC_GUEST_KEYS = [...GUEST_KEYS, "org_directory_guest_join_action_id"];
+const LEGACY_JOIN_ACTION_ID = "task-4588-legacy-join-action";
+const EXTERNAL_JOIN_LINK = "https://www.bnms.org.uk/join";
+const INTERNAL_JOIN_LINK = "/Membership";
+const LOGIN_LINK_BRANDING = {
+  label: "Member login",
+  asButton: true,
+  backgroundMode: "gradient",
+  gradientStops: [
+    { color: "#7c3aed", position: 0 },
+    { color: "#db2777", position: 100 },
+  ],
+  cornerRadius: 13,
+  borderWidth: 2,
+  borderColor: "#fbbf24",
+  borderStyle: "solid",
+  labelColor: "#fef3c7",
+  height: 42,
+  width: 156,
+};
 const HERO = {
   id: "task-4588-hero",
   name: "BNMS organisation directory hero",
@@ -65,7 +76,8 @@ const DEFAULT_SETTINGS = [
     "org_directory_guest_description",
     "Sign in to discover and connect with organisations across the BNMS community.",
   ],
-  ["org_directory_guest_join_action_id", JOIN_ACTION.id],
+  ["org_directory_guest_join_link", EXTERNAL_JOIN_LINK],
+  ["org_directory_guest_join_action_id", LEGACY_JOIN_ACTION_ID],
 ].map(([setting_key, setting_value], index) => ({
   id: `task-4588-setting-${index}`,
   tenant_id: TENANT_ID,
@@ -76,16 +88,23 @@ const DEFAULT_SETTINGS = [
 
 function publicSettings(settings, url) {
   const key = url.searchParams.get("key");
-  const rows = settings.filter((setting) => GUEST_KEYS.includes(setting.setting_key));
+  const rows = settings.filter((setting) => PUBLIC_GUEST_KEYS.includes(setting.setting_key));
   return key ? rows.filter((setting) => setting.setting_key === key) : rows;
 }
 
 async function installFixture(page, {
   authenticated = false,
   guestSettings = "configured",
+  navigationFailure = false,
+  loginLinkBranding = LOGIN_LINK_BRANDING,
+  joinLink,
 } = {}) {
   const settings = structuredClone(DEFAULT_SETTINGS);
+  if (joinLink !== undefined) {
+    settings.find((setting) => setting.setting_key === "org_directory_guest_join_link").setting_value = joinLink;
+  }
   const state = {
+    authenticated,
     settings,
     requests: [],
     writes: [],
@@ -117,16 +136,18 @@ async function installFixture(page, {
       body: JSON.stringify(body),
     });
 
-    if (path === "/api/auth/me") return json(authenticated ? ADMIN : null, authenticated ? 200 : 401);
+    if (path === "/api/auth/me") {
+      return json(state.authenticated ? ADMIN : null, state.authenticated ? 200 : 401);
+    }
     if (path === "/api/auth/tenant-user-me") {
-      return json(authenticated
+      return json(state.authenticated
         ? {
           authenticated: true,
           user: ADMIN,
           tenantUser: ADMIN,
           tenant: { id: TENANT_ID, name: "British Nuclear Medicine Society", slug: "bnms" },
         }
-        : { authenticated: false }, authenticated ? 200 : 401);
+        : { authenticated: false }, state.authenticated ? 200 : 401);
     }
     if (path === "/api/auth/tenant-public-settings") {
       return json({
@@ -140,14 +161,33 @@ async function installFixture(page, {
     if (path === "/api/auth/logout") return json({ ok: true });
 
     if (path === "/api/public/system-settings" && method === "GET") {
-      if (guestSettings === "failure" && GUEST_KEYS.includes(url.searchParams.get("key"))) {
+      if (guestSettings === "failure" && PUBLIC_GUEST_KEYS.includes(url.searchParams.get("key"))) {
         return json({ error: "Fixture guest settings unavailable" }, 503);
       }
       if (guestSettings === "unset") return json([]);
       return json(publicSettings(settings, url));
     }
     if (path === "/api/public/navigation-items" && method === "GET") {
-      return json([JOIN_ACTION]);
+      if (navigationFailure) return json({ error: "Fixture navigation unavailable" }, 503);
+      return json([
+        {
+          id: "task-4599-account-navigation",
+          parent_id: null,
+          location: "top_nav",
+          link_type: "content_block",
+          content_block_type: "account",
+          display_order: 0,
+        },
+        {
+          id: LEGACY_JOIN_ACTION_ID,
+          title: "Legacy Join action",
+          location: "top_nav",
+          display_type: "button",
+          link_type: "external",
+          link_url: "https://legacy.example.invalid/should-not-be-used",
+          display_order: 1,
+        },
+      ]);
     }
     if (path === "/api/public/tenant-branding") {
       return json({
@@ -157,7 +197,10 @@ async function installFixture(page, {
           name: "British Nuclear Medicine Society",
           primaryColor: "#312e81",
           logoUrl: null,
-          headerConfig: {},
+          headerConfig: {
+            topNavTextColor: "#ffffff",
+            loginLink: loginLinkBranding,
+          },
           footerConfig: {},
           platformBranding: { enabled: false },
         },
@@ -247,7 +290,11 @@ for (const viewport of [
     );
     await expect(heading).toBeVisible();
     await expect(description).toBeVisible();
-    await expect(page.getByRole("link", { name: "Join BNMS", exact: true })).toBeVisible();
+    const join = page.getByTestId("link-organisation-directory-guest-join");
+    await expect(join).toBeVisible();
+    await expect(join).toHaveAccessibleName("Join");
+    await expect(join).toHaveAttribute("href", EXTERNAL_JOIN_LINK);
+    await expect(join).not.toHaveAttribute("target");
 
     const intro = page.getByTestId("organisation-directory-guest");
     const hero = page.locator(".hero-heading").filter({ hasText: "BNMS member organisations" });
@@ -309,15 +356,18 @@ test("BNMS guest introduction copy saves and survives a settings-page reload", a
 
   const heading = page.getByTestId("input-org-directory-guest-heading");
   const description = page.getByTestId("textarea-org-directory-guest-description");
+  const joinLink = page.getByTestId("input-org-directory-guest-join-link");
   await expect(heading).toHaveValue("BNMS Organisation Directory");
   await expect(description).toHaveValue(
     "Sign in to discover and connect with organisations across the BNMS community.",
   );
+  await expect(joinLink).toHaveValue(EXTERNAL_JOIN_LINK);
 
   await heading.fill("Explore the Nuclear Medicine Department Directory");
   await description.fill(
     "Find nuclear medicine departments and their contact details. Access is available to BNMS members.",
   );
+  await joinLink.fill(INTERNAL_JOIN_LINK);
   await page.getByTestId("button-save-org-directory-guest-introduction").click();
   await expect(page.getByText("Settings saved successfully")).toBeVisible();
 
@@ -329,7 +379,7 @@ test("BNMS guest introduction copy saves and survives a settings-page reload", a
     org_directory_guest_heading: "Explore the Nuclear Medicine Department Directory",
     org_directory_guest_description:
       "Find nuclear medicine departments and their contact details. Access is available to BNMS members.",
-    org_directory_guest_join_action_id: JOIN_ACTION.id,
+    org_directory_guest_join_link: INTERNAL_JOIN_LINK,
   });
 
   await page.reload();
@@ -339,7 +389,128 @@ test("BNMS guest introduction copy saves and survives a settings-page reload", a
     .toHaveValue(
       "Find nuclear medicine departments and their contact details. Access is available to BNMS members.",
     );
+  await expect(page.getByTestId("input-org-directory-guest-join-link")).toHaveValue(INTERNAL_JOIN_LINK);
 
   const guestWrites = state.writes.filter((write) => GUEST_KEYS.includes(write.key));
   expect(guestWrites.map((write) => write.key).sort()).toEqual([...GUEST_KEYS].sort());
+});
+
+test("external Join link saves, reloads, and is rendered in the same tab", async ({ page }) => {
+  const state = await installFixture(page, { authenticated: true, joinLink: INTERNAL_JOIN_LINK });
+  await page.goto("/OrganisationDirectorySettings");
+
+  const joinLink = page.getByTestId("input-org-directory-guest-join-link");
+  await expect(joinLink).toHaveValue(INTERNAL_JOIN_LINK);
+  await joinLink.fill(EXTERNAL_JOIN_LINK);
+  await page.getByTestId("button-save-org-directory-guest-introduction").click();
+  await expect(page.getByText("Settings saved successfully")).toBeVisible();
+  await expect.poll(() => state.settings.find(
+    ({ setting_key }) => setting_key === "org_directory_guest_join_link",
+  )?.setting_value).toBe(EXTERNAL_JOIN_LINK);
+
+  await page.reload();
+  await expect(page.getByTestId("input-org-directory-guest-join-link")).toHaveValue(EXTERNAL_JOIN_LINK);
+
+  state.authenticated = false;
+  const guestPage = await page.context().newPage();
+  await guestPage.goto("/OrganisationDirectory");
+  const join = guestPage.getByTestId("link-organisation-directory-guest-join");
+  await expect(join).toHaveAttribute("href", EXTERNAL_JOIN_LINK);
+  await expect(join).not.toHaveAttribute("target");
+  await expect(join).not.toHaveAttribute("rel");
+});
+
+test("a blank Join link saves and survives a settings-page reload", async ({ page }) => {
+  const state = await installFixture(page, { authenticated: true });
+  await page.goto("/OrganisationDirectorySettings");
+
+  const joinLink = page.getByTestId("input-org-directory-guest-join-link");
+  await joinLink.fill("");
+  await page.getByTestId("button-save-org-directory-guest-introduction").click();
+  await expect(page.getByText("Settings saved successfully")).toBeVisible();
+  await expect.poll(() => state.settings.find(
+    ({ setting_key }) => setting_key === "org_directory_guest_join_link",
+  )?.setting_value).toBe("");
+
+  await page.reload();
+  await expect(page.getByTestId("input-org-directory-guest-join-link")).toHaveValue("");
+});
+
+test("internal Join link uses client routing without opening another tab", async ({ page }) => {
+  await installFixture(page, { joinLink: INTERNAL_JOIN_LINK });
+  await page.goto("/OrganisationDirectory");
+
+  const join = page.getByTestId("link-organisation-directory-guest-join");
+  await expect(join).toHaveAttribute("href", INTERNAL_JOIN_LINK);
+  await expect(join).not.toHaveAttribute("target");
+  await expect(join).not.toHaveAttribute("rel");
+});
+
+for (const joinLink of ["", "not a valid join destination"]) {
+  test(`guest directory hides Join for ${joinLink ? "an invalid" : "a blank"} link and ignores the legacy action ID`, async ({ page }) => {
+    await installFixture(page, { joinLink });
+    await page.goto("/OrganisationDirectory");
+
+    await expect(page.getByTestId("organisation-directory-guest")).toBeVisible();
+    await expect(page.getByTestId("link-organisation-directory-guest-join")).toHaveCount(0);
+  });
+}
+
+test("navigation failure does not block guest settings or its Join CTA", async ({ page }) => {
+  const state = await installFixture(page, { authenticated: true, navigationFailure: true });
+  await page.goto("/OrganisationDirectorySettings");
+
+  const joinLink = page.getByTestId("input-org-directory-guest-join-link");
+  await expect(joinLink).toHaveValue(EXTERNAL_JOIN_LINK);
+  await joinLink.fill(INTERNAL_JOIN_LINK);
+  await page.getByTestId("button-save-org-directory-guest-introduction").click();
+  await expect(page.getByText("Settings saved successfully")).toBeVisible();
+  await expect.poll(() => state.writes.some(
+    ({ key, value }) => key === "org_directory_guest_join_link" && value === INTERNAL_JOIN_LINK,
+  )).toBe(true);
+
+  state.authenticated = false;
+  const guestPage = await page.context().newPage();
+  await guestPage.goto("/OrganisationDirectory");
+  const join = guestPage.getByTestId("link-organisation-directory-guest-join");
+  await expect(join).toHaveAttribute("href", INTERNAL_JOIN_LINK);
+  await expect(join).not.toHaveAttribute("target");
+});
+
+test("Join CTA has style parity with the branded desktop header login action", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installFixture(page);
+  await page.goto("/OrganisationDirectory");
+
+  const headerLogin = page.getByTestId("link-header-login");
+  const join = page.getByTestId("link-organisation-directory-guest-join");
+  await expect(headerLogin).toBeVisible();
+  await expect(join).toBeVisible();
+
+  const styleSnapshot = (locator) => locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundImage: style.backgroundImage,
+      borderColor: style.borderColor,
+      borderRadius: style.borderRadius,
+      borderStyle: style.borderStyle,
+      borderWidth: style.borderWidth,
+      color: style.color,
+      height: style.height,
+      width: style.width,
+    };
+  });
+  expect(await styleSnapshot(join)).toEqual(await styleSnapshot(headerLogin));
+});
+
+test("default plain Join link contrasts with the light guest surface without changing header login", async ({ page }) => {
+  await installFixture(page, { loginLinkBranding: {} });
+  await page.goto("/OrganisationDirectory");
+  const join = page.getByTestId("link-organisation-directory-guest-join");
+  await expect(join).toBeVisible();
+  await expect(join).toHaveText("Join");
+  await expect(join).toHaveCSS("color", "rgb(15, 23, 42)");
+  const headerLogin = page.getByTestId("link-header-login");
+  await expect(headerLogin).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(headerLogin).toHaveAttribute("href", "/login?returnTo=%2FOrganisationDirectory");
 });

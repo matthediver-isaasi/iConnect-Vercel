@@ -22,14 +22,11 @@ import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle"
 import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
 import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
 import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
-import { publicClient } from "@/api/publicClient";
-import { getEligiblePublicHeaderActions } from "@/lib/publicHeaderNavigationActions";
 import {
   ORGANISATION_DIRECTORY_GUEST_DEFAULTS,
+  normalizeOrganisationDirectoryGuestLink,
   saveOrganisationDirectoryGuestSettings,
 } from "@/lib/organisationDirectoryGuestSettings";
-
-const AUTOMATIC_JOIN_ACTION_VALUE = "__automatic_join_action__";
 
 export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
@@ -52,7 +49,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
   const [guestHeading, setGuestHeading] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
   const [guestDescription, setGuestDescription] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description);
-  const [guestJoinActionId, setGuestJoinActionId] = useState("");
+  const [guestJoinLink, setGuestJoinLink] = useState("");
   const tenantId = memberInfo?.tenant_id || null;
   const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
   const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
@@ -64,21 +61,6 @@ export default function OrganisationDirectorySettingsPage() {
     enabled: accessChecked,
     identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
   });
-
-  const navigationActionsQuery = useQuery({
-    queryKey: ['organisation-directory-guest-navigation-actions', tenantId],
-    enabled: accessChecked && Boolean(tenantId),
-    queryFn: () => publicClient.listNavigationItems(),
-    staleTime: 5 * 60 * 1000,
-  });
-  const navigationActions = useMemo(
-    () => getEligiblePublicHeaderActions(navigationActionsQuery.data)
-      .sort((a, b) => {
-        const locationOrder = a.location === b.location ? 0 : (a.location === 'top_nav' ? -1 : 1);
-        return locationOrder || (a.display_order || 0) - (b.display_order || 0);
-      }),
-    [navigationActionsQuery.data]
-  );
 
   useEffect(() => {
     if (isAccessReady) {
@@ -175,7 +157,7 @@ export default function OrganisationDirectorySettingsPage() {
       const customFieldsLabelSetting = allSettings.find((s) => s.setting_key === 'org_directory_custom_fields_label');
       const guestHeadingSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_heading');
       const guestDescriptionSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_description');
-      const guestJoinActionSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_join_action_id');
+      const guestJoinLinkSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_join_link');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -193,7 +175,7 @@ export default function OrganisationDirectorySettingsPage() {
         customFieldsLabel: customFieldsLabelSetting,
         guestHeading: guestHeadingSetting,
         guestDescription: guestDescriptionSetting,
-        guestJoinAction: guestJoinActionSetting
+        guestJoinLink: guestJoinLinkSetting
       };
     },
     refetchOnMount: true
@@ -276,7 +258,7 @@ export default function OrganisationDirectorySettingsPage() {
     setGuestDescription(
       settings?.guestDescription?.setting_value || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description
     );
-    setGuestJoinActionId(settings?.guestJoinAction?.setting_value || "");
+    setGuestJoinLink(settings?.guestJoinLink?.setting_value || "");
   }, [settings]);
 
   // Handler for toggling logo - ensures at least one of logo/title is enabled
@@ -301,7 +283,6 @@ export default function OrganisationDirectorySettingsPage() {
     mutationFn: async () => {
       if (!settings || !filterSettings.isSuccess || filterSettings.isFetching
         || !csvSettings.isSuccess || csvSettings.isFetching
-        || !navigationActionsQuery.isSuccess || navigationActionsQuery.isFetching
         || fieldsPending || fieldsError || fieldsFetching
         || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching) {
         throw new Error("Wait for directory settings and field metadata to load before saving");
@@ -309,6 +290,10 @@ export default function OrganisationDirectorySettingsPage() {
       // Validation: at least one of logo or title must be enabled
       if (!showLogo && !showTitle) {
         throw new Error('At least one of Logo or Title must be enabled');
+      }
+      const normalizedGuestJoinLink = normalizeOrganisationDirectoryGuestLink(guestJoinLink);
+      if (normalizedGuestJoinLink === null) {
+        throw new Error('Join link must be a root-relative path or an http(s) URL');
       }
 
       // Save header setting
@@ -498,11 +483,11 @@ export default function OrganisationDirectorySettingsPage() {
         existingSettings: {
           heading: settings.guestHeading,
           description: settings.guestDescription,
-          joinAction: settings.guestJoinAction,
+          joinLink: settings.guestJoinLink,
         },
         heading: guestHeading,
         description: guestDescription,
-        joinActionId: guestJoinActionId,
+        joinLink: normalizedGuestJoinLink,
       });
       await filterSettings.save();
       await csvSettings.save();
@@ -522,9 +507,7 @@ export default function OrganisationDirectorySettingsPage() {
   const settingsSaveDisabled = saveMutation.isPending
     || !settings
     || !csvSettings.isSuccess
-    || csvSettings.isFetching
-    || !navigationActionsQuery.isSuccess
-    || navigationActionsQuery.isFetching;
+    || csvSettings.isFetching;
 
   const toggleOrganization = (orgId) => {
     setExcludedOrgIds((prev) =>
@@ -840,51 +823,17 @@ export default function OrganisationDirectorySettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="org-directory-guest-join-action">Join action</Label>
-              <Select
-                value={guestJoinActionId || AUTOMATIC_JOIN_ACTION_VALUE}
-                onValueChange={(value) =>
-                  setGuestJoinActionId(value === AUTOMATIC_JOIN_ACTION_VALUE ? "" : value)
-                }
-                disabled={!navigationActionsQuery.isSuccess || navigationActionsQuery.isFetching}
-              >
-                <SelectTrigger
-                  id="org-directory-guest-join-action"
-                  data-testid="select-org-directory-guest-join-action"
-                >
-                  <SelectValue placeholder="Select a public header action" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AUTOMATIC_JOIN_ACTION_VALUE}>
-                    Automatic (use the single Join button)
-                  </SelectItem>
-                  {navigationActions.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.title} ({item.location === 'top_nav' ? 'top navigation' : 'main navigation'})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="org-directory-guest-join-link">Join link</Label>
+              <Input
+                id="org-directory-guest-join-link"
+                value={guestJoinLink}
+                onChange={(event) => setGuestJoinLink(event.target.value)}
+                placeholder="/join"
+                data-testid="input-org-directory-guest-join-link"
+              />
               <p className="text-xs text-slate-500">
-                Choose an existing public header button so the guest Join button uses the same destination and
-                behaviour. Automatic only uses a button named Join when exactly one match exists.
+                Enter a link beginning with / or a full http(s) URL. Leave blank to hide the Join link.
               </p>
-              {navigationActionsQuery.isPending && (
-                <p role="status" className="text-sm text-slate-600">Loading public header actions…</p>
-              )}
-              {navigationActionsQuery.isError && (
-                <div role="alert" className="text-sm text-red-700">
-                  Public header actions could not be loaded. Saving is unavailable until they load.
-                  <Button variant="link" onClick={() => navigationActionsQuery.refetch()}>Retry</Button>
-                </div>
-              )}
-              {navigationActionsQuery.isSuccess && guestJoinActionId
-                && !navigationActions.some((item) => String(item.id) === guestJoinActionId) && (
-                <p role="alert" className="text-sm text-amber-700">
-                  The saved navigation action is no longer available. Guests will not see a Join link until you
-                  choose another action or select Automatic.
-                </p>
-              )}
             </div>
 
             <div className="pt-4 border-t">

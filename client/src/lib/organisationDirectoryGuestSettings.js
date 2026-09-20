@@ -12,11 +12,41 @@ const SETTING_DEFINITIONS = Object.freeze({
     key: 'org_directory_guest_description',
     description: 'Description shown to signed-out visitors on the organisation directory',
   },
-  joinAction: {
-    key: 'org_directory_guest_join_action_id',
-    description: 'Public header navigation action used for the organisation directory Join button (blank = automatic)',
+  joinLink: {
+    key: 'org_directory_guest_join_link',
+    description: 'Link shown to signed-out visitors on the organisation directory (blank = hidden)',
   },
 });
+
+export function normalizeOrganisationDirectoryGuestLink(value) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/[\u0000-\u001f\u007f\\]/.test(trimmed) || /%(?![0-9a-f]{2})/i.test(trimmed)) {
+    return null;
+  }
+
+  if (trimmed.startsWith('/')) {
+    if (trimmed.startsWith('//')) return null;
+    try {
+      new URL(trimmed, 'https://example.invalid');
+      return trimmed;
+    } catch {
+      return null;
+    }
+  }
+
+  if (!/^https?:\/\/[^/?#\s]/i.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) return null;
+    if (parsed.username || parsed.password) return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
 
 async function saveSetting(entity, row, definition, settingValue) {
   if (row) {
@@ -35,12 +65,17 @@ export async function saveOrganisationDirectoryGuestSettings({
   existingSettings,
   heading,
   description,
-  joinActionId,
+  joinLink,
 }) {
+  const normalizedJoinLink = normalizeOrganisationDirectoryGuestLink(joinLink);
+  if (normalizedJoinLink === null) {
+    throw new Error('Join link must be a root-relative path or an http(s) URL');
+  }
+
   const values = {
     heading: String(heading || '').trim() || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading,
     description: String(description || '').trim() || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description,
-    joinAction: String(joinActionId || ''),
+    joinLink: normalizedJoinLink,
   };
 
   await saveSetting(entity, existingSettings.heading, SETTING_DEFINITIONS.heading, values.heading);
@@ -52,8 +87,8 @@ export async function saveOrganisationDirectoryGuestSettings({
   );
   await saveSetting(
     entity,
-    existingSettings.joinAction,
-    SETTING_DEFINITIONS.joinAction,
-    values.joinAction
+    existingSettings.joinLink,
+    SETTING_DEFINITIONS.joinLink,
+    values.joinLink
   );
 }
