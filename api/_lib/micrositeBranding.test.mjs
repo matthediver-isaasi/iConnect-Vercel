@@ -10,6 +10,7 @@ import {
   validateMicrositeHeaderLogoConfig,
   resolveMicrositeHeaderConfigUpdate,
 } from './microsites.js';
+import { resolveMicrositeLogoHomePath } from '../../shared/micrositeHeaderLogo.js';
 
 /**
  * Regression coverage for the per-microsite branding override plumbing
@@ -188,6 +189,66 @@ test('partial header config can clear shrink back to inheritance without losing 
       logoScrolledHeight: null,
     },
   });
+});
+
+test('header logo destination accepts enum values and rejects everything else', () => {
+  assert.deepEqual(validateMicrositeHeaderLogoConfig({
+    logoDestination: 'main_site_home',
+  }).values.logoDestination, 'main_site_home');
+  assert.equal(
+    Object.hasOwn(validateMicrositeHeaderLogoConfig({
+      logoDestination: 'microsite_home',
+    }).values, 'logoDestination'),
+    false,
+  );
+  for (const empty of [undefined, null, '']) {
+    const result = validateMicrositeHeaderLogoConfig({ logoDestination: empty });
+    assert.equal(result.ok, true);
+    assert.equal(Object.hasOwn(result.values, 'logoDestination'), false);
+  }
+  for (const invalid of ['tenant_home', '/', false, 1]) {
+    assert.equal(
+      validateMicrositeHeaderLogoConfig({ logoDestination: invalid }).ok,
+      false,
+      `expected ${String(invalid)} to be rejected`,
+    );
+  }
+});
+
+test('focused destination updates preserve unrelated header config and reset by omission', () => {
+  const existing = {
+    gradientStops: [{ color: '#123456', position: 0 }],
+    logoHeight: 120,
+    logoDestination: 'main_site_home',
+  };
+  assert.deepEqual(resolveMicrositeHeaderConfigUpdate(existing, {
+    logoDestination: 'microsite_home',
+  }), {
+    ...existing,
+    logoDestination: 'microsite_home',
+  });
+  assert.deepEqual(resolveMicrositeHeaderConfigUpdate(existing, {
+    logoDestination: null,
+  }), {
+    gradientStops: existing.gradientStops,
+    logoHeight: 120,
+  });
+});
+
+test('microsite logo path defaults home and strictly honors main-site destination', () => {
+  const microsite = { path_prefix: 'community', home_slug: 'welcome' };
+  assert.equal(resolveMicrositeLogoHomePath(microsite, {}), '/community/welcome');
+  assert.equal(
+    resolveMicrositeLogoHomePath(microsite, { logoDestination: 'microsite_home' }),
+    '/community/welcome',
+  );
+  assert.equal(
+    resolveMicrositeLogoHomePath(microsite, { logoDestination: 'main_site_home' }),
+    '/',
+  );
+  assert.equal(resolveMicrositeLogoHomePath(microsite, { logoDestination: 'MAIN_SITE_HOME' }), '/community/welcome');
+  assert.equal(resolveMicrositeLogoHomePath({ path_prefix: 'community' }, {}), '/');
+  assert.equal(resolveMicrositeLogoHomePath(null, {}), '/');
 });
 
 // --- sanitizeMicrositeBrandingConfig -----------------------------------------

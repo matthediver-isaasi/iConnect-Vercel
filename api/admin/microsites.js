@@ -27,7 +27,13 @@ async function validateHeaderConfig(headerConfig, tenantId) {
 
 function normalizeHeaderLogoConfig(headerConfig, values) {
   const normalized = { ...headerConfig };
-  for (const key of ['logoHeight', 'logoWidth', 'logoShrinkOnScroll', 'logoScrolledHeight']) {
+  for (const key of [
+    'logoHeight',
+    'logoWidth',
+    'logoShrinkOnScroll',
+    'logoScrolledHeight',
+    'logoDestination',
+  ]) {
     delete normalized[key];
   }
   if (values.logoHeight !== null) normalized.logoHeight = values.logoHeight;
@@ -37,6 +43,9 @@ function normalizeHeaderLogoConfig(headerConfig, values) {
   }
   if (values.logoScrolledHeight !== null) {
     normalized.logoScrolledHeight = values.logoScrolledHeight;
+  }
+  if (values.logoDestination !== undefined) {
+    normalized.logoDestination = values.logoDestination;
   }
   return normalized;
 }

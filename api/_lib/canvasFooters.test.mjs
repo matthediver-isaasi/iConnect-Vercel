@@ -57,3 +57,24 @@ test('microsite inherit uses the main configured footer and keeps overrides dorm
   );
   assert.deepEqual(payload.footerConfig, tenantFooter);
 });
+
+test('microsite branding never inherits a tenant logo destination', () => {
+  const tenant = {
+    header_config: {
+      textColor: '#fff',
+      logoDestination: 'main_site_home',
+    },
+  };
+  const inherited = buildTenantBrandingPayload(tenant, {
+    header_config: { logoHeight: 120 },
+  });
+  assert.deepEqual(inherited.headerConfig, {
+    textColor: '#fff',
+    logoHeight: 120,
+  });
+
+  const overridden = buildTenantBrandingPayload(tenant, {
+    header_config: { logoDestination: 'main_site_home' },
+  });
+  assert.equal(overridden.headerConfig.logoDestination, 'main_site_home');
+});

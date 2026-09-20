@@ -426,7 +426,7 @@ export default function MicrositeManagement() {
                       ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Served at the microsite's base URL (/{form.path_prefix || "prefix"}) and where the microsite logo links. Choose from pages assigned to this microsite.</p>
+                <p className="text-xs text-muted-foreground">Served at the microsite's base URL (/{form.path_prefix || "prefix"}) and the default header logo destination. You can change the logo destination in Header &amp; Footer. Choose from pages assigned to this microsite.</p>
               </div>
             )}
             <div className="flex items-center gap-2">

@@ -17,7 +17,7 @@ import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
 import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
-import { DEFAULT_HEADER_LOGO_HEIGHT } from "@shared/micrositeHeaderLogo";
+import { DEFAULT_HEADER_LOGO_HEIGHT, resolveMicrositeLogoHomePath } from "@shared/micrositeHeaderLogo";
 import { resolvePublicHeaderLink } from "@/lib/publicHeaderLogin";
 import PublicLoginLink from "@/components/layouts/PublicLoginLink";
 
@@ -270,11 +270,8 @@ export default function PublicHeader() {
   // Task #2426: on microsite routes this returns the microsite-merged
   // branding (header config/logo overrides); elsewhere the tenant branding.
   const { branding } = usePublicChromeBranding() || {};
-  const { micrositePrefix, activeMicrosite } = useMicrosite();
-  // Microsite logo links to the microsite home page when one is set.
-  const logoHomePath = (activeMicrosite && activeMicrosite.home_slug)
-    ? `/${activeMicrosite.path_prefix}/${activeMicrosite.home_slug}`
-    : "/";
+  const { micrositePrefix, activeMicrosite, micrositeBranding } = useMicrosite();
+  const logoHomePath = resolveMicrositeLogoHomePath(activeMicrosite, micrositeBranding?.headerConfig);
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
   // Search-results branding (mirrors the full /search page): apply the
   // configured font to result text and the configured colour to type labels

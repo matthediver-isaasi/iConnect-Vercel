@@ -38,3 +38,14 @@ the existing Nix Chromium ran the same isolated tests successfully.
 `executablePath`; do not assume a pinned store path persists between sessions.
 Confirm test discovery too: an explicit spec argument still respects config
 `testMatch`, so excluded specs need a narrowly scoped config.
+
+Distinguish Supabase client initialization failures from regression assertions
+when running suites on Node 20.
+
+**Why:** The installed realtime client can require native WebSocket support
+even in suites that never subscribe, causing module-load or post-test
+uncaught errors rather than a feature regression.
+
+**How to apply:** Check the first error and runtime version before investigating
+individual failed tests. Report runtime-blocked suites separately from passing
+isolated feature tests; do not silently weaken network safety boundaries.

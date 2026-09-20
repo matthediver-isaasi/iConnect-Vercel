@@ -155,6 +155,7 @@ export function resolveMicrositeHeaderConfigUpdate(existingConfig, submittedConf
     'logoWidth',
     'logoShrinkOnScroll',
     'logoScrolledHeight',
+    'logoDestination',
   ]);
   for (const [key, value] of Object.entries(submitted)) {
     if (nullableLogoKeys.has(key) && (value === null || value === '')) {

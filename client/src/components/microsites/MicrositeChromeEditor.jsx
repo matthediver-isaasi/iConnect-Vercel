@@ -290,6 +290,7 @@ export default function MicrositeChromeEditor({ microsite }) {
         footerSocialIconColor: bc.footerSocialIconColor || "",
       },
       header: {
+        logoDestination: hc.logoDestination === "main_site_home" ? "main_site_home" : "microsite_home",
         // Legacy microsites may store gradientColors (plain color array)
         // instead of gradientStops — hydrate both shapes, like /admin/branding.
         gradientStops: (hasVal(hc.gradientStops) || hasVal(hc.gradientColors))
@@ -404,6 +405,9 @@ export default function MicrositeChromeEditor({ microsite }) {
     mutationFn: async () => {
       // header_config: preserve unmanaged keys; managed keys follow the toggles.
       const headerOut = { ...(microsite.header_config || {}) };
+      // Navigation is independent of the logo appearance override.
+      if (header.logoDestination === "main_site_home") headerOut.logoDestination = header.logoDestination;
+      else delete headerOut.logoDestination;
       if (overrides.headerGradient && hasVal(header.gradientStops)) headerOut.gradientStops = header.gradientStops;
       else delete headerOut.gradientStops;
       // Top navigation bar font + colours (mirrors the secondary bar overrides).
@@ -534,6 +538,24 @@ export default function MicrositeChromeEditor({ microsite }) {
       </ChromeCard>
 
       {/* 3. Header Logo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Header logo destination</CardTitle>
+          <CardDescription>Choose where clicking the header logo takes visitors, including when its appearance is inherited.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Label htmlFor="ms-logo-destination">Header logo destination</Label>
+          <Select value={header.logoDestination} onValueChange={(logoDestination) => setHeader({ logoDestination })}>
+            <SelectTrigger id="ms-logo-destination" data-testid="select-ms-logo-destination">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="microsite_home">Microsite home (default)</SelectItem>
+              <SelectItem value="main_site_home">Main site home (/)</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
       <ChromeCard
         icon={PanelTop}
         title="Header Logo"

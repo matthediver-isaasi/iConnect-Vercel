@@ -1,4 +1,5 @@
 const LOGO_DIMENSION_KEYS = ['logoHeight', 'logoWidth', 'logoScrolledHeight'];
+export const MICROSITE_LOGO_DESTINATIONS = ['microsite_home', 'main_site_home'];
 export const DEFAULT_HEADER_LOGO_HEIGHT = 158;
 
 /**
@@ -54,6 +55,26 @@ export function validateMicrositeHeaderLogoConfig(config, tenantHeaderConfig = {
     values.logoShrinkOnScroll = source.logoShrinkOnScroll;
   }
 
+  const destinationIsEmpty = source.logoDestination === null
+    || source.logoDestination === undefined
+    || (typeof source.logoDestination === 'string' && source.logoDestination.trim() === '');
+  if (!destinationIsEmpty) {
+    const logoDestination = typeof source.logoDestination === 'string'
+      ? source.logoDestination.trim()
+      : source.logoDestination;
+    if (!MICROSITE_LOGO_DESTINATIONS.includes(logoDestination)) {
+      return {
+        ok: false,
+        error: 'logoDestination must be microsite_home or main_site_home',
+      };
+    }
+    // Microsite home is the default and is represented by an omitted key.
+    // Only the non-default choice needs to be persisted.
+    if (logoDestination === 'main_site_home') {
+      values.logoDestination = logoDestination;
+    }
+  }
+
   const fullHeight = values.logoHeight
     ?? normalizePositiveLogoDimension(tenant.logoHeight)
     ?? DEFAULT_HEADER_LOGO_HEIGHT;
@@ -65,6 +86,17 @@ export function validateMicrositeHeaderLogoConfig(config, tenantHeaderConfig = {
   }
 
   return { ok: true, values };
+}
+
+/**
+ * Resolve the public path used by a microsite header logo. Microsite home is
+ * the default; opting into the main site, or lacking a configured microsite
+ * home page, safely falls back to the tenant root.
+ */
+export function resolveMicrositeLogoHomePath(activeMicrosite, headerConfig) {
+  if (headerConfig?.logoDestination === 'main_site_home') return '/';
+  if (!activeMicrosite?.home_slug || !activeMicrosite?.path_prefix) return '/';
+  return `/${activeMicrosite.path_prefix}/${activeMicrosite.home_slug}`;
 }
 
 export { LOGO_DIMENSION_KEYS };

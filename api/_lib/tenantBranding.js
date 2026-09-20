@@ -26,7 +26,16 @@ export function buildTenantBrandingPayload(
 
   const headerConfig = microsite
     ? mergeMicrositeConfig(tenantData.header_config, microsite.header_config)
-    : (tenantData.header_config || {});
+    : { ...(tenantData.header_config || {}) };
+  // Logo navigation is microsite-specific and must never be inherited from a
+  // tenant header config. An omitted microsite value means microsite home.
+  delete headerConfig.logoDestination;
+  if (
+    microsite?.header_config?.logoDestination === 'microsite_home'
+    || microsite?.header_config?.logoDestination === 'main_site_home'
+  ) {
+    headerConfig.logoDestination = microsite.header_config.logoDestination;
+  }
   // Explicit inheritance means the main configured footer byte-for-byte, even
   // when a microsite retains an old configured override for later reuse.
   const footerConfig = microsite
