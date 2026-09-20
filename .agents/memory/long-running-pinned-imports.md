@@ -26,3 +26,15 @@ Distinguish implemented financial release guards from optional browser acceptanc
 **Why:** Authenticated deployment/provider verification is not member-session verification; a historical UI-test limitation does not establish an additional financial release gate.
 
 **How to apply:** Inspect the actual release contract and honor all its scope, deployment, provider, freshness and transaction guards. Report browser verification separately unless explicitly required; never invent a browser-session requirement or fabricate authentication evidence.
+
+Persist provider acquisition separately from release freshness.
+
+**Why:** Paid historical invoices can still be refunded or edited, contacts archived, and new payments added while a rate limit is in force. Finishing a cached historical scan does not prove today's financial state.
+
+**How to apply:** Alpha's private GET checkpoint retains actual observation times and list-generation groups, scoped to destination, manifest, tenant/provider account, environment and invoice-date semantics. Resume successful pages/contact reads for discovery, enforce saved Retry-After before reads, then invalidate whole stale paginated lists for final revalidation; never combine an old first page with a fresh tail as release evidence. The 15-minute oldest-observation guard still applies. Long waits necessarily require mutable rechecks even though acquisition progress is saved; do not promise zero repeated API reads. Invoice filtering uses invoice Date >= 2026-01-01 without a future-date cap.
+
+Provider identity claims alone do not authorize cached financial evidence.
+
+**Why:** A tenant's stored credentials can rotate or be reassigned between scans; a fresh cached invoice list also cannot exclude an invoice created after dry-run.
+
+**How to apply:** Authenticate the pinned Xero connection and GoCardless creditor outside the cache before any replay, bind cached generations to non-secret credential digests, and discard prior responses on credential rotation. Canonical Alpha apply forces a complete fresh provider pass and compares the reviewed economic hash; the 15-minute window does not authorize replaying dry-run results as final apply evidence. Enforce saved cooldown before deployment verification and again immediately before OAuth refresh after a wait.

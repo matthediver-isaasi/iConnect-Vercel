@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 // Default is read-only. Schema and arming each require their own reviewed hash.
 // There is no provider-write, email, invoice, cron or deployment operation here.
+// Readiness automatically resumes exports/private-bnms-alpha-readiness/checkpoint.json.
+// Re-run the same manifest/handover/proof command with a NEW --out filename.
+// Optional --checkpoint selects a dedicated mode-0700 exports directory.
+// After long waits mutable lists/contacts must be revalidated; saved pages never
+// acquire a new observation timestamp. Do not delete the journal to bypass 429.
+// --apply always reacquires ALL mutable provider evidence, even immediately
+// after dry-run, and releaseAlpha compares the resulting economic review hash.
 import {readFile,open} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {destinationTarget} from './apply-custom-object-relationship-deleted-members-migration.mjs';
+import {DEFAULT_ALPHA_CHECKPOINT,assertAlphaCheckpointRetryAllowed} from './bnms-dd-alpha-checkpoint.mjs';
 
 export function parseAlphaReleaseArgs(args){
   const opts={apply:false,schema:false};
@@ -12,17 +20,17 @@ export function parseAlphaReleaseArgs(args){
     const arg=args[i],key=arg.slice(2);
     if(['--apply','--schema'].includes(arg)&&!opts[key])opts[key]=true;
     else if(/^--review-sha256=[a-f0-9]{64}$/.test(arg)&&!opts.reviewSha256)opts.reviewSha256=arg.split('=')[1];
-    else if(['manifest','out','handover','proof','replay'].includes(key)&&arg===`--${key}`&&!opts[key]
+    else if(['manifest','out','handover','proof','replay','checkpoint'].includes(key)&&arg===`--${key}`&&!opts[key]
       &&args[i+1]&&!args[i+1].startsWith('--'))opts[key]=args[++i];
     else throw Error('Unsupported/duplicate alpha release argument; identity overrides forbidden');
   }
   if(opts.schema){
-    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay)throw Error('Schema and member-release modes must be separate');
+    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay||opts.checkpoint)throw Error('Schema and member-release modes must be separate');
   }else if(!opts.out||!resolve(opts.out).startsWith(`${resolve('exports')}/`)
     ||(!opts.replay&&(!opts.manifest||!opts.handover||!opts.proof)))
     throw Error('Pinned manifest, exact-alpha handover, deployment proof and private exports output required');
   if(opts.apply&&!opts.reviewSha256)throw Error('Exact reviewed SHA-256 required');
-  if(opts.replay&&(opts.apply||!opts.reviewSha256||opts.manifest||opts.handover||opts.proof))
+  if(opts.replay&&(opts.apply||!opts.reviewSha256||opts.manifest||opts.handover||opts.proof||opts.checkpoint))
     throw Error('Replay is read-only and requires only original report/hash and new output');
   return opts;
 }
@@ -66,13 +74,22 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
         throw Error('Original alpha readiness/release report and hash required');
       report=saved.report;proof=saved.proof;
     }else{
+      await assertAlphaCheckpointRetryAllowed(opts.checkpoint||DEFAULT_ALPHA_CHECKPOINT);
       // Reject missing/stale deployment before spending the bounded API budget.
       proof=await verifyDeploymentProof(JSON.parse(await readFile(resolve(opts.proof),'utf8')),{vercelRequest});
       const {createClient}=await import('@supabase/supabase-js');
       const db=createClient(env.DEST_SUPABASE_URL,env.DEST_SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
-      report=await readAlphaReleaseEvidence(db,{
-        manifest:JSON.parse(await readFile(resolve(opts.manifest),'utf8')),
-        handover:JSON.parse(await readFile(resolve(opts.handover),'utf8'))});
+      try{
+        report=await readAlphaReleaseEvidence(db,{
+          checkpointPath:opts.checkpoint||DEFAULT_ALPHA_CHECKPOINT,
+          forceFresh:opts.apply,
+          manifest:JSON.parse(await readFile(resolve(opts.manifest),'utf8')),
+          handover:JSON.parse(await readFile(resolve(opts.handover),'utf8'))});
+      }catch(error){
+        await output.writeFile(JSON.stringify({mode:'alpha_readiness_stopped',providerWrites:0,
+          rateLimit:error.rateLimitDiagnostic||null,checkpoint:error.checkpointProgress||null},null,2));
+        throw error;
+      }
     }
     const blockers=[...report.globalBlockers,...report.members.flatMap(m=>m.blockers.map(b=>`${m.memberId}: ${b}`))];
     if(blockers.length){

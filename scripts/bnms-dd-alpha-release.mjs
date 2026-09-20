@@ -3,6 +3,7 @@
 import {readFile} from 'node:fs/promises';
 import { hash, sqlHash, assertHistoricalInvoicesComplete } from './bnms-dd-beta-invoices.mjs';
 import { TENANT_ID } from './bnms-dd-pilot.mjs';
+import {ALPHA_INVOICE_START,alphaInvoiceQuery,openAlphaCheckpoint,readAlphaRateLimitSeed} from './bnms-dd-alpha-checkpoint.mjs';
 
 export const ALPHA_MANIFEST_SHA256='3aff20a6e04338c3b3532d57c6be4b8395afa5ff8d5dbbe878daab52017f395a';
 export const PROCESSING_NOT_BEFORE='2026-09-30T23:00:00Z';
@@ -184,10 +185,11 @@ export function alphaRateLimitDiagnostic(target,response,instant){
   const xero=target.hostname==='api.xero.com';
   const route=xero
     ? /^\/api\.xro\/2\.0\/(Accounts|Contacts|Invoices)(?:\/[^/]+)?\/?$/.exec(target.pathname)
-    : /^\/(customers|mandates|payments|subscriptions)(?:\/[^/]+)?\/?$/.exec(target.pathname);
+    : /^\/(customers|mandates|payments|subscriptions|creditors)(?:\/[^/]+)?\/?$/.exec(target.pathname);
   const resource=route?.[1];
   const prefix=xero?'/api.xro/2.0/':'/';
-  const endpoint=resource?`${prefix}${resource}${target.pathname.replace(/\/$/,'')===prefix+resource?'':'/:id'}`:'[unrecognized route]';
+  const endpoint=xero&&target.pathname==='/connections'?'/connections'
+    :resource?`${prefix}${resource}${target.pathname.replace(/\/$/,'')===prefix+resource?'':'/:id'}`:'[unrecognized route]';
   const header=name=>{
     const value=response.headers?.get?.(name);
     return typeof value==='string'&&value.length<=128?value.trim():null;
@@ -273,7 +275,59 @@ export function assertAlphaLiveContact(links,contact,memberId){
   return {contactId:contact.ContactID,status:contact.ContactStatus,email:normalize(contact.EmailAddress)};
 }
 
-export async function readAlphaReleaseEvidence(db,{manifest,handover,transport=fetch,now=()=>new Date(),sleep}={}){
+export async function readAlphaReleaseEvidence(db,options={}){
+  if(!options.checkpointPath)return readAlphaReleaseEvidencePass(db,options);
+  const {manifest,now=()=>new Date()}=options;
+  if(hash(manifest)!==ALPHA_MANIFEST_SHA256||!db.supabaseUrl)
+    fail('Pinned manifest and destination identity required for checkpoint');
+  const checkpoint=await openAlphaCheckpoint(options.checkpointPath,{
+    tenantId:TENANT_ID,xeroTenantId:ALPHA_XERO_TENANT_ID,creditorId:'CR0000B50W1Y2R',
+    environment:'live',destination:db.supabaseUrl,manifestSha256:hash(manifest),
+    invoiceStart:ALPHA_INVOICE_START,semantics:'alpha-readiness-current-state-v1',
+  },{now,seedRateLimit:await readAlphaRateLimitSeed(options.rateLimitSeedPath)});
+  try{
+    checkpoint.assertAllowed();
+    let report=await readAlphaReleaseEvidencePass(db,{...options,checkpoint});
+    // Complete interrupted discovery first; old data is useful progress, not
+    // release evidence. Revalidation reacquires stale mutable lists atomically
+    // by list generation; it never re-dates historical provider responses.
+    if(checkpoint.phase==='discovery'){
+      await checkpoint.revalidate();
+      if(now().getTime()-Date.parse(report.observedAt)>=MAX_EVIDENCE_AGE_MS)
+        report=await readAlphaReleaseEvidencePass(db,{...options,checkpoint});
+    }
+    return {...report,checkpoint:checkpoint.progress};
+  }catch(error){
+    error.checkpointProgress=checkpoint.progress;throw error;
+  }finally{await checkpoint.close();}
+}
+
+export async function authenticateAlphaProviderGeneration({tokens,credentials,transport,checkpoint,forceFresh=false}){
+  if(tokens.length!==1||tokens[0].tenant_id!==ALPHA_XERO_TENANT_ID||!tokens[0].access_token
+    ||credentials.source!=='tenant'||credentials.tenantId!==TENANT_ID||credentials.environment!=='live'
+    ||!credentials.accessToken||credentials.accessToken.startsWith('sandbox_')
+    ||(credentials.creditorId&&credentials.creditorId!=='CR0000B50W1Y2R'))
+    fail('Actual alpha provider credential identity differs from pinned live account');
+  // These authenticated identity reads MUST bypass the response journal.
+  const connections=await (await transport(new URL('https://api.xero.com/connections'),{
+    method:'GET',headers:{Authorization:`Bearer ${tokens[0].access_token}`,Accept:'application/json'},
+  })).json();
+  if(!Array.isArray(connections)||connections.filter(c=>c.tenantId===ALPHA_XERO_TENANT_ID).length!==1
+    ||typeof connections.find(c=>c.tenantId===ALPHA_XERO_TENANT_ID)?.id!=='string'
+    ||!connections.find(c=>c.tenantId===ALPHA_XERO_TENANT_ID).id.trim())
+    fail('Authenticated Xero connection does not include exact pinned tenant');
+  const creditor=await (await transport(new URL('https://api.gocardless.com/creditors/CR0000B50W1Y2R'),{
+    method:'GET',headers:{Authorization:`Bearer ${credentials.accessToken}`,'GoCardless-Version':'2015-07-06'},
+  })).json();
+  if(creditor?.creditors?.id!=='CR0000B50W1Y2R')fail('Authenticated GoCardless creditor differs from pinned account');
+  await checkpoint?.bindCredentials({
+    xeroTenant:tokens[0].tenant_id,xeroConnection:connections.find(c=>c.tenantId===ALPHA_XERO_TENANT_ID).id,
+    xeroCredential:hash(tokens[0].access_token),gcCredential:hash(credentials.accessToken),
+    gcTenant:credentials.tenantId,gcCreditor:creditor.creditors.id,environment:credentials.environment,
+  },{forceFresh});
+}
+
+async function readAlphaReleaseEvidencePass(db,{manifest,handover,transport=fetch,now=()=>new Date(),sleep,checkpoint,forceFresh=false}={}){
   const observedAt=now().toISOString();
   const adoptions=await rows(db,'bnms_dd_alpha_adoption',q=>q.eq('tenant_id',TENANT_ID));
   validateAlphaReleaseScope(manifest,adoptions);
@@ -306,7 +360,18 @@ export async function readAlphaReleaseEvidence(db,{manifest,handover,transport=f
     ||!Number.isFinite(Date.parse(tokens[0].expires_at))
     ||Date.parse(tokens[0].expires_at)<now().getTime()+MAX_EVIDENCE_AGE_MS)
     fail('Pinned Xero credential must remain valid for full readiness budget; refresh separately');
-  const safeTransport=boundedAlphaTransport({transport,now,observedAt,sleep});
+  const bounded=boundedAlphaTransport({transport,now,observedAt,sleep});
+  const {getTenantGocardlessCredentials}=await import('../api/_lib/gocardlessCredentials.js');
+  const credentials=await getTenantGocardlessCredentials(TENANT_ID,{db});
+  // Also guard fresh identity probes with the saved provider wait.
+  checkpoint?.assertAllowed();
+  try{
+    await authenticateAlphaProviderGeneration({tokens,credentials,transport:bounded,checkpoint,forceFresh});
+  }catch(error){
+    if(error.rateLimitDiagnostic)await checkpoint?.recordRateLimit(error.rateLimitDiagnostic);
+    throw error;
+  }
+  const safeTransport=checkpoint?checkpoint.wrap(bounded):bounded;
   const xero=async(resource,query={})=>{
     const url=new URL(`https://api.xero.com/api.xro/2.0/${resource}`);
     for(const [key,value]of Object.entries(query))url.searchParams.set(key,value);
@@ -324,10 +389,9 @@ export async function readAlphaReleaseEvidence(db,{manifest,handover,transport=f
   // per-mandate filters and costs far fewer requests than 249 x five GETs.
   const {alphaProviderReader}=await import('./bnms-dd-alpha-review.mjs');
   const {readAllProviderPages}=await import('./bnms-dd-pilot.mjs');
-  const {getTenantGocardlessCredentials}=await import('../api/_lib/gocardlessCredentials.js');
   const {resolveDynamicCollectionPrice}=await import('../api/_lib/gocardlessDynamicCollections.js');
   const {alphaAccountingMapping}=await import('../api/_lib/bnmsAlphaAccounting.js');
-  const get=alphaProviderReader(await getTenantGocardlessCredentials(TENANT_ID,{db}),safeTransport);
+  const get=alphaProviderReader(credentials,safeTransport);
   const discovery={};
   for(const resource of ['mandates','customers','subscriptions','payments']){
     discovery[resource]=await readAllProviderPages(get,resource);
@@ -352,12 +416,12 @@ export async function readAlphaReleaseEvidence(db,{manifest,handover,transport=f
   for(const contactGroup of chunks(contactIds,25)){
     const seen=new Set();let complete=false;
     for(let page=1;page<=100;page++){
-      const invoices=(await xero('Invoices',{ContactIDs:contactGroup.join(','),page:String(page)})).Invoices;
+      const invoices=(await xero('Invoices',alphaInvoiceQuery(contactGroup,page))).Invoices;
       if(!Array.isArray(invoices))fail('Xero invoice pagination incomplete');
       for(const invoice of invoices){
         const contact=invoice.Contact?.ContactID;
         if(!contactGroup.includes(contact)||!invoice.InvoiceID||seen.has(invoice.InvoiceID)
-          ||!/^\d{4}-\d{2}-\d{2}/.test(invoice.DateString||'')||typeof invoice.Status!=='string'
+          ||!/^\d{4}-\d{2}-\d{2}/.test(invoice.DateString||'')||invoice.DateString.slice(0,10)<ALPHA_INVOICE_START||typeof invoice.Status!=='string'
           ||invoice.AmountDue===null||invoice.AmountDue===undefined||!Number.isFinite(Number(invoice.AmountDue))||Number(invoice.AmountDue)<0)
           fail('Xero invoice owner/date/pagination mismatch');
         seen.add(invoice.InvoiceID);
@@ -430,8 +494,9 @@ export async function readAlphaReleaseEvidence(db,{manifest,handover,transport=f
         contact:liveContacts.get(contacts[0])||null,mapping},historicalInvoiceCount:stored.length});
   }
   const completedAt=now().toISOString();
-  if(Date.parse(completedAt)-Date.parse(observedAt)>MAX_EVIDENCE_AGE_MS)globalBlockers.push('Oldest readiness evidence exceeds 15 minutes');
-  return {version:1,tenantId:TENANT_ID,manifestSha256:ALPHA_MANIFEST_SHA256,manifest,observedAt,completedAt,
+  const oldestObservedAt=checkpoint?.oldestObservedAt&&checkpoint.oldestObservedAt<observedAt?checkpoint.oldestObservedAt:observedAt;
+  if(Date.parse(completedAt)-Date.parse(oldestObservedAt)>MAX_EVIDENCE_AGE_MS)globalBlockers.push('Oldest readiness evidence exceeds 15 minutes');
+  return {version:1,tenantId:TENANT_ID,manifestSha256:ALPHA_MANIFEST_SHA256,manifest,observedAt:oldestObservedAt,completedAt,
     state,stateHash:alphaStateHash(state),historicalHash:hash({historical:sorted(historical),links:sorted(links)}),
     members,settings,provider,handover,globalBlockers};
 }
