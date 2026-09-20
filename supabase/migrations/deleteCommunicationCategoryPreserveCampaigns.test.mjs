@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import pg from 'pg';
+import { runMigration } from '../../scripts/apply-delete-communication-category-preserve-campaigns-migration.mjs';
 
 const migrationUrl = new URL('./202609200001_delete_communication_category_preserve_campaigns.sql', import.meta.url);
 
@@ -57,7 +58,7 @@ async function withIsolatedPostgres(t, fn, { targetIdsType = 'uuid[]' } = {}) {
       updated_at timestamptz
     );
   `);
-  await client.query(await readFile(migrationUrl, 'utf8'));
+  await runMigration(client, await readFile(migrationUrl, 'utf8'));
   await fn(client, openClient);
 }
 
