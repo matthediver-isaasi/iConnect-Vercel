@@ -18,7 +18,8 @@ export default async function handler(req, res) {
     });
 
     if (!result.success) {
-      return res.status(500).json({ error: result.error });
+      return res.status(result.code === 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' ? 400 : 500)
+        .json({ error: result.error, code: result.code });
     }
 
     return res.json(result.campaigns);
@@ -45,7 +46,8 @@ export default async function handler(req, res) {
     const result = await createCampaign(campaignData, tenantId, memberId);
 
     if (!result.success) {
-      return res.status(500).json({ error: result.error });
+      return res.status(result.code === 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' ? 400 : 500)
+        .json({ error: result.error, code: result.code });
     }
 
     return res.status(201).json(result.campaign);

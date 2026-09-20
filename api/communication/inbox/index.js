@@ -27,7 +27,7 @@ async function fetchAllRecipients(memberId, tenantId) {
       .from('email_campaign_recipient')
       .select(
         'id, campaign_id, email, first_name, last_name, status, sent_at, open_count, click_count, ' +
-        'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, status, member_group_id, communication_category_id, preheader)'
+        'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, status, member_group_id, communication_category_id, deleted_category_name, preheader)'
       )
       .eq('member_id', memberId)
       .eq('email_campaign.tenant_id', tenantId)
@@ -74,7 +74,7 @@ async function fetchAllTransactional(memberId, tenantId) {
     const { data, error } = await supabase
       .from('member_transactional_message')
       .select(
-        'id, subject, preheader, from_name, from_email, sent_at, communication_category_id, label_key, ' +
+        'id, subject, preheader, from_name, from_email, sent_at, communication_category_id, deleted_category_name, label_key, ' +
         'is_read, is_pinned, is_archived, is_favourite, folder_id, read_at'
       )
       .eq('tenant_id', tenantId)
@@ -110,7 +110,11 @@ async function fetchCategoryNames(ids, tenantId) {
 
 function toMessage(r, state, catMap) {
   const c = r.email_campaign || {};
-  const catName = c.communication_category_id ? catMap.get(c.communication_category_id) : null;
+  const catName = c.communication_category_id
+    ? catMap.get(c.communication_category_id)
+    : c.deleted_category_name
+      ? `Deleted category: ${c.deleted_category_name}`
+      : null;
   const source = c.member_group_id ? 'group' : 'admin';
   return {
     recipient_id: r.id,
@@ -134,7 +138,11 @@ function toMessage(r, state, catMap) {
 }
 
 function toTransactionalMessage(t, catMap) {
-  const catName = t.communication_category_id ? catMap.get(t.communication_category_id) : null;
+  const catName = t.communication_category_id
+    ? catMap.get(t.communication_category_id)
+    : t.deleted_category_name
+      ? `Deleted category: ${t.deleted_category_name}`
+      : null;
   return {
     recipient_id: t.id,
     campaign_id: null,

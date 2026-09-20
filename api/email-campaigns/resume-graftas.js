@@ -61,7 +61,7 @@ export default async function handler(req, res) {
     // Verify campaign exists, name matches, and pending count is sane.
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, tenant_id, name, status, completed_at, total_recipients, sent_count')
+      .select('id, tenant_id, name, status, completed_at, total_recipients, sent_count, category_review_required')
       .eq('id', CAMPAIGN_ID)
       .eq('tenant_id', TENANT_ID)
       .single();
@@ -78,6 +78,12 @@ export default async function handler(req, res) {
         error: 'Campaign name does not match expected — refusing to act',
         expectedName: EXPECTED_NAME,
         actualName: campaign.name,
+      });
+    }
+    if (campaign.category_review_required) {
+      return res.status(409).json({
+        error: 'Campaign requires audience and category review before it can resume.',
+        code: 'CATEGORY_REVIEW_REQUIRED',
       });
     }
 
@@ -122,6 +128,7 @@ export default async function handler(req, res) {
       })
       .eq('id', CAMPAIGN_ID)
       .eq('tenant_id', TENANT_ID)
+      .eq('category_review_required', false)
       .select('id, status');
 
     if (flipError) {

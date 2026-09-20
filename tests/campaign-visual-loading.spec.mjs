@@ -93,10 +93,12 @@ function campaign(overrides = {}) {
   };
 }
 
-async function installFixtures(page, campaignFixture) {
+async function installFixtures(page, campaignFixture, options = {}) {
   const state = {
     campaign: campaignFixture,
     writes: [],
+    categoryDeletes: [],
+    categoryRoleDeletes: [],
     escapedWrites: [],
     consoleErrors: [],
     pageErrors: [],
@@ -171,8 +173,18 @@ async function installFixtures(page, campaignFixture) {
     if (path === `/api/email-campaigns/${campaignId}` && method === 'PATCH') {
       const body = request.postDataJSON();
       state.writes.push(body);
-      state.campaign = { ...state.campaign, ...body };
+      if (body.category_review_confirmed && options.failConfirmedSave) {
+        return json(route, { error: 'The reviewed campaign could not be saved. Try again.' }, 500);
+      }
+      state.campaign = {
+        ...state.campaign,
+        ...body,
+        ...(body.category_review_confirmed ? { category_review_required: false } : {}),
+      };
       return json(route, state.campaign);
+    }
+    if (path === '/api/email-campaigns' && method === 'GET') {
+      return json(route, options.campaigns || []);
     }
     if (path === '/api/email-campaigns' && method === 'POST') {
       const body = request.postDataJSON();
@@ -192,11 +204,25 @@ async function installFixtures(page, campaignFixture) {
         },
       });
     }
+    if (path === '/api/audience-lists/counts' && method === 'POST') {
+      return json(route, {});
+    }
     if (path === '/api/email-campaigns/preview-footer') {
       return json(route, { footer: null, hasFooter: false });
     }
     if (path === '/api/entities/EmailTemplate') return json(route, templates);
-    if (path === '/api/audience-lists') return json(route, [{
+    if (path === '/api/entities/CommunicationCategory') {
+      return json(route, options.categories || []);
+    }
+    if (path.startsWith('/api/entities/CommunicationCategory/') && method === 'DELETE') {
+      state.categoryDeletes.push(path);
+      return json(route, { success: true });
+    }
+    if (path.startsWith('/api/entities/CommunicationCategoryRole/') && method === 'DELETE') {
+      state.categoryRoleDeletes.push(path);
+      return json(route, { success: true });
+    }
+    if (path === '/api/audience-lists') return json(route, options.audienceLists || [{
       id: audienceListId,
       name: 'Browser regression audience',
       member_count: 1,
@@ -206,6 +232,12 @@ async function installFixtures(page, campaignFixture) {
       name: 'Administrator',
       excluded_features: [],
     }]);
+    if (path === '/api/entities/Role/campaign-test-role') return json(route, {
+      id: 'campaign-test-role',
+      tenant_id: 'campaign-test-tenant',
+      name: 'Administrator',
+      excluded_features: [],
+    });
     if (path === '/api/entities/Organization') return json(route, [{
       id: 'campaign-test-org',
       name: 'Campaign test organisation',
@@ -223,6 +255,15 @@ function expectNoBrowserErrors(state) {
   expect(state.pageErrors, `page errors: ${state.pageErrors.join('\n')}`).toEqual([]);
   expect(state.consoleErrors, `console errors: ${state.consoleErrors.join('\n')}`).toEqual([]);
   expect(state.requestFailures, `request failures: ${state.requestFailures.join('\n')}`).toEqual([]);
+}
+
+async function explicitlyReviewAudienceAndCategory(page) {
+  const audienceCheckbox = page.getByTestId(`list-option-${audienceListId}`).locator('input');
+  await audienceCheckbox.uncheck();
+  await audienceCheckbox.check();
+  await page.getByTestId('select-campaign-category').click();
+  await page.getByRole('option', { name: 'Replacement category' }).click();
+  await page.getByTestId('checkbox-confirm-category-review').check();
 }
 
 test('saved campaign design wins over its linked template in the real builder', async ({ page }, testInfo) => {
@@ -365,5 +406,161 @@ test('new blank campaign edits the real builder, saves, and reopens its design s
   await expect(page.locator('[data-testid^="block-block-"]')).toHaveCount(1);
   await expect(page.getByText('Click to edit text...', { exact: true }).first()).toBeVisible();
   expect(state.escapedWrites).toEqual([]);
+  expectNoBrowserErrors(state);
+});
+
+test('deleted-category review requires explicit choices and a successful acknowledged save', async ({ page }) => {
+  const state = await installFixtures(page, campaign({
+    category_review_required: true,
+    deleted_category_name: 'Historical newsletter',
+  }), {
+    categories: [{ id: 'replacement-category', name: 'Replacement category', is_active: true }],
+    failConfirmedSave: true,
+  });
+  await page.goto(`/EmailCampaignEdit/${campaignId}`);
+
+  const reviewAlert = page.getByTestId('alert-category-review-required');
+  await expect(reviewAlert).toContainText('Historical newsletter');
+  await expect(page.getByTestId('button-send-campaign')).toBeDisabled();
+  await expect(page.getByTestId('checkbox-confirm-category-review')).toBeDisabled();
+
+  // A normal content save must not acknowledge or clear the review marker.
+  await page.getByTestId('input-campaign-subject').fill('Ordinary content update');
+  await page.getByTestId('button-save-campaign').click();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.writes[0]).not.toHaveProperty('category_review_confirmed');
+  await expect(reviewAlert).toBeVisible();
+  await expect(page.getByTestId('button-send-campaign')).toBeDisabled();
+
+  await explicitlyReviewAudienceAndCategory(page);
+  await page.getByTestId('button-save-campaign').click();
+  await expect.poll(() => state.writes.length).toBe(2);
+  expect(state.writes[1].category_review_confirmed).toBe(true);
+  expect(state.writes[1].target_ids).toEqual([audienceListId]);
+  expect(state.writes[1].communication_category_id).toBe('replacement-category');
+
+  // A rejected acknowledged save remains blocked and keeps the warning.
+  await expect(reviewAlert).toBeVisible();
+  await expect(page.getByTestId('button-send-campaign')).toBeDisabled();
+  expect(state.pageErrors).toEqual([]);
+  expect(state.requestFailures).toEqual([]);
+  expect(state.consoleErrors).toEqual([
+    'Failed to load resource: the server responded with a status of 500 (Internal Server Error)',
+  ]);
+});
+
+test('successful acknowledged save clears the server review marker and unblocks sending', async ({ page }) => {
+  const state = await installFixtures(page, campaign({
+    category_review_required: true,
+    deleted_category_name: 'Deleted events category',
+  }), {
+    categories: [{ id: 'replacement-category', name: 'Replacement category', is_active: true }],
+  });
+  await page.goto(`/EmailCampaignEdit/${campaignId}`);
+  await explicitlyReviewAudienceAndCategory(page);
+  await page.getByTestId('button-save-campaign').click();
+
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.campaign.category_review_required).toBe(false);
+  await expect(page.getByTestId('alert-category-review-required')).toHaveCount(0);
+  await expect(page.getByTestId('button-send-campaign')).toBeEnabled();
+  expectNoBrowserErrors(state);
+});
+
+test('campaign history shows deleted category and management issues one atomic category DELETE', async ({ page }) => {
+  const historicalCampaign = campaign({
+    status: 'sent',
+    sent_count: 12,
+    category_review_required: true,
+    deleted_category_name: 'Historical newsletter',
+  });
+  const state = await installFixtures(page, historicalCampaign, {
+    campaigns: [historicalCampaign],
+    categories: [{
+      id: 'replacement-category',
+      name: 'Replacement category',
+      description: 'Safe to delete in fixture',
+      is_active: true,
+    }],
+  });
+  await page.goto('/CommunicationsManagement');
+
+  await expect(page.getByTestId(`badge-deleted-category-${campaignId}`)).toContainText('Historical newsletter');
+  await expect(page.getByTestId(`badge-category-review-${campaignId}`)).toBeVisible();
+  await expect(page.getByTestId(`button-duplicate-${campaignId}`)).toBeDisabled();
+  await page.getByTestId('tab-categories').click();
+  await page.getByTestId('button-delete-category-replacement-category').click();
+  await page.getByTestId('button-confirm-delete').click();
+  await expect.poll(() => state.categoryDeletes.length).toBe(1);
+  expect(state.categoryDeletes).toEqual(['/api/entities/CommunicationCategory/replacement-category']);
+  expect(state.categoryRoleDeletes).toEqual([]);
+  expect(state.escapedWrites).toEqual([]);
+  expectNoBrowserErrors(state);
+});
+
+test('affected audience lists cannot be selected or used by a new campaign', async ({ page }) => {
+  const affectedListId = 'affected-audience-list';
+  const state = await installFixtures(page, null, {
+    audienceLists: [{
+      id: affectedListId,
+      name: 'Audience built from deleted category',
+      member_count: 10,
+      category_review_required: true,
+      deleted_category_name: 'Historical newsletter',
+    }],
+  });
+  await page.goto('/EmailCampaignEdit/new');
+
+  const affectedOption = page.getByTestId(`list-option-${affectedListId}`);
+  await expect(affectedOption).toContainText('Review required: Historical newsletter');
+  await expect(affectedOption.locator('input')).toBeDisabled();
+  await expect(page.getByText('Create or select a valid replacement list.')).toBeVisible();
+
+  await page.getByTestId('input-campaign-name').fill('Blocked affected-list campaign');
+  await page.getByTestId('input-campaign-subject').fill('Must not send');
+  await page.getByTestId('button-save-campaign').click();
+  await expect.poll(() => state.writes.length).toBe(0);
+  await expect(page.getByTestId('button-send-campaign')).toHaveCount(0);
+  expect(state.escapedWrites).toEqual([]);
+  expectNoBrowserErrors(state);
+});
+
+test('campaign review cannot be cleared while it still uses an affected audience list', async ({ page }) => {
+  const affectedListId = 'affected-existing-list';
+  const state = await installFixtures(page, campaign({
+    category_review_required: true,
+    deleted_category_name: 'Historical newsletter',
+    target_audiences: [{ type: 'audience_list', ids: [affectedListId] }],
+  }), {
+    categories: [{ id: 'replacement-category', name: 'Replacement category', is_active: true }],
+    audienceLists: [{
+      id: affectedListId,
+      name: 'Affected existing audience',
+      category_review_required: true,
+      deleted_category_name: 'Historical newsletter',
+    }, {
+      id: audienceListId,
+      name: 'Valid replacement audience',
+      category_review_required: false,
+    }],
+  });
+  await page.goto(`/EmailCampaignEdit/${campaignId}`);
+
+  const affectedOption = page.getByTestId(`list-option-${affectedListId}`);
+  await expect(affectedOption.locator('input')).toBeChecked();
+  await expect(affectedOption.locator('input')).toBeDisabled();
+  await page.getByTestId('select-campaign-category').click();
+  await page.getByRole('option', { name: 'Replacement category' }).click();
+  await expect(page.getByTestId('checkbox-confirm-category-review')).toBeDisabled();
+
+  await page.getByTestId(`button-remove-affected-list-${affectedListId}`).click();
+  await page.getByTestId(`list-option-${audienceListId}`).locator('input').check();
+  await expect(page.getByTestId('checkbox-confirm-category-review')).toBeEnabled();
+  await page.getByTestId('checkbox-confirm-category-review').check();
+  await page.getByTestId('button-save-campaign').click();
+
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.writes[0].target_ids).toEqual([audienceListId]);
+  expect(state.writes[0].category_review_confirmed).toBe(true);
   expectNoBrowserErrors(state);
 });

@@ -1387,18 +1387,20 @@ export default function CommunicationsManagementPage() {
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (id) => {
-      const relatedRoles = categoryRoles.filter(cr => cr.category_id === id);
-      for (const cr of relatedRoles) {
-        await base44.entities.CommunicationCategoryRole.delete(cr.id);
-      }
+      // Category deletion is an atomic server-side operation. The generic
+      // entity DELETE is intercepted by the API to remove preferences/role
+      // links and flag affected unsent campaigns for review.
       await base44.entities.CommunicationCategory.delete(id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['communication-categories'] });
       queryClient.invalidateQueries({ queryKey: ['communication-category-roles'] });
+      queryClient.invalidateQueries({ queryKey: ['member-communication-preferences'] });
+      queryClient.invalidateQueries({ queryKey: ['external-subscriber-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
       setShowDeleteConfirm(false);
       setCategoryToDelete(null);
-      toast.success('Category deleted successfully');
+      toast.success('Category deleted. Affected unsent campaigns now require audience review.');
     },
     onError: (error) => {
       toast.error('Failed to delete category: ' + error.message);
@@ -2307,7 +2309,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             <DialogHeader>
               <DialogTitle>Delete Category</DialogTitle>
               <DialogDescription id="delete-category-description">
-                Are you sure you want to delete "{categoryToDelete?.name}"? This will also remove all member preferences for this category.
+                Delete "{categoryToDelete?.name}"? Member and external-subscriber preferences for this category will be removed. Sent campaign history is retained; affected unsent campaigns will be blocked until their audience and category are explicitly reviewed and saved.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

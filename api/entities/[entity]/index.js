@@ -407,6 +407,11 @@ export default async function handler(req, res) {
   }
 
   const entityNorm = normalizeEntityName(entity);
+  if (entityNorm === 'emailcampaign' && req.method === 'POST') {
+    return res.status(403).json({
+      error: 'Email campaigns must be created through /api/email-campaigns so audience-list safety checks are enforced.',
+    });
+  }
   if (!isCustomObjectStorageEntity(entityNorm) && !entityTableByNormalizedName.has(entityNorm)) {
     return res.status(404).json({ error: 'Unsupported entity' });
   }

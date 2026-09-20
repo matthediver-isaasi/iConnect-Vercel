@@ -88,7 +88,7 @@ export default async function handler(req, res) {
         .from('member_transactional_message')
         .select(
           'id, subject, preheader, from_name, from_email, sent_at, body_html, is_read, ' +
-          'communication_category_id, label_key'
+          'communication_category_id, deleted_category_name, label_key'
         )
         .eq('id', recipientId)
         .eq('member_id', memberId)
@@ -102,7 +102,9 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Message not found' });
       }
 
-      let catName = null;
+      let catName = msg.deleted_category_name
+        ? `Deleted category: ${msg.deleted_category_name}`
+        : null;
       if (msg.communication_category_id) {
         const { data: cat } = await supabase
           .from('communication_category')

@@ -401,6 +401,16 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    delete cleanedData.category_review_required;
+    delete cleanedData.category_review_reason;
+    delete cleanedData.category_review_marked_at;
+    delete cleanedData.deleted_category_id;
+    delete cleanedData.deleted_category_name;
+    delete cleanedData.category_review_confirmed;
+    const listValidation = await validateCampaignAudienceLists(cleanedData, tenantId);
+    if (!listValidation.valid) {
+      return { success: false, error: listValidation.reason, code: 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' };
+    }
     if (cleanedData.scheduled_at === '' || cleanedData.scheduled_at === undefined) {
       cleanedData.scheduled_at = null;
     }
@@ -437,6 +447,12 @@ export async function updateCampaign(campaignId, updates, tenantId) {
 
   try {
     const cleanedUpdates = { ...updates };
+    delete cleanedUpdates.category_review_required;
+    delete cleanedUpdates.category_review_reason;
+    delete cleanedUpdates.category_review_marked_at;
+    delete cleanedUpdates.deleted_category_id;
+    delete cleanedUpdates.deleted_category_name;
+    delete cleanedUpdates.category_review_confirmed;
     if (cleanedUpdates.scheduled_at === '' || cleanedUpdates.scheduled_at === undefined) {
       cleanedUpdates.scheduled_at = null;
     }
@@ -445,6 +461,21 @@ export async function updateCampaign(campaignId, updates, tenantId) {
     }
     if (cleanedUpdates.communication_category_id === '') {
       cleanedUpdates.communication_category_id = null;
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from('email_campaign')
+      .select('target_type, target_ids, target_audiences')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+    if (existingError) throw existingError;
+    const listValidation = await validateCampaignAudienceLists(
+      { ...existing, ...cleanedUpdates },
+      tenantId,
+    );
+    if (!listValidation.valid) {
+      return { success: false, error: listValidation.reason, code: 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' };
     }
 
     const { data, error } = await supabase
@@ -466,6 +497,16 @@ export async function updateCampaign(campaignId, updates, tenantId) {
   }
 }
 
+export async function confirmCampaignCategoryReconfiguration(campaignId, tenantId) {
+  if (!supabase) return { success: false, error: 'Database not configured' };
+  const { data, error } = await supabase.rpc('clear_email_campaign_category_review', {
+    p_tenant_id: tenantId,
+    p_campaign_id: campaignId,
+  });
+  if (error) return { success: false, error: error.message, code: error.code };
+  return { success: true, campaign: data };
+}
+
 export async function duplicateCampaign(campaignId, tenantId, createdBy) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
@@ -481,6 +522,7 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
 
     if (fetchError) throw fetchError;
     if (!original) return { success: false, error: 'Campaign not found' };
+    const listValidation = await validateCampaignAudienceLists(original, tenantId);
 
     const {
       id, created_at, updated_at, status, sent_at, scheduled_at,
@@ -495,6 +537,13 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
         ...cloneFields,
         name: `${original.name} (Copy)`,
         status: 'draft',
+        category_review_required: original.category_review_required || !listValidation.valid,
+        category_review_reason: original.category_review_reason || (!listValidation.valid ? {
+          code: 'affected_audience_list',
+          message: listValidation.reason,
+        } : null),
+        category_review_marked_at: original.category_review_marked_at
+          || (!listValidation.valid ? new Date().toISOString() : null),
         created_by: createdBy || original.created_by,
         sent_count: 0,
         delivered_count: 0,
@@ -698,7 +747,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
   try {
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, status, name, completed_at, cancelled_at')
+      .select('id, status, name, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
@@ -706,6 +755,11 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
     if (fetchError || !campaign) {
       return { success: false, error: 'Campaign not found' };
     }
+    if (campaign.category_review_required) {
+      return { success: false, error: 'Campaign requires audience and category review before it can resume.' };
+    }
+    const listValidation = await validateCampaignAudienceLists(campaign, tenantId);
+    if (!listValidation.valid) return { success: false, error: listValidation.reason };
 
     const resumableFromPaused = campaign.status === 'paused';
     const resumableFromStuck = ['sent', 'failed', 'cancelled'].includes(campaign.status);
@@ -740,6 +794,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .eq('status', campaign.status)
+      .eq('category_review_required', false)
       .select('id');
 
     if (updateError) throw updateError;
@@ -937,6 +992,47 @@ const ALLOWED_SEGMENT_TYPES = new Set([
   'event_form', 'field_filter'
 ]);
 
+const AUDIENCE_LIST_REPLACEMENT_MESSAGE =
+  'This campaign references an audience list affected by a deleted communication category. Replace every disabled list with a new reviewed list before previewing, saving, scheduling, resuming, or sending.';
+
+function directAudienceListIds(campaign) {
+  const ids = [];
+  if (campaign?.target_type === 'audience_list' && Array.isArray(campaign.target_ids)) {
+    ids.push(...campaign.target_ids);
+  }
+  for (const segment of Array.isArray(campaign?.target_audiences) ? campaign.target_audiences : []) {
+    if (segment?.type === 'audience_list' && Array.isArray(segment.ids)) ids.push(...segment.ids);
+  }
+  return [...new Set(ids.filter(Boolean).map(String))];
+}
+
+export async function validateCampaignAudienceLists(campaign, tenantId) {
+  const pending = directAudienceListIds(campaign);
+  const visited = new Set();
+  while (pending.length > 0) {
+    const batch = [...new Set(pending.splice(0).filter((id) => !visited.has(id)))];
+    if (batch.length === 0) continue;
+    batch.forEach((id) => visited.add(id));
+    const { data, error } = await supabase
+      .from('audience_list')
+      .select('id, name, target_audiences, category_review_required')
+      .eq('tenant_id', tenantId)
+      .in('id', batch);
+    if (error) return { valid: false, reason: `Unable to validate audience lists: ${error.message}` };
+    if ((data || []).length !== batch.length || (data || []).some((list) => list.category_review_required)) {
+      return { valid: false, reason: AUDIENCE_LIST_REPLACEMENT_MESSAGE };
+    }
+    for (const list of data || []) {
+      for (const segment of Array.isArray(list.target_audiences) ? list.target_audiences : []) {
+        if (segment?.type === 'audience_list' && Array.isArray(segment.ids)) {
+          pending.push(...segment.ids.filter(Boolean).map(String));
+        }
+      }
+    }
+  }
+  return { valid: true };
+}
+
 function validateCampaignTargeting(campaign) {
   const audiences = campaign.target_audiences;
   const hasAudiences = Array.isArray(audiences) && audiences.length > 0;
@@ -980,10 +1076,13 @@ async function getAudienceListRecipients(targetIds, tenantId, visitedListIds = n
 
   const { data: lists, error: listsError } = await supabase
     .from('audience_list')
-    .select('id, target_audiences, ignore_opt_outs')
+    .select('id, target_audiences, ignore_opt_outs, category_review_required')
     .eq('tenant_id', tenantId)
     .in('id', listIds);
   if (listsError) throw listsError;
+  if ((lists || []).length !== listIds.length || (lists || []).some((list) => list.category_review_required)) {
+    throw new Error(AUDIENCE_LIST_REPLACEMENT_MESSAGE);
+  }
 
   const recipients = [];
   for (const list of lists || []) {
@@ -2336,6 +2435,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
   }
 
   try {
+    const listValidation = await validateCampaignAudienceLists(campaign, tenantId);
+    if (!listValidation.valid) {
+      return { success: false, error: listValidation.reason, code: 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' };
+    }
     let allRecipients = [];
 
     const audiences = campaign.target_audiences;
@@ -2532,6 +2635,11 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
     if (campaign.status !== 'draft') {
       return { success: false, error: `Cannot schedule campaign with status: ${campaign.status}` };
     }
+    if (campaign.category_review_required) {
+      return { success: false, error: 'Campaign requires audience and category review before it can be scheduled.' };
+    }
+    const listValidation = await validateCampaignAudienceLists(campaign, tenantId);
+    if (!listValidation.valid) return { success: false, error: listValidation.reason };
 
     const targetingValidation = validateCampaignTargeting(campaign);
     if (!targetingValidation.valid) {
@@ -2539,7 +2647,7 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
       return { success: false, error: targetingValidation.reason };
     }
 
-    const { error: updateError } = await supabase
+    const { data: scheduledRows, error: updateError } = await supabase
       .from('email_campaign')
       .update({ 
         status: 'scheduled', 
@@ -2547,10 +2655,15 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
         updated_at: new Date().toISOString()
       })
       .eq('id', campaignId)
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId)
+      .eq('category_review_required', false)
+      .select('id');
 
     if (updateError) {
       throw updateError;
+    }
+    if (!scheduledRows || scheduledRows.length !== 1) {
+      return { success: false, error: 'Campaign requires audience and category review before it can be scheduled.' };
     }
 
     console.log(`[Campaign Service] Campaign ${campaignId} scheduled for ${scheduledAt.toISOString()}`);
@@ -2578,6 +2691,7 @@ export async function processScheduledCampaigns() {
       .from('email_campaign')
       .select('id, tenant_id, name')
       .eq('status', 'scheduled')
+      .eq('category_review_required', false)
       .lte('scheduled_at', now);
 
     if (fetchError) {
@@ -2639,6 +2753,7 @@ async function recoverStuckPreparingCampaigns() {
     .from('email_campaign')
     .select('id, tenant_id, name, updated_at')
     .eq('status', 'preparing')
+    .eq('category_review_required', false)
     .lt('updated_at', cutoffIso);
 
   if (error) {
@@ -2690,7 +2805,8 @@ export async function processSendingCampaigns() {
     const { data: sendingCampaigns, error: fetchError } = await supabase
       .from('email_campaign')
       .select('id, tenant_id, name, updated_at')
-      .eq('status', 'sending');
+      .eq('status', 'sending')
+      .eq('category_review_required', false);
 
     if (fetchError) throw fetchError;
 
@@ -3390,18 +3506,24 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
 
   const { data: campaignCheck } = await supabase
     .from('email_campaign')
-    .select('status')
+    .select('status, category_review_required')
     .eq('id', campaignId)
     .single();
 
-  if (campaignCheck?.status === 'cancelled') {
+  if (campaignCheck?.status === 'cancelled' || campaignCheck?.category_review_required) {
     console.log(`[Campaign Service] Campaign ${campaignId} cancelled — releasing ${claimedRecipients.length} claimed recipients`);
     await supabase
       .from('email_campaign_recipient')
-      .update({ status: 'cancelled' })
+      .update({ status: campaignCheck?.category_review_required ? 'pending' : 'cancelled' })
       .in('id', claimedRecipients.map(r => r.id))
       .eq('status', 'processing');
-    return { sent: 0, failed: 0, remaining: 0, cancelled: true };
+    return {
+      sent: 0,
+      failed: 0,
+      remaining: 0,
+      cancelled: campaignCheck?.status === 'cancelled',
+      reviewRequired: campaignCheck?.category_review_required === true,
+    };
   }
 
   const designInfo = parseCampaignDesign(campaign);
@@ -3463,6 +3585,11 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     if (campaign.status !== 'draft' && campaign.status !== 'scheduled') {
       return { success: false, error: `Cannot send campaign with status: ${campaign.status}` };
     }
+    if (campaign.category_review_required) {
+      return { success: false, error: 'Campaign requires audience and category review before it can be sent.' };
+    }
+    const listValidation = await validateCampaignAudienceLists(campaign, tenantId);
+    if (!listValidation.valid) return { success: false, error: listValidation.reason };
 
     // Atomic claim into the interim 'preparing' status. This prevents
     // double-send (a second caller will fail the .in() filter) AND keeps
@@ -3478,6 +3605,7 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .in('status', ['draft', 'scheduled'])
+      .eq('category_review_required', false)
       .select()
       .single();
 
@@ -3558,6 +3686,12 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     const updatedCampaign = updatedCampaignResult.campaign || campaign;
 
     const batchResult = await sendBatch(campaignId, tenantId, updatedCampaign, tenantSlug, requestHost);
+    if (batchResult.reviewRequired) {
+      return {
+        success: false,
+        error: 'Campaign requires audience and category review before sending can continue.',
+      };
+    }
 
     if (batchResult.remaining === 0) {
       const finalCheck = await getCampaign(campaignId, tenantId);

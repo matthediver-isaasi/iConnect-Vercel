@@ -361,6 +361,26 @@ export default async function handler(req, res, dependencies = {}) {
   
   // Determine if tenant filtering should be applied
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
+
+  // Email-campaign delivery/review state is server-owned. Campaign content can
+  // still use the legacy generic API, but it cannot clear the deleted-category
+  // marker (or force a send status) around the dedicated campaign endpoint.
+  if (entityNorm === 'emailcampaign' && (req.method === 'PATCH' || req.method === 'PUT')) {
+    for (const field of [
+      'category_review_required',
+      'category_review_reason',
+      'category_review_marked_at',
+      'deleted_category_id',
+      'deleted_category_name',
+      'category_review_confirmed',
+      'status',
+      'target_type',
+      'target_ids',
+      'target_audiences',
+    ]) {
+      delete req.body?.[field];
+    }
+  }
   
   let allowsTenantWideAccess = false;
 
@@ -2610,6 +2630,32 @@ export default async function handler(req, res, dependencies = {}) {
       return res.json(responseData);
 
     } else if (req.method === 'DELETE') {
+      if (entityNorm === 'communicationcategory') {
+        if (!tenantCtx.isAuthenticated) {
+          return res.status(401).json({ error: 'Authentication required' });
+        }
+        if (!await hasAdminAccess(tenantCtx)) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+        const tenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+        const { data, error } = await supabase.rpc(
+          'delete_communication_category_preserving_campaigns',
+          { p_tenant_id: tenantId, p_category_id: id },
+        );
+        if (error) {
+          const retryable = error.code === '55P03';
+          const notFound = error.code === 'P0002';
+          return res.status(retryable ? 409 : notFound ? 404 : 500).json({
+            error: retryable
+              ? 'This category is used by a campaign that is currently sending or preparing. Retry after delivery finishes or is cancelled.'
+              : (error.message || 'Failed to delete communication category'),
+            code: retryable ? 'CATEGORY_DELETE_ACTIVE_CAMPAIGN' : 'CATEGORY_DELETE_FAILED',
+            retryable,
+          });
+        }
+        return res.json(data || { success: true });
+      }
+
       if (entityNorm === 'badge') {
         const result = await deleteOrDeactivateBadge(supabase, {
           id,
@@ -3068,24 +3114,6 @@ export default async function handler(req, res, dependencies = {}) {
         if (viewsError) console.error('Error deleting blog views:', viewsError);
 
         console.log(`[BlogPost Delete] Deleted related records for blog post ${id}`);
-      }
-
-      if (entity === 'CommunicationCategory') {
-        // Delete associated role assignments
-        const { error: rolesError } = await supabase
-          .from('communication_category_role')
-          .delete()
-          .eq('category_id', id);
-        if (rolesError) console.error('Error deleting category role assignments:', rolesError);
-
-        // Delete associated member preferences
-        const { error: prefsError } = await supabase
-          .from('member_communication_preference')
-          .delete()
-          .eq('category_id', id);
-        if (prefsError) console.error('Error deleting member preferences:', prefsError);
-
-        console.log(`[CommunicationCategory Delete] Deleted related records for category ${id}`);
       }
 
       // Special handling for Member: anonymize personal data and delete from related tables

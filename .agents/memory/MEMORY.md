@@ -72,9 +72,8 @@
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
-- [Email preference consent serialization](email-preference-consent-serialization.md) — global and category consent writes must share one recipient lock and commit subscription+ledger changes atomically.
+- [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
 - [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.
-- [Communication category member RBAC](communication-category-member-rbac.md) — enforce applicable roles on every member opt-in path; public affects externals only, while role-loss unsubscribe stays allowed.
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.
 - [Cross-tenant member cleanup references](cross-tenant-member-cleanup-references.md) — tenant-scoped member deletion must fail closed when another tenant's rows reference candidate UUIDs.

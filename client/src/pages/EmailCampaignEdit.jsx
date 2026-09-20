@@ -226,6 +226,9 @@ export default function EmailCampaignEdit() {
 
   const [selectedListIds, setSelectedListIds] = useState([]);
   const [senderMember, setSenderMember] = useState(null);
+  const [reviewSelections, setReviewSelections] = useState({ audience: false, category: false });
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [reviewResolved, setReviewResolved] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -258,6 +261,9 @@ export default function EmailCampaignEdit() {
   useEffect(() => {
     if (campaign && hydratedCampaignId.current !== id) {
       hydratedCampaignId.current = id;
+      setReviewSelections({ audience: false, category: false });
+      setReviewConfirmed(false);
+      setReviewResolved(false);
       const content = resolveCampaignContent(campaign);
       setEditorMode(content.editorMode);
       let audiences = campaign.target_audiences;
@@ -341,6 +347,9 @@ export default function EmailCampaignEdit() {
     },
     staleTime: 60000
   });
+  const affectedSelectedList = audienceLists.find(
+    list => list.category_review_required && selectedListIds.includes(list.id)
+  );
 
   useEffect(() => {
     if (selectedListIds.length > 0) {
@@ -353,7 +362,7 @@ export default function EmailCampaignEdit() {
 
   useEffect(() => {
     const fetchRecipientCount = async () => {
-      if (selectedListIds.length === 0) {
+      if (selectedListIds.length === 0 || affectedSelectedList) {
         setRecipientPreviewCount(null);
         setRecipientStats(null);
         return;
@@ -388,11 +397,13 @@ export default function EmailCampaignEdit() {
 
     const debounceTimer = setTimeout(fetchRecipientCount, 300);
     return () => clearTimeout(debounceTimer);
-  }, [selectedListIds, formData.communication_category_id]);
+  }, [selectedListIds, formData.communication_category_id, affectedSelectedList]);
 
   const linkedTemplate = emailTemplates.find(t => t.id === formData.email_template_id);
   const canReloadVisualTemplate = linkedTemplate && linkedTemplate.editor_type !== 'html' && normalizeEmailDesign(linkedTemplate.design_json);
   const hasCurrentContent = !!(formData.html_content.trim() || formData.design_json);
+  const categoryReviewRequired = Boolean(campaign?.category_review_required) && !reviewResolved;
+  const categoryReviewReady = reviewSelections.audience && reviewSelections.category && reviewConfirmed;
 
   const applyTemplate = (template) => {
     const next = applyCampaignTemplate(formData, template);
@@ -440,6 +451,11 @@ export default function EmailCampaignEdit() {
         setSaving(false);
         return;
       }
+      if (affectedSelectedList) {
+        toast.error(`Remove the affected list “${affectedSelectedList.name}” and select or create a valid replacement list before saving.`);
+        setSaving(false);
+        return;
+      }
       let saveData = { ...formData };
       saveData.target_audiences = [{ type: 'audience_list', ids: selectedListIds }];
       saveData.target_type = 'audience_list';
@@ -449,6 +465,11 @@ export default function EmailCampaignEdit() {
       }
       if (saveData.email_template_id === '' || saveData.email_template_id === 'none') {
         saveData.email_template_id = null;
+      }
+      // Only an explicit audience/category review acknowledgement may clear
+      // the server marker. Ordinary content saves deliberately omit this.
+      if (categoryReviewRequired && categoryReviewReady) {
+        saveData.category_review_confirmed = true;
       }
       if (saveData.design_json && Array.isArray(saveData.design_json.blocks)) {
         // Guard: repair duplicated dynamic tokens before persisting.
@@ -482,6 +503,15 @@ export default function EmailCampaignEdit() {
       }
 
       const result = await response.json();
+      if (
+        categoryReviewRequired
+        && categoryReviewReady
+        && result.category_review_required !== true
+      ) {
+        setReviewResolved(true);
+        setReviewConfirmed(false);
+        setReviewSelections({ audience: false, category: false });
+      }
       toast.success(isEditing ? 'Campaign updated' : 'Campaign created');
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
       if (isEditing) {
@@ -632,6 +662,8 @@ export default function EmailCampaignEdit() {
     formData.subject && 
     formData.html_content && 
     hasAudienceSelected &&
+    !affectedSelectedList &&
+    !categoryReviewRequired &&
     (scheduleMode === 'immediate' || formData.scheduled_at);
 
   if (isEditing && campaignLoading) {
@@ -730,6 +762,34 @@ export default function EmailCampaignEdit() {
       </div>
 
       <div className="space-y-6">
+        {categoryReviewRequired && (
+          <Alert className="border-warning/50 bg-warning/5" data-testid="alert-category-review-required">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription className="space-y-3">
+              <div>
+                <p className="font-medium">Audience review required</p>
+                <p>
+                  The subscription category “{campaign?.deleted_category_name || 'previously used by this campaign'}” was deleted.
+                  Sending, scheduling, and resuming are blocked until you explicitly review both the audience lists and subscription category, then save.
+                </p>
+              </div>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={reviewConfirmed}
+                  onChange={(event) => setReviewConfirmed(event.target.checked)}
+                  disabled={!reviewSelections.audience || !reviewSelections.category}
+                  className="mt-0.5"
+                  data-testid="checkbox-confirm-category-review"
+                />
+                <span>I have reviewed the selected audience and category and want to use them for this campaign.</span>
+              </label>
+              {(!reviewSelections.audience || !reviewSelections.category) && (
+                <p className="text-xs">Change or re-select at least one audience list and the subscription category below to enable confirmation.</p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -841,18 +901,33 @@ export default function EmailCampaignEdit() {
               <p className="text-xs text-muted-foreground">
                 Choose one or more lists to send this campaign to. Lists are managed in Communications.
               </p>
+              <p className="text-xs text-muted-foreground">
+                Lists marked “Review required” were affected by a deleted category and cannot be selected. Create or select a valid replacement list.
+              </p>
               {audienceLists.length === 0 ? (
                 <div className="text-sm text-muted-foreground py-4 text-center border rounded-md">
                   No lists found. Create lists in Communications first.
                 </div>
               ) : (
                 <div className="border rounded-md p-3 max-h-48 overflow-y-auto space-y-2 bg-background">
-                  {audienceLists.map(list => (
-                    <label key={list.id} className="flex items-center gap-2 cursor-pointer" data-testid={`list-option-${list.id}`}>
+                  {audienceLists.map(list => {
+                    const isAffected = list.category_review_required === true;
+                    const isSelected = selectedListIds.includes(list.id);
+                    return (
+                    <div
+                      key={list.id}
+                      className={cn("flex items-center gap-2", isAffected ? "text-muted-foreground" : "cursor-pointer")}
+                      data-testid={`list-option-${list.id}`}
+                    >
                       <input
                         type="checkbox"
-                        checked={selectedListIds.includes(list.id)}
+                        checked={isSelected}
+                        disabled={isAffected}
                         onChange={(e) => {
+                          if (categoryReviewRequired) {
+                            setReviewSelections(prev => ({ ...prev, audience: true }));
+                            setReviewConfirmed(false);
+                          }
                           if (e.target.checked) {
                             setSelectedListIds(prev => [...prev, list.id]);
                           } else {
@@ -861,9 +936,33 @@ export default function EmailCampaignEdit() {
                         }}
                         className="rounded"
                       />
-                      <span className="text-sm font-medium">{list.name}</span>
-                    </label>
-                  ))}
+                      <span className="text-sm font-medium flex-1">{list.name}</span>
+                      {isAffected && (
+                        <>
+                          <span className="text-xs rounded border border-warning/50 px-2 py-0.5 text-warning">
+                            Review required{list.deleted_category_name ? `: ${list.deleted_category_name}` : ''}
+                          </span>
+                          {isSelected && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedListIds(prev => prev.filter(id => id !== list.id));
+                                if (categoryReviewRequired) {
+                                  setReviewSelections(prev => ({ ...prev, audience: true }));
+                                  setReviewConfirmed(false);
+                                }
+                              }}
+                              data-testid={`button-remove-affected-list-${list.id}`}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )})}
                 </div>
               )}
             </div>
@@ -876,6 +975,10 @@ export default function EmailCampaignEdit() {
               <Select
                 value={formData.communication_category_id || '__none__'}
                 onValueChange={(value) => {
+                  if (categoryReviewRequired) {
+                    setReviewSelections(prev => ({ ...prev, category: true }));
+                    setReviewConfirmed(false);
+                  }
                   setFormData(prev => ({
                     ...prev,
                     communication_category_id: value === '__none__' ? '' : value

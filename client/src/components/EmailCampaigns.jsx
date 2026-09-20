@@ -197,6 +197,10 @@ export default function EmailCampaigns() {
   };
 
   const handleDuplicateCampaign = async (campaign) => {
+    if (campaign.category_review_required) {
+      toast.error('Review and save this campaign’s audience and subscription category before duplicating.');
+      return;
+    }
     setDuplicating(campaign.id);
     try {
       const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
@@ -304,6 +308,10 @@ export default function EmailCampaigns() {
   // dialog first because resuming a "completed" campaign is unusual and
   // operators should explicitly acknowledge what they're doing.
   const handleResumeClick = (campaign) => {
+    if (campaign.category_review_required) {
+      toast.error('Review and save this campaign’s audience and subscription category before resuming.');
+      return;
+    }
     if (campaign.status === 'paused') {
       doResumeCampaign(campaign);
       return;
@@ -341,6 +349,10 @@ export default function EmailCampaigns() {
   };
 
   const handlePreviewRecipients = async (campaign) => {
+    if (campaign.category_review_required) {
+      toast.error('Review and save this campaign’s audience and subscription category before sending or scheduling.');
+      return;
+    }
     try {
       const response = await fetch('/api/email-campaigns/send', {
         method: 'POST',
@@ -403,6 +415,10 @@ export default function EmailCampaigns() {
 
   const handleSendCampaign = async (campaign) => {
     if (sending) return;
+    if (campaign?.category_review_required) {
+      toast.error('Review and save this campaign’s audience and subscription category before sending.');
+      return;
+    }
     setSending(true);
 
     try {
@@ -436,6 +452,10 @@ export default function EmailCampaigns() {
 
   const handleScheduleCampaign = async (campaign, scheduledAtLocal) => {
     if (sending) return;
+    if (campaign?.category_review_required) {
+      toast.error('Review and save this campaign’s audience and subscription category before scheduling.');
+      return;
+    }
     setSending(true);
 
     try {
@@ -1146,6 +1166,26 @@ export default function EmailCampaigns() {
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
                               {getStatusBadge(campaign.status)}
+                              {campaign.deleted_category_name && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-muted-foreground/40 text-muted-foreground"
+                                  data-testid={`badge-deleted-category-${campaign.id}`}
+                                >
+                                  Category deleted: {campaign.deleted_category_name}
+                                </Badge>
+                              )}
+                              {campaign.category_review_required && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-warning/50 text-warning"
+                                  data-testid={`badge-category-review-${campaign.id}`}
+                                  title={`Deleted category: ${campaign.deleted_category_name || 'Unknown'}`}
+                                >
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                  Audience review required
+                                </Badge>
+                              )}
                               {campaign.is_test_mode && (
                                 <Badge variant="outline" className="border-blue-500 text-blue-600" data-testid={`badge-test-mode-${campaign.id}`}>
                                   <TestTube2 className="w-3 h-3 mr-1" />
@@ -1233,6 +1273,7 @@ export default function EmailCampaigns() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handlePreviewRecipients(campaign)}
+                                  disabled={campaign.category_review_required}
                                   title="Preview & Send"
                                   data-testid={`button-preview-${campaign.id}`}
                                 >
@@ -1261,8 +1302,8 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResumeClick(campaign)}
-                                disabled={resuming === campaign.id}
-                                title="Resume Campaign"
+                                disabled={resuming === campaign.id || campaign.category_review_required}
+                                title={campaign.category_review_required ? "Review audience and category before resuming" : "Resume Campaign"}
                                 data-testid={`button-resume-${campaign.id}`}
                               >
                                 {resuming === campaign.id ? (
@@ -1281,8 +1322,8 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResumeClick(campaign)}
-                                disabled={resuming === campaign.id}
-                                title={`Resume sending (${campaign.pending_count} recipients still pending)`}
+                                disabled={resuming === campaign.id || campaign.category_review_required}
+                                title={campaign.category_review_required ? "Review audience and category before resuming" : `Resume sending (${campaign.pending_count} recipients still pending)`}
                                 className="text-warning hover:text-warning"
                                 data-testid={`button-resume-stuck-${campaign.id}`}
                               >
@@ -1336,8 +1377,8 @@ export default function EmailCampaigns() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleDuplicateCampaign(campaign)}
-                              disabled={duplicating === campaign.id}
-                              title="Duplicate"
+                              disabled={duplicating === campaign.id || campaign.category_review_required}
+                              title={campaign.category_review_required ? "Review audience and category before duplicating" : "Duplicate"}
                               data-testid={`button-duplicate-${campaign.id}`}
                             >
                               {duplicating === campaign.id ? (
