@@ -27,6 +27,14 @@ on /Resources (authenticated path only) lets a group resource through ONLY when 
 is tagged with a subcategory in ITS OWN group's linked set — checked per-group via
 a `member_group_id -> linked subcategories` map, never against a global union.
 
+Direct resource reads must additionally preserve the group-detail content
+entitlement: a current group member/admin or a role allowed
+`events.browse-events.create` can open unshared group content. Resolve that
+narrow capability server-side including member feature exclusions; general
+admin/category-management permission alone is not the group-content exception.
+Public single-resource reads must exclude group resources and event-linked
+resources just like public library discovery, even when `is_public` is true.
+
 **Why:** keeps group privacy intact by default; a group resource leaks tenant-wide
 only because an admin deliberately linked that subcategory to the group.
 

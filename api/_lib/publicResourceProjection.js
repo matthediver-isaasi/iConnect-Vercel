@@ -1,3 +1,10 @@
+// Public discovery must not reveal group-only or attendance-gated resources,
+// even if is_public is true. Apply before projecting any target URL.
+export function isPublicLibraryResource(resource) {
+  return !resource.member_group_id &&
+    !(Array.isArray(resource.linked_events) && resource.linked_events.length > 0);
+}
+
 export function projectPublicResourceAccess(resource, tenantDomain) {
   const isPublic = resource?.is_public === true;
   return {

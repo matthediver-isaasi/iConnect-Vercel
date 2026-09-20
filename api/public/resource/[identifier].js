@@ -2,10 +2,15 @@ import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from '../../_lib/resourceCategoryAccess.js';
+import { isPublicLibraryResource } from '../../_lib/publicResourceProjection.js';
 
-const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, open_in_new_tab, release_date, author_name, tags, subcategories, tenant_id';
+const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, open_in_new_tab, release_date, author_name, tags, subcategories, tenant_id, member_group_id, linked_events';
 
-export default async function handler(req, res) {
+export function createPublicResourceHandler({
+  db = supabase, resolveTenant = resolveTenantFromRequest, getContext = getTenantContext,
+} = {}) {
+ return async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -24,12 +29,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Resource identifier is required' });
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await resolveTenant(req);
 
     if (!tenant) {
       console.error('[Public Resource API] Tenant not found');
@@ -38,7 +43,7 @@ export default async function handler(req, res) {
 
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
     
-    let resourceQuery = supabase
+    let resourceQuery = db
       .from('resource')
       .select(PUBLIC_RESOURCE_COLUMNS)
       .eq('tenant_id', tenant.id)
@@ -64,14 +69,20 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Resource not found' });
     }
 
+    // Match public-library exclusions before any metadata/target projection.
+    // Authenticated viewers must use the permission-complete single endpoint.
+    if (!isPublicLibraryResource(resource)) {
+      return res.status(404).json({ error: 'Resource not found or inactive' });
+    }
+
     // Task #3306: resources exclusively tagged with subcategories of
     // role-restricted categories must not be fetchable by direct UUID/slug.
     // Resolve the caller (guest vs authenticated member) and 404 when hidden.
     try {
-      const categories = await fetchCategoriesWithAccess(supabase, tenant.id);
+      const categories = await fetchCategoriesWithAccess(db, tenant.id);
       let viewer = { isGuest: true };
       try {
-        const ctx = await getTenantContext(req);
+        const ctx = await getContext(req);
         if (ctx?.isAuthenticated === true && !ctx.tenantMismatch && ctx.tenantId === tenant.id) {
           const isPrivileged = !!ctx.tenantUserId
             || await hasAdminAccess(ctx)
@@ -117,4 +128,7 @@ export default async function handler(req, res) {
     console.error('Resource fetch error:', error);
     return res.status(500).json({ error: 'Failed to fetch resource' });
   }
+ };
 }
+
+export default createPublicResourceHandler();

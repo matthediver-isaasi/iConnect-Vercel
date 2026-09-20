@@ -15,6 +15,8 @@ import { useResourceRealtime } from "@/hooks/useResourceRealtime";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/tenantButtonStyle";
+import { useLocation, useNavigate } from "react-router-dom";
+import SingleResourcePage from "../components/resources/SingleResourcePage";
 
 const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 const VALID_SORT_VALUES = ['newest', 'oldest', 'title-asc', 'title-desc'];
@@ -23,6 +25,21 @@ const EMPTY_VIEW_COUNTS = {};
 const EMPTY_CATEGORY_DATA = { categories: [], hiddenSubcategories: [] };
 
 export default function ResourcesPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const params = new URLSearchParams(location.search);
+  // Presence, rather than truthiness, keeps invalid/empty IDs on the bounded
+  // detail path too. An unavailable resource must never fall back to listAll.
+  if (params.has('resourceId')) {
+    return <SingleResourcePage resourceId={params.get('resourceId')} onBrowse={() => {
+      params.delete('resourceId');
+      navigate({ pathname: location.pathname, search: params.toString(), hash: location.hash });
+    }} />;
+  }
+  return <ResourceLibraryPage />;
+}
+
+function ResourceLibraryPage() {
   const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { hasBanner, sessionValidated, authResolved } = useLayoutContext();
   const tenantBranding = useTenantBranding()?.branding;
