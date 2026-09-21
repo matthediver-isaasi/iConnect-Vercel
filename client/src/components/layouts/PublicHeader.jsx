@@ -17,7 +17,7 @@ import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayNam
 import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
 import { DEFAULT_HEADER_LOGO_HEIGHT, resolveMicrositeLogoHomePath } from "@shared/micrositeHeaderLogo";
 import { resolvePublicHeaderLink } from "@/lib/publicHeaderLogin";
-import PublicLoginLink from "@/components/layouts/PublicLoginLink";
+import { PublicSignInStyledLink } from "@/components/layouts/PublicLoginLink";
 import { resolveMobileHeaderHeight } from "@shared/mobileHeaderHeight";
 
 // Icon mapping for commonly used Lucide icons
@@ -859,7 +859,8 @@ export default function PublicHeader() {
       );
     }
     return (
-      <PublicLoginLink
+      <PublicSignInStyledLink
+        to="/login"
         className={hoverClass}
         textColor={plainColor}
         testId="link-header-login"
@@ -984,7 +985,8 @@ export default function PublicHeader() {
           </button>
         </div>
       ) : (
-        <PublicLoginLink
+        <PublicSignInStyledLink
+          to="/login"
           mobile
           onClick={() => setMobileMenuOpen(false)}
           // The mobile drawer is always a white surface, so plain login links

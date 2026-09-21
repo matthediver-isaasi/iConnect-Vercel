@@ -20,3 +20,9 @@ Protected route guards must derive readiness and permissions from the same sessi
 **Why:** Hidden portal children still run redirects. A stale deny callback can redirect an authorized member during loading; a stale allow callback can mount protected workspaces before refreshed permissions resolve.
 
 **How to apply:** Gate workspace mounting and redirects on a ready, identity-matched role. Keep missing/error states recoverable and distinguish them from confirmed exclusion.
+
+Browser fixtures that authenticate a member must also supply a valid tenant-matched role lookup, even when testing public Canvas previews.
+
+**Why:** Older member-only fixtures returned generic empty metadata for role-by-id reads. After role readiness became fail-closed, this caused editor and draft-preview failures unrelated to the feature under test.
+
+**How to apply:** Model the intended member capability explicitly in fixture role responses; do not bypass guards or promote the fixture to an administrator merely to recover an older test.

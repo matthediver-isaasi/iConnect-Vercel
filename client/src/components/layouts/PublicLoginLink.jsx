@@ -5,8 +5,9 @@ import { getValidatedReturnTo } from '@/lib/memberOnlyHtml';
 import { resolvePublicHeaderLink } from '@/lib/publicHeaderLogin';
 
 /**
- * The same branded login action used by PublicHeader, available to inline
- * content prompts without mounting a second header. Branding is read through
+ * Contextual login for inline content prompts. Ordinary header login uses
+ * PublicSignInStyledLink with /login instead of returning to the public page.
+ * Branding is read through
  * usePublicChromeBranding so microsite overrides are honored.
  */
 export function PublicLoginLink({

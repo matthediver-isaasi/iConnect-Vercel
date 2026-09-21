@@ -16,6 +16,14 @@ const MEMBER = {
   role_id: "role-task4387",
 };
 
+const ROLE = {
+  id: MEMBER.role_id,
+  tenant_id: TENANT.id,
+  name: "Member",
+  excluded_features: [],
+  default_landing_page: "Events",
+};
+
 const PAGE_ID = "canvas-member-only-task4387";
 const PAGE_SLUG = "task4387-member-only";
 const SYMBOL_ID = "symbol-member-only-task4387";
@@ -194,12 +202,15 @@ async function installFixtures(page, {
   topNavTextColor = "#172554",
   publicChrome = "none",
   includeAccountNav = false,
+  firstLogin = false,
 }) {
   const state = {
     auth,
     version,
     requests: [],
     writes: [],
+    loginCount: 0,
+    roleReads: 0,
   };
   const branding = {
     id: TENANT.id,
@@ -224,10 +235,11 @@ async function installFixtures(page, {
   });
   const guestPage = pageFixture(version, { redacted: true, publicChrome });
 
-  await page.addInitScript(() => {
+  await page.addInitScript((slug) => {
+    localStorage.setItem("tenant_slug", slug);
     localStorage.removeItem("agcas_member");
     localStorage.removeItem("agcas_organization");
-  });
+  }, TENANT.slug);
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -257,8 +269,23 @@ async function installFixtures(page, {
       });
     }
     if (path === "/api/auth/login" && method === "POST") {
+      state.loginCount += 1;
+      state.auth = "member";
+      return json(route, { success: true, member: MEMBER, requiresPasswordChange: firstLogin });
+    }
+    if (path === "/api/auth/set-password" && method === "POST") {
       state.auth = "member";
       return json(route, { success: true, member: MEMBER });
+    }
+    if (path === "/api/entities/Role") {
+      state.roleReads += 1;
+      return json(route, [ROLE]);
+    }
+    if (path === `/api/entities/Role/${MEMBER.role_id}`) {
+      return json(route, ROLE);
+    }
+    if (path === "/api/public/portal-branding") {
+      return json(route, { homePageSlug: PAGE_SLUG });
     }
     if (path === `/api/public/page/${PAGE_SLUG}`) {
       const body = state.auth === "member" && !unpublished
@@ -311,7 +338,7 @@ async function installFixtures(page, {
       return json(route, []);
     }
     state.writes.push({ path, method, body: request.postDataJSON?.() });
-    return json(route, { success: true });
+    return json(route, { error: "Unexpected fixture mutation" }, 500);
   });
 
   return { state, fullPage, guestPage };
@@ -551,3 +578,56 @@ test("task4387 LoginForm rejects an external returnTo before consuming it", asyn
   expect(new URL(page.url()).hostname).not.toBe("evil.example");
   expect(fixture.state.writes).toEqual([]);
 });
+
+for (const mobile of [false, true]) {
+  for (const source of ["/", `/${PAGE_SLUG}?view=public#intro`]) {
+    test(`header ordinary login resolves role destination: ${mobile ? "mobile" : "desktop"} ${source}`, async ({ page }) => {
+      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+      const fixture = await installFixtures(page, {
+        version: 1, publicChrome: "both", includeAccountNav: true,
+      });
+      await page.goto(source);
+      if (mobile) await page.getByRole("button", { name: "Open menu" }).click();
+      const login = page.getByTestId(mobile ? "link-mobile-login" : "link-header-login");
+      await expect(login).toHaveText("Fixture Login");
+      await expect(login).toHaveCSS("background-color", "rgb(29, 78, 216)");
+      await expect(login).toHaveAttribute("href", "/login");
+      await login.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/login$/);
+      // Closed drawers are translated offscreen, not display:none.
+      if (mobile) await expect(page.getByTestId("link-mobile-login")).not.toBeInViewport();
+      await page.getByTestId("input-email").fill(MEMBER.email);
+      await page.getByTestId("input-password").fill("fixture password");
+      await page.getByTestId("button-login").click();
+      await expect.poll(() => new URL(page.url()).pathname.toLowerCase()).toBe("/events");
+      expect(fixture.state.loginCount).toBe(1);
+      expect(fixture.state.roleReads).toBeGreaterThan(0);
+      expect(fixture.state.writes).toEqual([]);
+    });
+  }
+}
+
+for (const context of [
+  { target: "/", extra: "", expected: "/" },
+  { target: `/${PAGE_SLUG}?view=members#protected`, extra: "&resourceId=resource-fixture", expected: `/${PAGE_SLUG}?view=members&resourceId=resource-fixture#protected` },
+  { target: `/${PAGE_SLUG}?view=members#protected`, extra: "&groupId=group-fixture", expected: `/${PAGE_SLUG}?view=members&id=group-fixture#protected` },
+]) {
+  test(`explicit contextual login survives first-password transition: ${context.extra || "root"}`, async ({ page }) => {
+    const fixture = await installFixtures(page, { version: 1, firstLogin: true });
+    await page.goto(`/login?returnTo=${encodeURIComponent(context.target)}${context.extra}`);
+    await page.getByTestId("input-email").fill(MEMBER.email);
+    await page.getByTestId("input-password").fill("fixture password");
+    await page.getByTestId("button-login").click();
+    await page.getByTestId("input-new-password").fill("new fixture password");
+    await page.getByTestId("input-confirm-password").fill("new fixture password");
+    await page.getByTestId("button-set-password").click();
+    await expect.poll(() => {
+      const url = new URL(page.url());
+      return url.pathname + url.search + url.hash;
+    }).toBe(context.expected);
+    expect(fixture.state.loginCount).toBe(1);
+    expect(fixture.state.roleReads).toBe(0);
+    expect(fixture.state.writes).toEqual([]);
+  });
+}
