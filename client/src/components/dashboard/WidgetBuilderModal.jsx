@@ -48,9 +48,10 @@ import {
   BAR_CHART_MARGIN,
   getBarHeightProps,
 } from "@/components/dashboard/barChartHeight";
-import { formatNumber } from "@/components/dashboard/WidgetCard";
+import { formatNumber, WidgetBody } from "@/components/dashboard/WidgetCard";
 import { Textarea } from "@/components/ui/textarea";
 import { describeWidgetConfig } from "@shared/widgetDescriber.js";
+import { MEMBER_GROUP_MEASURES, changeGroupMeasure, groupFieldCompatible, isGroupTemporal } from "./memberGroupReporting";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import {
   dashboardWidgetChartColours,
@@ -206,6 +207,7 @@ function buildFieldOptions(source) {
     // picker (the engine resolves such filters after bucket derivation).
     groupOnly: !!f.groupOnly,
     filterable: !!f.filterable,
+    supportedMeasures: f.supportedMeasures,
     // Derived Region dimension: available classification schemes (app /
     // World Bank), each with its own bucket list. Drives the scheme
     // picker rendered under the Group-by select.
@@ -325,7 +327,16 @@ export default function WidgetBuilderModal({
   });
   const sources = sourcesPayload?.sources || [];
   const currentSource = sources.find(s => s.id === draft.config.source) || null;
-  const fieldOptions = useMemo(() => buildFieldOptions(currentSource), [currentSource]);
+  const isMemberGroup = draft.config.source === "member_group";
+  const groupMeasure = draft.config.measure?.field || "groups";
+  const fieldOptions = useMemo(() => {
+    const fields = buildFieldOptions(currentSource);
+    if (!isMemberGroup) return fields;
+    return [
+      ...MEMBER_GROUP_MEASURES.map(m => ({ ...m, value: `system:${m.field}`, fieldKind: "system", type: "number" })),
+      ...fields.filter(f => !MEMBER_GROUP_MEASURES.some(m => m.field === f.field)),
+    ];
+  }, [currentSource, isMemberGroup]);
 
   // Group-by picker lists system + custom fields together, sorted A–Z by
   // label (case-insensitive) so the dropdown is scannable regardless of
@@ -335,11 +346,11 @@ export default function WidgetBuilderModal({
       [...fieldOptions]
         // Filter-only descriptors (organisation-level booking filters)
         // never appear in the group-by picker.
-        .filter(o => !o.filterOnly)
+        .filter(o => !o.filterOnly && (!isMemberGroup || groupFieldCompatible(o, groupMeasure, "group")))
         .sort((a, b) =>
           (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
         ),
-    [fieldOptions],
+    [fieldOptions, isMemberGroup, groupMeasure],
   );
 
   // DD stage-transition capability (surfaced via the source's `isDd` flag so
@@ -503,6 +514,13 @@ export default function WidgetBuilderModal({
     const errs = [];
     if (!draft.title.trim()) errs.push("Add a widget title.");
     if (!draft.config.source) errs.push("Choose a data source.");
+    if (isMemberGroup) {
+      if (!MEMBER_GROUP_MEASURES.some(m => m.field === draft.config.measure.field)) errs.push("Choose a Member Groups measure.");
+      if (groupMeasure === "period_end_members" && !draft.config.timeBucket) errs.push("Period-end members requires a time bucket.");
+      if (draft.config.cumulative && groupMeasure !== "joins") errs.push("Only joins can use cumulative totals.");
+      if (isGroupTemporal(groupMeasure) && ["pie", "donut"].includes(draft.widget_type)) errs.push("Choose a stat, bar, line or list for membership history.");
+      if (draft.config.seriesBy && draft.widget_type === "stat") errs.push("Choose a bar, line or list to display named group series.");
+    }
     if (requireMeasureField && !draft.config.measure.field && !draft.config.measure.fieldId) {
       const agg = draft.config.measure.aggregator;
       const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
@@ -583,7 +601,7 @@ export default function WidgetBuilderModal({
         errs.push('Pick a date range for the "Active in period" group-by.');
       }
       const sb = draft.config.seriesBy;
-      if (sb) {
+      if (sb && !isMemberGroup) {
         if (draft.widget_type !== "bar") {
           errs.push("The activity split only works on bar charts.");
         }
@@ -764,7 +782,7 @@ export default function WidgetBuilderModal({
                       config:
                         value === "line"
                           ? prev.config
-                          : { ...prev.config, cumulative: false },
+                          : { ...prev.config, cumulative: false, ...(isMemberGroup && value === "stat" ? { seriesBy: null } : {}) },
                     }))
                   }
                 >
@@ -775,6 +793,7 @@ export default function WidgetBuilderModal({
                     {WIDGET_TYPES
                       // Conversion widgets only render as a stat card.
                       .filter(t => !isConversionSource || t.value === "stat")
+                      .filter(t => !isMemberGroup || !isGroupTemporal(groupMeasure) || !["pie", "donut"].includes(t.value))
                       .map(t => (
                         <SelectItem key={t.value} value={t.value}>
                           {t.label}
@@ -965,7 +984,7 @@ export default function WidgetBuilderModal({
                     widget_type: toConversion ? "stat" : prev.widget_type,
                     config: {
                       source: value,
-                      measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
+                      measure: { aggregator: "count", field: value === "member_group" ? "groups" : null, fieldKind: value === "member_group" ? "system" : null, fieldId: null },
                       groupBy: null,
                       seriesBy: null,
                       timeBucket: null,
@@ -1267,7 +1286,7 @@ export default function WidgetBuilderModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {AGGREGATORS.map(a => (
+                    {AGGREGATORS.filter(a => !isMemberGroup || a.value === "count").map(a => (
                       <SelectItem key={a.value} value={a.value}>
                         {a.label}
                       </SelectItem>
@@ -1285,10 +1304,18 @@ export default function WidgetBuilderModal({
                         }`
                       : ""
                   }
-                  disabled={!requireMeasureField && draft.config.measure.aggregator === "count"}
+                  disabled={!isMemberGroup && !requireMeasureField && draft.config.measure.aggregator === "count"}
                   onValueChange={value => {
                     const opt = fieldOptions.find(o => o.value === value);
                     if (!opt) return;
+                    if (isMemberGroup) {
+                      setDraft(prev => ({
+                        ...prev,
+                        widget_type: isGroupTemporal(opt.field) && ["pie", "donut"].includes(prev.widget_type) ? "line" : prev.widget_type,
+                        config: changeGroupMeasure(prev.config, opt.field),
+                      }));
+                      return;
+                    }
                     updateMeasure({
                       fieldKind: opt.fieldKind,
                       field: opt.field,
@@ -1308,6 +1335,7 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     {fieldOptions
                       .filter(opt => {
+                        if (isMemberGroup) return groupFieldCompatible(opt, groupMeasure, "measure");
                         // Derived group-only dimensions (e.g. Region) have
                         // no stored column to measure over.
                         if (opt.groupOnly) return false;
@@ -1330,9 +1358,20 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
+            {isMemberGroup && (
+              <details className="text-xs text-muted-foreground" data-testid="member-group-semantics">
+                <summary className="cursor-pointer">Counting rules, history coverage and eligibility</summary>
+                <p className="mt-1">
+                  {describeWidgetConfig(draft.config, { widgetType: draft.widget_type })}
+                  {" "}Click-through to individual members is unavailable.
+                </p>
+              </details>
+            )}
+
             <div className="space-y-2">
               <Label>Group by</Label>
               <Select
+                disabled={isMemberGroup && groupMeasure === "period_end_members"}
                 value={
                   draft.config.groupBy
                     ? `${draft.config.groupBy.kind}:${
@@ -1350,6 +1389,7 @@ export default function WidgetBuilderModal({
                   updateConfig({
                     groupBy: { kind: opt.fieldKind, field: opt.field, fieldId: opt.fieldId },
                     timeBucket: null,
+                    ...(isMemberGroup ? { seriesBy: null, cumulative: false } : {}),
                     // Grouping by "Active in period" itself makes the
                     // secondary Active/Inactive split redundant.
                     ...(opt.periodField ? { seriesBy: null } : {}),
@@ -1571,7 +1611,7 @@ export default function WidgetBuilderModal({
                     if (value === "__none__") {
                       // Clearing the bucket invalidates a cumulative line, so
                       // drop the flag alongside it.
-                      updateConfig({ timeBucket: null, cumulative: false });
+                      updateConfig({ timeBucket: null, cumulative: false, ...(isMemberGroup ? { seriesBy: null } : {}) });
                       return;
                     }
                     const opt = fieldOptions.find(o => o.value === value);
@@ -1597,7 +1637,7 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     <SelectItem value="__none__">No bucket</SelectItem>
                     {fieldOptions
-                      .filter(opt => opt.type === "date" && !opt.filterOnly)
+                      .filter(opt => opt.type === "date" && !opt.filterOnly && (!isMemberGroup || groupFieldCompatible(opt, groupMeasure, "date")))
                       .map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
@@ -1767,7 +1807,17 @@ export default function WidgetBuilderModal({
               );
             })()}
 
-            {draft.widget_type === "line" && draft.config.timeBucket?.field && (
+            {isMemberGroup && draft.widget_type !== "stat" && isGroupTemporal(groupMeasure) && draft.config.timeBucket && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <Label htmlFor="switch-group-series">Separate series for each named group</Label>
+                <Switch id="switch-group-series" data-testid="switch-group-series"
+                  checked={draft.config.seriesBy?.field === "group_id"}
+                  onCheckedChange={checked => updateConfig({ seriesBy: checked ? { kind: "system", field: "group_id" } : null })}
+                />
+              </div>
+            )}
+
+            {(!isMemberGroup || groupMeasure === "joins") && draft.widget_type === "line" && draft.config.timeBucket?.field && (
               <div className="flex items-center justify-between gap-4 rounded-md border p-3">
                 <div className="space-y-1">
                   <Label htmlFor="switch-widget-cumulative">
@@ -1901,6 +1951,7 @@ export default function WidgetBuilderModal({
                         </SelectTrigger>
                         <SelectContent>
                           {fieldOptions
+                            .filter(field => !isMemberGroup || groupFieldCompatible(field, groupMeasure, "filter"))
                             // Derived dimensions with no stored column are
                             // excluded unless explicitly marked filterable
                             // (e.g. Region — resolved in JS server-side).
@@ -1934,7 +1985,7 @@ export default function WidgetBuilderModal({
                               {op.label}
                             </SelectItem>
                           ))}
-                          {isCountryField(opt) &&
+                          {!isMemberGroup && isCountryField(opt) &&
                             TENANT_LIST_OPERATORS.map(op => (
                               <SelectItem key={op.value} value={op.value}>
                                 {op.label}
@@ -2140,6 +2191,9 @@ function PreviewWidget({ widget, payload, palette }) {
         Preview will appear here once the configuration is valid.
       </p>
     );
+  }
+  if (widget.config?.source === "member_group") {
+    return <WidgetBody widget={widget} payload={payload} palette={palette} />;
   }
   return (
     <PreviewBody widget={widget} payload={payload} palette={palette} />

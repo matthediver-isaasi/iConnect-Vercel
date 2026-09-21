@@ -112,7 +112,21 @@ export function describeWidgetConfig(config, options = {}) {
   const sourcePlural = lowerFirst(sourceLabel);
 
   // --- What is measured -------------------------------------------------
-  if (config.source === 'form_conversion' && config.conversion) {
+  if (config.source === 'member_group') {
+    const measure = config.measure?.field || 'groups';
+    const descriptions = {
+      groups: 'Counts distinct member groups, including empty groups.',
+      current_members: 'Counts distinct current members with unexpired group memberships. Empty groups show zero. Members in multiple groups count once in the overall result; group counts must not be added to obtain a tenant-wide headcount.',
+      joins: 'Counts membership joins, not current headcounts. A rejoin after a gap counts again; overlapping assignments and role changes do not create extra joins. Baseline memberships are not new joins.',
+      period_end_members: 'Counts distinct members present immediately before each UTC period boundary, not joins or cumulative joins. The incomplete current period shows membership now and is provisional. Members in multiple groups count once overall; group counts are not additive.',
+    };
+    sentences.push(descriptions[measure] || 'Shows member group reporting.');
+    sentences.push('Guest assignments are excluded. Hidden and login-disabled members remain eligible; public-directory eligibility is not applied. Inactive groups are included unless filtered. Deleted members are excluded from current counts; recorded historical membership evidence is retained.');
+    if (measure === 'joins' || measure === 'period_end_members') {
+      sentences.push('Authoritative history starts at the reporting baseline; older periods are unavailable, not zero. Historical filters use CURRENT member attributes. Deleted members remain in unfiltered historical headcounts but have no current attributes to match member filters. Group names and active state use the latest recorded values, not their past values.');
+    }
+    if (config.seriesBy?.field === 'group_id') sentences.push('Each named group has its own series.');
+  } else if (config.source === 'form_conversion' && config.conversion) {
     const matchBy =
       config.conversion.matchBy === 'member' ? 'person' : 'organisation';
     sentences.push(

@@ -8,6 +8,43 @@ import { createHandler as createDrilldownHandler } from './[id]/drilldown.js';
 
 const TENANT = 'tenant-1';
 const OTHER_TENANT = 'tenant-2';
+test('Member Group aggregate widgets preserve personal, tenant and embed boundaries', async () => {
+  const config = {
+    source: 'member_group',
+    measure: { aggregator: 'count', fieldKind: 'system', field: 'period_end_members' },
+    timeBucket: { field: 'membership_at', granularity: 'month' },
+    seriesBy: { kind: 'system', field: 'group_id' },
+    filters: [],
+  };
+  const rows = [
+    widget({ id: 'group-shared', config }),
+    widget({ id: 'group-mine', config, scope: 'personal', owner_member_id: 'member-1' }),
+    widget({ id: 'group-private', config, scope: 'personal', owner_member_id: 'member-2' }),
+    widget({ id: 'group-foreign', config, tenant_id: OTHER_TENANT }),
+  ];
+  for (const [id, embed, expected] of [
+    ['group-shared', true, 200], ['group-mine', false, 200],
+    ['group-mine', true, 404], ['group-private', false, 404],
+    ['group-foreign', false, 404], ['group-foreign', true, 404],
+  ]) {
+    let calls = 0;
+    const handler = createDataHandler({
+      supabase: database(rows),
+      getDashboardActor: async () => actor(),
+      runWidgetConfig: async (actual, tenantId, options) => {
+        calls++;
+        assert.deepEqual(actual, config);
+        assert.equal(tenantId, TENANT);
+        assert.equal(options.collectRowIds, undefined);
+        return { rows: [{ name: '2026-09', value: 2 }], categories: [] };
+      },
+    });
+    const res = response();
+    await handler({ method: 'GET', query: { id, ...(embed ? { embed: 'canvas' } : {}) } }, res);
+    assert.equal(res.statusCode, expected);
+    assert.equal(calls, expected === 200 ? 1 : 0);
+  }
+});
 const ACTOR = {
   tenantId: TENANT,
   memberId: 'member-1',

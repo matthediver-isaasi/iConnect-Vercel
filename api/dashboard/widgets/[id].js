@@ -7,6 +7,8 @@ import {
   tenantFilter,
 } from '../_lib/permissions.js';
 import { widgetUpdateSchema } from '../_lib/validation.js';
+import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
+import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
@@ -17,6 +19,7 @@ export function createHandler(overrides = {}) {
     supabase,
     getDashboardActor,
     widgetUpdateSchema,
+    validateMemberGroupTenantConfig,
     ...overrides,
   };
   return async function dashboardWidgetHandler(req, res) {
@@ -90,6 +93,18 @@ async function updateWidget(req, res, widget, deps) {
     return res.status(400).json({ error: 'Invalid widget payload', details: parsed.error.flatten() });
   }
   const update = { ...parsed.data, updated_at: new Date().toISOString() };
+  try {
+    validateMemberGroupWidgetType(update.config || widget.config, update.widget_type || widget.widget_type);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  if (update.config?.source === 'member_group') {
+    try {
+      await deps.validateMemberGroupTenantConfig(update.config, widget.tenant_id, deps.supabase);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  }
   const { data, error } = await deps.supabase
     .from('dashboard_widget')
     .update(update)

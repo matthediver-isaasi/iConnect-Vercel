@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
 import { resolveCountryToIso2, getCountryByCode } from '../../../shared/countries.js';
+import { runMemberGroupWidgetConfig } from './memberGroupAggregation.js';
 import {
   deriveRegionBucket,
   deriveRegionBucketList,
@@ -62,6 +63,9 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     throw new Error(`Unknown source: ${config.source}`);
   }
   const client = options.client || supabase;
+  if (source.isMemberGroup) {
+    return runMemberGroupWidgetConfig(config, tenantId, client, { ...options, maxGroups });
+  }
 
   // DD Submissions has a bespoke shape (canonicalised workflow_status,
   // joined organisation org_type preference) so it routes through its

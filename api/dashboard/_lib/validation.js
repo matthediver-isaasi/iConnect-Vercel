@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateMemberGroupConfig } from './memberGroupContract.js';
 
 const fieldRefSchema = z.object({
   field: z.string().nullable().optional(),
@@ -180,6 +181,11 @@ export const widgetConfigSchema = z.object({
     // builder: trimmed text, and whitespace-only strings collapse to null.
     .transform(v => (typeof v === 'string' ? v.trim() || null : v ?? null)),
 }).passthrough().superRefine((cfg, ctx) => {
+  try {
+    validateMemberGroupConfig(cfg);
+  } catch (err) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: err.message });
+  }
   if (cfg.source === 'form_conversion') {
     if (!cfg.conversion) {
       ctx.addIssue({

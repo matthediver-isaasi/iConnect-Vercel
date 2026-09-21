@@ -1,4 +1,6 @@
 import { supabase } from '../../_lib/database.js';
+import { GROUP_FIELDS } from './memberGroupContract.js';
+import { loadMemberGroupCustomFields, readMemberGroupPages } from './memberGroupAggregation.js';
 import { tenantFilter } from './permissions.js';
 import {
   regionBucketsForScheme,
@@ -51,6 +53,17 @@ function buildRegionField() {
  * subject of sum/avg/min/max (otherwise only count is allowed).
  */
 export const DASHBOARD_SOURCES = {
+  member_group: {
+    id: 'member_group',
+    label: 'Member Groups',
+    table: 'member_group',
+    timestampField: 'membership_at',
+    isMemberGroup: true,
+    preferenceTable: 'member_preference_value',
+    preferenceFkColumn: 'member_id',
+    preferenceScope: 'member',
+    systemFields: GROUP_FIELDS,
+  },
   organization: {
     id: 'organization',
     label: 'Organisations',
@@ -425,6 +438,13 @@ export async function getOrgTypeOptions(tenantId) {
  * dimension (options are the tenant's org_type dropdown values).
  */
 async function resolveSystemFields(def, tenantId) {
+  if (def.isMemberGroup) {
+    const groups = await readMemberGroupPages(() => tenantFilter(supabase.from('member_group')
+      .select('id,name'), tenantId).order('id'));
+    return def.systemFields.map(f => f.name === 'group_id'
+      ? { ...f, options: groups.map(g => ({ value: g.id, label: g.name || '(Unnamed group)' })) }
+      : f);
+  }
   if (def.isDd) {
     const formOptions = await getDdFormOptions(tenantId);
     return def.systemFields.map(f =>
@@ -527,6 +547,7 @@ export async function getSourceCatalog(tenantId) {
       // Event-bookings capability flag so the builder can offer the
       // organisation-participation split without hard-coding source ids.
       isBooking: !!def.isBooking,
+      isMemberGroup: !!def.isMemberGroup,
       ...(def.isConversion
         ? { forms: await getTenantFormOptions(tenantId) }
         : {}),
@@ -564,6 +585,15 @@ export async function getCustomFieldsForSource(sourceOrDef, tenantId) {
   // Sources without a preference store (e.g. DD Submissions) have no
   // tenant-defined custom fields to enumerate.
   if (!def.preferenceTable || !def.preferenceScope) return [];
+  if (def.isMemberGroup) {
+    const fields = await loadMemberGroupCustomFields(supabase, tenantId);
+    return fields.map(field => ({
+      id: field.id, name: field.name, label: field.label || field.name,
+      type: mapFieldType(field.field_type), fieldType: field.field_type,
+      options: Array.isArray(field.options) ? field.options : null,
+      aggregatable: false, isCustom: true,
+    }));
+  }
   try {
     const baseQuery = supabase
       .from('preference_field')

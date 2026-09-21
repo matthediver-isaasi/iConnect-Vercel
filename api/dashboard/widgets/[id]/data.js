@@ -7,6 +7,7 @@ import {
   tenantFilter,
 } from '../../_lib/permissions.js';
 import { runWidgetConfig, MAX_LIST_GROUPS } from '../../_lib/aggregation.js';
+import { validateMemberGroupWidgetType } from '../../_lib/memberGroupContract.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
@@ -54,6 +55,7 @@ export function createHandler(overrides = {}) {
     }
 
     try {
+      validateMemberGroupWidgetType(widget.config, widget.widget_type);
       const result = await deps.runWidgetConfig(widget.config, actor.tenantId, {
         maxGroups: widget.widget_type === 'list' ? MAX_LIST_GROUPS : undefined,
       });

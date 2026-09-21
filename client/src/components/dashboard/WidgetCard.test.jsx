@@ -7,10 +7,12 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
 globalThis.navigator = dom.window.navigator;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Element = dom.window.Element;
 globalThis.Node = dom.window.Node;
+globalThis.DocumentFragment = dom.window.DocumentFragment;
 globalThis.MutationObserver = dom.window.MutationObserver;
 globalThis.getComputedStyle = dom.window.getComputedStyle;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,15 +55,117 @@ const { act } = await import("react");
 const {
   buildExportRows,
   default: WidgetCard,
+  WidgetBody,
   widgetDataQueryKey,
   widgetRequestUrl,
 } = await import("./WidgetCard.jsx");
+const { default: WidgetBuilderModal } = await import("./WidgetBuilderModal.jsx");
 const { dashboardWidgetChartColours, normalizeDashboardWidgetPalette } =
   await import("@shared/dashboardWidgetPalette.js");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } =
   await import("@tanstack/react-query");
+
+test("Member Groups list renders missing history and provisional values without clickthrough or summed headcounts", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let clicks = 0;
+  await act(async () => root.render(
+    <WidgetBody
+      widget={{ id: "history", widget_type: "list", config: { source: "member_group", measure: { field: "period_end_members" }, clickThrough: true } }}
+      payload={{ type: "time", categories: ["value"], historyBaseline: "2026-09-01T00:00:00Z", rows: [{ key: "2026-08", value: null, available: false }, { key: "2026-09", value: 0, provisional: true }] }}
+      onDrill={() => { clicks++; }}
+    />,
+  ));
+  assert.match(container.textContent, /Unavailable/);
+  assert.match(container.textContent, /Current \/ provisional: 2026-09/);
+  assert.match(container.textContent, /Reliable history starts 2026-09-01/);
+  assert.match(container.textContent, /not an overall headcount/);
+  assert.equal(container.querySelector('[role="button"]'), null);
+  assert.equal(clicks, 0);
+  assert.doesNotMatch(container.textContent, /Total: 0/);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("Member Groups named monthly line chart keeps separate labelled series and unavailable CSV values", async () => {
+  const widget = { id: "group-lines", widget_type: "line", config: { source: "member_group", measure: { field: "period_end_members" } } };
+  const payload = {
+    type: "time", categories: ["group_a", "group_b"], seriesLabels: { group_a: "Clinical Group", group_b: "Research Group" },
+    rows: [
+      { key: "2026-08", group_a: null, group_b: null, available: false },
+      { key: "2026-09", group_a: 2, group_b: 3, available: true, provisional: true },
+    ],
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<WidgetBody widget={widget} payload={payload} />));
+  await act(async () => TestResizeObserver.flush({ width: 600, height: 300 }));
+  assert.match(container.textContent, /Clinical Group/);
+  assert.match(container.textContent, /Research Group/);
+  assert.equal(container.querySelectorAll(".recharts-line").length, 2);
+  assert.deepEqual(buildExportRows(widget, payload), [
+    ["Label", "Clinical Group", "Research Group", "Status"],
+    ["2026-08", "Unavailable", "Unavailable", "Unavailable"],
+    ["2026-09", 2, 3, "Current / provisional"],
+  ]);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("Member Groups builder reopens and saves named monthly series in personal and shared scope", async () => {
+  // Radix dialogs use constructors and focus APIs from the browser realm.
+  globalThis.CustomEvent = window.CustomEvent;
+  globalThis.NodeFilter = window.NodeFilter;
+  globalThis.HTMLInputElement = window.HTMLInputElement;
+  globalThis.HTMLSelectElement = window.HTMLSelectElement;
+  globalThis.HTMLTextAreaElement = window.HTMLTextAreaElement;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { type: "time", categories: ["Group A"], rows: [] } }) });
+  try {
+    for (const scope of ["personal", "shared"]) {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } } });
+      client.setQueryData(["/api/dashboard/sources"], { sources: [{
+        id: "member_group", label: "Member Groups",
+        systemFields: [{ name: "group_id", label: "Group", type: "reference" }, { name: "membership_at", label: "Membership history date", type: "date" }],
+      }] });
+      const config = {
+        source: "member_group", measure: { aggregator: "count", fieldKind: "system", field: "period_end_members", fieldId: null },
+        timeBucket: { field: "membership_at", fieldKind: "system", granularity: "month", window: { amount: 12, unit: "month" } },
+        seriesBy: { kind: "system", field: "group_id" }, filters: [], cumulative: false,
+      };
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      let saved;
+      await act(async () => root.render(
+        <QueryClientProvider client={client}>
+          <WidgetBuilderModal open initialWidget={{ title: "Membership at month end", widget_type: "line", scope, config }}
+            onClose={() => {}} onSave={value => { saved = value; }} canSaveShared />
+        </QueryClientProvider>,
+      ));
+      const save = document.querySelector('[data-testid="button-save-widget"]');
+      assert.ok(save);
+      assert.equal(save.disabled, false);
+      assert.equal(document.querySelector('[data-testid="switch-group-series"]').getAttribute("aria-checked"), "true");
+      assert.equal(document.querySelector('[data-testid="switch-widget-cumulative"]'), null);
+      assert.equal(document.querySelector('[data-testid="switch-widget-click-through"]'), null);
+      await act(async () => save.click());
+      assert.equal(saved.scope, scope);
+      assert.deepEqual(saved.config.measure, config.measure);
+      assert.deepEqual(saved.config.timeBucket, config.timeBucket);
+      assert.deepEqual(saved.config.seriesBy, config.seriesBy);
+      await act(async () => root.unmount());
+      container.remove();
+      client.clear();
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("Canvas requests opt into the embed presentation without changing dashboard URLs", () => {
   assert.equal(

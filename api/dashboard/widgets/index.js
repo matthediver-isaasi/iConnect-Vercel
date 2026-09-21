@@ -6,6 +6,8 @@ import {
   tenantFilter,
 } from '../_lib/permissions.js';
 import { widgetCreateSchema } from '../_lib/validation.js';
+import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
+import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 import { getDashboardWidgetPalette } from '../_lib/palette.js';
 
 export default async function handler(req, res) {
@@ -22,6 +24,7 @@ export function createHandler(overrides = {}) {
     getDashboardActor,
     getDashboardWidgetPalette,
     widgetCreateSchema,
+    validateMemberGroupTenantConfig,
     ...overrides,
   };
   return async function dashboardWidgetsHandler(req, res) {
@@ -172,6 +175,14 @@ async function createWidget(req, res, actor, deps) {
 
   try {
     // Place new widget at the end of its zone.
+    if (payload.config.source === 'member_group') {
+      try {
+        validateMemberGroupWidgetType(payload.config, payload.widget_type);
+        await deps.validateMemberGroupTenantConfig(payload.config, actor.tenantId, deps.supabase);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+    }
     let orderQuery = deps.supabase
       .from('dashboard_widget')
       .select('display_order')

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeWidgetConfig } from "@shared/widgetDescriber.js";
+import { MEMBER_GROUP_MEASURES, groupHistoryNotice } from "./memberGroupReporting";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +30,7 @@ import {
   LabelList,
   Line,
   LineChart,
+  Legend,
   Pie,
   PieChart,
   XAxis,
@@ -272,6 +275,14 @@ const STAT_HEIGHT_CLASS = {
 export function buildExportRows(widget, payload) {
   if (!payload) return [];
   const type = widget.widget_type;
+  if (widget.config?.source === "member_group") {
+    const categories = payload.categories?.length ? payload.categories : ["value"];
+    const rows = payload.type === "scalar" ? [{ key: MEMBER_GROUP_MEASURES.find(m => m.field === widget.config.measure?.field)?.label || "Value", value: payload.value }] : payload.rows || [];
+    return [
+      ["Label", ...categories.map(c => payload.seriesLabels?.[c] || c), "Status"],
+      ...rows.map(row => [row.key, ...categories.map(c => row[c] == null ? "Unavailable" : row[c]), row.available === false ? "Unavailable" : row.provisional ? "Current / provisional" : ""]),
+    ];
+  }
   if (payload.type === "conversion") {
     const entityLabel =
       payload.matchBy === "member" ? "members" : "organisations";
@@ -385,6 +396,7 @@ export default function WidgetCard({
   // and opens the CRM list filtered to exactly those records.
   const drillRoute = DRILL_ROUTES[widget.config?.source] || null;
   const drillEnabled =
+    widget.config?.source !== "member_group" &&
     !!widget.config?.clickThrough &&
     !!drillRoute &&
     (!!widget.config?.groupBy || widget.config?.participation === true) &&
@@ -656,7 +668,26 @@ export default function WidgetCard({
   );
 }
 
-function WidgetBody({
+export function WidgetBody(props) {
+  if (props.widget.config?.source !== "member_group") return <ChartBody {...props} />;
+  const { payload, widget } = props;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="member-group-report">
+      <ChartBody {...props} onDrill={null} />
+      <p className="text-xs text-muted-foreground" data-testid="member-group-history">
+        {groupHistoryNotice(payload)}
+        {payload?.historyBaseline ? ` Reliable history starts ${payload.historyBaseline}.` : ""}
+        {widget.config.measure?.field === "period_end_members" ? " Current period is provisional; gaps are unavailable, not zero." : ""}
+      </p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer">Counting rules and eligibility · no member click-through</summary>
+        <p className="mt-1">{describeWidgetConfig(widget.config, { widgetType: widget.widget_type })}</p>
+      </details>
+    </div>
+  );
+}
+
+function ChartBody({
   widget,
   payload,
   onDrill = null,
@@ -750,7 +781,11 @@ function WidgetBody({
 }
 
 function StatBody({ widget, payload, palette, embedded = false }) {
-  const value = payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
+  const value = payload.type === "scalar"
+    ? payload.value
+    : widget.config?.source === "member_group"
+      ? payload.type === "time" ? payload.rows?.at(-1)?.value : payload.total
+      : payload.rows?.[0]?.value;
   const aggregator = widget.config?.measure?.aggregator || "count";
   const minH = embedded
     ? "h-full min-h-0"
@@ -762,10 +797,12 @@ function StatBody({ widget, payload, palette, embedded = false }) {
       style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
         data-testid={`stat-value-${widget.id}`}
       >
-        {formatNumber(value, widget.config?.numberFormat)}
+        {widget.config?.source === "member_group" && value == null ? "Unavailable" : formatNumber(value, widget.config?.numberFormat)}
       </p>
       <p className="text-xs uppercase text-muted-foreground">
-        {widget.config?.transition?.mode
+        {widget.config?.source === "member_group"
+          ? MEMBER_GROUP_MEASURES.find(m => m.field === widget.config.measure?.field)?.label
+          : widget.config?.transition?.mode
           ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
           : `${aggregator} · ${payload.total ?? 0} record${payload.total === 1 ? "" : "s"}`}
       </p>
@@ -842,11 +879,11 @@ function BarBody({
         ? Object.fromEntries(
             categories.map((c, i) => [
               c,
-              { label: c, color: chartColours[i % chartColours.length] },
+              { label: payload.seriesLabels?.[c] || c, color: chartColours[i % chartColours.length] },
             ]),
           )
         : { value: { label: "Value", color: colour } },
-    [categories, colour, chartColours],
+    [categories, colour, chartColours, payload.seriesLabels],
   );
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
@@ -899,7 +936,8 @@ function BarBody({
               <Bar
                 key={c}
                 dataKey={c}
-                stackId="series"
+                name={payload.seriesLabels?.[c] || c}
+                stackId={widget.config?.source === "member_group" ? undefined : "series"}
                 fill={chartColours[i % chartColours.length]}
                 radius={i === categories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 cursor={onDrill ? "pointer" : undefined}
@@ -919,7 +957,7 @@ function BarBody({
                   className="inline-block h-2.5 w-2.5 rounded-sm"
                   style={{ background: chartColours[i % chartColours.length] }}
                 />
-                {c}
+                {payload.seriesLabels?.[c] || c}
               </span>
             ))}
           </div>
@@ -927,7 +965,7 @@ function BarBody({
             className="text-right text-xs text-muted-foreground"
             data-testid={`widget-total-${widget.id}`}
           >
-            Total: {formatNumber(total)}
+            {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
           </p>
         </div>
       </div>
@@ -982,7 +1020,7 @@ function BarBody({
         className="text-right text-xs text-muted-foreground"
         data-testid={`widget-total-${widget.id}`}
       >
-        Total: {formatNumber(total)}
+        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
       </p>
     </div>
   );
@@ -991,7 +1029,9 @@ function BarBody({
 function LineBody({ payload, widget, palette, embedded = false, containerSize }) {
   const rows = payload.rows || [];
   const colour = resolveDashboardWidgetColour(palette, widget?.config?.color);
-  const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
+  const colours = dashboardWidgetChartColours(palette);
+  const categories = payload.categories?.length ? payload.categories : ["value"];
+  const config = Object.fromEntries(categories.map((key, i) => [key, { label: payload.seriesLabels?.[key] || key, color: categories.length === 1 ? colour : colours[i % colours.length] }]));
   const lineClass = embedded
     ? "h-full min-h-0 w-full"
     : LINE_HEIGHT_CLASS[widget.height] || LINE_HEIGHT_CLASS.medium;
@@ -1012,13 +1052,17 @@ function LineBody({ payload, widget, palette, embedded = false, containerSize })
         <XAxis dataKey="key" tickLine={false} axisLine={false} />
         <YAxis tickLine={false} axisLine={false} width={40} />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Line
+        {categories.length > 1 && <Legend />}
+        {categories.map(key => <Line
+          key={key}
           type="monotone"
-          dataKey="value"
-          stroke={colour}
+          dataKey={key}
+          name={config[key].label}
+          stroke={config[key].color}
           strokeWidth={2}
           dot={false}
-        />
+          connectNulls={false}
+        />)}
       </LineChart>
     </ChartContainer>
   );
@@ -1153,7 +1197,7 @@ function PieBody({
         className="text-right text-xs text-muted-foreground"
         data-testid={widget ? `widget-total-${widget.id}` : undefined}
       >
-        Total: {formatNumber(total)}
+        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
       </p>
     </div>
   );
@@ -1217,7 +1261,9 @@ function ListBody({ payload, widget, onDrill = null, palette, embedded = false }
               className="shrink-0 tabular-nums font-medium"
               style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
             >
-              {formatNumber(row.value)}
+              {widget.config?.source === "member_group" && payload.categories?.some(c => c !== "value")
+                ? payload.categories.map(c => `${payload.seriesLabels?.[c] || c}: ${row[c] == null ? "Unavailable" : formatNumber(row[c])}`).join(" · ")
+                : widget.config?.source === "member_group" && row.value == null ? "Unavailable" : formatNumber(row.value)}
             </span>
           </div>
         ))}
@@ -1226,7 +1272,8 @@ function ListBody({ payload, widget, onDrill = null, palette, embedded = false }
         className="text-right text-xs text-muted-foreground"
         data-testid={`widget-total-${widget.id}`}
       >
-        {rows.length} group{rows.length === 1 ? "" : "s"} · Total: {formatNumber(total)}
+        {rows.length} group{rows.length === 1 ? "" : "s"}
+        {widget.config?.source === "member_group" ? " · Group counts are not an overall headcount" : ` · Total: ${formatNumber(total)}`}
       </p>
     </div>
   );

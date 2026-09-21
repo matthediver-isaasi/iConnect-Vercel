@@ -1,14 +1,24 @@
 import { getDashboardActor } from '../_lib/permissions.js';
 import { runWidgetConfig, MAX_LIST_GROUPS } from '../_lib/aggregation.js';
 import { widgetConfigSchema } from '../_lib/validation.js';
+import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 
 export default async function handler(req, res) {
+  return createHandler()(req, res);
+}
+
+export function createHandler(overrides = {}) {
+  const deps = { getDashboardActor, runWidgetConfig, ...overrides };
+  return (req, res) => previewHandler(req, res, deps);
+}
+
+async function previewHandler(req, res, deps) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const actor = await getDashboardActor(req);
+  const actor = await deps.getDashboardActor(req);
   if (!actor) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -22,10 +32,11 @@ export default async function handler(req, res) {
   }
 
   try {
+    validateMemberGroupWidgetType(parsed.data, req.body?.widgetType);
     // List widgets can display far more groups than a chart, so the builder
     // sends the draft widget type alongside the config.
     const isList = req.body?.widgetType === 'list';
-    const result = await runWidgetConfig(parsed.data, actor.tenantId, {
+    const result = await deps.runWidgetConfig(parsed.data, actor.tenantId, {
       maxGroups: isList ? MAX_LIST_GROUPS : undefined,
     });
     return res.status(200).json({ data: result });
