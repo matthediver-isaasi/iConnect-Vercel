@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler from './me.js';
+
+// roleVisibility primes its DB overlay at import time in production. Unit
+// fixtures install their own role result, so skip that unrelated network read
+// before dynamically importing the handler.
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('../_lib/roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { default: handler } = await import('./me.js');
 
 const baseMember = {
   id: 'member-a',
@@ -90,6 +97,32 @@ test('auth/me returns one full, tenant-bound session role read', async () => {
   assert.equal(roleCalls[0].select, '*');
   assert.deepEqual(roleCalls[0].filters, [['id', 'role-a']]);
   assert.match(res.headers['Cache-Control'], /private, no-store/);
+});
+
+test('auth/me reuses one authenticated session for the member and Canvas projections', async () => {
+  const db = database({ data: null, error: null });
+  const expectedSession = { data: { memberId: 'member-a', tenantId: 'tenant-a' } };
+  let sessionReads = 0;
+  let memberReads = 0;
+  const res = response();
+
+  await handler(request, res, {
+    db,
+    readSession: async () => {
+      sessionReads += 1;
+      return expectedSession;
+    },
+    readMember: async (_req, session) => {
+      memberReads += 1;
+      assert.equal(session, expectedSession);
+      return baseMember;
+    },
+    resolveHostTenant: async () => ({ id: 'tenant-a' }),
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(sessionReads, 1);
+  assert.equal(memberReads, 1);
 });
 
 test('auth/me reports missing and failed roles without granting capabilities or failing login', async () => {

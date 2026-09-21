@@ -257,7 +257,16 @@ async function installFixtures(page, {
     state.requests.push({ path, method, query: Object.fromEntries(url.searchParams.entries()) });
 
     if (path === "/api/auth/me") {
-      if (existingLoginSession) return json(route, { authenticated: true, member: MEMBER });
+      if (existingLoginSession) return json(route, {
+        ...MEMBER,
+        sessionRole: {
+          status: "ready",
+          member_id: MEMBER.id,
+          tenant_id: MEMBER.tenant_id,
+          role_id: MEMBER.role_id,
+          role: roles.find(({ id }) => id === MEMBER.role_id) || null,
+        },
+      });
       if (state.auth === "error") return json(route, { error: "auth lookup failed" }, 500);
       return state.auth === "member" ? json(route, MEMBER) : json(route, {});
     }
@@ -676,8 +685,19 @@ for (const flow of ["login", "existing-session", "password-setup"]) {
       const url = new URL(page.url());
       expect(url.pathname + url.search + url.hash).toBe(scenario.expected);
       expect(fixture.state.loginCount).toBe(flow === "login" ? 1 : 0);
+      if (flow === "existing-session") {
+        expect(fixture.state.requests.filter(({ path }) => path === "/api/auth/me")).toHaveLength(1);
+        const cachedMember = await page.evaluate(() => JSON.parse(
+          localStorage.getItem("agcas_member") || "null",
+        ));
+        expect(cachedMember?.sessionRole).toBeUndefined();
+        expect(cachedMember?.role).toBeUndefined();
+        expect(cachedMember?.memberRole).toBeUndefined();
+      }
       expect(fixture.state.requests.filter(r => r.path === "/api/auth/set-password")).toHaveLength(flow === "password-setup" ? 1 : 0);
-      expect(fixture.state.roleReads).toBe(scenario.target ? 0 : 1);
+      expect(fixture.state.roleReads).toBe(
+        scenario.target || (flow === "existing-session" && !scenario.missingRole) ? 0 : 1,
+      );
       expect(fixture.state.writes).toEqual([]);
     });
   }

@@ -5,6 +5,44 @@ import { writeFileSync } from "node:fs";
 const member = { id: "fixture-member", tenant_id: "fixture-tenant", role_id: "fixture-role", email: "fixture@example.invalid", first_name: "Fixture", member_excluded_features: [] };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+async function installOriginalSessionLifecycle(page) {
+  if (process.env.PORTAL_SESSION_LIFECYCLE_VARIANT !== "original") return;
+
+  await page.route("**/src/lib/viewerSessionPreload.js*", async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    const original = body;
+    body = body
+      .replace("  hostname,\n  authRevision", "  hostname,\n  pathname,\n  authRevision")
+      .replace("return `${tenant}:${authRevision}`;", "return `${tenant}:${pathname}:${authRevision}`;");
+    if (body === original || !body.includes("`${tenant}:${pathname}:${authRevision}`")) {
+      throw new Error("Could not install original viewer-session scope in transformed module");
+    }
+    await route.fulfill({ response, body });
+  });
+
+  await page.route("**/src/pages/Layout.jsx*", async route => {
+    const response = await route.fetch();
+    let body = await response.text();
+    const original = body;
+    body = body
+      .replace(
+        "hostname: window.location.hostname,\n    authRevision",
+        "hostname: window.location.hostname,\n    pathname: location.pathname,\n    authRevision",
+      )
+      .replace(
+        "}, [authRevision, viewerSessionScope]);",
+        "}, [location.pathname, authRevision, viewerSessionScope]);",
+      );
+    if (body === original
+      || !body.includes("pathname: location.pathname")
+      || !body.includes("[location.pathname, authRevision, viewerSessionScope]")) {
+      throw new Error("Could not install original Layout auth lifecycle in transformed module");
+    }
+    await route.fulfill({ response, body });
+  });
+}
+
 async function fixture(page, { hold = "", audience = "member", fail = "" } = {}) {
   const requests = [];
   let release;
@@ -66,6 +104,7 @@ async function fixture(page, { hold = "", audience = "member", fail = "" } = {})
 }
 
 test("controlled portal cold, warm and internal navigation timings", async ({ page }, testInfo) => {
+  await installOriginalSessionLifecycle(page);
   const state = await fixture(page);
   const results = [];
   for (const mode of ["cold", "warm", "internal"]) {
@@ -79,7 +118,13 @@ test("controlled portal cold, warm and internal navigation timings", async ({ pa
     const firstVisibleShellMs = mode === "internal" ? null : await page.evaluate(() => window.__portalFirstVisibleShellMs);
     results.push({ mode, visibleContentMs, firstVisibleShellMs, requests: state.requests.slice(requestOffset).map(r => ({ ...r, start: r.start - start, end: r.end && r.end - start })) });
   }
-  const report = { label: process.env.PORTAL_MEASUREMENT_LABEL || "current", fixtureDelayMs: 200, environment: "already-running development preview; API interception; not production", results };
+  const report = {
+    label: process.env.PORTAL_MEASUREMENT_LABEL || "current",
+    lifecycleVariant: process.env.PORTAL_SESSION_LIFECYCLE_VARIANT || "current",
+    fixtureDelayMs: 200,
+    environment: "already-running development preview; API interception; not production",
+    results,
+  };
   writeFileSync(`/tmp/portal-loading-${report.label}.json`, JSON.stringify(report, null, 2));
   await testInfo.attach("controlled-timings", { body: JSON.stringify(report, null, 2), contentType: "application/json" });
   await page.screenshot({ path: `/tmp/portal-loading-${report.label}.png` });

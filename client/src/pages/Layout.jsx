@@ -10,7 +10,9 @@ import {
   acquireViewerSessionRequest,
   getViewerSessionScope,
   invalidateViewerSessionRequest,
+  isViewerSessionRevalidationDue,
   useViewerSessionPreload,
+  VIEWER_SESSION_REVALIDATE_MS,
 } from "@/lib/viewerSessionPreload";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
@@ -1093,10 +1095,10 @@ export default function Layout({ children, currentPageName }) {
   const authGenerationRef = useRef(0);
   const [authRevision, setAuthRevision] = useState(0);
   const [sessionError, setSessionError] = useState(null);
+  const [sessionValidatedAt, setSessionValidatedAt] = useState(0);
   const viewerSessionScope = getViewerSessionScope({
-    tenantSlug: tenantBranding?.tenantSlug,
+    tenantSlug: publicClient.getTenantSlug(),
     hostname: window.location.hostname,
-    pathname: location.pathname,
     authRevision,
   });
   useViewerSessionPreload(viewerSessionScope);
@@ -1107,6 +1109,7 @@ export default function Layout({ children, currentPageName }) {
     invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
     setAuthResolved(false);
+    setSessionValidatedAt(0);
     setAuthRevision(value => value + 1);
   }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
 
@@ -1720,6 +1723,7 @@ useEffect(() => {
     invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
     setAuthResolved(false);
+    setSessionValidatedAt(0);
     setAuthRevision(value => value + 1);
     const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
@@ -1803,6 +1807,7 @@ useEffect(() => {
       invalidateViewerSessionRequest(viewerSessionScope);
       setSessionValidated(false);
       setAuthResolved(false);
+      setSessionValidatedAt(0);
       setAuthRevision(value => value + 1);
       const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
@@ -1915,6 +1920,7 @@ useEffect(() => {
       invalidateViewerSessionRequest(viewerSessionScope);
       setSessionValidated(false);
       setAuthResolved(false);
+      setSessionValidatedAt(0);
       setAuthRevision(value => value + 1);
     };
     window.addEventListener('storage', onStorage);
@@ -1933,7 +1939,7 @@ useEffect(() => {
         const { response, member } = await Promise.race([
           sessionRequest.promise,
           new Promise((_, reject) => {
-            timeout = setTimeout(() => reject(new Error('Session validation timed out.')), 15000);
+            timeout = setTimeout(() => reject(new Error('Session validation timed out.')), 10000);
           }),
         ]);
         if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
@@ -1961,6 +1967,7 @@ useEffect(() => {
             ));
             // SECURITY: Mark session as validated - this enables authenticated API access
             setSessionValidated(true);
+            setSessionValidatedAt(Date.now());
             
             // Fetch organization info for regular members
             if (member.organization_id && !member.is_team_member) {
@@ -2028,7 +2035,33 @@ useEffect(() => {
       lease.cancel();
       sessionRequest.cancel();
     };
-  }, [location.pathname, authRevision, viewerSessionScope]); // Visibility must not restart session validation.
+  }, [authRevision, viewerSessionScope]); // Routes and visibility metadata are not session boundaries.
+
+  useEffect(() => {
+    if (!authResolved || !sessionValidated || !sessionValidatedAt) return;
+
+    let revalidationStarted = false;
+    const revalidateIfDue = () => {
+      if (!revalidationStarted
+        && document.visibilityState !== 'hidden'
+        && isViewerSessionRevalidationDue(sessionValidatedAt)) {
+        revalidationStarted = true;
+        retrySessionRoleValidation();
+      }
+    };
+    const remaining = Math.max(
+      0,
+      VIEWER_SESSION_REVALIDATE_MS - (Date.now() - sessionValidatedAt),
+    );
+    const timeout = window.setTimeout(revalidateIfDue, remaining);
+    window.addEventListener('focus', revalidateIfDue);
+    document.addEventListener('visibilitychange', revalidateIfDue);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('focus', revalidateIfDue);
+      document.removeEventListener('visibilitychange', revalidateIfDue);
+    };
+  }, [authResolved, sessionValidated, sessionValidatedAt, retrySessionRoleValidation]);
 
   useEffect(() => {
     if (!authResolved || sessionValidated || sessionError
@@ -2165,6 +2198,7 @@ useEffect(() => {
     invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
     setAuthResolved(false);
+    setSessionValidatedAt(0);
     try {
       // Clear server session first
       await fetch('/api/auth/logout', { 
@@ -2605,15 +2639,13 @@ useEffect(() => {
 
   return (
     <PortalReadiness
-      ready={!visibilitySettingsError && chromeReady && authResolved && sessionValidated && roleStatus === 'ready'}
-      error={visibilitySettingsError || sessionError || (roleStatus === 'error' || roleStatus === 'missing' ? roleError || new Error('Your navigation role is unavailable.') : null)}
-      onRetry={visibilitySettingsError ? retryVisibilitySettings : sessionError ? retrySessionRoleValidation : retryRole}
+      ready={!visibilitySettingsError && authResolved && sessionValidated}
+      error={visibilitySettingsError || sessionError}
+      onRetry={visibilitySettingsError ? retryVisibilitySettings : retrySessionRoleValidation}
+      retryLabel="Retry"
     >
     <div style={{
       fontFamily: portalRootFont,
-      // Keep the portal root mounted while auth/chrome settles; visibility
-      // replaces the old wrapper-type swap so form descendants preserve state.
-      visibility: chromeReady ? 'visible' : 'hidden',
     }}>
       {/* Base font (Poppins) always loaded below; the tenant's installed google
           fonts are loaded dynamically (Task #2549), falling back to the curated
@@ -3245,6 +3277,7 @@ useEffect(() => {
                     invalidateViewerSessionRequest(viewerSessionScope);
                     setSessionValidated(false);
                     setAuthResolved(false);
+                    setSessionValidatedAt(0);
                     try {
                       const response = await fetch('/api/auth/end-masquerade', {
                         method: 'POST',
@@ -3290,9 +3323,17 @@ useEffect(() => {
                 </div>
               )}
               {/* Wrap children in BannerProvider for below-first-element banners */}
-              <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
-                {childrenWithProps}
-              </BannerProvider>
+              {(pageOwned && !chromeReady)
+                || (authResolved && sessionValidated && roleStatus === 'ready') ? (
+                  <div
+                    hidden={!chromeReady || roleStatus !== 'ready'}
+                    aria-hidden={!chromeReady || roleStatus !== 'ready' || undefined}
+                  >
+                    <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+                      {childrenWithProps}
+                    </BannerProvider>
+                  </div>
+                ) : null}
             </main>
 
             <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-2">

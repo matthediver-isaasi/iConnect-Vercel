@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 
 const requests = new Map();
 
+export const VIEWER_SESSION_REVALIDATE_MS = 5 * 60 * 1000;
+
 function cancelledError() {
   const error = new Error('Viewer session request was cancelled');
   error.name = 'AbortError';
@@ -79,14 +81,26 @@ export function invalidateViewerSessionRequest(scope) {
 export function getViewerSessionScope({
   tenantSlug,
   hostname,
-  pathname,
   authRevision,
 }) {
   // tenantSlug is derived synchronously from the request host by publicClient,
   // unlike branding data which arrives asynchronously. Custom-domain tenants
   // use the hostname itself as their stable request boundary.
   const tenant = tenantSlug || hostname;
-  return `${tenant}:${pathname}:${authRevision}`;
+  // Route transitions are not authentication boundaries. Only an explicit
+  // generation change (login/logout, account change, retry, or bounded
+  // revalidation) may start a new viewer request.
+  return `${tenant}:${authRevision}`;
+}
+
+export function isViewerSessionRevalidationDue(
+  validatedAt,
+  now = Date.now(),
+  maxAge = VIEWER_SESSION_REVALIDATE_MS,
+) {
+  return !Number.isFinite(validatedAt)
+    || validatedAt <= 0
+    || now - validatedAt >= maxAge;
 }
 
 /**

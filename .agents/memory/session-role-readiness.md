@@ -26,3 +26,9 @@ Browser fixtures that authenticate a member must also supply a valid tenant-matc
 **Why:** Older member-only fixtures returned generic empty metadata for role-by-id reads. After role readiness became fail-closed, this caused editor and draft-preview failures unrelated to the feature under test.
 
 **How to apply:** Model the intended member capability explicitly in fixture role responses; do not bypass guards or promote the fixture to an administrator merely to recover an older test.
+
+Route readiness and session lifetime are separate boundaries. A pathname change must not invalidate a trusted session; keeping it across navigation requires bounded revalidation and explicit identity/auth invalidation.
+
+**Why:** Route-scoped authentication cleared trusted roles on every navigation and repeatedly replaced the entire portal with its loading state. Reusing permissions indefinitely would fix the visual symptom by weakening revocation handling.
+
+**How to apply:** Scope session discovery to the tenant and authentication generation, fence old responses, and test ordinary navigation separately from expiry, explicit invalidation, and account changes. Route decision leases still expire on navigation and must never carry public/blank/microsite chrome into another destination.

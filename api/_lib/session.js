@@ -761,8 +761,15 @@ async function tryPromoteMemberToTenantUser(session, req) {
   }
 }
 
-export async function getSessionMember(req) {
-  const session = await getSession(req);
+const SESSION_NOT_PROVIDED = Symbol('session-not-provided');
+
+export async function getSessionMember(req, existingSession = SESSION_NOT_PROVIDED) {
+  // Callers that already authenticated the request can pass that exact
+  // session through. This avoids repeating the session row and revocation
+  // fence reads while preserving the historical one-argument API.
+  const session = existingSession === SESSION_NOT_PROVIDED
+    ? await getSession(req)
+    : existingSession;
   
   console.log('[Session] getSessionMember called, session data:', JSON.stringify({
     hasSession: !!session,

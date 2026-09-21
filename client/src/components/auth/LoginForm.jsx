@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import { SiGoogle } from "react-icons/si";
 import { createPageUrl } from "@/utils";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 import { getValidatedReturnTo } from "@/lib/memberOnlyHtml";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { stripTrustedMemberProjections } from "@/lib/memberSessionRole";
 
 /**
  * Self-contained login/set-password/forgot-password form.
@@ -21,6 +23,12 @@ import { getValidatedReturnTo } from "@/lib/memberOnlyHtml";
  *   className  – extra class on the outer wrapper div
  */
 export default function LoginForm({ className }) {
+  const {
+    authResolved,
+    sessionValidated,
+    memberInfo,
+    sessionRoleSnapshot,
+  } = useLayoutContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -32,6 +40,7 @@ export default function LoginForm({ className }) {
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(null);
   const [memberPortalLoginEnabled, setMemberPortalLoginEnabled] = useState(true);
   const [resetToken, setResetToken] = useState("");
+  const redirectingRef = useRef(false);
 
   // Capture navigation context once. Some flows replace the URL while
   // switching modes (OAuth errors and first-login password setup); reading
@@ -89,17 +98,6 @@ export default function LoginForm({ className }) {
   }, [oauthError]);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const r = await fetch('/api/auth/me', { credentials: 'include' });
-        if (r.ok) {
-          const data = await r.json();
-          if (data.authenticated && data.member) redirectToLandingPage(data.member);
-        }
-      } catch {}
-    };
-    checkAuth();
-
     const fetchSettings = async () => {
       try {
         const r = await fetch('/api/auth/tenant-public-settings', { credentials: 'include' });
@@ -125,8 +123,13 @@ export default function LoginForm({ className }) {
   }, []);
 
   const redirectToLandingPage = async (member) => {
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    localStorage.setItem('agcas_member', JSON.stringify({ ...member, sessionExpiry }));
+    localStorage.setItem('agcas_member', JSON.stringify(stripTrustedMemberProjections({
+      ...member,
+      sessionExpiry,
+    })));
     if (returnTo) {
       const appendContextParam = (target, key, value) => {
         const hashIndex = target.indexOf('#');
@@ -145,7 +148,18 @@ export default function LoginForm({ className }) {
       return;
     }
     let landingPage = 'Preferences';
-    if (member.role_id) {
+    const validatedSessionRole = member.sessionRole?.status === 'ready'
+      && member.sessionRole.member_id === member.id
+      && member.sessionRole.tenant_id === member.tenant_id
+      && member.sessionRole.role_id === member.role_id
+      && member.sessionRole.role?.id === member.role_id
+      && (!member.sessionRole.role.tenant_id
+        || member.sessionRole.role.tenant_id === member.tenant_id)
+      ? member.sessionRole.role
+      : null;
+    if (validatedSessionRole?.default_landing_page) {
+      landingPage = validatedSessionRole.default_landing_page;
+    } else if (member.role_id) {
       try {
         const allRoles = await base44.entities.Role.list();
         const userRole = allRoles.find(r => r.id === member.role_id);
@@ -158,6 +172,17 @@ export default function LoginForm({ className }) {
     }
     window.location.href = createPageUrl(landingPage);
   };
+
+  useEffect(() => {
+    // Layout owns the parse-once /auth/me request. Reuse only its validated
+    // result instead of issuing a second cold-login authentication request.
+    if (authResolved && sessionValidated && memberInfo) {
+      redirectToLandingPage({
+        ...memberInfo,
+        sessionRole: sessionRoleSnapshot,
+      });
+    }
+  }, [authResolved, sessionValidated, memberInfo, sessionRoleSnapshot]);
 
   const handleLogin = async (e) => {
     e.preventDefault();

@@ -943,12 +943,12 @@ function SurveyAssignmentRoute() {
 function PagesContent() {
     const location = useLocation();
     const { branding, loading: brandingLoading } = useTenantBranding();
-    const { authResolved, sessionValidated, memberInfo, memberRole } = useLayoutContext();
+    const { authResolved, memberInfo, memberRole } = useLayoutContext();
     const { micrositesLoaded, activeMicrosite, micrositeBrandingLoading } = useMicrosite();
     const scope = JSON.stringify([
         location.key, location.pathname, location.search, branding?.id,
-        authResolved, sessionValidated, memberInfo?.id, memberRole,
-        micrositesLoaded, activeMicrosite?.id, activeMicrosite?.home_slug,
+        memberInfo?.tenant_id, memberInfo?.id, memberInfo?.role_id, memberRole?.id,
+        activeMicrosite?.id, activeMicrosite?.home_slug,
     ]);
 
     const routes = (

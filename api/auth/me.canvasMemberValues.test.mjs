@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler from './me.js';
+
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('../_lib/roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { default: handler } = await import('./me.js');
 
 const member = {
   id: 'member-a', tenant_id: 'tenant-a', organization_id: 'org-a',
@@ -100,8 +104,17 @@ test('auth/me logs optional projection failures and returns the valid member ins
 test('auth/me guest response stays null without looking up a Canvas organisation', async () => {
   const db = database();
   const res = response();
-  await handler(request, res, dependencies({ db, readMember: async () => null }));
+  let hostTenantReads = 0;
+  await handler(request, res, dependencies({
+    db,
+    readMember: async () => null,
+    resolveHostTenant: async () => {
+      hostTenantReads += 1;
+      throw new Error('guest host resolution should not start');
+    },
+  }));
   assert.equal(res.statusCode, 200);
   assert.equal(res.body, null);
   assert.equal(db.calls.length, 0);
+  assert.equal(hostTenantReads, 0);
 });

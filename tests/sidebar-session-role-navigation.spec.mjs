@@ -68,10 +68,11 @@ function json(route, body, status = 200) {
   });
 }
 
-function fixturePage() {
+function fixturePage(slug = "sidebar-session-role") {
+  const isNext = slug === "sidebar-session-role-next";
   return {
-    id: "page-sidebar-session-role",
-    slug: "sidebar-session-role",
+    id: `page-${slug}`,
+    slug,
     title: "Sidebar session role fixture",
     status: "published",
     builder_type: "canvas",
@@ -99,7 +100,11 @@ function fixturePage() {
               mobile: { x: 0, y: 0, w: 350, h: 120 },
             },
             style: { background: "#fff", opacity: 1, zIndex: 1 },
-            content: { html: "<p>Verified sidebar fixture content</p>" },
+            content: {
+              html: isNext
+                ? "<p>Verified sidebar fixture next content</p>"
+                : "<p>Verified sidebar fixture content</p>",
+            },
           }],
         }],
       },
@@ -244,8 +249,10 @@ async function installFixture(page, {
     if (url.pathname === "/api/entities/Member") {
       return json(route, state.memberLookup ? [MEMBER_A, MEMBER_B] : []);
     }
-    if (url.pathname === "/api/public/page/sidebar-session-role") {
-      return json(route, { success: true, page: fixturePage(), elements: [], symbols: [] });
+    if (url.pathname === "/api/public/page/sidebar-session-role"
+      || url.pathname === "/api/public/page/sidebar-session-role-next") {
+      const slug = url.pathname.split("/").pop();
+      return json(route, { success: true, page: fixturePage(slug), elements: [], symbols: [] });
     }
     if (url.pathname === "/api/public/tenant-branding") {
       return json(route, {
@@ -426,6 +433,31 @@ test("reload invalidates the role projection until a fresh ready session respons
   await expectNoPrivilegedNavigation(page);
   state.releaseAuth();
   await expectReadyNavigation(page);
+  expect(state.roleReads).toBe(0);
+  expectReadOnlyClean(state);
+});
+
+test("forward and back portal navigation preserve one validated session and role projection", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/sidebar-session-role");
+  await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+  await expectReadyNavigation(page);
+  expect(state.authReads).toBe(1);
+  expect(state.roleReads).toBe(0);
+
+  await page.evaluate(() => {
+    history.pushState({}, "", "/sidebar-session-role-next");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.getByText("Verified sidebar fixture next content", { exact: true })).toBeVisible();
+  await expectReadyNavigation(page);
+
+  await page.goBack();
+  await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByText("Verified sidebar fixture next content", { exact: true })).toBeVisible();
+
+  expect(state.authReads).toBe(1);
   expect(state.roleReads).toBe(0);
   expectReadOnlyClean(state);
 });

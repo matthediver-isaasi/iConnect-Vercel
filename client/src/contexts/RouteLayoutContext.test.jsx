@@ -76,6 +76,11 @@ test('route decisions gate mounts, reject abandoned leases, and preserve content
     assert.equal(container.querySelectorAll('header,footer').length, 0);
     await render('blank', null);
     assert.equal(context.forcePublicLayout, true, 'blank shell remains public during refetch');
+    await render('blank', null, false);
+    assert.equal(context.forceBlankLayout, true, 'temporary prerequisite loading preserves the resolved blank shell');
+    assert.equal(context.chromeReady, false);
+    await render('blank', { ...decision('both'), forceBlankLayout: true });
+    assert.equal(context.forceBlankLayout, true);
     await render('portal', { publicChrome: 'both', forcePublicLayout: false });
     await render('portal', null);
     assert.equal(context.forcePublicLayout, false, 'portal readiness cannot switch the content parent');
@@ -88,5 +93,70 @@ test('route decisions gate mounts, reject abandoned leases, and preserve content
   } finally {
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+test('route and audience scopes isolate public, blank, portal, and microsite decisions', async () => {
+  let context;
+  function Page({ decision }) {
+    context = useContext(RouteLayoutContext);
+    usePageLayoutDecision(decision);
+    return <span />;
+  }
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  async function render(scope, decision, prerequisitesReady = true) {
+    await act(async () => root.render(
+      <RouteLayoutProvider scope={scope} pageOwned prerequisitesReady={prerequisitesReady}>
+        <Page decision={decision} />
+      </RouteLayoutProvider>,
+    ));
+  }
+  try {
+    await render('tenant-a:guest:/public', {
+      publicChrome: 'header',
+      forcePublicLayout: true,
+      forceBlankLayout: false,
+    });
+    assert.equal(context.publicChrome, 'header');
+
+    await render('tenant-a:member-a:role-a:/portal', null);
+    assert.equal(context.chromeReady, false);
+    assert.equal(context.publicChrome, 'none', 'destination cannot inherit public chrome');
+    assert.equal(context.forcePublicLayout, true, 'unresolved destination stays in its safe fallback shell');
+
+    await render('tenant-a:member-a:role-a:/portal', {
+      publicChrome: 'both',
+      forcePublicLayout: false,
+      forceBlankLayout: false,
+    });
+    assert.equal(context.forcePublicLayout, false);
+    await render('tenant-a:member-a:role-a:/portal', null, false);
+    assert.equal(context.forcePublicLayout, false, 'temporary readiness does not move resolved portal content');
+    assert.equal(context.chromeReady, false);
+
+    await render('tenant-a:member-a:role-b:/portal', null);
+    assert.equal(context.forcePublicLayout, true, 'role boundary gets a new unresolved lease');
+    assert.equal(context.publicChrome, 'none');
+
+    await render('tenant-a:guest:/microsite-a/page', {
+      publicChrome: 'footer',
+      forcePublicLayout: true,
+      forceBlankLayout: false,
+    });
+    assert.equal(context.publicChrome, 'footer');
+    await render('tenant-a:guest:/microsite-b/page', null);
+    assert.equal(context.publicChrome, 'none', 'microsite boundary cannot reuse another site chrome');
+
+    await render('tenant-a:guest:/blank', {
+      publicChrome: 'both',
+      forcePublicLayout: true,
+      forceBlankLayout: true,
+    });
+    assert.equal(context.forceBlankLayout, true);
+    await render('tenant-a:guest:/public-again', null);
+    assert.equal(context.forceBlankLayout, false, 'blank mode cannot leak into a destination');
+  } finally {
+    await act(async () => root.unmount());
   }
 });

@@ -64,11 +64,21 @@ export default async function handler(req, res, {
   }
 
   try {
-    const member = await readMember(req);
+    // Resolve the authenticated session once and pass it through to the member
+    // lookup. getSessionMember historically loaded it again, duplicating the
+    // session row and revocation-fence reads on every cold /auth/me request.
+    const session = await readSession(req);
+    const member = await readMember(req, session);
     
     if (!member) {
       return res.status(200).json(null);
     }
+    // Start host resolution only for an authenticated member. Starting this
+    // before the guest/member boundary left a rejecting promise without a
+    // consumer when the handler returned early.
+    const hostTenantPromise = Promise.resolve().then(
+      () => resolveHostTenant(getHostFromRequest(req))
+    );
 
     // Check if member has a linked tenant_user account (for SaaS admin access)
     // This can be either via the tenant_user_member_link table OR if the session
@@ -102,12 +112,8 @@ export default async function handler(req, res, {
         .eq('id', member.tenant_id)
         .maybeSingle()
       : Promise.resolve({ data: null });
-    const sessionPromise = readSession(req);
-    const hostTenantPromise = Promise.resolve().then(
-      () => resolveHostTenant(getHostFromRequest(req))
-    );
-    const canvasMemberSnapshotPromise = Promise.all([sessionPromise, hostTenantPromise])
-      .then(([session, tenant]) => loadCanvasMemberSnapshot({ member, session, tenant, db }))
+    const canvasMemberSnapshotPromise = hostTenantPromise
+      .then(tenant => loadCanvasMemberSnapshot({ member, session, tenant, db }))
       .catch((error) => {
         // Personalisation is optional. A lookup failure must hide Canvas values,
         // not turn an otherwise valid session into a failed login.
@@ -119,13 +125,11 @@ export default async function handler(req, res, {
       sessionRole,
       { data: link },
       { data: tenantRow },
-      session,
       canvasMemberSnapshot,
     ] = await Promise.all([
       sessionRolePromise,
       tenantUserLinkPromise,
       tenantPromise,
-      sessionPromise,
       canvasMemberSnapshotPromise,
     ]);
 

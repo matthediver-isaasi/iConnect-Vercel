@@ -8,23 +8,34 @@ export const RouteLayoutContext = createContext(null);
  * Tokens are objects so returning to an earlier URL cannot revive its lease.
  */
 export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesReady = true }) {
-  const token = useMemo(() => ({}), [scope, prerequisitesReady, pageOwned]);
-  const [record, setRecord] = useState(() => ({ token, decision: null }));
+  // Readiness can close temporarily while branding/auth metadata is refreshed.
+  // Preserve the resolved shell kind across that temporary epoch, but require
+  // the page to recommit its current decision before chrome becomes ready.
+  // This avoids both parent-shell swaps and a frame of stale chrome when the
+  // decision changed while prerequisites were unavailable.
+  const scopeToken = useMemo(() => ({}), [scope, pageOwned]);
+  const token = useMemo(() => ({}), [scopeToken, prerequisitesReady]);
+  const [record, setRecord] = useState(() => ({ token, scopeToken, decision: null }));
   const [overrides, setOverrides] = useState(() => ({ token }));
   if (record.token !== token) {
     // React retries this provider before committing its descendants.
-    setRecord({ token, decision: null });
+    setRecord({
+      token,
+      scopeToken,
+      decision: null,
+      layoutDecision: record.scopeToken === scopeToken ? record.layoutDecision : null,
+    });
     setOverrides({ token });
   }
   const commit = useCallback((decision) => {
     setRecord(current => current.token === token ? {
-      token, decision,
+      token, scopeToken, decision,
       // Readiness may close while the same page refetches. Keep its resolved
       // shell kind so swapping public/portal parents cannot trigger a
       // remount -> refetch -> unresolved -> remount loop.
       layoutDecision: decision || current.layoutDecision,
     } : current);
-  }, [token]);
+  }, [token, scopeToken]);
   const setForceBlankLayout = useCallback((value) => {
     setOverrides(previous => previous.token === token
       ? { ...previous, forceBlankLayout: value }
