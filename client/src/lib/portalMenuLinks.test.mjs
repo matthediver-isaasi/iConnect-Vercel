@@ -173,6 +173,40 @@ test('new-tab external links receive safe browser attributes', () => {
   assert.equal(destination.rel, 'noopener noreferrer');
 });
 
+test('NMC Journal remains an external new-tab link when assigned canonical access', () => {
+  const item = {
+    title: 'NMC Journal',
+    feature_id: 'content.nmc-journal',
+    link_type: 'external',
+    url: 'https://journals.lww.com/nuclearmedicinecomm/pages/default.aspx',
+    open_in_new_tab: true,
+  };
+  const destination = resolvePortalMenuDestination(item, createInternalUrl);
+
+  assert.equal(item.feature_id, 'content.nmc-journal');
+  assert.equal(destination.url, item.url);
+  assert.equal(destination.isExternal, true);
+  assert.equal(destination.target, '_blank');
+  assert.equal(destination.rel, 'noopener noreferrer');
+  assert.equal(isPortalMenuDestinationActive(destination, item.url), false);
+});
+
+test('canonical NMC Journal access does not change unrelated external link behavior', () => {
+  const unrelated = {
+    title: 'Partner Resources',
+    link_type: 'external',
+    url: 'https://partner.example.com/resources',
+    open_in_new_tab: false,
+  };
+  const destination = resolvePortalMenuDestination(unrelated, createInternalUrl);
+
+  assert.equal(getPortalMenuFallbackFeatureId(unrelated), 'page_user_PartnerResources');
+  assert.equal(destination.url, unrelated.url);
+  assert.equal(destination.isExternal, true);
+  assert.equal(destination.target, undefined);
+  assert.equal(destination.rel, undefined);
+});
+
 test('external destinations render as native anchors with safe new-tab attributes', () => {
   const destination = resolvePortalMenuDestination({
     link_type: 'external',

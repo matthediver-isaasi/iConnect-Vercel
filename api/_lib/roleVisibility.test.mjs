@@ -90,3 +90,13 @@ test('buildRoleAccessOverlay returns null for empty input', () => {
   assert.equal(buildRoleAccessOverlay([]), null);
   assert.equal(buildRoleAccessOverlay(null), null);
 });
+
+test('NMC Journal server access matches canonical, parent, and legacy client semantics', () => {
+  __setRoleAccessOverlayForTests([]);
+  assert.equal(isResourceExcluded([], 'content.nmc-journal'), false);
+  assert.equal(isResourceExcluded(['content.nmc-journal'], 'content.nmc-journal'), true);
+  assert.equal(isResourceExcluded(['content'], 'content.nmc-journal'), true);
+  assert.equal(isResourceExcluded(['page_user_NMCJournal'], 'content.nmc-journal'), true);
+  assert.equal(isResourceExcluded(['content.nmc-journal'], 'page_user_NMCJournal'), true);
+  assert.equal(isResourceExcluded(['content.nmc-journal'], 'content.resources'), false);
+});

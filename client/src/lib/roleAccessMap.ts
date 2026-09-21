@@ -349,6 +349,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
+        id: "content.nmc-journal",
+        label: "NMC Journal"
+      },
+      {
         id: "content.tags",
         label: "Tag Management"
       },
@@ -1139,6 +1143,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_user_ArticlesSection": "content",
   "page_user_Articles": "content.articles",
   "page_user_News": "content.news",
+  "page_user_NMCJournal": "content.nmc-journal",
   "page_user_MyJobPostings": "jobs.my-postings",
   "page_user_Preferences": "user.about-me",
   "page_user_Support": "support.help",

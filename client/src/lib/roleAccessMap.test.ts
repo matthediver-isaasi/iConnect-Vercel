@@ -29,6 +29,7 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_user_Events: "events.browse-events",
   page_user_Preferences: "user.about-me",
   page_user_MyJobPostings: "jobs.my-postings",
+  page_user_NMCJournal: "content.nmc-journal",
   // page_admin_* family
   page_admin_RoleManagement: "admin.role-management",
   page_admin_DiscountCodeManagement: "events.discount-codes",
@@ -130,6 +131,49 @@ test("gallery directory is a separately controllable gallery capability", () => 
   assert.ok(gallery?.features?.some((feature) => feature.id === "content.gallery.directory"));
   assert.equal(migrateLegacyFeatureId("page_GalleryDirectory"), "content.gallery.directory");
   assert.equal(migrateLegacyFeatureId("page_user_GalleryDirectory"), "content.gallery.directory");
+});
+
+test("NMC Journal is a canonical page permission under Content", () => {
+  const content = ROLE_ACCESS_MAP.find((module) => module.id === "content");
+  assert.deepEqual(
+    content?.pages.find((page) => page.id === "content.nmc-journal"),
+    {
+      id: "content.nmc-journal",
+      label: "NMC Journal",
+    },
+  );
+  assert.equal(validResourceIds.has("content.nmc-journal"), true);
+  assert.equal(getPageForResource("content.nmc-journal"), "content.nmc-journal");
+  assert.equal(getModuleForResource("content.nmc-journal"), "content");
+});
+
+test("NMC Journal client access honors direct, parent, and legacy exclusions", () => {
+  assert.equal(isResourceVisible([], "content.nmc-journal"), true, "allowed role sees the link");
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "content.nmc-journal"),
+    true,
+    "canonical deny hides the link",
+  );
+  assert.equal(
+    isResourceExcluded(["content"], "content.nmc-journal"),
+    true,
+    "Content parent deny hides the link",
+  );
+  assert.equal(
+    isResourceExcluded(["page_user_NMCJournal"], "content.nmc-journal"),
+    true,
+    "stored legacy deny still hides the canonical link",
+  );
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "page_user_NMCJournal"),
+    true,
+    "legacy navigation key is checked against a canonical deny",
+  );
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "content.resources"),
+    false,
+    "the Journal deny does not affect an unrelated Content page",
+  );
 });
 
 test("individual membership payment report is a dedicated Commerce capability", () => {
