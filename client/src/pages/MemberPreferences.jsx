@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -195,6 +196,18 @@ export default function MemberPreferencesPage() {
   const [permissionsByRole, setPermissionsByRole] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [changedRoleIds, setChangedRoleIds] = useState(new Set());
+  const [permissionsStale, setPermissionsStale] = useState(false);
+  const permissionCopyRevision = useRef(0);
+  useEffect(() => subscribeRoleSettingsCopy(() => {
+    // Clear immediately, rather than waiting for a refetch (which can fail or
+    // return structurally equal data). Never submit a pre-copy permission draft.
+    setPermissionsByRole({});
+    setHasChanges(false);
+    setChangedRoleIds(new Set());
+    permissionCopyRevision.current += 1;
+    setPermissionsStale(true);
+    toast.info('Role settings changed. Unsaved permission edits were discarded; reload permissions before editing.');
+  }), []);
   const [orderedProfileFields, setOrderedProfileFields] = useState(PROFILE_FIELDS);
   const [orderedCustomFields, setOrderedCustomFields] = useState([]);
   const queryClient = useQueryClient();
@@ -555,14 +568,20 @@ export default function MemberPreferencesPage() {
     }
   }, [gateSetting]);
 
-  const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
+  const { data: bulkPermissions, isLoading: permissionsLoading, error: permissionsError, refetch: refetchPermissions } = useQuery({
     queryKey: ['bulk-member-field-permissions'],
     queryFn: async () => {
+      const revision = permissionCopyRevision.current;
       const response = await fetch('/api/roles/bulk-field-permissions?type=member', {
         credentials: 'include'
       });
       if (!response.ok) throw new Error('Failed to fetch permissions');
-      return response.json();
+      const permissions = await response.json();
+      if (revision === permissionCopyRevision.current) {
+        setPermissionsByRole(permissions);
+        setPermissionsStale(false);
+      }
+      return permissions;
     },
     enabled: accessChecked,
   });
@@ -652,6 +671,7 @@ export default function MemberPreferencesPage() {
   });
 
   const handlePermissionChange = useCallback((roleId, fieldKey, newPerm) => {
+    if (permissionsStale) return;
     setPermissionsByRole(prev => ({
       ...prev,
       [roleId]: {
@@ -661,9 +681,10 @@ export default function MemberPreferencesPage() {
     }));
     setChangedRoleIds(prev => new Set(prev).add(roleId));
     setHasChanges(true);
-  }, []);
+  }, [permissionsStale]);
 
   const handleBulkFieldChange = useCallback((fieldKey, newPerm) => {
+    if (permissionsStale) return;
     setPermissionsByRole(prev => {
       const next = { ...prev };
       roles.forEach(role => {
@@ -677,9 +698,10 @@ export default function MemberPreferencesPage() {
       return next;
     });
     setHasChanges(true);
-  }, [roles]);
+  }, [roles, permissionsStale]);
 
   const handleBulkRoleChange = useCallback((roleId, newPerm) => {
+    if (permissionsStale) return;
     const allFieldKeys = [
       ...HEADER_FIELDS.map(f => f.key),
       ...PROFILE_FIELDS.map(f => f.key),
@@ -692,9 +714,10 @@ export default function MemberPreferencesPage() {
     });
     setChangedRoleIds(prev => new Set(prev).add(roleId));
     setHasChanges(true);
-  }, [memberCustomFields]);
+  }, [memberCustomFields, permissionsStale]);
 
   const handleSave = () => {
+    if (permissionsStale) return;
     const permsToSave = {};
     changedRoleIds.forEach(roleId => {
       permsToSave[roleId] = permissionsByRole[roleId] || {};
@@ -809,6 +832,9 @@ export default function MemberPreferencesPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {permissionsError && <p role="alert" className="mb-3 text-sm text-red-700">
+                  Unable to reload field permissions. <Button variant="outline" onClick={() => refetchPermissions()}>Retry</Button>
+                </p>}
                 <PermissionMatrix
                   fieldGroups={fieldGroups}
                   roles={roles}
@@ -816,7 +842,7 @@ export default function MemberPreferencesPage() {
                   onPermissionChange={handlePermissionChange}
                   onBulkFieldChange={handleBulkFieldChange}
                   onBulkRoleChange={handleBulkRoleChange}
-                  isLoading={permissionsLoading || rolesLoading || !memberCustomFields}
+                  isLoading={permissionsStale || permissionsLoading || rolesLoading || !memberCustomFields}
                 />
               </CardContent>
             </Card>

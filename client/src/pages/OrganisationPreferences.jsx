@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,6 +32,20 @@ export default function OrganisationPreferencesPage() {
   const [permissionsByRole, setPermissionsByRole] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [changedRoleIds, setChangedRoleIds] = useState(new Set());
+  const [permissionsStale, setPermissionsStale] = useState(false);
+  const permissionCopyRevision = useRef(0);
+  const permissionDraftStale = useRef(false);
+  useEffect(() => subscribeRoleSettingsCopy(() => {
+    // Lock synchronously, including callbacks captured before the copy event.
+    // A failed reload must never leave an old organisation draft saveable.
+    permissionDraftStale.current = true;
+    permissionCopyRevision.current += 1;
+    setPermissionsStale(true);
+    setPermissionsByRole({});
+    setHasChanges(false);
+    setChangedRoleIds(new Set());
+    toast.info('Role settings changed. Unsaved organisation permission edits were discarded; reload permissions before editing.');
+  }), []);
   const [orderedContactFields, setOrderedContactFields] = useState(CONTACT_FIELDS);
   const [orderedCustomFields, setOrderedCustomFields] = useState([]);
   const [featuredRoleIds, setFeaturedRoleIds] = useState([]);
@@ -101,20 +116,30 @@ export default function OrganisationPreferencesPage() {
     enabled: accessChecked,
   });
 
-  const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
+  const { data: bulkPermissions, isLoading: permissionsLoading, error: permissionsError, refetch: refetchPermissions } = useQuery({
     queryKey: ['bulk-org-field-permissions'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
+      const revision = permissionCopyRevision.current;
       const response = await fetch('/api/roles/bulk-field-permissions?type=organization', {
-        credentials: 'include'
+        credentials: 'include',
+        signal,
       });
       if (!response.ok) throw new Error('Failed to fetch permissions');
-      return response.json();
+      const permissions = await response.json();
+      if (!signal.aborted && revision === permissionCopyRevision.current) {
+        setPermissionsByRole(permissions);
+        setHasChanges(false);
+        setChangedRoleIds(new Set());
+        permissionDraftStale.current = false;
+        setPermissionsStale(false);
+      }
+      return permissions;
     },
     enabled: accessChecked,
   });
 
   useEffect(() => {
-    if (bulkPermissions) {
+    if (bulkPermissions && !permissionDraftStale.current) {
       setPermissionsByRole(bulkPermissions);
       setHasChanges(false);
       setChangedRoleIds(new Set());
@@ -240,6 +265,7 @@ export default function OrganisationPreferencesPage() {
   });
 
   const handlePermissionChange = useCallback((roleId, fieldKey, newPerm) => {
+    if (permissionDraftStale.current) return;
     setPermissionsByRole(prev => ({
       ...prev,
       [roleId]: {
@@ -252,6 +278,7 @@ export default function OrganisationPreferencesPage() {
   }, []);
 
   const handleBulkFieldChange = useCallback((fieldKey, newPerm) => {
+    if (permissionDraftStale.current) return;
     setPermissionsByRole(prev => {
       const next = { ...prev };
       roles.forEach(role => {
@@ -268,6 +295,7 @@ export default function OrganisationPreferencesPage() {
   }, [roles]);
 
   const handleBulkRoleChange = useCallback((roleId, newPerm) => {
+    if (permissionDraftStale.current) return;
     const allFieldKeys = [
       ...HEADER_FIELDS.map(f => f.key),
       ...CONTACT_FIELDS.map(f => f.key),
@@ -283,6 +311,7 @@ export default function OrganisationPreferencesPage() {
   }, [orgCustomFields]);
 
   const handleSave = () => {
+    if (permissionDraftStale.current) return;
     const permsToSave = {};
     changedRoleIds.forEach(roleId => {
       permsToSave[roleId] = permissionsByRole[roleId] || {};
@@ -381,7 +410,7 @@ export default function OrganisationPreferencesPage() {
                   {hasChanges && (
                     <Button
                       onClick={handleSave}
-                      disabled={updatePermissionsMutation.isPending}
+                      disabled={permissionsStale || updatePermissionsMutation.isPending}
                       data-testid="button-save-permissions"
                     >
                       {updatePermissionsMutation.isPending ? (
@@ -395,6 +424,9 @@ export default function OrganisationPreferencesPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {permissionsError && <p role="alert" className="mb-3 text-sm text-red-700">
+                  Unable to reload organisation field permissions. <Button variant="outline" onClick={() => refetchPermissions()}>Retry</Button>
+                </p>}
                 <PermissionMatrix
                   fieldGroups={fieldGroups}
                   roles={roles}
@@ -402,7 +434,7 @@ export default function OrganisationPreferencesPage() {
                   onPermissionChange={handlePermissionChange}
                   onBulkFieldChange={handleBulkFieldChange}
                   onBulkRoleChange={handleBulkRoleChange}
-                  isLoading={permissionsLoading || rolesLoading || !orgCustomFields}
+                  isLoading={permissionsStale || permissionsLoading || rolesLoading || !orgCustomFields}
                 />
               </CardContent>
             </Card>

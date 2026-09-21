@@ -1,3 +1,4 @@
+import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -78,7 +79,7 @@ import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
 import { useSessionMemberRole } from "@/hooks/useSessionMemberRole";
 import {
@@ -1108,6 +1109,14 @@ export default function Layout({ children, currentPageName }) {
     setAuthResolved(false);
     setAuthRevision(value => value + 1);
   }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
+
+  const queryClient = useQueryClient();
+  useEffect(() => subscribeRoleSettingsCopy(() => {
+    // Access lives both in React Query and in the trusted /auth/me projection.
+    // Broad invalidation includes dynamic field-permission/category query keys.
+    retrySessionRoleValidation();
+    void refreshRoleSettingsQueries(queryClient);
+  }), [queryClient, retrySessionRoleValidation]);
 
   useEffect(() => {
     setContextRetrySessionRole(() => retrySessionRoleValidation());

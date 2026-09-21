@@ -2,6 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { findHandler } from "./vercel-api-adapter";
 
+test("role settings replacement is registered separately from duplication", async () => {
+  const copy = await findHandler("/api/admin/roles/copy-settings");
+  const duplicate = await findHandler("/api/admin/roles/duplicate");
+  assert.equal(typeof copy?.handler, "function");
+  assert.equal(typeof duplicate?.handler, "function");
+  assert.notEqual(copy?.handler, duplicate?.handler);
+  assert.deepEqual(copy?.params, {});
+});
+
 test("catch-all API routes expose Vercel-compatible detail parameters", async () => {
   const result = await findHandler("/api/sales/quotes/quote-id");
 

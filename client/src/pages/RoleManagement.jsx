@@ -23,6 +23,8 @@ import { useNavigate } from "react-router-dom";
 import { ROLE_ACCESS_MAP, migrateLegacyExcludedFeatures } from "@/lib/roleAccessMap";
 import { isResourceExcluded, getModuleExclusionState, getPageExclusionState, toggleResourceExclusion } from "@/lib/roleVisibility";
 import { SALES_DEFAULT_ROLE_EXCLUSIONS } from "@shared/salesContracts.js";
+import CopyRoleSettingsDialog from "@/components/CopyRoleSettingsDialog";
+import { publishRoleSettingsCopy, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 
 // Helper: upload to Supabase Storage and return public URL
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -86,6 +88,17 @@ export default function RoleManagementPage() {
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [showCopySettings, setShowCopySettings] = useState(false);
+
+  useEffect(() => subscribeRoleSettingsCopy(() => {
+    // A copied role must never be overwritten by an editor opened beforehand.
+    setShowDialog(false);
+    setShowCopySettings(false);
+    setEditingRole(null);
+    setCategoryAccessOverrides({});
+    setSubcategoryAccessOverrides({});
+    setExpandedCategoryAccess({});
+  }), []);
 
   // Redirect non-super-admins (check both isAdmin and feature exclusion)
   useEffect(() => {
@@ -98,7 +111,7 @@ export default function RoleManagementPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: roles = [], isLoading } = useQuery({
+  const { data: roles = [], isLoading, isFetching: rolesRefreshing, error: rolesError } = useQuery({
     queryKey: ['roles'],
     queryFn: () => base44.entities.Role.list(),
     staleTime: 0,
@@ -714,6 +727,10 @@ export default function RoleManagementPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" disabled={isLoading || rolesRefreshing || !!rolesError || roles.length < 2}
+              onClick={() => setShowCopySettings(true)} data-testid="button-copy-role-settings">
+              <Copy className="w-4 h-4 mr-2" />Copy settings
+            </Button>
             <Button 
               variant="outline" 
               onClick={() => setShowSegmentationSettings(true)}
@@ -736,6 +753,11 @@ export default function RoleManagementPage() {
             </Button>
           </div>
         </div>
+
+        {rolesError && <p role="alert" className="mb-4 text-sm text-red-700">
+          Unable to load current roles. Copy settings is disabled until roles can be refreshed.
+          <Button variant="outline" className="ml-2" onClick={() => queryClient.invalidateQueries({ queryKey: ['roles'] })}>Retry</Button>
+        </p>}
 
         {/* Segmentation Info Banner */}
         {segmentationField && (
@@ -1656,6 +1678,14 @@ export default function RoleManagementPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {showCopySettings && <CopyRoleSettingsDialog roles={roles}
+          onClose={() => setShowCopySettings(false)}
+          onCopied={role => {
+            setShowCopySettings(false);
+            publishRoleSettingsCopy(role.id);
+            toast.success('Role settings copied. Open the target role to review its updated settings.');
+          }} />}
 
         {/* Segmentation Settings Dialog */}
         <Dialog open={showSegmentationSettings} onOpenChange={setShowSegmentationSettings}>
