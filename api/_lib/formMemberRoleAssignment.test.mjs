@@ -171,3 +171,50 @@ test('answer-driven configuration requires role-assignment authority', async () 
   });
   assert.deepEqual(legacyFixed, { ok: true });
 });
+
+test('answer-driven assignment ignores inert fixed and fallback settings without mutating them', async () => {
+  const member = {
+    ...pipeline({ fallback_role_id: 'deleted-fallback' }),
+    role_id: 'deleted-fixed',
+  };
+  const original = structuredClone(member);
+  const result = await validateFormMemberRoleAssignments({
+    supabase: fakeSupabase(['role-student', 'role-pro']),
+    tenantId: 'tenant-1',
+    fields: [{ id: 'membership-type', type: 'select', options: ['Student', 'Professional'] }],
+    entityPipelines: { members: [member] },
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(member, original);
+  assert.equal(resolveMemberRoleAssignment({ pipeline: member }).roleId, undefined);
+});
+
+test('unavailable active roles identify every pipeline and setting without foreign role metadata', async () => {
+  const result = await validateFormMemberRoleAssignments({
+    supabase: fakeSupabase([]),
+    tenantId: 'tenant-1',
+    fields: [{ id: 'membership-type', type: 'radio', options: ['Student'] }],
+    entityPipelines: { members: [
+      { label: 'Fixed member', role_id: 'missing' },
+      pipeline({ value_to_role_id: { Student: 'missing' }, fallback: 'fixed', fallback_role_id: 'foreign' }),
+    ] },
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.details.invalid_role_settings, [
+    { pipeline_index: 0, pipeline_label: 'Fixed member', setting: 'role_id', role_id: 'missing' },
+    { pipeline_index: 1, pipeline_label: 'Primary Member', setting: 'role_assignment.value_to_role_id', role_id: 'missing', answer: 'Student' },
+    { pipeline_index: 1, pipeline_label: 'Primary Member', setting: 'role_assignment.fallback_role_id', role_id: 'foreign' },
+  ]);
+  assert.match(result.error, /Fixed member: fixed role/);
+  assert.match(result.error, /Primary Member: role for answer "Student"/);
+  assert.match(result.error, /Primary Member: fallback role/);
+});
+
+test('role lookup failures fail closed', async () => {
+  const failure = new Error('Lookup unavailable');
+  await assert.rejects(validateFormMemberRoleAssignments({
+    supabase: { from() { throw failure; } },
+    tenantId: 'tenant-1',
+    entityPipelines: { members: [{ role_id: 'role-1' }] },
+  }), failure);
+});

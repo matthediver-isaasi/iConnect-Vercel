@@ -40,6 +40,7 @@ import {
   PROTECTED_FORM_HELPER_MESSAGE,
 } from '@shared/protectedDepartmentForm.js';
 import { protectedFormUpdateHeaders } from '@/lib/protectedFormActions';
+import { formRoleValidationError } from '@/lib/formRoleValidationError';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 const DEFAULT_PAGE_SIZE = 12;
@@ -420,7 +421,12 @@ export default function FormManagementPage() {
       toast.success('Form duplicated successfully');
     },
     onError: (error) => {
-      toast.error('Failed to duplicate form');
+      const roleError = formRoleValidationError(error, 'copy');
+      if (roleError) {
+        toast.error(roleError.title, { description: roleError.description });
+        return;
+      }
+      toast.error(`Failed to duplicate form: ${error?.body?.message || error?.body?.error || error?.message || 'Unknown error'}`);
     }
   });
 

@@ -37,7 +37,7 @@ export const authorizeAnswerDrivenMemberRoleWrite = async ({
   if (!tenantCtx?.isAuthenticated) {
     return { ok: false, status: 401, error: 'Authentication required' };
   }
-  if (!tenantCtx.tenantId) {
+  if (!(tenantCtx.effectiveTenantId || tenantCtx.tenantId)) {
     return { ok: false, status: 400, error: 'Tenant context required' };
   }
   if (tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx)) return { ok: true };
@@ -145,15 +145,27 @@ export const validateFormMemberRoleAssignments = async ({
     .filter((field) => field?.id)
     .map((field) => [String(field.id), field]));
   const roleIds = new Set();
+  const roleSettings = [];
 
   for (let index = 0; index < members.length; index += 1) {
     const pipeline = members[index] || {};
     const label = pipeline.label || `Member ${index + 1}`;
-    if (pipeline.role_id && !ROLE_SENTINELS.has(pipeline.role_id)) {
-      roleIds.add(String(pipeline.role_id));
-    }
-
     const assignment = pipeline.role_assignment;
+    const addRole = (roleId, setting, extra = {}) => {
+      roleIds.add(String(roleId));
+      roleSettings.push({
+        pipeline_index: index,
+        pipeline_label: label,
+        setting,
+        role_id: String(roleId),
+        ...extra,
+      });
+    };
+    // Submission-time answer resolution never uses the legacy fixed role.
+    if (assignment?.mode !== 'from_field'
+        && pipeline.role_id && !ROLE_SENTINELS.has(pipeline.role_id)) {
+      addRole(pipeline.role_id, 'role_id');
+    }
     if (!assignment) continue;
     if (!['fixed', 'from_field'].includes(assignment.mode)) {
       return fail(`${label} has an invalid role assignment mode.`, { pipeline_index: index });
@@ -187,7 +199,7 @@ export const validateFormMemberRoleAssignments = async ({
         if (typeof roleId !== 'string' || !roleId.trim() || ROLE_SENTINELS.has(roleId)) {
           return fail(`${label} has an invalid mapped role.`, { pipeline_index: index, answer });
         }
-        roleIds.add(roleId);
+        addRole(roleId, 'role_assignment.value_to_role_id', { answer });
       }
     }
 
@@ -199,7 +211,7 @@ export const validateFormMemberRoleAssignments = async ({
       if (typeof assignment.fallback_role_id !== 'string' || !assignment.fallback_role_id.trim()) {
         return fail(`${label} must select a fallback role.`, { pipeline_index: index });
       }
-      roleIds.add(assignment.fallback_role_id);
+      addRole(assignment.fallback_role_id, 'role_assignment.fallback_role_id');
     }
   }
 
@@ -214,8 +226,16 @@ export const validateFormMemberRoleAssignments = async ({
   const validRoleIds = new Set((roles || []).map((role) => String(role.id)));
   const invalidRoleIds = requestedRoleIds.filter((roleId) => !validRoleIds.has(String(roleId)));
   if (invalidRoleIds.length > 0) {
-    return fail('One or more configured member roles do not belong to this tenant.', {
+    const invalidSettings = roleSettings.filter((setting) => invalidRoleIds.includes(setting.role_id));
+    const descriptions = invalidSettings.map((item) => {
+      const setting = item.setting === 'role_id' ? 'fixed role'
+        : item.setting === 'role_assignment.fallback_role_id' ? 'fallback role'
+          : `role for answer "${item.answer}"`;
+      return `${item.pipeline_label}: ${setting}`;
+    });
+    return fail(`Unavailable member role in ${descriptions.join('; ')}. Select a valid role in Member configuration before saving or copying.`, {
       invalid_role_ids: invalidRoleIds,
+      invalid_role_settings: invalidSettings,
     });
   }
 

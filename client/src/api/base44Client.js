@@ -617,6 +617,8 @@ class Base44Client {
         err.status = response.status;
         err.method = method;
         err.path = url;
+        err.code = errorJson?.code;
+        err.body = errorJson;
         throw err;
       }
 

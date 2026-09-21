@@ -1375,7 +1375,7 @@ export default async function handler(req, res, dependencies = {}) {
           .from('form')
           .select('fields, entity_pipelines')
           .eq('id', id)
-          .eq('tenant_id', tenantCtx.tenantId)
+          .eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId)
           .maybeSingle();
         if (roleConfigError || !persistedRoleConfig) {
           return res.status(404).json({ error: 'Form not found' });
@@ -1394,7 +1394,7 @@ export default async function handler(req, res, dependencies = {}) {
         }
         const roleValidation = await validateFormMemberRoleAssignments({
           supabase,
-          tenantId: tenantCtx.tenantId,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
           fields: Object.prototype.hasOwnProperty.call(sanitizedBody, 'fields')
             ? sanitizedBody.fields
             : persistedRoleConfig.fields,

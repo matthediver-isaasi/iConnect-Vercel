@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isProtectedDepartmentForm } from "@shared/protectedDepartmentForm.js";
 import { protectedFormUpdateHeaders } from "@/lib/protectedFormActions";
+import { formRoleValidationError, unavailableRoleLabel } from "@/lib/formRoleValidationError";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
@@ -551,7 +552,7 @@ const MEMBER_CORE_FIELDS = [
   { value: 'show_in_directory', label: 'Show in Member Directory' },
 ];
 
-function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberIndex }) {
+export function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberIndex }) {
   const assignment = member.role_assignment;
   const mode = assignment?.mode === 'from_field' ? 'from_field' : 'fixed';
   const eligibleFields = fields.filter(isFormRoleMappingField);
@@ -560,6 +561,14 @@ function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberInd
   const valueMap = assignment?.value_to_role_id && typeof assignment.value_to_role_id === 'object'
     ? assignment.value_to_role_id
     : {};
+  const availableRoleIds = new Set(roles.map(role => role.id));
+  const fixedRoleUnavailable = mode === 'fixed'
+    && member.role_id
+    && !['__clear__', '__keep__'].includes(member.role_id)
+    && !availableRoleIds.has(member.role_id);
+  const fallbackRoleUnavailable = assignment?.fallback === 'fixed'
+    && assignment?.fallback_role_id
+    && !availableRoleIds.has(assignment.fallback_role_id);
 
   const updateAssignment = (updates) => {
     onChange({
@@ -630,6 +639,11 @@ function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberInd
               <SelectContent>
                 <SelectItem value="keep">-- Don't change role --</SelectItem>
                 <SelectItem value="clear" className="text-warning">Clear role (set to none)</SelectItem>
+                {fixedRoleUnavailable && (
+                  <SelectItem value={member.role_id} className="text-warning">
+                    {unavailableRoleLabel(member.role_id)}
+                  </SelectItem>
+                )}
                 {roles.map(role => (
                   <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
                 ))}
@@ -673,6 +687,9 @@ function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberInd
               const mappedRole = isMapped
                 ? (valueMap[option.value] === null ? '__none__' : valueMap[option.value])
                 : '__unmapped__';
+              const mappedRoleUnavailable = isMapped
+                && typeof valueMap[option.value] === 'string'
+                && !availableRoleIds.has(valueMap[option.value]);
               return (
                 <div key={option.value} className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
                   <div className="truncate rounded border bg-slate-50 px-3 py-2 text-sm">{option.label}</div>
@@ -692,6 +709,11 @@ function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberInd
                     <SelectContent>
                       <SelectItem value="__unmapped__">Use fallback</SelectItem>
                       <SelectItem value="__none__">No role</SelectItem>
+                      {mappedRoleUnavailable && (
+                        <SelectItem value={valueMap[option.value]} className="text-warning">
+                          {unavailableRoleLabel(valueMap[option.value])}
+                        </SelectItem>
+                      )}
                       {roles.map(role => (
                         <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
                       ))}
@@ -733,6 +755,11 @@ function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberInd
                     <SelectValue placeholder="Select fallback role..." />
                   </SelectTrigger>
                   <SelectContent>
+                    {fallbackRoleUnavailable && (
+                      <SelectItem value={assignment.fallback_role_id} className="text-warning">
+                        {unavailableRoleLabel(assignment.fallback_role_id)}
+                      </SelectItem>
+                    )}
                     {roles.map(role => (
                       <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
                     ))}
@@ -11394,6 +11421,11 @@ export default function FormBuilderPage() {
     },
     onError: (error) => {
       console.error('[FormBuilder] Create form error:', error);
+      const roleError = formRoleValidationError(error, 'save');
+      if (roleError) {
+        toast.error(roleError.title, { description: roleError.description });
+        return;
+      }
       const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
       toast.error(`Failed to create form: ${errorMessage}`);
     }
@@ -11410,6 +11442,11 @@ export default function FormBuilderPage() {
     },
     onError: (error) => {
       console.error('[FormBuilder] Update form error:', error);
+      const roleError = formRoleValidationError(error, 'save');
+      if (roleError) {
+        toast.error(roleError.title, { description: roleError.description });
+        return;
+      }
       const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
       toast.error(`Failed to update form: ${errorMessage}`);
     }
