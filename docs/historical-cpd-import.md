@@ -1,8 +1,65 @@
 # Historical CPD import — approval runbook (Task 4580)
 
-## Current status and source-only reconciliation
+## Live execution outcome — 2026-09-21
 
-**No database was accessed, no migration applied and no import performed for this report.**
+The user confirmed production project `lvmzliemqnieeoruhkik` and the BNMS
+tenant, directed exclusion of all 18 flagged rows, explicitly approved the
+sealed import below, and confirmed native CPD awards/member tenant changes
+were paused for the import and replay.
+
+| Reconciliation | Rows | Exact credits |
+| --- | ---: | ---: |
+| Source | 5,904 | 55,284 |
+| Accepted and newly applied | 5,886 | 55,136 |
+| Explicitly excluded pending review | 18 | 148 |
+| Blocked | 0 | 0 |
+| Already present on first apply | 0 | 0 |
+| Replay: already present, skipped | 5,886 | 55,136 |
+| Replay: newly applied | 0 | 0 |
+
+All 2,580 source member UUIDs matched the confirmed BNMS tenant; none were
+missing or cross-tenant. No native event-award overlaps or existing historical
+source entries were found during initial preflight. The seven duplicate-looking
+groups were contained within the nine repeated-code groups. Every flagged row
+was explicitly excluded; no duplicate was automatically selected or deleted.
+
+The import committed 59 batches. Live state was revalidated before each batch
+and after each run, including verification that every accepted source hash
+exists. Ledger/batch counts were 0/0 before import, 5,886/59 afterward, and
+unchanged at 5,886/59 after replay. Replay therefore created no ledger entries
+or batch records.
+
+### Approval and schema evidence
+
+- Approved manifest SHA-256:
+  `59cbda7c57dccaffcff5e0dfc712fa71f9cc4f2163171b9a2250132ba95cbbb8`
+- Reviewed preflight SHA-256:
+  `a3d6fe1f3e476ce34f1246f831788e555619c5d34ccbd47af5df21c13e240fa9`
+- Required historical migration file SHA-256:
+  `be84310f81cce98e1518c2d97b6de22ff1d9f687c9a2c731488bf4a76567c4b4`
+- **No migration was applied or remains required for this import.** Live
+  import/reversal function bodies matched the historical migration exactly;
+  the validator matched the subsequent
+  `20261119_auditable_cpd_points_corrections.sql` migration. Required columns,
+  source-uniqueness indexes, enabled protection/validation triggers and
+  service-only RPC privileges were checked. No matching migration-history
+  entry was found; this conclusion rests on installed definitions, not a
+  claimed migration-history record. Do not rerun the original migration over
+  these installed objects.
+- All 25 isolated importer/SQL checks passed, including concurrent retries,
+  source conflicts, replay, tenant isolation and native award/reversal behavior.
+
+Detailed reports, per-entry exclusions, authorization, schema evidence, approval,
+apply/replay results and count snapshots are retained outside the checkout in
+`/home/runner/private-import-evidence/bnms-cpd-59cbda7c57dc/`
+(directory mode 0700, files 0600). These contain personal data; do not publish
+them. Further imports of the 18 excluded rows require separate evidence review
+and approval. The quiet-window checks are complete; operators may resume the
+paused activity.
+
+## Original source-only reconciliation (superseded by live outcome above)
+
+**At the time of the original offline report, no database was accessed, no migration applied and no import performed.**
 Member matching and target migration status are **not checked**. Do not interpret source
 approval status as authorization to write to an iConnect tenant.
 
@@ -38,10 +95,11 @@ retain per your data policy and do not attach them to public tickets.
    `import_historical_cpd_points_batch(p_tenant_id uuid,p_batch_key text,p_manifest jsonb,p_rows jsonb,p_actor text)`.
    Existing native CPD migration `20261012_event_cpd_points_awards.sql` alone is insufficient.
    New required migration: `supabase/migrations/20261020_historical_cpd_points_import.sql`.
-   It has been exercised only in isolated test databases, not applied to any live target.
+   Before the live execution above, it had been exercised only in isolated test
+   databases and live installation status was unknown.
    Record its checksum and verified target migration
-   history in the rollout ticket. **Required versus already applied on target remains
-   unverified here**. The importer does not run migrations.
+   history in the rollout ticket. For any new target, verify installed definitions
+   and migration history independently. The importer does not run migrations.
 3. Use a controlled operator shell with a service-role key authorized for that project.
    Set `HISTORICAL_CPD_SUPABASE_URL` to the exact approved URL and
    `HISTORICAL_CPD_SERVICE_KEY` through a secret manager, not command-line arguments,
