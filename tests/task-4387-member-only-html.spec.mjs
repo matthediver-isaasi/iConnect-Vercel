@@ -203,6 +203,9 @@ async function installFixtures(page, {
   publicChrome = "none",
   includeAccountNav = false,
   firstLogin = false,
+  tenantSlug = TENANT.slug,
+  roles = [ROLE],
+  existingLoginSession = false,
 }) {
   const state = {
     auth,
@@ -239,18 +242,22 @@ async function installFixtures(page, {
     localStorage.setItem("tenant_slug", slug);
     localStorage.removeItem("agcas_member");
     localStorage.removeItem("agcas_organization");
-  }, TENANT.slug);
+  }, tenantSlug);
 
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
     const method = request.method();
+    // Some legacy components still call Supabase directly. Never let fixture
+    // runs reach a provider (including reads) outside the application origin.
+    if (url.origin !== new URL(test.info().project.use.baseURL).origin) return route.abort("blockedbyclient");
     if (!path.startsWith("/api/")) return route.continue();
 
     state.requests.push({ path, method, query: Object.fromEntries(url.searchParams.entries()) });
 
     if (path === "/api/auth/me") {
+      if (existingLoginSession) return json(route, { authenticated: true, member: MEMBER });
       if (state.auth === "error") return json(route, { error: "auth lookup failed" }, 500);
       return state.auth === "member" ? json(route, MEMBER) : json(route, {});
     }
@@ -279,10 +286,10 @@ async function installFixtures(page, {
     }
     if (path === "/api/entities/Role") {
       state.roleReads += 1;
-      return json(route, [ROLE]);
+      return json(route, roles);
     }
     if (path === `/api/entities/Role/${MEMBER.role_id}`) {
-      return json(route, ROLE);
+      return json(route, roles.find(role => role.id === MEMBER.role_id) || null);
     }
     if (path === "/api/public/portal-branding") {
       return json(route, { homePageSlug: PAGE_SLUG });
@@ -603,6 +610,74 @@ for (const mobile of [false, true]) {
       await expect.poll(() => new URL(page.url()).pathname.toLowerCase()).toBe("/events");
       expect(fixture.state.loginCount).toBe(1);
       expect(fixture.state.roleReads).toBeGreaterThan(0);
+      expect(fixture.state.writes).toEqual([]);
+    });
+  }
+}
+
+// Exercise the actual LoginForm and full browser navigation, with all API
+// responses isolated. Destination documents are sentinels, not live accounts.
+test("BNMS demo remains directly routable", async ({ page }) => {
+  test.skip(!["localhost", "127.0.0.1"].includes(new URL(test.info().project.use.baseURL).hostname),
+    "Use the BNMS config: tenant-subdomain hosts override fixture localStorage.");
+  const fixture = await installFixtures(page, { version: 1, tenantSlug: "bnms", auth: "member" });
+  await page.goto("/BnmsMemberDemo");
+  await expect(page.getByTestId("text-hero-greeting")).toBeVisible();
+  await expect(page).toHaveURL(/\/BnmsMemberDemo$/);
+  expect(fixture.state.writes).toEqual([]);
+});
+
+for (const flow of ["login", "existing-session", "password-setup"]) {
+  for (const scenario of [
+    { name: "portal slug", landing: "portal", expected: "/portal" },
+    { name: "portal path", landing: "/portal", expected: "/portal" },
+    { name: "different role", landing: "Resources", expected: "/Resources" },
+    { name: "missing role", missingRole: true, expected: "/Preferences" },
+    { name: "deliberate demo", landing: "BnmsMemberDemo", expected: "/BnmsMemberDemo" },
+    { name: "GSF unchanged", tenantSlug: "gsf", landing: "portal", expected: "/MemberDemo" },
+    { name: "explicit resource", landing: "portal", target: "/Resources?view=mine#details", extra: "&resourceId=fixture-resource", expected: "/Resources?view=mine&resourceId=fixture-resource#details" },
+    { name: "explicit group", landing: "portal", target: "/MemberGroupDetail?view=mine#details", extra: "&groupId=fixture-group", expected: "/MemberGroupDetail?view=mine&id=fixture-group#details" },
+    { name: "invalid return uses existing safe fallback", landing: "portal", target: "https://evil.example/steal", expected: "/" },
+  ]) {
+    test(`BNMS role navigation: ${flow} / ${scenario.name}`, async ({ page }) => {
+      test.skip(!["localhost", "127.0.0.1"].includes(new URL(test.info().project.use.baseURL).hostname),
+        "Use the BNMS config: tenant-subdomain hosts override fixture localStorage.");
+      const fixture = await installFixtures(page, {
+        version: 1,
+        tenantSlug: scenario.tenantSlug || "bnms",
+        roles: scenario.missingRole ? [] : [{ ...ROLE, default_landing_page: scenario.landing }],
+        existingLoginSession: flow === "existing-session",
+      });
+      await page.route("**/*", route => {
+        const request = route.request();
+        if (request.isNavigationRequest() && new URL(request.url()).pathname !== "/login") {
+          return route.fulfill({ contentType: "text/html", body: "<h1>Fixture destination</h1>" });
+        }
+        return route.fallback();
+      });
+      const params = new URLSearchParams();
+      if (scenario.target) params.set("returnTo", scenario.target);
+      if (flow === "password-setup") {
+        params.set("mode", "set-password");
+        params.set("token", "isolated-fixture-token");
+        params.set("email", MEMBER.email);
+      }
+      await page.goto(`/login?${params}${scenario.extra || ""}`);
+      if (flow === "login") {
+        await page.getByTestId("input-email").fill(MEMBER.email);
+        await page.getByTestId("input-password").fill("fixture password");
+        await page.getByTestId("button-login").click();
+      } else if (flow === "password-setup") {
+        await page.getByTestId("input-new-password").fill("new fixture password");
+        await page.getByTestId("input-confirm-password").fill("new fixture password");
+        await page.getByTestId("button-set-password").click();
+      }
+      await expect(page.getByRole("heading", { name: "Fixture destination" })).toBeVisible();
+      const url = new URL(page.url());
+      expect(url.pathname + url.search + url.hash).toBe(scenario.expected);
+      expect(fixture.state.loginCount).toBe(flow === "login" ? 1 : 0);
+      expect(fixture.state.requests.filter(r => r.path === "/api/auth/set-password")).toHaveLength(flow === "password-setup" ? 1 : 0);
+      expect(fixture.state.roleReads).toBe(scenario.target ? 0 : 1);
       expect(fixture.state.writes).toEqual([]);
     });
   }
