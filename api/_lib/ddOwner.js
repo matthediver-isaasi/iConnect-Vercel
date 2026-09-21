@@ -4,6 +4,31 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Optional rows use maybeSingle: absence is normal, but duplicates and database
+// failures are not. Never log error messages/details or record identifiers.
+async function lookupOptionalOwnerRow(stage, query) {
+  try {
+    const { data, error } = await query();
+    if (!error) return data;
+    reportOwnerLookupFailure(stage, error);
+  } catch (error) {
+    reportOwnerLookupFailure(stage, error);
+  }
+  return null;
+}
+
+function reportOwnerLookupFailure(stage, error) {
+  const rawCode = error?.code;
+  const code = typeof rawCode === 'string' && /^(?:[0-9A-Z]{5}|PGRST\d{3})$/.test(rawCode)
+    ? rawCode : 'UNKNOWN';
+  // At most one fixed-size diagnostic per lookup (four lookups per resolution).
+  console.warn('[DD owner] lookup failed', { stage, code });
+}
+
+function ownerString(value) {
+  return typeof value === 'string' ? value : '';
+}
+
 /**
  * Resolve dd_owner display name + email for a Due Diligence submission.
  *
@@ -20,7 +45,7 @@ function escapeRegex(str) {
  * @param {object} args.supabase - Supabase client (defaults to shared one)
  * @param {string} args.tenantId - Tenant id (required for scoping)
  * @param {string|null} args.formSubmissionId - The DD form submission id, if any
- * @param {string|null} [args.formId] - Optional form id (used for default_owner_name fallback when no submission row found)
+ * @param {string|null} [args.formId] - Optional form id for default_owner_name; otherwise derived from the linked submission
  * @returns {Promise<{ownerName: string, ownerEmail: string}>}
  */
 export async function resolveDdOwnerForSubmission({
@@ -38,58 +63,45 @@ export async function resolveDdOwnerForSubmission({
   let ddFormId = formId || null;
 
   if (formSubmissionId) {
-    try {
-      const { data: ddSub } = await client
-        .from('form_submission_due_diligence')
-        .select('owner_name, owner_member_id, form_id')
-        .eq('form_submission_id', formSubmissionId)
-        .eq('tenant_id', tenantId)
-        .single();
+    const ddSub = await lookupOptionalOwnerRow('assignment', () => client
+      .from('form_submission_due_diligence')
+      .select('owner_name, owner_member_id')
+      .eq('form_submission_id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle());
 
-      if (ddSub) {
-        ownerName = ddSub.owner_name || '';
-        if (!ddFormId) ddFormId = ddSub.form_id || null;
-        if (ddSub.owner_member_id) {
-          const { data: ownerMbr } = await client
-            .from('member')
-            .select('email')
-            .eq('id', ddSub.owner_member_id)
-            .eq('tenant_id', tenantId)
-            .single();
-          ownerEmail = ownerMbr?.email || '';
-        }
+    if (ddSub) {
+      ownerName = ownerString(ddSub.owner_name);
+      if (ddSub.owner_member_id) {
+        const ownerMbr = await lookupOptionalOwnerRow('member', () => client
+          .from('member')
+          .select('email')
+          .eq('id', ddSub.owner_member_id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle());
+        ownerEmail = ownerString(ownerMbr?.email);
       }
-    } catch {
-      // swallow - leave defaults so placeholders collapse to ''
     }
   }
 
   if (!ddFormId && formSubmissionId) {
-    try {
-      const { data: sub } = await client
-        .from('form_submission')
-        .select('form_id')
-        .eq('id', formSubmissionId)
-        .eq('tenant_id', tenantId)
-        .single();
-      ddFormId = sub?.form_id || null;
-    } catch {
-      // ignore
-    }
+    const sub = await lookupOptionalOwnerRow('submission', () => client
+      .from('form_submission')
+      .select('form_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle());
+    ddFormId = sub?.form_id || null;
   }
 
   if (!ownerName && ddFormId) {
-    try {
-      const { data: cfg } = await client
-        .from('form_due_diligence_config')
-        .select('default_owner_name')
-        .eq('form_id', ddFormId)
-        .eq('tenant_id', tenantId)
-        .single();
-      ownerName = cfg?.default_owner_name || '';
-    } catch {
-      // ignore
-    }
+    const cfg = await lookupOptionalOwnerRow('configuration', () => client
+      .from('form_due_diligence_config')
+      .select('default_owner_name')
+      .eq('form_id', ddFormId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle());
+    ownerName = ownerString(cfg?.default_owner_name);
   }
 
   return { ownerName: ownerName || '', ownerEmail: ownerEmail || '' };
