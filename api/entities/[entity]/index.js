@@ -103,6 +103,10 @@ import {
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
+import {
+  applyGuestWriterListQuery,
+  parseGuestWriterListQuery,
+} from '../../_lib/guestWriterSearch.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
@@ -778,6 +782,13 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       // List entities
       const { filter, sort, limit, offset, expand } = req.query;
+      const guestWriterListResult = entityNorm === 'guestwriter'
+        ? parseGuestWriterListQuery(req.query)
+        : null;
+      if (guestWriterListResult?.error) {
+        return res.status(400).json({ error: guestWriterListResult.error });
+      }
+      const guestWriterListOptions = guestWriterListResult?.value || null;
       const preferenceFilterError = validateGenericCommunicationPreferenceFilter(
         entity, tenantCtx.parsedFilter || filter,
       );
@@ -1330,15 +1341,33 @@ export default async function handler(req, res) {
         });
       }
 
-      if (sort) {
+      // GuestWriter search is intentionally narrow and literal. In particular,
+      // it cannot use ILIKE because PostgREST rewrites even escaped stars to
+      // wildcards. Apply it after tenant/generic filters and before the exact
+      // count's range, with deterministic pagination for duplicate names.
+      if (guestWriterListOptions) {
+        query = applyGuestWriterListQuery(query, {
+          ...guestWriterListOptions,
+          paginated: false,
+        });
+      }
+
+      if (sort && !guestWriterListOptions?.paginated) {
         const sortObj = JSON.parse(sort);
         Object.entries(sortObj).forEach(([key, direction]) => {
           query = query.order(key, { ascending: direction === 'asc' });
         });
       }
 
-      if (limit) query = query.limit(parseInt(limit));
-      if (offset) query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit || '100') - 1);
+      if (guestWriterListOptions?.paginated) {
+        query = applyGuestWriterListQuery(query, {
+          ...guestWriterListOptions,
+          search: '',
+        });
+      } else {
+        if (limit) query = query.limit(parseInt(limit));
+        if (offset) query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit || '100') - 1);
+      }
 
       let { data, error, count } = await query;
       if (error) {
