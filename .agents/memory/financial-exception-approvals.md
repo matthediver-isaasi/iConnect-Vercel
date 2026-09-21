@@ -13,4 +13,10 @@ For a timed provider release, budget credential lifetime across the warm-up, use
 
 **Why:** A token can pass the dry-run's minimum remaining lifetime but fail the identical threshold at apply, wasting a short-lived user deployment attestation. Normal refresh may only become available later.
 
-**How to apply:** Complete normal OAuth refresh before warming provider evidence. Request the short-lived deployment report only after warm-up succeeds, check remaining credential time again before the final cycle, and never extend timestamps to compensate.
+**How to apply:** Check credential lifetime before the final cycle and never extend timestamps to compensate. Avoid repeatedly warming the full provider cache merely to obtain another review hash; repeated contact scans can exhaust the provider's daily limit.
+
+An old zero-blocker report can support a clearly labelled, non-authorizing economic preview if the canonical apply independently reacquires every mutable resource and compares the resulting complete economic/state commitment before writing.
+
+**Why:** The deployment evidence and financial preview need not require two consecutive full provider scans inside one short freshness window. Old observations must never be represented as current evidence.
+
+**How to apply:** Retain original report timestamps, verify the new deployment proof, independently review the pure economic commitment, and use only the canonical forced-fresh apply. Keep all schema, current-state, exact-hash, handover and pre-commit freshness checks. Any mismatch requires review, not automatic acceptance of a new hash.
