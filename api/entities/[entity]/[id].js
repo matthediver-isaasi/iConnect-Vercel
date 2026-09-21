@@ -10,6 +10,7 @@ import {
   loadOrganisationLoginGate,
 } from '../../_lib/organisationLoginGate.js';
 import { supabase } from '../../_lib/database.js';
+import { deleteRepositoryFile } from '../../_lib/fileRepositoryDelete.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
@@ -321,6 +322,20 @@ export default async function handler(req, res, dependencies = {}) {
       error: 'Your browser session has switched to a different organisation. Reload this tab to continue.',
       code: 'TENANT_CONTEXT_CHANGED',
     });
+  }
+
+  // Repository deletion owns storage removal as well as the metadata row.
+  if (entityNorm === 'filerepository' && req.method === 'DELETE') {
+    const result = await deleteRepositoryFile({
+      db: requestDatabase,
+      context: tenantCtx,
+      id,
+      storageOrigin: requestDatabase.supabaseUrl
+        ? new URL(requestDatabase.supabaseUrl).origin
+        : process.env.SUPABASE_URL,
+      hasFeatureAccess: dependencies.hasFeatureAccess || hasFeatureAccess,
+    });
+    return res.status(result.status).json(result.body);
   }
 
   // Authentication and tenant mismatch are intentionally resolved before

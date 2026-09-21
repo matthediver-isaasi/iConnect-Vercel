@@ -210,7 +210,7 @@ export default function FileManagementPage() {
     mutationFn: (id) => base44.entities.FileRepository.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['file-repository'] });
-      toast.success('File deleted successfully');
+      toast.success('File deleted from the repository and vault');
     },
     onError: (error) => {
       toast.error('Failed to delete file: ' + error.message);
@@ -1237,9 +1237,13 @@ export default function FileManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          aria-label={`Delete ${file.file_name}`}
+                          disabled={deleteMutation.isPending}
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteMutation.mutate(file.id);
+                            if (confirm(`Permanently delete "${file.file_name}" from the repository and vault? Links to this file will stop working, including links used on pages or in emails. Downloaded copies cannot be revoked.`)) {
+                              deleteMutation.mutate(file.id);
+                            }
                           }}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >

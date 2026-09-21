@@ -157,3 +157,4 @@
 - [Resource import audit evidence](resource-import-audit-evidence.md) — terminal execution IDs supersede proposal holds and URL-only matching; absence and execution failure are separate findings.
 - [Event credit policy transitions](event-credit-policy-transitions.md) — paid recovery preserves original credits for verified compensation; visibility tests alone miss overcharges.
 - [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.
+- [Storage object absence](storage-object-absence.md) — SDK info errors may drop NoSuchKey; distinguish object absence from provider failure and public cache behavior.
