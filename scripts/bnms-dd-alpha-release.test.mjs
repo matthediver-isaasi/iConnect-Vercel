@@ -7,7 +7,7 @@ import pg from 'pg';
 import {ALPHA_MANIFEST_SHA256,PROCESSING_NOT_BEFORE,MAX_EVIDENCE_AGE_MS,
   ALPHA_BANK_ACCOUNT_ID,ALPHA_XERO_TENANT_ID,validateAlphaBankApproval,boundedAlphaTransport,
   assertAlphaStageFresh,validateAlphaHandover,validateAlphaReleaseScope,readAlphaStage,assertAlphaEvidenceFresh,
-  alphaReleaseManifest,releaseAlpha,alphaStateHash,verifyAlphaReleaseSchema,
+  alphaReleaseManifest,releaseAlpha,alphaStateHash,verifyAlphaReleaseSchema,assertAlphaReleaseCommitFresh,
   alphaHistoricalInvoiceUnchanged,assertAlphaLiveContact,alphaSchemaBundle,INVOICE_MIGRATION_SHA256,
   } from './bnms-dd-alpha-release.mjs';
 import {parseAlphaReleaseArgs} from './run-bnms-dd-alpha-release.mjs';
@@ -103,6 +103,25 @@ test('Final evidence age includes elapsed review/transaction time and handover a
   assert.throws(()=>assertAlphaEvidenceFresh(report,new Date(now.getTime()+MAX_EVIDENCE_AGE_MS)),/15 minutes/);
   assert.throws(()=>assertAlphaEvidenceFresh({...report,observedAt:'invalid'},now));
   assert.throws(()=>assertAlphaEvidenceFresh({...report,handover:{...h,confirmedAt:'2026-09-19T11:59:59Z'}},now));
+});
+test('Final database clock expires attestation even with fresh provider evidence; transaction rolls back',async()=>{
+  const h={...handover(),accountingApproval:{approved:true,bankAccountId:ALPHA_BANK_ACCOUNT_ID,
+    xeroTenantId:ALPHA_XERO_TENANT_ID,bankName:'GoCardless-GBP'}};
+  const report={manifestSha256:ALPHA_MANIFEST_SHA256,members:[{memberId:'a'}],handover:h,
+    observedAt:'2026-09-20T11:59:00Z',completedAt:now.toISOString()};
+  const proof={provenance:{kind:'user-supplied-local-vercel-attestation',agentLiveVerified:false,
+    observedAt:'2026-09-20T11:45:01.000Z',attestationSha256:'a'.repeat(64)}};
+  const seen=[];
+  const c={query:async sql=>{seen.push(sql);return {rows:[{checked_at:'2026-09-20T12:00:02Z'}]};}};
+  // This is the post-write database-clock guard used by releaseAlpha, with its
+  // transaction catch behavior. No live database/provider interaction.
+  await assert.rejects((async()=>{
+    try{await assertAlphaReleaseCommitFresh(c,report,proof);await c.query('COMMIT');}
+    catch(error){await c.query('ROLLBACK');throw error;}
+  })(),/attestation.*15 minutes/);
+  assert.equal(seen.at(-1),'ROLLBACK');assert.ok(!seen.includes('COMMIT'));
+  assert.match(releaseAlpha.toString(),/await assertAlphaReleaseCommitFresh\(c,report,proof\);[\s\S]*await c.query\('COMMIT'\)/);
+  assert.match(releaseAlpha.toString(),/catch\(error\)\{await c.query\('ROLLBACK'\);throw error;\}/);
 });
 
 test('Provider transport permits only pinned HTTPS GET and bounded requests',async()=>{

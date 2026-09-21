@@ -8,11 +8,38 @@
 // acquire a new observation timestamp. Do not delete the journal to bypass 429.
 // --apply always reacquires ALL mutable provider evidence, even immediately
 // after dry-run, and releaseAlpha compares the resulting economic review hash.
+// --attestation FILE explicitly uses a user-supplied local Vercel report instead
+// of live agent verification. It requires --proof, preserves provenance and the
+// raw report digest, and expires 15 minutes after its ORIGINAL observedAt.
 import {readFile,open} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {destinationTarget} from './apply-custom-object-relationship-deleted-members-migration.mjs';
 import {DEFAULT_ALPHA_CHECKPOINT,assertAlphaCheckpointRetryAllowed} from './bnms-dd-alpha-checkpoint.mjs';
+
+// Never echo arbitrary provider bodies, request objects or credential errors.
+export function safeAlphaReadinessError(error){
+  const message=error?.message;
+  const allowed=[
+    'Fresh exact-alpha legacy collector handover required; beta confirmation is not alpha approval',
+    'Explicit exact-alpha GoCardless-GBP accounting approval required',
+    'Pinned Xero credential must remain valid for full readiness budget; refresh separately',
+    'Pinned Xero credential metadata unavailable',
+    'Xero credential validity below full readiness budget; no scan started',
+    'Normal refresh window exceeds approved preflight wait; no scan started',
+    'Actual alpha provider credential identity differs from pinned live account',
+    'Authenticated Xero connection does not include exact pinned tenant',
+    'Authenticated GoCardless creditor differs from pinned account',
+    'User-supplied Vercel attestation is future-dated or exceeds 15 minutes',
+    'Alpha release blocked by unresolved readiness evidence',
+  ];
+  if(allowed.includes(message))return message;
+  if(/^Alpha provider retry prohibited until \d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(message||'')
+    ||/^Provider GET failed \(HTTP \d{3}\)$/.test(message||'')
+    ||/^[A-Za-z_ ]+: database read failed \([A-Z0-9]{5}\)$/.test(message||''))
+    return message;
+  return 'Unclassified alpha readiness failure; inspect local validation stages without exposing credentials';
+}
 
 export function parseAlphaReleaseArgs(args){
   const opts={apply:false,schema:false};
@@ -20,17 +47,17 @@ export function parseAlphaReleaseArgs(args){
     const arg=args[i],key=arg.slice(2);
     if(['--apply','--schema'].includes(arg)&&!opts[key])opts[key]=true;
     else if(/^--review-sha256=[a-f0-9]{64}$/.test(arg)&&!opts.reviewSha256)opts.reviewSha256=arg.split('=')[1];
-    else if(['manifest','out','handover','proof','replay','checkpoint'].includes(key)&&arg===`--${key}`&&!opts[key]
+    else if(['manifest','out','handover','proof','replay','checkpoint','attestation'].includes(key)&&arg===`--${key}`&&!opts[key]
       &&args[i+1]&&!args[i+1].startsWith('--'))opts[key]=args[++i];
     else throw Error('Unsupported/duplicate alpha release argument; identity overrides forbidden');
   }
   if(opts.schema){
-    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay||opts.checkpoint)throw Error('Schema and member-release modes must be separate');
+    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay||opts.checkpoint||opts.attestation)throw Error('Schema and member-release modes must be separate');
   }else if(!opts.out||!resolve(opts.out).startsWith(`${resolve('exports')}/`)
     ||(!opts.replay&&(!opts.manifest||!opts.handover||!opts.proof)))
     throw Error('Pinned manifest, exact-alpha handover, deployment proof and private exports output required');
   if(opts.apply&&!opts.reviewSha256)throw Error('Exact reviewed SHA-256 required');
-  if(opts.replay&&(opts.apply||!opts.reviewSha256||opts.manifest||opts.handover||opts.proof||opts.checkpoint))
+  if(opts.replay&&(opts.apply||!opts.reviewSha256||opts.manifest||opts.handover||opts.proof||opts.checkpoint||opts.attestation))
     throw Error('Replay is read-only and requires only original report/hash and new output');
   return opts;
 }
@@ -42,7 +69,7 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
   process.env.SUPABASE_URL=env.DEST_SUPABASE_URL;
   process.env.SUPABASE_SERVICE_KEY=env.DEST_SUPABASE_KEY;
   const {destinationConnection}=await import('./run-bnms-dd-pilot-history.mjs');
-  const {verifyDeploymentProof}=await import('./bnms-dd-pilot-deployment-proof.mjs');
+  const {verifyDeploymentProof,verifyUserDeploymentAttestation}=await import('./bnms-dd-pilot-deployment-proof.mjs');
   const {alphaSchemaBundle,readAlphaReleaseEvidence,releaseAlpha,verifyAlphaReleaseSchema}=await import('./bnms-dd-alpha-release.mjs');
   const bundle=await alphaSchemaBundle(),schemaHash=bundle.hash;
   if(opts.schema){
@@ -76,7 +103,10 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
     }else{
       await assertAlphaCheckpointRetryAllowed(opts.checkpoint||DEFAULT_ALPHA_CHECKPOINT);
       // Reject missing/stale deployment before spending the bounded API budget.
-      proof=await verifyDeploymentProof(JSON.parse(await readFile(resolve(opts.proof),'utf8')),{vercelRequest});
+      const reviewedProof=JSON.parse(await readFile(resolve(opts.proof),'utf8'));
+      proof=opts.attestation
+        ?await verifyUserDeploymentAttestation(reviewedProof,await readFile(resolve(opts.attestation),'utf8'))
+        :await verifyDeploymentProof(reviewedProof,{vercelRequest});
       const {createClient}=await import('@supabase/supabase-js');
       const db=createClient(env.DEST_SUPABASE_URL,env.DEST_SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
       try{
@@ -87,6 +117,7 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
           handover:JSON.parse(await readFile(resolve(opts.handover),'utf8'))});
       }catch(error){
         await output.writeFile(JSON.stringify({mode:'alpha_readiness_stopped',providerWrites:0,
+          reason:safeAlphaReadinessError(error),
           rateLimit:error.rateLimitDiagnostic||null,checkpoint:error.checkpointProgress||null},null,2));
         throw error;
       }

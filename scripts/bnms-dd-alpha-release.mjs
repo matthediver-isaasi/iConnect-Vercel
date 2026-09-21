@@ -729,6 +729,15 @@ export async function verifyAlphaReleaseSchema(c){
   if(checks.size||keys.size||fks.size)fail('Alpha journal constraints incomplete');
 }
 
+export async function assertAlphaReleaseCommitFresh(c,report,proof){
+  const dbClock=(await c.query('SELECT clock_timestamp() AS checked_at')).rows[0].checked_at;
+  assertAlphaEvidenceFresh(report,new Date(dbClock));
+  if(proof.provenance){
+    const {assertUserAttestationFresh}=await import('./bnms-dd-pilot-deployment-proof.mjs');
+    assertUserAttestationFresh(proof,new Date(dbClock));
+  }
+}
+
 export async function releaseAlpha(c,report,proof,{apply=false,reviewSha256,verifiedDestination=false,
   now=()=>new Date()}={}){
   const manifest=await alphaReleaseManifest(report,proof),digest=hash(manifest);
@@ -752,6 +761,10 @@ export async function releaseAlpha(c,report,proof,{apply=false,reviewSha256,veri
       await c.query('ROLLBACK');return {mode:'release_replay',hash:digest,writes:0,readinessRevalidated:false};
     }
     assertAlphaEvidenceFresh(report,now());
+    if(proof.provenance){
+      const {assertUserAttestationFresh}=await import('./bnms-dd-pilot-deployment-proof.mjs');
+      assertUserAttestationFresh(proof,now());
+    }
     await c.query(`LOCK TABLE member,preference_field,member_preference_value,membership_tier_config,
       membership_billing_agreements,membership_payment_plans,member_membership_history,
       gocardless_collection_reservations,gocardless_payments,system_settings,tenant_accounting_settings,membership_tier_vat_override,
@@ -782,6 +795,10 @@ export async function releaseAlpha(c,report,proof,{apply=false,reviewSha256,veri
       fail('Historical alpha evidence changed');
     assertHistoricalInvoicesComplete(historical,links);
     assertAlphaEvidenceFresh(report,now());
+    if(proof.provenance){
+      const {assertUserAttestationFresh}=await import('./bnms-dd-pilot-deployment-proof.mjs');
+      assertUserAttestationFresh(proof,now());
+    }
     if(!apply){await c.query('ROLLBACK');return {mode:'scheduled_alpha_release_dry_run',hash:digest,manifest,writes:0};}
     for(const m of manifest.members){
       await c.query(`INSERT INTO bnms_dd_alpha_release(adoption_id,tenant_id,member_id,plan_id,evidence_sha256,evidence)
@@ -793,8 +810,7 @@ export async function releaseAlpha(c,report,proof,{apply=false,reviewSha256,veri
         WHERE id=$1 AND tenant_id=$2 AND member_id=$3 AND collection_stopped_at IS NOT NULL`,[m.planId,TENANT_ID,m.memberId]);
       if(agreement.rowCount!==1||plan.rowCount!==1)fail('Concurrent alpha release conflict');
     }
-    const dbClock=(await c.query('SELECT clock_timestamp() AS checked_at')).rows[0].checked_at;
-    assertAlphaEvidenceFresh(report,new Date(dbClock));
+    await assertAlphaReleaseCommitFresh(c,report,proof);
     await c.query('SET CONSTRAINTS ALL IMMEDIATE');
     await c.query('COMMIT');
     return {mode:'alpha_armed_for_october_processing',hash:digest,writes:747,providerWrites:0,membershipActivated:false};
