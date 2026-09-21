@@ -11,6 +11,9 @@
 // --attestation FILE explicitly uses a user-supplied local Vercel report instead
 // of live agent verification. It requires --proof, preserves provenance and the
 // raw report digest, and expires 15 minutes after its ORIGINAL observedAt.
+// --readiness-only warms/checks private evidence without deployment proof.
+// It never connects to the release transaction or emits an authorization hash;
+// subsequent apply still requires fresh proof, a reviewed dry-run and fresh GETs.
 import {readFile,open} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -45,18 +48,20 @@ export function parseAlphaReleaseArgs(args){
   const opts={apply:false,schema:false};
   for(let i=0;i<args.length;i++){
     const arg=args[i],key=arg.slice(2);
-    if(['--apply','--schema'].includes(arg)&&!opts[key])opts[key]=true;
+    if(['--apply','--schema','--readiness-only'].includes(arg)&&!opts[key])opts[key]=true;
     else if(/^--review-sha256=[a-f0-9]{64}$/.test(arg)&&!opts.reviewSha256)opts.reviewSha256=arg.split('=')[1];
     else if(['manifest','out','handover','proof','replay','checkpoint','attestation'].includes(key)&&arg===`--${key}`&&!opts[key]
       &&args[i+1]&&!args[i+1].startsWith('--'))opts[key]=args[++i];
     else throw Error('Unsupported/duplicate alpha release argument; identity overrides forbidden');
   }
   if(opts.schema){
-    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay||opts.checkpoint||opts.attestation)throw Error('Schema and member-release modes must be separate');
+    if(opts.manifest||opts.out||opts.handover||opts.proof||opts.replay||opts.checkpoint||opts.attestation||opts['readiness-only'])throw Error('Schema and member-release modes must be separate');
   }else if(!opts.out||!resolve(opts.out).startsWith(`${resolve('exports')}/`)
-    ||(!opts.replay&&(!opts.manifest||!opts.handover||!opts.proof)))
+    ||(!opts.replay&&(!opts.manifest||!opts.handover||(!opts.proof&&!opts['readiness-only']))))
     throw Error('Pinned manifest, exact-alpha handover, deployment proof and private exports output required');
   if(opts.apply&&!opts.reviewSha256)throw Error('Exact reviewed SHA-256 required');
+  if(opts['readiness-only']&&(opts.apply||opts.replay||opts.proof||opts.attestation||opts.reviewSha256))
+    throw Error('Readiness-only cannot authorize release or accept deployment proof/review hash');
   if(opts.replay&&(opts.apply||!opts.reviewSha256||opts.manifest||opts.handover||opts.proof||opts.checkpoint||opts.attestation))
     throw Error('Replay is read-only and requires only original report/hash and new output');
   return opts;
@@ -103,10 +108,12 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
     }else{
       await assertAlphaCheckpointRetryAllowed(opts.checkpoint||DEFAULT_ALPHA_CHECKPOINT);
       // Reject missing/stale deployment before spending the bounded API budget.
-      const reviewedProof=JSON.parse(await readFile(resolve(opts.proof),'utf8'));
-      proof=opts.attestation
-        ?await verifyUserDeploymentAttestation(reviewedProof,await readFile(resolve(opts.attestation),'utf8'))
-        :await verifyDeploymentProof(reviewedProof,{vercelRequest});
+      if(!opts['readiness-only']){
+        const reviewedProof=JSON.parse(await readFile(resolve(opts.proof),'utf8'));
+        proof=opts.attestation
+          ?await verifyUserDeploymentAttestation(reviewedProof,await readFile(resolve(opts.attestation),'utf8'))
+          :await verifyDeploymentProof(reviewedProof,{vercelRequest});
+      }
       const {createClient}=await import('@supabase/supabase-js');
       const db=createClient(env.DEST_SUPABASE_URL,env.DEST_SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
       try{
@@ -123,6 +130,12 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
       }
     }
     const blockers=[...report.globalBlockers,...report.members.flatMap(m=>m.blockers.map(b=>`${m.memberId}: ${b}`))];
+    if(opts['readiness-only']){
+      await output.writeFile(JSON.stringify({report,proof:null,result:{
+        mode:'alpha_readiness_only_not_release_authorization',writes:0,providerWrites:0,blockers}},null,2));
+      console.log(JSON.stringify({mode:'alpha_readiness_only_not_release_authorization',writes:0,providerWrites:0,out:resolve(opts.out)}));
+      return;
+    }
     if(blockers.length){
       result={mode:'blocked_alpha_readiness',writes:0,blockers};
       await output.writeFile(JSON.stringify({report,proof,result},null,2));

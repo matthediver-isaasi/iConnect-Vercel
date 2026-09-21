@@ -915,3 +915,17 @@ mtime_ms = 1789915582969
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1b34b674-1ad1-45ea-b00f-d35253e5b13b/ea102765-8ac3-4a9f-a00e-170664d041be"
 storage_version_token = "1789915592683303"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ODt9n48PzCe-xFvmWLa3M"
+uri = "file://exports/private-bnms-alpha-financial-exceptions-20260921/member-financial-exceptions.csv"
+type = "table"
+title = "Alpha members — manual financial follow-up"
+description = "Three members: two unpaid membership invoices and five failed GoCardless attempts. Includes member details and financial references; no settlement or retry performed."
+logical_id = "199c9828-7eb6-4317-989a-43cd18c49b98"
+content_hash = "sha256:361bea614b9a301036c43eb84759168f6d4828a1ff087b61cdc06c5910e8ffec"
+size = 1664
+mtime_ms = 1789989145676
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/199c9828-7eb6-4317-989a-43cd18c49b98/961ad203-3846-4373-b3c1-e95cc7c5d73d"
+storage_version_token = "1789989975041468"
+content_type = "text/csv"

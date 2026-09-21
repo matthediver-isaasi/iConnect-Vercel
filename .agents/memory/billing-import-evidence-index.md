@@ -6,3 +6,4 @@
 - [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
 - [BNMS renewal reconciliation](bnms-renewal-reconciliation.md) — review one exact class and twelve-month invoice window per Excel workbook; nominal-code evidence must be explicit.
 - [Private report recovery](private-report-recovery.md) — exact historical attachment hashes prove report identity, not individual import writes; verify delivered bytes separately.
+- [Financial exception approvals](financial-exception-approvals.md) — manual follow-up permits only pinned exceptions, never settlement or a general financial-check bypass.

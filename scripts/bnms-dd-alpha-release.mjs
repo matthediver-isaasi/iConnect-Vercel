@@ -4,6 +4,9 @@ import {readFile} from 'node:fs/promises';
 import { hash, sqlHash, assertHistoricalInvoicesComplete } from './bnms-dd-beta-invoices.mjs';
 import { TENANT_ID } from './bnms-dd-pilot.mjs';
 import {ALPHA_INVOICE_START,alphaInvoiceQuery,openAlphaCheckpoint,readAlphaRateLimitSeed} from './bnms-dd-alpha-checkpoint.mjs';
+import {alphaManualApproval,ALPHA_MANUAL_APPROVAL_SHA256,
+  approvedAlphaUnpaidInvoice,unrelatedAlphaEventInvoice,assertAlphaManualEvidence,
+  alphaPaymentHistoryRequiresReconciliation} from './bnms-dd-alpha-manual-exceptions.mjs';
 
 export const ALPHA_MANIFEST_SHA256='3aff20a6e04338c3b3532d57c6be4b8395afa5ff8d5dbbe878daab52017f395a';
 export const PROCESSING_NOT_BEFORE='2026-09-30T23:00:00Z';
@@ -471,10 +474,8 @@ async function readAlphaReleaseEvidencePass(db,{manifest,handover,transport=fetc
       ||mandate.next_possible_charge_date>'2026-10-08')blockers.push('Provider mandate/owner/earliest-date conflict');
     if(subscriptions.length)blockers.push('External subscriptions exist');
     const stored=historical.filter(h=>h.member_id===a.member_id);
-    const windowPayments=providerPayments.filter(p=>p.charge_date>='2026-01-01');
-    if(windowPayments.length!==stored.length||providerPayments.some(p=>['pending_submission','submitted','confirmed'].includes(p.status)||p.charge_date>='2026-10-01')
-      ||windowPayments.some(p=>p.status!=='paid_out'||p.amount_refunded!==0
-      ||!stored.some(h=>h.provider_payment_id===p.id&&h.amount_minor===p.amount&&h.currency===p.currency&&h.charge_date===p.charge_date)))
+    const exceptionOwner={memberId:a.member_id,customerId:a.customer_id,mandateId:a.mandate_id};
+    if(alphaPaymentHistoryRequiresReconciliation(exceptionOwner,providerPayments,stored))
       blockers.push('Provider payment history/future schedule requires reconciliation');
     const contacts=[...new Set(links.filter(l=>l.member_id===a.member_id).map(l=>l.xero_contact_id))];
     if(contacts.length!==1)blockers.push('Historical Xero contact ownership ambiguous');
@@ -482,23 +483,29 @@ async function readAlphaReleaseEvidencePass(db,{manifest,handover,transport=fetc
     if(links.filter(l=>l.member_id===a.member_id).some(link=>
       !alphaHistoricalInvoiceUnchanged(link,currentInvoices.find(invoice=>invoice.InvoiceID===link.xero_invoice_id))))
       blockers.push('Current historical Xero invoice/payment financial evidence differs from immutable links');
+    const invoiceOwner={memberId:a.member_id,contactId:contacts[0]};
+    const exceptionInvoices=currentInvoices.filter(i=>approvedAlphaUnpaidInvoice(invoiceOwner,i)
+      ||unrelatedAlphaEventInvoice(invoiceOwner,i,accounts));
     const futureInvoices=currentInvoices.filter(i=>!['VOIDED','DELETED'].includes(i.Status)
-      &&(i.DateString.slice(0,10)>='2026-10-01'||Number(i.AmountDue)>0))
+      &&(i.DateString.slice(0,10)>='2026-10-01'||Number(i.AmountDue)>0)
+      &&!exceptionInvoices.includes(i))
       .map(i=>({id:i.InvoiceID,date:i.DateString,status:i.Status}));
     if(futureInvoices.length)blockers.push('Future/outstanding Xero invoices require reconciliation');
     members.push({adoptionId:a.id,memberId:a.member_id,planId:a.plan_id,agreementId:a.agreement_id,historyId:a.history_id,
       mandateId:a.mandate_id,customerId:a.customer_id,adoptionHash:hash(withoutAudit(a)),price,blockers,
-      provider:{mandate,customer,subscriptions,payments:providerPayments,mandateCount:mandates.length},futureInvoices,
+      provider:{mandate,customer,subscriptions,payments:providerPayments,mandateCount:mandates.length},futureInvoices,exceptionInvoices,
       accounting:{xeroTenantId:ALPHA_XERO_TENANT_ID,bankAccountId:banks[0]?.AccountID||null,
         bankCode:banks[0]?.Code||null,revenueCode,contactId:contacts[0]||null,
         contact:liveContacts.get(contacts[0])||null,mapping},historicalInvoiceCount:stored.length});
   }
   const completedAt=now().toISOString();
+  try{assertAlphaManualEvidence(members);}catch(error){globalBlockers.push(error.message);}
   const oldestObservedAt=checkpoint?.oldestObservedAt&&checkpoint.oldestObservedAt<observedAt?checkpoint.oldestObservedAt:observedAt;
   if(Date.parse(completedAt)-Date.parse(oldestObservedAt)>MAX_EVIDENCE_AGE_MS)globalBlockers.push('Oldest readiness evidence exceeds 15 minutes');
   return {version:1,tenantId:TENANT_ID,manifestSha256:ALPHA_MANIFEST_SHA256,manifest,observedAt:oldestObservedAt,completedAt,
     state,stateHash:alphaStateHash(state),historicalHash:hash({historical:sorted(historical),links:sorted(links)}),
-    members,settings,provider,handover,globalBlockers};
+    members,settings,provider,handover,globalBlockers,accounts,
+    manualExceptionApproval:alphaManualApproval(),manualExceptionApprovalSha256:ALPHA_MANUAL_APPROVAL_SHA256};
 }
 
 export function assertAlphaEvidenceFresh(report,instant=new Date()){
@@ -517,6 +524,18 @@ export async function alphaReleaseManifest(report,proof){
     fail('Unresolved alpha readiness evidence');
   if(!proof?.sourceHashes?.['api/_lib/bnmsAlphaAccounting.js']||!proof.deploymentId||!proof.commit)
     fail('Verified active alpha deployment proof required');
+  if(report.manualExceptionApproval){
+    if(hash(report.manualExceptionApproval)!==ALPHA_MANUAL_APPROVAL_SHA256
+      ||report.manualExceptionApprovalSha256!==ALPHA_MANUAL_APPROVAL_SHA256)
+      fail('Pinned alpha manual exception approval differs');
+    assertAlphaManualEvidence(report.members);
+    for(const m of report.members)
+      if(m.exceptionInvoices?.some(i=>!approvedAlphaUnpaidInvoice({memberId:m.memberId,contactId:m.accounting.contactId},i)
+        &&!unrelatedAlphaEventInvoice({memberId:m.memberId,contactId:m.accounting.contactId},i,report.accounts||[])))
+        fail('Alpha exception invoice classification differs');
+  }else if(report.members.some(m=>m.exceptionInvoices?.length)){
+    fail('Pinned alpha manual exception approval required');
+  }
   const {alphaAccountingMapping}=await import('../api/_lib/bnmsAlphaAccounting.js');
   for(const m of report.members){
     const saved=report.manifest.members.find(s=>s.identity.memberId===m.memberId);
@@ -536,6 +555,8 @@ export async function alphaReleaseManifest(report,proof){
   // replay acknowledges past arming; it does not renew expired authorization.
   return {version:1,tenantId:TENANT_ID,manifestSha256:ALPHA_MANIFEST_SHA256,
     processingNotBefore:PROCESSING_NOT_BEFORE,stateHash:report.stateHash,historicalHash:report.historicalHash,
+    ...(report.manualExceptionApproval?{manualExceptionApproval:report.manualExceptionApproval,
+      manualExceptionApprovalSha256:report.manualExceptionApprovalSha256}:{}),
     production:proof,handover:report.handover,members:report.members.map(m=>({
       adoptionId:m.adoptionId,memberId:m.memberId,planId:m.planId,agreementId:m.agreementId,historyId:m.historyId,
       mandateId:m.mandateId,customerId:m.customerId,adoptionHash:m.adoptionHash,price:m.price,accounting:m.accounting,
