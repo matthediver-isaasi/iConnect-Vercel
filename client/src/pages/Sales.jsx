@@ -10,7 +10,8 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+import NavigationRoleState from "@/components/navigation/NavigationRoleState";
 import {
   getSalesDestination,
   getSalesCatalogueSection,
@@ -49,8 +50,13 @@ const DESCRIPTIONS = {
 };
 
 export default function Sales({ destination = "dashboard" }) {
-  const { isFeatureExcluded } = useLayoutContext();
+  // Observe the session-scoped role directly: Layout publishes its permission
+  // callback in an effect, and hidden portal children still execute redirects.
+  const { isFeatureExcluded, roleStatus, roleError, retryRole } = useMemberAccess();
   const current = getSalesDestination(destination);
+  if (roleStatus !== "ready") {
+    return <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />;
+  }
   const visibleDestinations = getVisibleSalesDestinations(isFeatureExcluded);
 
   if (

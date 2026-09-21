@@ -14,3 +14,9 @@ Keep a successfully loaded role fresh within its validated session rather than a
 **Why:** If a refetch closes access readiness, it unmounts protected children. A child that refetches stale role data on every mount can then repeatedly close readiness and unmount itself.
 
 **How to apply:** Test a late second observer and explicit invalidation separately. New session generations and deliberate invalidations must still refresh permissions; mounting another consumer must not create a request loop.
+
+Protected route guards must derive readiness and permissions from the same session-role observer, not an effect-published Layout permission callback.
+
+**Why:** Hidden portal children still run redirects. A stale deny callback can redirect an authorized member during loading; a stale allow callback can mount protected workspaces before refreshed permissions resolve.
+
+**How to apply:** Gate workspace mounting and redirects on a ready, identity-matched role. Keep missing/error states recoverable and distinguish them from confirmed exclusion.

@@ -34,13 +34,18 @@ export function useSessionMemberRole() {
   const isLegacy = sessionRoleSnapshot?.status === 'legacy';
   const isTrustedReady = sessionRoleSnapshot?.status === 'ready';
   const identityKey = memberRoleIdentityKey(sessionRoleSnapshot);
+  const identityMatches = !!memberInfo && identityKey === memberRoleIdentityKey({
+    tenant_id: memberInfo.tenant_id,
+    member_id: memberInfo.id,
+    role_id: memberInfo.role_id,
+  });
 
   const roleQuery = useQuery({
     // Keep the historical prefix so Role Management's existing invalidations
     // refresh the active role. The session suffix prevents an old session's
     // cached permissions from flashing after an account switch.
     queryKey: ['memberRole', 'validated-session-v3', identityKey, sessionRoleSnapshot?.session_key],
-    enabled: authResolved && sessionValidated && (isLegacy || isTrustedReady)
+    enabled: authResolved && sessionValidated && identityMatches && (isLegacy || isTrustedReady)
       && !!sessionRoleSnapshot?.role_id,
     retry: false,
     // A legacy result is fresh for this validated session epoch too. Otherwise
@@ -49,7 +54,7 @@ export function useSessionMemberRole() {
     // Explicit memberRole invalidation still marks/refetches this active query.
     staleTime: Infinity,
     gcTime: 0,
-    initialData: isTrustedReady ? sessionRoleSnapshot.role : undefined,
+    initialData: isTrustedReady && identityMatches ? sessionRoleSnapshot.role : undefined,
     queryFn: async () => {
       const role = await withTimeout(
         base44.entities.Role.get(sessionRoleSnapshot.role_id),
@@ -81,7 +86,7 @@ export function useSessionMemberRole() {
     };
   }
 
-  if (!sessionRoleSnapshot) {
+  if (!sessionRoleSnapshot || !identityMatches) {
     return {
       memberRole: null,
       roleStatus: 'error',
