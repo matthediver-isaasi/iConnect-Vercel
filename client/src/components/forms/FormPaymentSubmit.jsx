@@ -85,6 +85,7 @@ export default function FormPaymentSubmit({
   continueTarget,
   continueRel,
   onContinue,
+  showFieldDescriptions = false,
 }) {
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [pendingMethod, setPendingMethod] = useState(null);
@@ -486,6 +487,16 @@ export default function FormPaymentSubmit({
 
   return (
     <div className="space-y-3" data-testid={`form-payment-submit-${field?.id || 'unknown'}`}>
+      {showFieldDescriptions && (field?.description || field?.payment_description) && (
+        <div className="space-y-1" data-testid={`form-payment-description-${field?.id || 'unknown'}`}>
+          {field.description && (
+            <p className="text-sm text-muted-foreground">{field.description}</p>
+          )}
+          {field.payment_description && (
+            <p className="text-sm text-muted-foreground">{field.payment_description}</p>
+          )}
+        </div>
+      )}
       {gcDropin && (
         <GoCardlessDropinFlow
           flowId={gcDropin.flowId}

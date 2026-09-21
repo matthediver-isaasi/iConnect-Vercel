@@ -4,7 +4,73 @@ const FORM_ID = "payment-choice-fixture-form";
 const FORM_SLUG = "fixture";
 const FIELD_ID = "fixture-payment";
 
-function formFixture({ membership = true } = {}) {
+function formFixture({ membership = true, checkoutLayout = null, hiddenPayment = false } = {}) {
+  if (checkoutLayout) {
+    const paged = checkoutLayout === "standard";
+    const detailsPage = "fixture-details-page";
+    const finishPage = "fixture-finish-page";
+    return {
+      id: FORM_ID,
+      slug: FORM_SLUG,
+      name: `Payment checkout ${checkoutLayout} fixture`,
+      description: "An isolated final checkout placement fixture.",
+      layout_type: checkoutLayout,
+      allow_save_continue_later: true,
+      submit_button_text: "Send fixture",
+      fields: [
+        {
+          id: "fixture-name",
+          type: "text",
+          label: "Name",
+          required: true,
+          ...(paged ? { page_id: detailsPage } : {}),
+        },
+        {
+          id: "fixture-membership-choice",
+          type: "text",
+          starts_hidden: true,
+          default_value: "monthly",
+        },
+        {
+          id: FIELD_ID,
+          type: "payment",
+          label: "Fixture payment field label",
+          description: "Read these checkout instructions before choosing a payment method.",
+          payment_description: "Your payment is processed securely by the selected provider.",
+          payment_currency: "GBP",
+          payment_providers: ["stripe", "gocardless"],
+          starts_hidden: hiddenPayment,
+          ...(paged ? { page_id: detailsPage } : {}),
+        },
+        {
+          id: "fixture-final-instructions",
+          type: "instructions",
+          label: "Before checkout",
+          content: "<p>Keep this final-page guidance visible above checkout.</p>",
+          ...(paged ? { page_id: finishPage } : {}),
+        },
+      ],
+      pages: paged ? [
+        { id: detailsPage, title: "Your details" },
+        { id: finishPage, title: "Finish" },
+      ] : [],
+      visibility_rules: hiddenPayment ? [] : [{
+        id: "fixture-membership-rule",
+        trigger_field_id: "fixture-membership-choice",
+        operator: "equals",
+        value: "monthly",
+        actions: [{
+          id: "fixture-membership-action",
+          action_type: "membership_structure",
+          config_id: "fixture-membership-config",
+        }],
+      }],
+      entity_pipelines: {},
+      require_authentication: false,
+      is_active: true,
+      form_type: "application",
+    };
+  }
   return {
     id: FORM_ID,
     slug: FORM_SLUG,
@@ -97,6 +163,8 @@ async function installFixtures(page, {
   membership = true,
   createPending = false,
   goCardlessFlow = true,
+  checkoutLayout = null,
+  hiddenPayment = false,
 } = {}) {
   // Some coverage cases deliberately reuse one BrowserContext with fresh
   // pages. Replace, rather than stack, that case's complete network contract.
@@ -149,6 +217,9 @@ async function installFixtures(page, {
   });
   page.on("pageerror", error => state.runtimeErrors.push(error.message));
 
+  await page.context().route(/\/(?:subdomain|tenant)\/lookup(?:[/?]|$)/i, route => {
+    return json(route, { tenant: null });
+  });
   await page.context().route(/\/(?:rest|auth)\/v1\//, route => {
     const request = route.request();
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
@@ -172,7 +243,7 @@ async function installFixtures(page, {
     if (!path.startsWith("/api/")) return route.continue();
 
     if (path === `/api/public/form/${FORM_SLUG}` && request.method() === "GET") {
-      return json(route, formFixture({ membership }));
+      return json(route, formFixture({ membership, checkoutLayout, hiddenPayment }));
     }
     if (path === "/api/public/form-payment-providers" && request.method() === "GET") {
       return json(route, { providers });
@@ -563,4 +634,101 @@ test("one-off Direct Debit is not presented as monthly and validation launches n
   expect(state.createCalls).toEqual([]);
   expect(state.providerRequests).toEqual([]);
   expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("final checkout replaces only the generic summary and stays before navigation at desktop and mobile", async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  for (const layout of ["standard", "card_swipe"]) {
+    for (const width of [1440, 375]) {
+      const isolated = page;
+      await isolated.setViewportSize({ width, height: 1000 });
+      const state = await installFixtures(isolated, { checkoutLayout: layout });
+      await isolated.goto(`/FormView?slug=${FORM_SLUG}&fixtureCase=${layout}-${width}`);
+      const decline = isolated.getByRole("button", { name: "Decline" });
+      if (await decline.isVisible().catch(() => false)) await decline.click();
+
+      const name = isolated.locator('input:not([type="hidden"])').first();
+      await name.fill(`${layout} retained answer`);
+      if (layout === "card_swipe") {
+        await isolated.getByRole("button", { name: "Next" }).click();
+      }
+      await expect(isolated.getByTestId(`payment-summary-${FIELD_ID}`)).toBeVisible();
+      await expect(isolated.getByText("You'll be asked to pay when you submit this form.")).toBeVisible();
+      await isolated.getByRole("button", { name: "Next" }).click();
+
+      await expect(isolated.getByTestId("instructions-fixture-final-instructions")).toContainText(
+        "Keep this final-page guidance visible above checkout.",
+      );
+      await expect(isolated.getByTestId(`payment-summary-${FIELD_ID}`)).toHaveCount(0);
+      await expect(isolated.getByText("Fixture payment field label", { exact: true })).toHaveCount(0);
+      await expect(isolated.getByText("Read these checkout instructions before choosing a payment method.")).toBeVisible();
+      await expect(isolated.getByText("Your payment is processed securely by the selected provider.")).toBeVisible();
+
+      const paymentArea = isolated.getByTestId("form-payment-area");
+      const previous = isolated.getByRole("button", { name: "Previous", exact: true });
+      await expect(paymentArea).toBeVisible();
+      await expect(previous).toBeVisible();
+      const placement = await paymentArea.evaluate((payment, previousElement) => ({
+        domBefore: !!(payment.compareDocumentPosition(previousElement) & Node.DOCUMENT_POSITION_FOLLOWING),
+        paymentBottom: payment.getBoundingClientRect().bottom,
+        previousTop: previousElement.getBoundingClientRect().top,
+        bodyOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      }), await previous.elementHandle());
+      expect(placement.domBefore).toBe(true);
+      expect(placement.paymentBottom).toBeLessThanOrEqual(placement.previousTop + 1);
+      expect(placement.bodyOverflow).toBeLessThanOrEqual(1);
+
+      // Going back is navigation only: answers survive and checkout creation
+      // does not start merely because the payment choices were rendered.
+      await previous.click();
+      if (layout === "card_swipe") {
+        await isolated.getByRole("button", { name: "Previous", exact: true }).click();
+      }
+      await expect(isolated.locator('input:not([type="hidden"])').first()).toHaveValue(`${layout} retained answer`);
+      expect(state.createCalls).toEqual([]);
+      await isolated.getByRole("button", { name: "Next" }).click();
+      if (layout === "card_swipe") {
+        await isolated.getByRole("button", { name: "Next" }).click();
+      }
+
+      await isolated.getByTestId(`button-form-payment-stripe-${FIELD_ID}`).click();
+      await expect.poll(() => state.createCalls.length).toBe(1);
+      await expect(isolated.getByTestId(`form-payment-provider-content-${FIELD_ID}`)).toBeVisible();
+      const expandedPlacement = await paymentArea.evaluate((payment, previousElement) => ({
+        domBefore: !!(payment.compareDocumentPosition(previousElement) & Node.DOCUMENT_POSITION_FOLLOWING),
+        bottom: payment.getBoundingClientRect().bottom,
+        previousTop: previousElement.getBoundingClientRect().top,
+      }), await previous.elementHandle());
+      expect(expandedPlacement.domBefore).toBe(true);
+      expect(expandedPlacement.bottom).toBeLessThanOrEqual(expandedPlacement.previousTop + 1);
+      await isolated.getByTestId(`button-form-payment-confirm-${FIELD_ID}`).focus();
+      await isolated.keyboard.press("Tab");
+      await expect(previous).toBeFocused();
+      expect(state.unexpectedWrites).toEqual([]);
+      expect(state.runtimeErrors).toEqual([]);
+      await isolated.screenshot({
+        path: testInfo.outputPath(`final-checkout-${layout}-${width}-expanded-stripe.png`),
+        fullPage: true,
+      });
+    }
+  }
+});
+
+test("a conditionally hidden payment leaves ordinary paged and card navigation unchanged", async ({ page }) => {
+  for (const layout of ["standard", "card_swipe"]) {
+    const isolated = page;
+    const state = await installFixtures(isolated, { checkoutLayout: layout, hiddenPayment: true });
+    await isolated.goto(`/FormView?slug=${FORM_SLUG}&fixtureCase=hidden-${layout}`);
+    const decline = isolated.getByRole("button", { name: "Decline" });
+    if (await decline.isVisible().catch(() => false)) await decline.click();
+    await isolated.locator('input:not([type="hidden"])').first().fill("No payment fixture");
+    await isolated.getByRole("button", { name: "Next" }).click();
+    await expect(isolated.getByTestId("form-payment-area")).toHaveCount(0);
+    await expect(isolated.getByTestId(`form-payment-provider-choices-${FIELD_ID}`)).toHaveCount(0);
+    await expect(isolated.getByRole("button", { name: "Send fixture" })).toBeVisible();
+    await expect(isolated.getByRole("button", { name: "Previous", exact: true })).toBeVisible();
+    expect(state.quoteCalls).toEqual([]);
+    expect(state.createCalls).toEqual([]);
+    expect(state.unexpectedWrites).toEqual([]);
+  }
 });

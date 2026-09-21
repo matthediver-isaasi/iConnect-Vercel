@@ -173,6 +173,34 @@ test('quote pending/error stays blocked and zero due keeps ordinary submission e
   } finally { await fixture.cleanup(); }
 });
 
+test('quote retry remains usable and unavailable membership providers cannot submit unpaid', async () => {
+  let retries = 0;
+  let submissions = 0;
+  const fixture = await mount({
+    membershipQuote: { matched: true, error: 'Quote unavailable', refetch: () => retries++ },
+    onNormalSubmit: () => submissions++,
+  });
+  try {
+    const retry = [...fixture.container.querySelectorAll('button')]
+      .find(button => button.textContent === 'Try again');
+    assert.ok(retry);
+    await act(async () => retry.click());
+    assert.equal(retries, 1);
+    await fixture.render({
+      field: { id: 'choice', payment_providers: [] },
+      membershipQuote: { ...membershipQuote, quote: {
+        ...membershipQuote.quote,
+        membership: { config_name: 'Full member junior' },
+      } },
+    });
+    assert.match(fixture.container.textContent, /Amount due: £128.00/);
+    assert.equal(fixture.container.querySelector('[data-testid="button-submit-form"]'), null);
+    assert.equal(fixture.buttons().length, 0);
+    assert.equal(submissions, 0);
+    assert.deepEqual(fixture.calls, []);
+  } finally { await fixture.cleanup(); }
+});
+
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });

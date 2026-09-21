@@ -2724,6 +2724,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
+                suppressPaymentSummary={isLastStep && currentField.id === visiblePaymentField?.id}
               />
             )}
           </CardContent>
@@ -2811,6 +2812,40 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
               </div>
             )}
+            {isLastStep && visiblePaymentField && (
+              <div className="w-full border-t pt-5" data-testid="form-payment-area">
+                <FormPaymentSubmit
+                  field={visiblePaymentField}
+                  formValues={formValues}
+                  buildPayload={buildSubmissionPayload}
+                  idempotencyKey={getIdempotencyKey()}
+                  disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
+                  disabledMessage={departmentCurrentSetBlocked || submitControl.message}
+                  busy={submitFormMutation.isPending}
+                  onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                  onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                    rotateIdempotencyKey();
+                    paymentReturn.adoptPaymentAcceptance({
+                      submissionId, provider, status, paymentSucceeded,
+                    });
+                  }}
+                  onSetupComplete={(setup) => {
+                    rotateIdempotencyKey();
+                    paymentReturn.adoptCompletion(
+                      typeof setup === 'string'
+                        ? { submissionId: setup, provider: 'gocardless' }
+                        : setup,
+                    );
+                  }}
+                  onNormalSubmit={handleSubmit}
+                  submitLabel={form.submit_button_text}
+                  membershipQuote={membershipFeeQuote}
+                  continueHref={memberInfo ? '/Dashboard' : '/'}
+                  continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
+                  showFieldDescriptions
+                />
+              </div>
+            )}
             <div className="flex justify-between gap-2">
               <Button
                 variant="outline"
@@ -2841,37 +2876,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
                 
                 {isLastStep ? (
-                  visiblePaymentField ? (
-                    <FormPaymentSubmit
-                      field={visiblePaymentField}
-                      formValues={formValues}
-                      buildPayload={buildSubmissionPayload}
-                      idempotencyKey={getIdempotencyKey()}
-                      disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
-                      disabledMessage={departmentCurrentSetBlocked || submitControl.message}
-                      busy={submitFormMutation.isPending}
-                      onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
-                      onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
-                        rotateIdempotencyKey();
-                        paymentReturn.adoptPaymentAcceptance({
-                          submissionId, provider, status, paymentSucceeded,
-                        });
-                      }}
-                      onSetupComplete={(setup) => {
-                        rotateIdempotencyKey();
-                        paymentReturn.adoptCompletion(
-                          typeof setup === 'string'
-                            ? { submissionId: setup, provider: 'gocardless' }
-                            : setup,
-                        );
-                      }}
-                      onNormalSubmit={handleSubmit}
-                      submitLabel={form.submit_button_text}
-                      membershipQuote={membershipFeeQuote}
-                      continueHref={memberInfo ? '/Dashboard' : '/'}
-                      continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
-                    />
-                  ) : (
+                  !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
                     disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
@@ -2887,7 +2892,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       form.submit_button_text
                     )}
                   </Button>
-                  )
+                  ) : null
                 ) : (
                   !(currentField?.type === 'image_buttons' && currentField?.auto_advance !== false && currentField?.hide_next_button === true && !disabledFieldIds.has(currentField?.id)) && (
                     <Button
@@ -3073,6 +3078,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   allFields={form?.fields || []}
                   hiddenFieldIds={effectiveHiddenFieldIds}
                   membershipFeeQuote={membershipFeeQuote}
+                  suppressPaymentSummary={(isLastPage || !hasPages) && field.id === visiblePaymentField?.id}
                 />
               );
 
@@ -3290,6 +3296,40 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             )}
 
             <div className="space-y-5 pt-4" data-testid="form-final-actions">
+              {(isLastPage || !hasPages) && visiblePaymentField && (
+                <div className="w-full border-t pt-5" data-testid="form-payment-area">
+                  <FormPaymentSubmit
+                    field={visiblePaymentField}
+                    formValues={formValues}
+                    buildPayload={buildSubmissionPayload}
+                    idempotencyKey={getIdempotencyKey()}
+                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
+                    disabledMessage={departmentCurrentSetBlocked || submitControl.message}
+                    busy={submitFormMutation.isPending}
+                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptPaymentAcceptance({
+                        submissionId, provider, status, paymentSucceeded,
+                      });
+                    }}
+                    onSetupComplete={(setup) => {
+                      rotateIdempotencyKey();
+                      paymentReturn.adoptCompletion(
+                        typeof setup === 'string'
+                          ? { submissionId: setup, provider: 'gocardless' }
+                          : setup,
+                      );
+                    }}
+                    onNormalSubmit={handleSubmit}
+                    submitLabel={form.submit_button_text}
+                    membershipQuote={membershipFeeQuote}
+                    continueHref={memberInfo ? '/Dashboard' : '/'}
+                    continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
+                    showFieldDescriptions
+                  />
+                </div>
+              )}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {/* Previous button (only show if we have pages and not on first page) */}
                 {hasPages && !isFirstPage ? (
@@ -3370,39 +3410,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 ) : null}
                 </div>
               </div>
-              {(isLastPage || !hasPages) && visiblePaymentField && (
-                <div className="w-full border-t pt-5" data-testid="form-payment-area">
-                  <FormPaymentSubmit
-                    field={visiblePaymentField}
-                    formValues={formValues}
-                    buildPayload={buildSubmissionPayload}
-                    idempotencyKey={getIdempotencyKey()}
-                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
-                    disabledMessage={departmentCurrentSetBlocked || submitControl.message}
-                    busy={submitFormMutation.isPending}
-                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
-                    onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
-                      rotateIdempotencyKey();
-                      paymentReturn.adoptPaymentAcceptance({
-                        submissionId, provider, status, paymentSucceeded,
-                      });
-                    }}
-                    onSetupComplete={(setup) => {
-                      rotateIdempotencyKey();
-                      paymentReturn.adoptCompletion(
-                        typeof setup === 'string'
-                          ? { submissionId: setup, provider: 'gocardless' }
-                          : setup,
-                      );
-                    }}
-                    onNormalSubmit={handleSubmit}
-                    submitLabel={form.submit_button_text}
-                    membershipQuote={membershipFeeQuote}
-                    continueHref={memberInfo ? '/Dashboard' : '/'}
-                    continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
-                  />
-                </div>
-              )}
             </div>
             {(isLastPage || !hasPages) && submitControl.disabled && submitControl.message && (
               <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">

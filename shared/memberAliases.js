@@ -42,6 +42,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'communicationsmanagement',
   'complexeventdetail',
   'cpdcertificatetemplates',
+  'cpdpoints',
   'content',
   'createcomplexevent',
   'createevent',
