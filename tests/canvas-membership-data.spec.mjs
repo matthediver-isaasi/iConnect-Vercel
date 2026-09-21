@@ -688,6 +688,43 @@ test("isolated viewer identities, guest, denied, errors and no-membership states
   }
 });
 
+test("isolated administrative recognition shows current membership with collections still held", async ({ page }, testInfo) => {
+  const fixture = await installFixtures(page, {
+    version: 2, viewer: "alpha",
+    summaryOverride: {
+      membership: {
+        state: "active", memberSince: null, membershipType: "Recognised Alpha membership",
+        renewalDate: "2027-10-01", paymentHistoryFrom: null,
+        recognition: { effectiveFrom: "2026-09-21", effectiveUntil: "2027-10-01" },
+      },
+      payment: {
+        state: "paused", method: "monthly_direct_debit", nextPayment: null,
+        amount: null, currency: "GBP", collectionStatus: "unscheduled",
+        plannedPayment: null, confirmedPayment: null, nextCollection: null, mandateStatus: "active",
+      },
+    },
+  });
+  // In addition to intercepting every API above, prevent all off-origin network
+  // traffic (including fonts/analytics/provider URLs) in this recognition proof.
+  const origin = new URL(testInfo.project.use.baseURL).origin;
+  await page.route("**/*", route => new URL(route.request().url()).origin === origin
+    ? route.fallback() : route.abort());
+  await openPublished(page, fixture);
+  const membership = page.getByTestId("canvas-membership-summary");
+  const payment = page.getByTestId("canvas-payment-details");
+  await expect(membership).toContainText("Active");
+  await expect(membership).toContainText("Your membership is active.");
+  await expect(membership).not.toContainText("Membership pending");
+  await expect(membership).not.toContainText("No current membership");
+  await expect(payment).toHaveAttribute("data-membership-state", "paused");
+  await expect(payment).toContainText("This arrangement is currently paused.");
+  await expect(payment).not.toContainText("Paid in full");
+  await expect(payment).not.toContainText("Confirmed payment");
+  expect(fixture.requests.filter(item => item.path === "/api/membership/canvas-summary")).toHaveLength(1);
+  expect(fixture.writes).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("alpha-recognition-collections-held.png"), fullPage: true });
+});
+
 test("isolated loading response is explicit and shared, then resolves both blocks", async ({ page }) => {
   const fixture = await installFixtures(page, { version: 2, viewer: "alpha", apiState: "loading" });
   await page.goto(`/${fixture.fixturePage.slug}`);

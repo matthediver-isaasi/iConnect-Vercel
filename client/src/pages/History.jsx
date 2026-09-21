@@ -1465,7 +1465,8 @@ export default function HistoryPage({ hasBanner }) {
           <div className="flex-1 min-w-0">
             <TransactionDateInline date={transactionDate} />
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h3 className="font-semibold text-slate-900">{presentation.heading}</h3>
+              <h3 className="font-semibold text-slate-900">{record.membershipRecognition ? 'Current membership' : presentation.heading}</h3>
+              {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
                 {membershipSourceLabel(membershipSource)}
               </Badge>
@@ -1477,6 +1478,12 @@ export default function HistoryPage({ hasBanner }) {
             </div>
             
             <div className="space-y-1">
+              {record.membershipRecognition && (
+                <p className="text-sm text-slate-600">
+                  Membership recognised from {record.membershipRecognition.effective_from}.
+                  Billing dates and payment status are unchanged; recognition does not release collections.
+                </p>
+              )}
               {presentation.schedule && (
                 <p className="text-sm text-slate-600">Schedule: {presentation.schedule}</p>
               )}

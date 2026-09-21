@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { attachAlphaMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
 import {
   getTenantContext,
@@ -298,6 +299,7 @@ export function createMemberHistoryHandler(dependencies = {}) {
         .sort(compareMembershipHistory);
       await enrichPrices(enriched, { db, tenantId });
 
+      await attachAlphaMembershipRecognition(db, tenantId, memberId, enriched);
       return res.json(enriched);
     } catch (error) {
       console.error('[member-history] Error fetching or enriching history:', error);

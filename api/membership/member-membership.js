@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import {
@@ -75,6 +76,7 @@ export function shapePersistedCommitment(record, now = new Date()) {
   }
   return {
     id: record.id,
+    membershipRecognition: currentMembershipRecognition(record, new Date(now).toISOString().slice(0, 10)),
     source: record.membership_source || 'personal',
     lifecycle,
     termKey: firstPresent(record.term_key, snapshot.term_key),
@@ -1094,6 +1096,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
   await enrichHistoryPrices(history, { db, tenantId });
+  await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
   const commitments = shapePersistedCommitments(history);
   const canEditSchedule = isAdmin && (!adminContext?.roleId || (
     await checkFeature(adminContext.roleId, 'commerce.gocardless-dd')

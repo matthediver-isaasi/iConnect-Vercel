@@ -14,3 +14,9 @@ Do not repurpose a saved Canvas field key for a different kind of value.
 **Why:** Preserving a custom membership-class label while replacing its value with money produces a misleading card even though default-copy tests pass.
 
 **How to apply:** Give new facts distinct configurable labels. Keep legacy custom labels paired with their original data, and upgrade only exact generated defaults. Include authored-label rendering checks, not only normalization checks.
+
+Explicit administrative recognition is a separate entitlement decision, not an inference from payment evidence.
+
+**Why:** On 21 September 2026 the user explicitly authorised current recognition for the exact 249 Alpha members while retaining every collection hold. Their agreed October billing term must not be moved or marked paid to achieve that recognition.
+
+**How to apply:** Preserve the separately audited, owner-bound recognition and its expiry/revocation. Show current membership independently of paused collections and unpaid future billing. Do not duplicate canonical histories, grant unrelated roles, invent a joining date, or treat recognition as provider-release approval. Do not claim portal rollout solely from a successful database operation.

@@ -14,3 +14,7 @@ Legacy dates are recoverable only from corroborated original agreement/payment/c
 **Why:** Historical rolling records can have several possible anniversaries, and silently picking one can produce an unintended charge or reminder.
 
 **How to apply:** Keep ambiguous records review-only, and recover trustworthy records atomically without changing provider schedules.
+
+An explicit administrative recognition decision can precede an agreed future billing commencement without amending that contract. The Alpha decision of 21 September 2026 authorises current membership only; the 1 October commencement, consent snapshots, renewal boundary and collection-release approval remain separate.
+
+When comparing reviewed PostgreSQL security catalogs across versions, PostgreSQL 17 adds an owner's implicit `MAINTAIN` privilege. Normalize only a proven owner self-entry, never client grants or grant options; reject all other security drift. The Alpha recognition apply initially rolled back on that version difference, so an absent table after failure is not evidence of missing source records. Verify state before retrying.

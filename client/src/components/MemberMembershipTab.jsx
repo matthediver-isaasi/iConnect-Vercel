@@ -1375,9 +1375,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
               <CalendarDays className="w-4 h-4" />
-              {commitment.lifecycle === 'scheduled' ? 'Scheduled Membership Commitment' : 'Current Membership Commitment'}
+              {commitment.membershipRecognition ? 'Current Membership' : commitment.lifecycle === 'scheduled' ? 'Scheduled Membership Commitment' : 'Current Membership Commitment'}
               <Badge variant={commitment.lifecycle === 'scheduled' ? 'outline' : 'secondary'}>
-                {commitment.lifecycle === 'scheduled' ? 'Scheduled' : 'Current'}
+                {commitment.membershipRecognition ? 'Current' : commitment.lifecycle === 'scheduled' ? 'Scheduled' : 'Current'}
               </Badge>
               <Badge variant="outline">
                 {commitment.source === 'organisation' ? 'Inherited from organisation' : 'Personal membership'}
@@ -1385,6 +1385,12 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {commitment.membershipRecognition && (
+              <p className="mb-3 text-sm" data-testid={`text-membership-recognition-${commitment.id}`}>
+                Membership recognised from {formatMembershipDate(commitment.membershipRecognition.effective_from)}.
+                Billing dates and payment status are unchanged. Membership recognition does not release collections.
+              </p>
+            )}
             {commitment.mandatePresentation && (
               <p className="mb-3 text-sm text-muted-foreground" data-testid={`text-commitment-mandate-${commitment.id}`}>
                 Existing Direct Debit mandate active.
@@ -1740,6 +1746,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                         <td className="p-3 text-right font-semibold">{pricing.gross.text}</td>
                         <td className="p-3">
                           <div className="flex items-center gap-1 flex-wrap">
+                            {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                               {record.mandatePresentation?.awaitingFirstPayment
                                 ? 'Awaiting first payment' : record.status || 'active'}

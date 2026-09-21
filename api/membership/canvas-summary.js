@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { shapePersistedCommitment } from './member-membership.js';
@@ -48,6 +49,7 @@ function dated(record, today) {
     else if (renewal || end) lifecycle = 'past';
   }
   if (lifecycle === 'current' && ['expired', 'cancelled', 'canceled'].includes(record.status)) lifecycle = 'past';
+  if (currentMembershipRecognition(record, today)) lifecycle = 'current';
   return { record, commitment, start, renewal: invalidOrder ? null : renewal, lifecycle, validCommencement: !invalidOrder };
 }
 
@@ -106,6 +108,7 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
   if (lifecycle === 'current') {
     if (paused || record.status === 'paused') membershipState = 'paused';
     else if (['expired', 'cancelled', 'canceled'].includes(record.status)) membershipState = 'expired';
+    else if (currentMembershipRecognition(record, today)) membershipState = 'active';
     else if (pending.has(record.status)) membershipState = 'pending';
     else if (['failed', 'activation_failed'].includes(record.status)) membershipState = 'failed';
     // Payment grace/overdue is not an access entitlement. Those statuses
@@ -115,6 +118,10 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
   }
   const membership = {
     state: membershipState,
+    ...(currentMembershipRecognition(record, today) ? {
+      recognition: { effectiveFrom: record.membershipRecognition.effective_from,
+        effectiveUntil: record.membershipRecognition.effective_until },
+    } : {}),
     // No current persisted writer records original membership commencement
     // provenance. A retained term start (including a cutover) is insufficient.
     memberSince: null,
@@ -413,6 +420,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const organisation = owner.organization_id
         ? await readHistory(db, tenantId, 'organization_id', owner.organization_id, 'organisation_membership_history', 'organisation') : [];
       const today = now().toISOString().slice(0, 10);
+      await attachAlphaMembershipRecognition(db, tenantId, member.id, personal, today);
       const selected = selectCanvasCommitment(personal, organisation, today);
       const plan = await matchingPlan(db, selected, tenantId, member.id);
       const [managed, historical] = await Promise.all([
