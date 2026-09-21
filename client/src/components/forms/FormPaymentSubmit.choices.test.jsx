@@ -25,7 +25,7 @@ const membershipQuote = {
 
 for (const end_policy of ['stop', 'continue']) {
   for (const pricing_policy of ['fixed', 'dynamic']) {
-    test(`mounted payment choice discloses ${end_policy}/${pricing_policy} before starting payment`, async () => {
+    test(`mounted payment choice summarizes ${end_policy}/${pricing_policy} before starting payment`, async () => {
       const fixture = await mount({
         membershipQuote: { ...membershipQuote, quote: { ...membershipQuote.quote,
           membership: { ...membershipQuote.quote.membership,
@@ -35,9 +35,15 @@ for (const end_policy of ['stop', 'continue']) {
       });
       try {
         const choice = fixture.container.querySelector('[data-testid="button-form-payment-gocardless-choice"]');
-        assert.match(choice.textContent, end_policy === 'stop' ? /Collections stop/ : /Collections continue/);
-        assert.match(choice.textContent, pricing_policy === 'dynamic' ? /No fixed term total/ : /Plan total for this term/);
-        if (pricing_policy === 'dynamic') assert.doesNotMatch(choice.textContent, /127.92/);
+        if (pricing_policy === 'dynamic') {
+          assert.equal(choice.textContent, 'Pay monthly by Direct DebitCurrent monthly price £10.66');
+          assert.doesNotMatch(choice.textContent, /variable|No fixed term total|First collection|Collections|127.92/);
+          assert.equal(choice.lastElementChild.children.length, 2);
+        } else {
+          assert.match(choice.textContent, end_policy === 'stop' ? /Collections stop/ : /Collections continue/);
+          assert.match(choice.textContent, /Plan total for this term £127.92/);
+          assert.match(choice.textContent, /First collection: As soon as the mandate permits/);
+        }
         assert.equal(fixture.calls.length, 0);
       } finally { await fixture.cleanup(); }
     });
@@ -82,6 +88,20 @@ async function mount(overrides = {}, paymentResponse) {
     },
   };
 }
+
+test('variable price uses the offer currency and amount', async () => {
+  const fixture = await mount({
+    membershipQuote: { ...membershipQuote, quote: { ...membershipQuote.quote,
+      membership: { ...membershipQuote.quote.membership, direct_debit: {
+        ...offer, monthlyAmount: 27.45, currency: 'EUR',
+        collection_policy: { end_policy: 'stop', pricing_policy: 'dynamic' },
+      } },
+    } },
+  });
+  try {
+    assert.equal(fixture.buttons()[2].textContent, 'Pay monthly by Direct DebitCurrent monthly price €27.45');
+  } finally { await fixture.cleanup(); }
+});
 
 test('initial choices are neutral action buttons with aligned quote text and no checkout', async () => {
   const fixture = await mount();
@@ -177,6 +197,11 @@ for (const [index, method] of ['monthly card', 'full card', 'Direct Debit'].entr
     const response = deferred();
     let validations = 0;
     const fixture = await mount({
+      membershipQuote: { ...membershipQuote, quote: { ...membershipQuote.quote,
+        membership: { ...membershipQuote.quote.membership, direct_debit: {
+          ...offer, collectionPolicy: { end_policy: 'continue', pricing_policy: 'dynamic' },
+        } },
+      } },
       buildPayload: () => { validations++; return validation.promise; },
     }, () => response.promise);
     try {

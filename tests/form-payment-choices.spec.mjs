@@ -274,6 +274,39 @@ async function assertNoOverflow(scope, viewportWidth) {
   return geometry;
 }
 
+for (const surface of ["hosted", "embedded"]) {
+  for (const width of [1440, 375]) {
+    test(`concise variable Direct Debit on ${surface} at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1000 });
+      const quote = quoteFixture({ currency: "GBP", monthlyAmount: 13 });
+      quote.membership.direct_debit.collectionPolicy = { version: 1, end_policy: "continue", pricing_policy: "dynamic" };
+      const state = await installFixtures(page, { quote });
+      const scope = surface === "embedded"
+        ? await openEmbedded(page, testInfo, width === 375 ? 335 : 1000)
+        : (await openHosted(page), page);
+      const choice = scope.getByTestId(`button-form-payment-gocardless-${FIELD_ID}`);
+      await expect(choice).toHaveText("Pay monthly by Direct DebitCurrent monthly price £13.00");
+      await expect(scope.getByTestId(`button-form-payment-monthly-card-${FIELD_ID}`)).toContainText("Plan total £246.00");
+      await expect(scope.getByTestId(`button-form-payment-stripe-${FIELD_ID}`)).toContainText("£246.00");
+      const geometry = await assertNoOverflow(scope, width);
+      expect(geometry.cards).toHaveLength(3);
+      // Only the shared card minimum remains, not the removed policy paragraph's height.
+      for (const card of geometry.cards) expect(card.height).toBeLessThan(180);
+      if (width === 375) {
+        for (let i = 1; i < 3; i++) expect(geometry.cards[i].y).toBeGreaterThan(geometry.cards[i - 1].bottom);
+      } else {
+        expect(new Set(geometry.cards.map(card => card.y)).size).toBe(1);
+      }
+      await scope.getByTestId(`form-payment-provider-choices-${FIELD_ID}`).screenshot({ path: testInfo.outputPath("concise-dd.png") });
+      await choice.click();
+      // Required form validation still prevents checkout.
+      expect(state.createCalls).toEqual([]);
+      expect(state.unexpectedWrites).toEqual([]);
+      expect(state.runtimeErrors).toEqual([]);
+    });
+  }
+}
+
 test("hosted three-choice presentation uses one equal neutral row at desktop width", async ({ page }, testInfo) => {
   const state = await installFixtures(page);
   await openHosted(page);
@@ -501,7 +534,7 @@ test("pending create disables every choice and a create error restores clickable
   await expect.poll(() => pending.createCalls.length).toBe(1);
   const choices = page.getByTestId(`form-payment-provider-choices-${FIELD_ID}`);
   await expect(choices.locator("button:disabled")).toHaveCount(3);
-  await expect(choices.locator(".animate-spin")).toHaveCount(3);
+  await expect(choices.locator(".animate-spin")).toHaveCount(1);
   pending.releaseCreate();
 
   const errorPage = await page.context().newPage();

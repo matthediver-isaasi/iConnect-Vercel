@@ -722,15 +722,17 @@ export default function FormPaymentSubmit({
                           <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">
                             {directDebitHasFixedTermTotal(directDebitOffer)
                               ? <>{formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount} instalments</>
-                              : <>Current monthly price {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} — variable</>}
+                              : <>Current monthly price {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)}</>}
                           </span>
-                          <span className="mt-1.5 block text-xs font-semibold leading-relaxed break-words">
-                            {directDebitHasFixedTermTotal(directDebitOffer)
-                              ? <>Plan total for this term {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)}</>
-                              : 'No fixed term total'}
-                          </span>
-                          <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">First collection: {directDebitFirstCollectionText(directDebitOffer)}</span>
-                          <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{directDebitPolicyText(directDebitOffer)}</span>
+                          {directDebitHasFixedTermTotal(directDebitOffer) && (
+                            <>
+                              <span className="mt-1.5 block text-xs font-semibold leading-relaxed break-words">
+                                Plan total for this term {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)}
+                              </span>
+                              <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">First collection: {directDebitFirstCollectionText(directDebitOffer)}</span>
+                              <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{directDebitPolicyText(directDebitOffer)}</span>
+                            </>
+                          )}
                         </>
                       ) : (
                         <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">Set up a secure bank instruction</span>
