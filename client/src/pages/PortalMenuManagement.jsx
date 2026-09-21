@@ -66,6 +66,7 @@ const PAGE_DEFAULT_FEATURES = {
   EventBudgetReport: "events.event-budget-report",
   OrganisationGroups: "crm.organisation-groups",
   CPDCertificateTemplates: "cpd.certificate-templates",
+  CpdPoints: "cpd.member_cpd",
 };
 
 const builtInPages = [
@@ -155,6 +156,7 @@ const builtInPages = [
   { value: "MemberRoleReport", label: "Member Role Report" },
   { value: "members", label: "Members (CRM)" },
   { value: "MyBookings", label: "My Bookings" },
+  { value: "CpdPoints", route: "cpdpoints", label: "My CPD Points" },
   { value: "MyJobPostings", label: "My Job Postings" },
   { value: "MyOrganisation", label: "My Organisation" },
   { value: "MyTickets", label: "My Tickets" },
@@ -608,6 +610,7 @@ export default function PortalMenuManagementPage() {
               size="sm"
               onClick={() => handleEdit(item)}
               className="h-8 w-8 p-0"
+              aria-label={`Edit ${item.title}`}
             >
               <Pencil className="w-4 h-4" />
             </Button>
@@ -772,9 +775,14 @@ export default function PortalMenuManagementPage() {
                   <div className="space-y-2">
                     <Label>Page</Label>
                     <Select
-                      value={editingItem.url || "_none"}
+                      value={
+                        availablePages.find(page => (page.route || page.value) === editingItem.url)?.value
+                        || editingItem.url
+                        || "_none"
+                      }
                       onValueChange={(value) => {
-                        const url = value === "_none" ? "" : value;
+                        const page = availablePages.find(option => option.value === value);
+                        const url = value === "_none" ? "" : (page?.route || value);
                         const next = { ...editingItem, url };
                         const selectedDestination = customObjectDestinations.find(page => page.value === url);
                         if (selectedDestination) {
@@ -783,13 +791,13 @@ export default function PortalMenuManagementPage() {
                           next.feature_id = selectedDestination.featureId;
                         }
                         // Pre-associate the matching RBAC permission when the page has one.
-                        else if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
-                          next.feature_id = PAGE_DEFAULT_FEATURES[url];
+                        else if ((value === "CpdPoints" || !editingItem.feature_id) && PAGE_DEFAULT_FEATURES[value]) {
+                          next.feature_id = PAGE_DEFAULT_FEATURES[value];
                         }
                         setEditingItem(next);
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="button-portal-page-select">
                         <SelectValue placeholder="No Page (Parent Menu)" />
                       </SelectTrigger>
                       <SelectContent className="max-h-[400px]">

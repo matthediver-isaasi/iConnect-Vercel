@@ -140,9 +140,9 @@ const navigationItems = [
   },
   {
     title: "My CPD points",
-    url: createPageUrl("CpdPoints"),
+    url: "/cpdpoints",
     icon: Trophy,
-    featureId: "page_CpdPoints"
+    featureId: "cpd.member_cpd"
   },
   {
     title: "CPD Certificate Templates",
@@ -1612,7 +1612,7 @@ useEffect(() => {
     'MyTickets': 'page_user_MyTickets',
     'Balances': 'page_user_Balances',
     'History': 'page_user_History',
-    'CpdPoints': 'page_user_CpdPoints',
+    'CpdPoints': 'cpd.member_cpd',
     'Team': 'page_user_Team',
     'MemberDirectory': 'page_user_MemberDirectory',
     'OrganisationDirectory': 'page_user_OrganisationDirectory',
@@ -2222,6 +2222,12 @@ useEffect(() => {
         : null;
       if (customObjectId) {
         return getCustomObjectPortalRoleAccessId(customObjectId);
+      }
+      // CPD points has a canonical permission. Apply it to legacy and newly
+      // saved menu records even when they still contain an old page_* ID.
+      const normalizedUrl = String(item.url || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+      if (item.link_type !== 'external' && normalizedUrl === 'cpdpoints') {
+        return 'cpd.member_cpd';
       }
       // If feature_id is already set, use it
       if (item.feature_id) {

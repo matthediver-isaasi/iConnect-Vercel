@@ -644,6 +644,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Award",
     pages: [
       {
+        id: "cpd.member_cpd",
+        label: "Member CPD"
+      },
+      {
         id: "cpd.certificate-templates",
         label: "Certificate Templates"
       },
@@ -1206,6 +1210,9 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_EventBudgetReport": "events.event-budget-report",
   "page_admin_EventBudgetReport": "events.event-budget-report",
+  "page_CpdPoints": "cpd.member_cpd",
+  "page_user_CpdPoints": "cpd.member_cpd",
+  "page_admin_CpdPoints": "cpd.member_cpd",
   "page_CPDCertificateTemplates": "cpd.certificate-templates",
   "page_user_CPDCertificateTemplates": "cpd.certificate-templates",
   "page_admin_CPDCertificateTemplates": "cpd.certificate-templates",

@@ -30,6 +30,9 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_user_Preferences: "user.about-me",
   page_user_MyJobPostings: "jobs.my-postings",
   page_user_NMCJournal: "content.nmc-journal",
+  page_CpdPoints: "cpd.member_cpd",
+  page_user_CpdPoints: "cpd.member_cpd",
+  page_admin_CpdPoints: "cpd.member_cpd",
   // page_admin_* family
   page_admin_RoleManagement: "admin.role-management",
   page_admin_DiscountCodeManagement: "events.discount-codes",
@@ -93,6 +96,19 @@ test("snapshot: every expected canonical key exists in ROLE_ACCESS_MAP", () => {
       `Snapshot for "${legacyId}" points at "${expected}", which is not a real resource in ROLE_ACCESS_MAP`,
     );
   }
+});
+
+test("Member CPD is a CPD page and honors canonical, parent and legacy exclusions", () => {
+  assert.deepEqual(
+    ROLE_ACCESS_MAP.find(module => module.id === "cpd")?.pages.find(page => page.id === "cpd.member_cpd"),
+    { id: "cpd.member_cpd", label: "Member CPD" },
+  );
+  assert.equal(isResourceVisible([], "cpd.member_cpd"), true);
+  for (const excluded of ["cpd", "cpd.member_cpd", "page_CpdPoints", "page_user_CpdPoints", "page_admin_CpdPoints"]) {
+    assert.equal(isResourceExcluded([excluded], "cpd.member_cpd"), true);
+  }
+  assert.equal(isResourceExcluded(["cpd.member_cpd"], "cpd.points-corrections"), false);
+  assert.equal(isResourceExcluded(["cpd.points-corrections"], "cpd.member_cpd"), false);
 });
 
 test("CPD certificate templates are a dedicated main portal capability", () => {

@@ -19,13 +19,19 @@ import { supabase as defaultSupabase } from './database.js';
  * @param {string|null} args.roleId                 member's role_id
  * @param {string[]}    args.memberExcludedFeatures member-level exclusions
  * @param {object}      [client]                    supabase client (defaults to server)
+ * @param {object}      [options]
+ * @param {boolean}     [options.requireRole=false] fail if roleId is absent or unresolved
  * @returns {Promise<string[]>} combined exclusion keys
  */
 export async function resolveMemberExclusions(
   { roleId, memberExcludedFeatures = [] } = {},
-  client = defaultSupabase
+  client = defaultSupabase,
+  { requireRole = false } = {},
 ) {
   let roleExclusions = [];
+  if (requireRole && !roleId) {
+    throw new Error('Cannot resolve role exclusions: member has no role');
+  }
   if (roleId) {
     if (!client) {
       throw new Error('Cannot resolve role exclusions: no database client');
@@ -35,11 +41,13 @@ export async function resolveMemberExclusions(
       .select('excluded_features')
       .eq('id', roleId)
       .single();
-    // Fail closed on lookup error (but tolerate a missing role row: a member
-    // with a dangling role_id is treated as having no role exclusions, matching
-    // the client which resolves an absent role to an empty list).
-    if (error && error.code !== 'PGRST116') {
+    // Existing callers tolerate a dangling role for backwards compatibility;
+    // security boundaries can opt into strict role readiness.
+    if (error && (requireRole || error.code !== 'PGRST116')) {
       throw new Error(`Failed to load role exclusions: ${error.message}`);
+    }
+    if (requireRole && !data) {
+      throw new Error('Failed to load role exclusions: role not found');
     }
     if (data && Array.isArray(data.excluded_features)) {
       roleExclusions = data.excluded_features;

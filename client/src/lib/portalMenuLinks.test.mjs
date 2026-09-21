@@ -297,6 +297,22 @@ test('gallery directory is available as a built-in portal destination', () => {
   assert.equal(createPageUrl('GalleryDirectory'), '/GalleryDirectory');
 });
 
+test('My CPD Points uses the registered page name with a lowercase portal route', () => {
+  const portalManagement = readFileSync(path.join(here, '../pages/PortalMenuManagement.jsx'), 'utf8');
+  const layout = readFileSync(path.join(here, '../pages/Layout.jsx'), 'utf8');
+  const pageRegistry = readFileSync(path.join(here, '../pages/index.jsx'), 'utf8');
+
+  assert.match(
+    portalManagement,
+    /\{\s*value:\s*"CpdPoints",\s*route:\s*"cpdpoints",\s*label:\s*"My CPD Points"\s*\}/,
+  );
+  assert.match(portalManagement, /CpdPoints:\s*"cpd\.member_cpd"/);
+  assert.match(layout, /title:\s*"My CPD points",[\s\S]*?url:\s*"\/cpdpoints",[\s\S]*?featureId:\s*"cpd\.member_cpd"/);
+  assert.match(layout, /'CpdPoints':\s*'cpd\.member_cpd'/);
+  assert.match(layout, /normalizedUrl === 'cpdpoints'[\s\S]*?return 'cpd\.member_cpd'/);
+  assert.match(pageRegistry, /<Route path="\/cpdpoints" element=\{<CpdPoints \/>\} \/>/);
+});
+
 test('gallery directory is registered and classified as a hybrid route', () => {
   const pageRegistry = readFileSync(path.join(here, '../pages/index.jsx'), 'utf8');
   const layout = readFileSync(path.join(here, '../pages/Layout.jsx'), 'utf8');

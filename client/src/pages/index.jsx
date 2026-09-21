@@ -985,6 +985,7 @@ function PagesContent() {
                 <Route path="/Balances" element={<Balances />} />
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
+                <Route path="/cpdpoints" element={<CpdPoints />} />
                 <Route path="/CpdPoints" element={<CpdPoints />} />
                 <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
                 <Route path="/sales/dashboard" element={<Sales destination="dashboard" />} />
