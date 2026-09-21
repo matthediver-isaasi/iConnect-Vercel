@@ -198,7 +198,7 @@ function baseAllowedValues(field) {
   if (!configured) return null;
   if (
     configured.length === 0
-    && (field?.type === 'organisation_dropdown' || field?.type === 'relationship_dropdown')
+    && ['organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'].includes(field?.type)
   ) {
     return null;
   }

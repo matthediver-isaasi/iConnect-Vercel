@@ -609,7 +609,9 @@ export function createFormRelationshipService({ db, tenantId }) {
     }
     for (const field of fields.filter(x => x?.type === 'relationship_dropdown')) {
       const selected = fieldValue(submissionData, field);
-      if (selected == null) continue;
+      // Hidden/default-initialized controls can retain '' until first edited.
+      // It is an empty answer in either mode, not a scalar record selection.
+      if (selected == null || selected === '') continue;
       const mode = relationshipSelectionMode(field);
       if ((mode === RELATIONSHIP_SELECTION_MULTIPLE && !Array.isArray(selected))
           || (mode === RELATIONSHIP_SELECTION_SINGLE && Array.isArray(selected))) {
