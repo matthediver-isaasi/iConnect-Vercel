@@ -65,6 +65,10 @@ const PLAN_STATUS_FILTERS = [
   "restricted", "mandate_pending", "completed", "cancelled",
 ];
 const PLAN_PAGE_SIZE = 50;
+const planStatusLabel = (status) => status === "current" ? "Current membership plans"
+  : status === "membership_unverified" ? "Membership status unverified"
+  : status === "first_payment_pending" ? "Awaiting first payment"
+  : String(status).replace(/_/g, " ");
 
 const RECON_BUCKETS = [
   { key: "all", label: "All payments" },
@@ -837,6 +841,13 @@ export default function DirectDebitAdmin() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [tab, setTab] = useState("plans");
+  const showPlans = (status) => {
+    setStatusFilter(status);
+    setSearch("");
+    setPage(1);
+    setTab("plans");
+  };
   const queryClient = useQueryClient();
 
   const blocked = isAccessReady && isFeatureExcluded(FEATURE_ID);
@@ -881,6 +892,9 @@ export default function DirectDebitAdmin() {
   const firstPlanNumber = plansTotal ? ((plansPage - 1) * plansPageSize) + 1 : 0;
   const lastPlanNumber = plansTotal ? Math.min((plansPage - 1) * plansPageSize + plans.length, plansTotal) : 0;
   const byStatus = summary?.byStatus || {};
+  const displayStatuses = [...new Set(["current", "membership_unverified", ...Object.keys(summary?.byDisplayStatus || {})])];
+  const statusOptions = [...new Set([...PLAN_STATUS_FILTERS, ...displayStatuses])];
+  const filtered = statusFilter !== "all" || !!search.trim();
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -904,35 +918,52 @@ export default function DirectDebitAdmin() {
               </div>
             ) : (
               <>
-                <Card><CardContent className="pt-4">
-                  <p className="text-2xl font-semibold" data-testid="stat-active">{summary?.currentPlans || 0}</p>
-                  <p className="text-xs text-muted-foreground">Current membership plans</p>
-                </CardContent></Card>
+                <section className="col-span-full space-y-3" aria-labelledby="plan-totals-title">
+                  <h2 id="plan-totals-title" className="font-semibold">Membership plan totals</h2>
+                  <p className="text-sm text-muted-foreground">All eligible plans, not unique members. Each plan appears in exactly one membership display status below.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Button variant="outline" className="h-auto flex-col items-start whitespace-normal p-4" onClick={() => showPlans("all")} data-testid="button-total-plans">
+                      <span className="text-2xl font-semibold" data-testid="stat-total-plans">{summary?.totalPlans}</span>
+                      <span>Total plans</span>
+                    </Button>
+                    {displayStatuses.map(status => (
+                      <Button key={status} variant="outline" className="h-auto flex-col items-start whitespace-normal p-4"
+                        onClick={() => showPlans(status)} data-testid={`button-plan-status-${status}`}>
+                        <span className="text-2xl font-semibold" data-testid={status === "current" ? "stat-active" : `stat-display-${status}`}>{summary?.byDisplayStatus?.[status] || 0}</span>
+                        <span>{planStatusLabel(status)}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+                <div className="col-span-full space-y-1 pt-3">
+                  <h2 className="font-semibold">Operational exceptions</h2>
+                  <p className="text-sm text-muted-foreground">These counts overlap and include plans, cancellation requests and payments. They do not add up to Total plans.</p>
+                </div>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-arrears">{(byStatus.payment_grace_period || 0) + (byStatus.payment_overdue || 0)}</p>
-                  <p className="text-xs text-muted-foreground">In arrears</p>
+                  <p className="text-xs text-muted-foreground">Plans in arrears</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-pending-activations">{summary?.pendingActivations || 0}</p>
-                  <p className="text-xs text-muted-foreground">Awaiting activation</p>
+                  <p className="text-xs text-muted-foreground">Plans awaiting activation</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-cancellations">{summary?.pendingCancellations || 0}</p>
-                  <p className="text-xs text-muted-foreground">Pending cancellations</p>
+                  <p className="text-xs text-muted-foreground">Pending cancellation requests</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-accounting">{summary?.failedAccounting || 0}</p>
-                  <p className="text-xs text-muted-foreground">Accounting failures</p>
+                  <p className="text-xs text-muted-foreground">Payments with accounting failures</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-chargebacks">{summary?.chargebacksAfterPayout || 0}</p>
-                  <p className="text-xs text-muted-foreground">Chargebacks after payout</p>
+                  <p className="text-xs text-muted-foreground">Payments charged back after payout</p>
                 </CardContent></Card>
               </>
             )}
           </div>
 
-          <Tabs defaultValue="plans">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="plans" data-testid="tab-plans">Plans{!plansLoading && !plansError ? ` (${plansTotal})` : ""}</TabsTrigger>
               <TabsTrigger value="requests" data-testid="tab-requests">Cancellation requests{summary?.pendingCancellations ? ` (${summary.pendingCancellations})` : ""}</TabsTrigger>
@@ -951,7 +982,7 @@ export default function DirectDebitAdmin() {
                 <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
                   <SelectTrigger className="w-56" data-testid="select-plan-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {PLAN_STATUS_FILTERS.map((s) => (
+                    {statusOptions.map((s) => (
                       <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s === "current" ? "Current" : s === "membership_unverified" ? "Membership status unverified" : s === "first_payment_pending" ? "Awaiting first payment" : s.replace(/_/g, " ")}</SelectItem>
                     ))}
                   </SelectContent>
@@ -960,10 +991,16 @@ export default function DirectDebitAdmin() {
               <p className="text-xs text-muted-foreground" data-testid="text-plan-scope">
                 This list contains adopted Direct Debit plans linked to membership billing. Mandates found by discovery alone remain in GoCardless integration discovery and are not plans until they are adopted.
               </p>
+              <p className="text-xs text-muted-foreground" data-testid="text-plan-filter-scope">
+                {filtered ? "Filtered results: counts below match the selected status and search; headline totals cover all eligible plans." : "All plans: no status or search filters applied."}
+              </p>
               {plansLoading ? <Skeleton className="h-40 w-full" data-testid="loading-plans" /> : plansError ? (
                 <QueryError error={plansQueryError} message="Direct Debit plans could not be loaded." />
               ) : plans.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-6" data-testid="text-no-plans">No Direct Debit plans match.</p>
+                <div>
+                  <p className="text-sm text-muted-foreground" data-testid="text-plan-count">Showing 0 of {plansTotal} plans</p>
+                  <p className="text-sm text-muted-foreground py-6" data-testid="text-no-plans">No Direct Debit plans match.</p>
+                </div>
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground" data-testid="text-plan-count">

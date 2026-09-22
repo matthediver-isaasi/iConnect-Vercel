@@ -201,6 +201,132 @@ test('Current and pending-activation summary/filter parity with duplicates, pres
   }
 });
 
+test('summary and exact display filters reconcile 249 current plus 11 unverified eligible plans', async () => {
+  const data = {
+    member: [],
+    membership_billing_agreements: [],
+    membership_payment_plans: [],
+    member_membership_history: [],
+    bnms_dd_beta_adoption: [],
+  };
+  const now = new Date().toISOString().slice(0, 10);
+  const end = `${Number(now.slice(0, 4)) + 1}-12-31`;
+  for (let n = 0; n < 259; n++) {
+    const imported = n >= 248;
+    const memberId = imported ? `import-member-${n}` : `current-member-${Math.min(n, 247)}`;
+    const agreementId = `agreement-${n}`;
+    const planId = `plan-${String(n).padStart(3, '0')}`;
+    const historyId = `history-${n}`;
+    if (!data.member.some(m => m.id === memberId)) {
+      data.member.push({ id: memberId, tenant_id: tenant, email: `${memberId}@fixture.invalid` });
+    }
+    data.membership_billing_agreements.push({
+      id: agreementId, tenant_id: tenant, member_id: memberId, provider: 'gocardless',
+    });
+    data.membership_payment_plans.push({
+      id: planId, tenant_id: tenant, member_id: memberId, billing_agreement_id: agreementId,
+      provider: 'gocardless', status: imported ? 'first_payment_pending' : 'active',
+      updated_at: `2026-01-${String((n % 28) + 1).padStart(2, '0')}`,
+      collection_stopped_at: imported ? now : null,
+    });
+    data.member_membership_history.push({
+      id: historyId, tenant_id: tenant, member_id: memberId, billing_agreement_id: agreementId,
+      status: imported ? 'pending_activation' : 'active',
+      term_start_date: now, term_end_date: end,
+    });
+    if (imported) {
+      data.bnms_dd_beta_adoption.push({
+        id: `adoption-${n}`, tenant_id: tenant, member_id: memberId,
+        agreement_id: agreementId, plan_id: planId, history_id: historyId,
+      });
+    }
+  }
+  // A second plan for one current member proves totals count plans, not people.
+  data.membership_billing_agreements.push({
+    id: 'agreement-duplicate', tenant_id: tenant, member_id: 'current-member-0', provider: 'gocardless',
+  });
+  data.membership_payment_plans.push({
+    id: 'plan-duplicate', tenant_id: tenant, member_id: 'current-member-0',
+    billing_agreement_id: 'agreement-duplicate', provider: 'gocardless', status: 'mandate_pending',
+    updated_at: '2026-02-01',
+  });
+  data.member_membership_history.push({
+    id: 'history-duplicate', tenant_id: tenant, member_id: 'current-member-0',
+    billing_agreement_id: 'agreement-duplicate', status: 'active',
+    term_start_date: now, term_end_date: end,
+  });
+  // Ineligible rows must not inflate the total or any display bucket.
+  data.member.push({ id: 'deleted', tenant_id: tenant, email: 'deleted_fixture@deleted.local' });
+  data.membership_billing_agreements.push({
+    id: 'agreement-deleted', tenant_id: tenant, member_id: 'deleted', provider: 'gocardless',
+  });
+  data.membership_payment_plans.push({
+    id: 'plan-deleted', tenant_id: tenant, member_id: 'deleted',
+    billing_agreement_id: 'agreement-deleted', provider: 'gocardless', status: 'active',
+  });
+  data.member.push({ id: 'stripe-member', tenant_id: tenant, email: 'stripe@fixture.invalid' });
+  data.membership_billing_agreements.push({
+    id: 'agreement-stripe', tenant_id: tenant, member_id: 'stripe-member', provider: 'stripe',
+  });
+  data.membership_payment_plans.push({
+    id: 'plan-stripe', tenant_id: tenant, member_id: 'stripe-member',
+    billing_agreement_id: 'agreement-stripe', provider: 'stripe', status: 'active',
+  });
+
+  const before = structuredClone(data);
+  const db = database(data);
+  const summary = await buildSummary(tenant, { db });
+  assert.equal(summary.totalPlans, 260);
+  assert.equal(summary.byDisplayStatus.current, 249);
+  assert.equal(summary.byDisplayStatus.membership_unverified, 11);
+  assert.equal(Object.values(summary.byDisplayStatus).reduce((sum, count) => sum + count, 0), summary.totalPlans);
+
+  const current = await listPlans(tenant, { displayStatus: 'current', page: 2, pageSize: 100 }, db);
+  assert.equal(current.total, 249);
+  assert.equal(current.plans.length, 100);
+  assert.equal(current.hasMore, true);
+  const unverified = await listPlans(tenant, {
+    displayStatus: 'membership_unverified', q: 'import-member', pageSize: 20,
+  }, db);
+  assert.equal(unverified.total, 11);
+  assert.equal(unverified.hasMore, false);
+  assert.ok(unverified.plans.every(p => p.collectionPresentation.held));
+  assert.deepEqual(data, before, 'summary, filtering, search and paging remain read-only');
+});
+
+test('displayStatus is exact while legacy pending_activation status retains activation-flag compatibility', async () => {
+  const data = tables();
+  data.member_membership_history[0].status = 'pending_activation';
+  data.membership_payment_plans[0].status = 'active';
+  data.membership_payment_plans.push({
+    ...data.membership_payment_plans[0],
+    id: 'literal-pending',
+    status: 'pending_activation',
+    member_id: 'literal-member',
+    billing_agreement_id: 'literal-agreement',
+  });
+  data.membership_billing_agreements.push({
+    id: 'literal-agreement', tenant_id: tenant, member_id: 'literal-member', provider: 'gocardless',
+  });
+  data.member.push({ id: 'literal-member', tenant_id: tenant, email: 'literal@fixture.invalid' });
+
+  const db = database(data);
+  const exact = await listPlans(tenant, { displayStatus: 'pending_activation' }, db);
+  assert.equal(exact.total, 1);
+  assert.equal(exact.plans[0].id, 'literal-pending');
+  assert.equal(exact.plans[0].activation_pending, false);
+
+  const legacy = await listPlans(tenant, { status: 'pending_activation' }, db);
+  assert.equal(legacy.total, 1);
+  assert.equal(legacy.plans[0].id, 'plan');
+  assert.equal(legacy.plans[0].membershipPresentation.displayStatus, 'active');
+
+  for (const status of ['active', 'first_payment_pending', 'mandate_pending']) {
+    const result = await listPlans(tenant, { displayStatus: status }, db);
+    assert.ok(result.plans.every(row => row.membershipPresentation.displayStatus === status));
+  }
+});
+
 test('canonical adoption ownership mismatches, ambiguous evidence and read errors fail explicitly', async () => {
   const adoption = { id: 'a', tenant_id: tenant, member_id: 'member', agreement_id: 'agreement', plan_id: 'plan', history_id: 'history' };
   for (const patch of [{ member_id: 'other' }, { agreement_id: 'other' }, { history_id: 'missing' }]) {

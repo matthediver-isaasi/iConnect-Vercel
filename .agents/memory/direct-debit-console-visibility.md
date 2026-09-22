@@ -14,3 +14,9 @@ Historic members must not be presented as new joiners awaiting their first payme
 **Why:** The user explicitly distinguishes current membership from local collection progress. Historical payments alone do not prove current entitlement, and import provenance does not authorize collections.
 
 **How to apply:** Show Current only from authoritative dated entitlement or approved recognition, with collection holds separate. Canonical imports lacking current evidence need an unverified-membership label, not a new-joiner label. Keep summary, filters and detail consistent without rewriting financial statuses.
+
+Membership-display totals partition eligible plans, not people; operational exceptions are not a partition.
+
+**Why:** One member may own several plans, activation flags can overlap other display statuses, and accounting/cancellation counts represent different entities. Combining these counts misleadingly suggests missing plans.
+
+**How to apply:** Keep exact display-status drill-downs distinct from legacy financial/activation filters, and clear search and pagination when selecting a global count.

@@ -15,6 +15,18 @@ test('Direct Debit plans use the paginated API contract and reset pagination for
   assert.match(source, /setStatusFilter\(value\); setPage\(1\)/);
 });
 
+test('headline totals are exhaustive plan statuses with drill-down controls and explicit scope', () => {
+  assert.match(source, /summary\?\.totalPlans/);
+  assert.match(source, /summary\?\.byDisplayStatus/);
+  assert.match(source, /data-testid="button-total-plans"/);
+  assert.match(source, /button-plan-status-\$\{status\}/);
+  assert.match(source, /setStatusFilter\(status\);[\s\S]*setSearch\(""\);[\s\S]*setPage\(1\);[\s\S]*setTab\("plans"\)/);
+  assert.match(source, /Each plan appears in exactly one membership display status below/);
+  assert.match(source, /These counts overlap[\s\S]*They do not add up to Total plans/);
+  assert.match(source, /Filtered results: counts below match the selected status and search/);
+  assert.match(source, /All plans: no status or search filters applied/);
+});
+
 test('Direct Debit plan UI includes first-payment plans and preserves held mandate context', () => {
   assert.match(source, /"first_payment_pending"/);
   assert.match(source, /mandatePresentation\?\.awaitingFirstPayment \? "first_payment_pending"/);

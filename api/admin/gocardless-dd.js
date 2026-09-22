@@ -244,6 +244,7 @@ export async function buildSummary(tenantId, { db: supabase = consoleDatabase } 
   return {
     byStatus,
     byDisplayStatus,
+    totalPlans: plans.length,
     currentMembers: byDisplayStatus.current || 0,
     currentPlans: byDisplayStatus.current || 0,
     attention,
@@ -311,8 +312,7 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
   // Legacy status remains the raw financial filter. The console explicitly
   // opts into presentation filtering; both filters run before pagination.
   if (query.displayStatus && query.displayStatus !== 'all') {
-    rows = rows.filter(r => query.displayStatus === 'pending_activation'
-      ? r.activation_pending : r.membershipPresentation.displayStatus === query.displayStatus);
+    rows = rows.filter(r => r.membershipPresentation.displayStatus === query.displayStatus);
   }
   const qText = (query.q || '').toLowerCase().trim();
   if (qText) {

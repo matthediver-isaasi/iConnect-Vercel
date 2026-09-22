@@ -59,7 +59,24 @@ async function installFixture(page, current = false) {
     const url = new URL(route.request().url());
     return url.origin === "http://127.0.0.1:5000" ? route.continue() : route.abort("blockedbyclient");
   });
-  const rows = PLANS.map(row => row.id === OLDER.id && current
+  const totalsFixture = current === "totals";
+  const summaryFailure = current === "summary-error";
+  const rows = totalsFixture
+    ? Array.from({ length: 260 }, (_, index) => {
+      const isCurrent = index < 249;
+      return plan(index + 1, {
+        membershipPresentation: {
+          current: isCurrent,
+          displayStatus: isCurrent ? "current" : "membership_unverified",
+          historicalImport: isCurrent ? null : {
+            source: "bnms_dd_beta_adoption",
+            adoptionId: `fixture-adoption-${index + 1}`,
+            historyId: `fixture-history-${index + 1}`,
+          },
+        },
+      });
+    })
+    : PLANS.map(row => row.id === OLDER.id && current
     ? { ...row, membershipPresentation: { current: current === true, displayStatus: current === true ? "current" : "membership_unverified",
       historicalImport: { source: current === true ? "bnms_dd_alpha_adoption" : "bnms_dd_beta_adoption", adoptionId: "fixture-adoption", historyId: "fixture-history" },
       evidence: { source: "administrative_recognition", effectiveFrom: "2026-09-21", effectiveUntil: "2027-10-01" } } }
@@ -112,9 +129,17 @@ async function installFixture(page, current = false) {
     if (path === "/api/admin/gocardless-dd") {
       const view = url.searchParams.get("view");
       if (view === "summary") {
+        if (summaryFailure) return json(route, { error: "Fixture totals lookup failed" }, 503);
+        const byDisplayStatus = rows.reduce((counts, row) => {
+          const displayStatus = row.membershipPresentation?.displayStatus || row.status;
+          counts[displayStatus] = (counts[displayStatus] || 0) + 1;
+          return counts;
+        }, {});
         return json(route, {
-          byStatus: { active: 100, first_payment_pending: 1 },
-          currentPlans: current === true ? 1 : 0,
+          totalPlans: rows.length,
+          byStatus: totalsFixture ? { active: 257, payment_overdue: 3 } : { active: 100, first_payment_pending: 1 },
+          byDisplayStatus,
+          currentPlans: byDisplayStatus.current || 0,
           attention: [],
           pendingActivations: 0,
           pendingCancellations: 0,
@@ -269,5 +294,65 @@ test("a failed filtered lookup shows an explicit error rather than a false empty
 
   expect(state.writes).toEqual([]);
   expect(state.mockedSessionWrites.length).toBeLessThanOrEqual(1);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("260-plan headline reconciles 249 current and 11 unverified with scoped drill-downs", async ({ page }, testInfo) => {
+  const state = await installFixture(page, "totals");
+  await page.goto("/DirectDebitAdmin");
+
+  await expect(page.getByTestId("stat-total-plans")).toHaveText("260");
+  await expect(page.getByTestId("stat-active")).toHaveText("249");
+  await expect(page.getByTestId("stat-display-membership_unverified")).toHaveText("11");
+  await expect(page.getByTestId("stat-arrears")).toHaveText("3");
+  await expect(page.getByText("All eligible plans, not unique members. Each plan appears in exactly one membership display status below.")).toBeVisible();
+  await expect(page.getByText("These counts overlap and include plans, cancellation requests and payments. They do not add up to Total plans.")).toBeVisible();
+  await expect(page.getByTestId("text-plan-filter-scope")).toHaveText("All plans: no status or search filters applied.");
+
+  await page.getByTestId("button-plans-next").click();
+  await page.getByTestId("button-plans-next").click();
+  await expect(page.getByTestId("text-plans-page")).toHaveText("Page 3");
+  await page.getByTestId("input-plan-search").fill("Member");
+  await page.getByTestId("tab-requests").click();
+  await expect(page.getByTestId("tab-requests")).toHaveAttribute("data-state", "active");
+
+  await page.getByTestId("button-plan-status-membership_unverified").click();
+  await expect(page.getByTestId("tab-plans")).toHaveAttribute("data-state", "active");
+  await expect(page.getByTestId("input-plan-search")).toHaveValue("");
+  await expect(page.getByTestId("text-plans-page")).toHaveText("Page 1");
+  await expect(page.getByTestId("text-plan-count")).toHaveText("Showing 1–11 of 11 plans");
+  await expect(page.getByTestId("text-plan-filter-scope")).toContainText("Filtered results");
+  await expect.poll(() => state.reads.some(entry =>
+    entry.includes("view=plans")
+    && entry.includes("displayStatus=membership_unverified")
+    && entry.includes("page=1")
+    && !entry.includes("q="))).toBe(true);
+
+  await page.getByTestId("button-plan-status-current").click();
+  await expect(page.getByTestId("text-plan-count")).toHaveText("Showing 1–50 of 249 plans");
+  await expect.poll(() => state.reads.some(entry =>
+    entry.includes("view=plans")
+    && entry.includes("displayStatus=current")
+    && entry.includes("page=1"))).toBe(true);
+
+  await page.getByTestId("tab-reconciliation").click();
+  await page.getByTestId("button-total-plans").click();
+  await expect(page.getByTestId("tab-plans")).toHaveAttribute("data-state", "active");
+  await expect(page.getByTestId("text-plan-count")).toHaveText("Showing 1–50 of 260 plans");
+  await expect(page.getByTestId("text-plan-filter-scope")).toHaveText("All plans: no status or search filters applied.");
+  await page.screenshot({ path: testInfo.outputPath("reconciled-plan-totals.png"), fullPage: true });
+
+  expect(state.writes).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("a failed totals lookup renders an error rather than false headline zeroes", async ({ page }) => {
+  const state = await installFixture(page, "summary-error");
+  await page.goto("/DirectDebitAdmin");
+  await expect(page.getByText("Direct Debit totals could not be loaded.")).toBeVisible();
+  await expect(page.getByText("Fixture totals lookup failed")).toBeVisible();
+  await expect(page.getByTestId("stat-total-plans")).toHaveCount(0);
+  await expect(page.getByTestId("stat-active")).toHaveCount(0);
+  expect(state.writes).toEqual([]);
   expect(state.pageErrors).toEqual([]);
 });
