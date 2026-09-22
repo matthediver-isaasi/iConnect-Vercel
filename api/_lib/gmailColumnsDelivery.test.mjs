@@ -262,7 +262,8 @@ test('Gmail transport keeps hybrid visual-builder columns intact after slots, tr
   assert.doesNotMatch(payload.html, /data-fixture="send-email-default-footer"/);
 });
 
-test('sendEmail default footer remains a separate append path and documents its fixed-width overflow risk', async () => {
+for (const footerWidth of [500, 600, 700]) {
+test(`sendEmail appends a responsive ${footerWidth}px footer with an Outlook desktop wrapper`, async () => {
   const body = designToHtml({
     ...design,
     globalStyles: { ...design.globalStyles, useDefaultFooter: false },
@@ -276,7 +277,7 @@ test('sendEmail default footer remains a separate append path and documents its 
     html: body,
     tenantId: 'gmail-columns-default-footer',
     skipFooter: false,
-    contentWidth: '640px',
+    contentWidth: `${footerWidth}px`,
     resolveTransactionalPreferences: false,
   });
   assert.equal(result.success, true);
@@ -284,16 +285,14 @@ test('sendEmail default footer remains a separate append path and documents its 
   const { payload } = transportCalls.at(-1);
   assert.match(payload.html, /data-fixture="send-email-default-footer"/);
   assert.doesNotMatch(payload.html, /data-fixture="builder-footer"/);
-  assert.match(payload.html, /<table role="presentation"[^>]*width="640"/i);
-  assert.match(payload.html, /max-width:640px;width:640px/i);
+  assert.ok(payload.html.includes(`<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="${footerWidth}" style="width:${footerWidth}px;"><tr><td><![endif]-->`));
+  assert.ok(payload.html.includes(`width="100%" style="width:100%;max-width:${footerWidth}px;margin:0 auto;"`));
   assert.match(payload.html, /max-width:\s*100%;\s*width:\s*100%/i);
   assert.match(payload.html, /max-width:\s*100%;\s*height:\s*auto/i);
 
-  // This is intentionally a characterization, not a broad footer fix: the
-  // appended outer table still has a fixed 640px width and can overflow on
-  // narrow mobile clients that do not honor max-width.
-  assert.match(payload.html, /width:640px/);
+  assert.match(payload.html, /<!--\[if mso\]><\/td><\/tr><\/table><!\[endif\]-->/);
   assert.ok(queriedTables.every((table) => table === 'tenant' || table === 'system_settings'));
   assert.ok(!queriedTables.includes('campaign'));
   assert.ok(!queriedTables.includes('contacts'));
 });
+}

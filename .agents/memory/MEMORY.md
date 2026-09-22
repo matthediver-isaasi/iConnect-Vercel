@@ -66,6 +66,7 @@
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
+- [Mailgun sending-domain authorization](mailgun-sending-domain-auth.md) — a valid key can return 401 for an unregistered sending domain; visible From and provider domain may differ.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.

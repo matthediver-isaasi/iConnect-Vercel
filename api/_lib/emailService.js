@@ -3,6 +3,7 @@ import formData from 'form-data';
 import { supabase } from './database.js';
 import { isPreferencePlaceholder, resolveTransactionalPreferenceTokens } from './transactionalPreferences.js';
 import { recordTransactionalInboxMessage } from './transactionalInbox.js';
+import { wrapEmailFooter } from './emailFooterLayout.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -289,9 +290,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       if (footer) {
         const processedFooter = await replaceSocialPlaceholdersInFooter(footer, tenantId);
         const constrainedFooter = constrainFooterForEmail(processedFooter);
-        const footerWidthCss = contentWidth || '600px';
-        const footerWidthNum = parseInt(footerWidthCss, 10) || 600;
-        const wrappedFooter = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${footerWidthNum}" style="max-width:${footerWidthCss};width:${footerWidthCss};margin:0 auto;"><tr><td style="padding:12px 0;">${constrainedFooter}</td></tr></table>`;
+        const wrappedFooter = wrapEmailFooter(constrainedFooter, contentWidth);
         finalHtml = finalHtml + wrappedFooter;
         console.log(`[Email Service] Email footer appended for tenant: ${tenantId || 'global'}`);
       }

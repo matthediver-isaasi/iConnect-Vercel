@@ -78,9 +78,10 @@ rendering change.
 ## Delivery-path limitation
 
 The builder-rendered tenant footer is inside the responsive MJML wrapper.
-The separate `sendEmail` fallback footer has an existing fixed-width outer table;
-it must be evaluated independently for narrow-screen overflow. The candidate
-does not rewrite that footer or silently alter historical send behaviour.
+The separate `sendEmail` fallback footer now uses a fluid, desktop-bounded outer
+table with an MSO-only fixed-width wrapper. Its independent browser checks and
+user-confirmed received-message checks are recorded in [FOOTER-VALIDATION.md](FOOTER-VALIDATION.md).
+This does not enable the hybrid-columns candidate or rewrite historical HTML.
 
 ## Automated results and artifacts
 
