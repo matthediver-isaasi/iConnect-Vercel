@@ -7,10 +7,21 @@ test('a successful early public request preserves its payload', async () => {
   assert.deepEqual(await readPublicPage(async () => payload), { data: payload });
 });
 
-test('only an explicit 404 permits protected-page fallback', async () => {
+test('only the explicit public page miss contract permits protected-page fallback', async () => {
   assert.deepEqual(await readPublicPage(async () => {
-    throw Object.assign(new Error('Missing'), { status: 404 });
+    throw Object.assign(new Error('Missing'), {
+      status: 404, errorData: { error: 'Page not found or not published' },
+    });
   }), { data: null });
+});
+
+test('tenant, microsite, unstructured 404s and cancellation fail closed', async () => {
+  for (const errorData of [undefined, { error: 'Tenant not found' }, { error: 'Microsite not found' }]) {
+    const failure = Object.assign(new Error('Missing'), { status: 404, errorData });
+    await assert.rejects(readPublicPage(async () => { throw failure; }), error => error === failure);
+  }
+  const aborted = Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+  await assert.rejects(readPublicPage(async () => { throw aborted; }), error => error === aborted);
 });
 
 test('failed transport, server errors and access denial remain failures', async () => {

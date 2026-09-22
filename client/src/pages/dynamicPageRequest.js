@@ -4,7 +4,13 @@ export async function readPublicPage(request) {
   try {
     return { data: (await request()) || null };
   } catch (error) {
-    if (error?.status === 404) return { data: null };
+    // A tenant/prefix 404 is not evidence that a page is missing in the
+    // authenticated tenant. Only the public page endpoint's page-miss
+    // contract may advance to the protected page lookup.
+    if (error?.status === 404
+      && error?.errorData?.error === 'Page not found or not published') {
+      return { data: null };
+    }
     throw error;
   }
 }

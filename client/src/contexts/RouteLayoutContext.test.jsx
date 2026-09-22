@@ -11,6 +11,39 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 
+test('public miss evidence survives shell remount only, not readiness, route or audience changes', async () => {
+  let context;
+  function Reader() {
+    context = useContext(RouteLayoutContext);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  const render = (scope, prerequisitesReady = true, childKey = 'initial') => act(async () => {
+    root.render(
+      <RouteLayoutProvider scope={scope} pageOwned prerequisitesReady={prerequisitesReady}>
+        <Reader key={childKey} />
+      </RouteLayoutProvider>,
+    );
+  });
+  try {
+    await render('route-a/member-a');
+    context.publicPageMisses.add('portal');
+    await render('route-a/member-a', true, 'portal-shell');
+    assert.equal(context.publicPageMisses.has('portal'), true);
+    await render('route-a/member-a', false);
+    assert.equal(context.publicPageMisses.size, 0);
+    await render('route-a/member-a');
+    context.publicPageMisses.add('portal');
+    await render('route-a/member-b');
+    assert.equal(context.publicPageMisses.size, 0);
+    context.publicPageMisses.add('portal');
+    await render('route-b/member-b');
+    assert.equal(context.publicPageMisses.size, 0);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test('route decisions gate mounts, reject abandoned leases, and preserve content state', async () => {
   const history = [];
   let context;

@@ -103,9 +103,15 @@ async function installFixture(page, {
   holdAuth = true,
   heldPages = [],
   holdFirstPageSlugs = [],
+  publicFailure = null,
+  protectedMissing = false,
+  holdProtected = false,
+  microsites = [],
 } = {}) {
   const settingsGate = deferred();
   const authGate = deferred();
+  const protectedGate = deferred();
+  if (!holdProtected) protectedGate.release();
   if (!holdSettings) settingsGate.release();
   if (!holdAuth) authGate.release();
 
@@ -118,6 +124,7 @@ async function installFixture(page, {
     unexpected: [],
     releaseSettings: settingsGate.release,
     releaseAuth: authGate.release,
+    releaseProtected: protectedGate.release,
     setAudience(nextAudience) {
       state.audience = nextAudience;
     },
@@ -213,7 +220,15 @@ async function installFixture(page, {
       if (state.audience === "member-b") return json(route, [MEMBER_B]);
       return json(route, []);
     }
-    if (url.pathname === "/api/public/microsites") return json(route, { microsites: [] });
+    if (url.pathname === "/api/public/microsites") return json(route, { microsites });
+    if (url.pathname === "/api/entities/IEditPage") {
+      await protectedGate.promise;
+      return json(route, protectedMissing ? [] : [
+        pageRecord("portal", `Protected portal — ${state.audience}`, { layoutType: "member" }),
+      ]);
+    }
+    if (url.pathname === "/api/canvas-symbols") return json(route, { symbols: [] });
+    if (url.pathname.startsWith("/api/public/form/")) return json(route, { error: "Form not found" }, 404);
     if (url.pathname === "/api/public/tenant-branding") {
       return json(route, {
         success: true,
@@ -232,6 +247,8 @@ async function installFixture(page, {
       const requestAudience = state.audience;
       const requestNumber = state.startedPageReads.filter((read) => read.slug === slug).length + 1;
       state.startedPageReads.push({ slug, audience: requestAudience, requestNumber });
+      if (publicFailure?.status === "aborted") return route.abort("aborted");
+      if (publicFailure) return json(route, { error: publicFailure.error }, publicFailure.status);
       if (pageGates.has(slug)) await pageGates.get(slug).promise;
       if (requestNumber === 1 && firstPageGates.has(slug)) {
         await firstPageGates.get(slug).promise;
@@ -318,6 +335,116 @@ test("Canvas public transport prefetches while settings/session are delayed but 
   await expect(page.getByText(GUEST_COPY, { exact: true })).toHaveCount(0);
   await expectNoChromeEver(page);
   expect(state.writes).toEqual([]);
+  expect(state.unexpected).toEqual([]);
+  expect(state.startedPageReads.filter(({ slug }) => slug === "prefetch-alpha")).toHaveLength(1);
+  expect(state.requests.filter(request => request.startsWith("GET /api/entities/IEditPage"))).toEqual([]);
+});
+
+const PAGE_MISS = { status: 404, error: "Page not found or not published" };
+const protectedReads = state => state.requests.filter(request => request.startsWith("GET /api/entities/IEditPage"));
+const formReads = state => state.requests.filter(request => request.startsWith("GET /api/public/form/"));
+const redirectReads = state => state.requests.filter(request => request.startsWith("GET /api/redirects/resolve"));
+
+test("portal public miss is fetched once across boot settlement and only then resolves the authenticated member page", async ({ page }) => {
+  const state = await installFixture(page, { publicFailure: PAGE_MISS, holdSettings: true });
+  await page.goto("/portal", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => state.startedPageReads.length).toBe(1);
+  expect(protectedReads(state)).toEqual([]);
+  state.releaseSettings();
+  state.releaseAuth();
+  await expect(page.getByText("Protected portal — member", { exact: true })).toBeVisible();
+  expect(state.startedPageReads).toHaveLength(1);
+  // Private entity data is deliberately not shared across shell remounts.
+  expect(protectedReads(state).length).toBeGreaterThanOrEqual(1);
+  expect(formReads(state)).toEqual([]);
+  expect(redirectReads(state)).toEqual([]);
+  expect(state.unexpected).toEqual([]);
+});
+
+for (const failure of [
+  { status: 401, error: "Unauthorized" },
+  { status: 403, error: "Forbidden" },
+  { status: 500, error: "Internal server error" },
+  { status: 404, error: "Tenant not found" },
+  { status: 404, error: "Microsite not found" },
+  { status: 404, error: "Unexpected missing resource" },
+  { status: "aborted", error: "Cancelled request" },
+]) {
+  test(`portal ${failure.status} ${failure.error} fails closed`, async ({ page }) => {
+    const state = await installFixture(page, { publicFailure: failure, holdAuth: false });
+    await page.goto("/portal", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Page unavailable" })).toBeVisible();
+    expect(protectedReads(state)).toEqual([]);
+    expect(formReads(state)).toEqual([]);
+    expect(redirectReads(state)).toEqual([]);
+    expect(state.unexpected).toEqual([]);
+  });
+}
+
+test("unknown page waits for authenticated lookup before checking form then redirect", async ({ page }) => {
+  const state = await installFixture(page, {
+    publicFailure: PAGE_MISS, protectedMissing: true, holdProtected: true,
+  });
+  await page.goto("/portal", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => state.startedPageReads.length).toBe(1);
+  expect(protectedReads(state)).toEqual([]);
+  expect(formReads(state)).toEqual([]);
+  expect(redirectReads(state)).toEqual([]);
+  state.releaseAuth();
+  await expect.poll(() => protectedReads(state).length).toBe(1);
+  expect(formReads(state)).toEqual([]);
+  expect(redirectReads(state)).toEqual([]);
+  state.releaseProtected();
+  await expect.poll(() => redirectReads(state).length).toBe(1);
+  expect(formReads(state)).toHaveLength(1);
+  expect(state.requests.indexOf(formReads(state)[0])).toBeLessThan(state.requests.indexOf(redirectReads(state)[0]));
+  expect(state.unexpected).toEqual([]);
+});
+
+test("microsite page miss never performs a bare authenticated fallback", async ({ page }) => {
+  const state = await installFixture(page, {
+    publicFailure: PAGE_MISS, holdAuth: false,
+    microsites: [{ id: "fixture-micro", path_prefix: "fixture-micro", name: "Fixture microsite" }],
+  });
+  await page.goto("/fixture-micro/portal", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => redirectReads(state).length).toBe(1);
+  expect(protectedReads(state)).toEqual([]);
+  expect(formReads(state)).toEqual([]);
+  expect(state.requests.find(request => request.startsWith("GET /api/public/page/portal"))).toContain("microsite=fixture-micro");
+  expect(state.unexpected).toEqual([]);
+});
+
+test("unauthenticated page miss does not query protected entities", async ({ page }) => {
+  const state = await installFixture(page, { audience: "guest", publicFailure: PAGE_MISS, holdAuth: false });
+  await page.goto("/portal", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => redirectReads(state).length).toBe(1);
+  expect(protectedReads(state)).toEqual([]);
+  expect(state.unexpected).toEqual([]);
+});
+
+test("portal account switch invalidates miss evidence and cannot retain private member page data", async ({ page }) => {
+  const state = await installFixture(page, { publicFailure: PAGE_MISS, holdAuth: false });
+  await page.goto("/portal", { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Protected portal — member", { exact: true })).toBeVisible();
+  const before = state.startedPageReads.length;
+  state.setAudience("member-b");
+  await page.evaluate(member => {
+    const oldValue = localStorage.getItem("agcas_member");
+    const newValue = JSON.stringify(member);
+    localStorage.setItem("agcas_member", newValue);
+    dispatchEvent(new StorageEvent("storage", { key: "agcas_member", oldValue, newValue }));
+  }, MEMBER_B);
+  await expect(page.getByText("Protected portal — member-b", { exact: true })).toBeVisible();
+  await expect(page.getByText("Protected portal — member", { exact: true })).toHaveCount(0);
+  expect(state.startedPageReads.length).toBeGreaterThan(before);
+  state.setAudience("guest");
+  await page.evaluate(() => {
+    const oldValue = localStorage.getItem("agcas_member");
+    localStorage.removeItem("agcas_member");
+    dispatchEvent(new StorageEvent("storage", { key: "agcas_member", oldValue, newValue: null }));
+  });
+  await expect.poll(() => redirectReads(state).length).toBeGreaterThan(0);
+  await expect(page.locator("body")).not.toContainText("Protected portal");
   expect(state.unexpected).toEqual([]);
 });
 

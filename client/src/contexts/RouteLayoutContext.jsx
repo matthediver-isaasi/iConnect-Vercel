@@ -15,6 +15,10 @@ export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesR
   // decision changed while prerequisites were unavailable.
   const scopeToken = useMemo(() => ({}), [scope, pageOwned]);
   const token = useMemo(() => ({}), [scopeToken, prerequisitesReady]);
+  // Non-sensitive, confirmed public misses may survive the one shell remount
+  // when a dynamic page resolves from public discovery to member chrome.
+  // Route, tenant, audience and readiness epochs each discard this evidence.
+  const publicPageMisses = useMemo(() => new Set(), [token]);
   const [record, setRecord] = useState(() => ({ token, scopeToken, decision: null }));
   const [overrides, setOverrides] = useState(() => ({ token }));
   if (record.token !== token) {
@@ -53,6 +57,7 @@ export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesR
   const local = overrides?.token === token ? overrides : {};
   const blank = local.forceBlankLayout ?? decision?.forceBlankLayout ?? layoutDecision?.forceBlankLayout ?? false;
   const value = {
+    publicPageMisses,
     commit,
     pageOwned,
     chromeReady: ready,

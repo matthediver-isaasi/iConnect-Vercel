@@ -26,3 +26,9 @@ handling.
 **How to apply:** Exercise ordered deployment rewrite rules alongside route
 policy tests; retain explicit asset exclusions rather than treating every
 filename suffix as a static asset.
+
+Confirmed public-page misses may survive a public-to-member layout remount, but private page payloads must not share that cache.
+
+**Why:** Changing layouts can remount the page and repeat discovery even when automatic retries are disabled. Sharing private responses to avoid the repeat risks crossing session boundaries.
+
+**How to apply:** Retain only exact endpoint-contract miss evidence within the current route/tenant/audience/readiness scope. A generic 404, tenant failure, denied access, or cancelled request is not a public-page miss; authenticated fallback still requires a validated member.

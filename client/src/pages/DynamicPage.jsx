@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { getTenantSlugFromLocation, publicClient } from "@/api/publicClient";
@@ -8,6 +8,7 @@ import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision } from "@/contexts/LayoutContext";
+import { RouteLayoutContext } from "@/contexts/RouteLayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite } from "@/contexts/MicrositeContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
@@ -301,6 +302,11 @@ export default function DynamicPage() {
     !brandingLoading && authResolved && !previewAuthPending &&
     !audienceTransitionPending && !storageInvalidationPending;
   const routeMetadataError = micrositesError || brandingError;
+  const { publicPageMisses } = useContext(RouteLayoutContext) || {};
+  const publicMissKey = JSON.stringify([
+    publicTenantRequestIdentity, earlyPublicRequest, resolvedAudienceIdentity,
+    audienceGeneration,
+  ]);
 
   // This transport intentionally does not wait for auth, branding, article
   // settings, or (for an explicit two-segment URL) the microsite catalogue.
@@ -318,10 +324,12 @@ export default function DynamicPage() {
       earlyPublicRequest?.slug || null,
       audienceGeneration,
     ],
-    queryFn: () => readPublicPage(() => publicClient.getPage(
-      earlyPublicRequest.slug,
-      earlyPublicRequest.micrositePrefix,
-    )),
+    queryFn: () => publicPageMisses?.has(publicMissKey)
+      ? { data: null }
+      : readPublicPage(() => publicClient.getPage(
+        earlyPublicRequest.slug,
+        earlyPublicRequest.micrositePrefix,
+      )),
     enabled: !!earlyPublicRequest
       && !audienceTransitionPending
       && !storageInvalidationPending
@@ -331,6 +339,13 @@ export default function DynamicPage() {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  useLayoutEffect(() => {
+    if (routePrerequisitesReady && earlyPublicPageFetched
+      && !earlyPublicPageError && earlyPublicPageResult?.data === null) {
+      publicPageMisses?.add(publicMissKey);
+    }
+  }, [routePrerequisitesReady, earlyPublicPageFetched, earlyPublicPageError,
+    earlyPublicPageResult, publicPageMisses, publicMissKey]);
   const pageQueryEnabled = routePrerequisitesReady && !routeMetadataError && !earlyPublicPageError &&
     !!slug && !dynamicArticleRoute && (canPreviewDrafts || earlyPublicPageFetched) &&
     (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
@@ -358,6 +373,11 @@ export default function DynamicPage() {
       // endpoint scoped to the microsite prefix (no authenticated fallback:
       // bare-slug auth reads would leak pages across microsites).
       if (isAnyMicrositeRoute && !canPreviewDrafts) {
+        return { page: null, elements: [] };
+      }
+      // The public miss is not authentication authority. Guests can still
+      // resolve pretty forms, but must not issue protected entity reads.
+      if (!canPreviewDrafts && !(sessionValidated && memberInfo)) {
         return { page: null, elements: [] };
       }
       // Once a verified editor capability is available, skip the public
