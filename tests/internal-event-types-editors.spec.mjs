@@ -121,9 +121,14 @@ const complexEvent = {
   is_unlimited_registration: true, pricing_config: {},
 };
 
-async function mountEditor(page, surface) {
+async function mountEditor(page, surface, simpleOverrides = {}, options = {}) {
+  let documentLoaded = false;
   await page.route("**/*", async route => {
     if (route.request().resourceType() === "document") {
+      // Keep the isolated harness alive when an editor schedules its normal
+      // post-save redirect. Reloads here explicitly remount with a fresh cache.
+      if (documentLoaded) return route.abort("aborted");
+      documentLoaded = true;
       await route.fulfill({
         status: 200,
         contentType: "text/html",
@@ -134,7 +139,18 @@ async function mountEditor(page, surface) {
     await route.abort("blockedbyclient");
   });
   await page.goto(`http://internal-event-types.test/${surface}`);
-  await page.evaluate(({ surface, simple, complex }) => {
+  await page.evaluate(() => {
+    window.__selectChanges = [];
+    document.addEventListener("change", event => {
+      if (event.target.tagName === "SELECT") {
+        window.__selectChanges.push({
+          value: event.target.value,
+          options: [...event.target.options].map(option => option.value),
+        });
+      }
+    });
+  });
+  await page.evaluate(({ surface, simple, complex, options }) => {
     const state = {
       surface,
       simple: structuredClone(simple),
@@ -150,11 +166,14 @@ async function mountEditor(page, surface) {
           state.calls.push({ entity: String(name), operation, body: body ? clone(body) : null });
         };
         if (name === "SystemSettings") return {
-          list: async () => [{
-            id: "internal-types-setting",
-            setting_key: "internal_event_types",
-            setting_value: '["Finance","Member Engagement"]',
-          }],
+          list: async () => {
+            if (options.settingsDelay) await new Promise(resolve => setTimeout(resolve, options.settingsDelay));
+            return [{
+              id: "internal-types-setting",
+              setting_key: "internal_event_types",
+              setting_value: JSON.stringify(options.internalTypes || ["Finance", "Member Engagement"]),
+            }];
+          },
         };
         if (name === "Event") return {
           get: async () => clone(state.simple),
@@ -226,7 +245,7 @@ async function mountEditor(page, surface) {
       "complex-edit": "/CreateComplexEvent?id=complex-internal-type",
     };
     history.replaceState({}, "", urls[surface]);
-  }, { surface, simple: simpleEvent, complex: complexEvent });
+  }, { surface, simple: { ...simpleEvent, ...simpleOverrides }, complex: { ...complexEvent, ...options.complexOverrides }, options });
   await page.addScriptTag({ content: editorScript });
 }
 
@@ -266,6 +285,64 @@ test("EditEvent saves and reloads the selected internal event type", async ({ pa
   await page.getByTestId("fixture-remount-editor").click();
   await expect(page.getByTestId("select-internal-event-type")).toContainText("Member Engagement");
 });
+
+test("EditEvent restores a published free event classification before settings arrive", async ({ page }) => {
+  await mountEditor(page, "edit-simple", {
+    internal_event_type: "GFI Free",
+    member_group_id: null,
+    status: "published",
+    event_type: "GFI Supported Event",
+    start_date: "2026-09-24T11:00:00+00:00",
+    end_date: "2026-09-24T11:45:00+00:00",
+    cta_override_url: "https://example.test/book",
+    cta_override_mode: "card",
+    pricing_config: { ticket_classes: [{
+      id: "free-ticket", name: "Standard Ticket", price: 0, is_free: true,
+      visibility_mode: "members_only", role_ids: [], member_group_ids: [],
+      offer_type: "none", is_unlimited_tickets: true, is_default: true,
+    }] },
+  }, { settingsDelay: 250, internalTypes: ["GFI Free", "CoP Free", "L&D", "Conference", "Awards", "GFI Supported Events"] });
+  await expect(page.getByTestId("select-internal-event-type")).toContainText("GFI Free");
+  // Exercise the real Radix/native-select race, not a mocked successful
+  // dropdown: the empty event must occur without clearing the stored value.
+  await expect.poll(() => page.evaluate(() =>
+    window.__selectChanges.some(change => change.value === "" && change.options.includes("__none__"))
+  )).toBe(true);
+  await page.getByTestId("fixture-remount-editor").click();
+  await expect(page.getByTestId("select-internal-event-type")).toContainText("GFI Free");
+});
+
+for (const surface of ["edit-simple", "complex-edit"]) {
+  for (const delayedSettings of [false, true]) {
+    test(`${surface} preserves, changes and explicitly clears a stored type with ${delayedSettings ? "late" : "missing"} settings options`, async ({ page }) => {
+      await mountEditor(page, surface, { internal_event_type: "GFI Free" }, {
+        complexOverrides: { internal_event_type: "GFI Free" },
+        settingsDelay: delayedSettings ? 250 : 0,
+        internalTypes: delayedSettings ? ["GFI Free", "Finance"] : ["Finance"],
+      });
+      const select = page.getByTestId("select-internal-event-type");
+      const save = page.getByTestId(surface === "edit-simple" ? "button-save-event" : "button-save");
+      const writeKind = surface === "edit-simple" ? "simple-update" : "complex-update";
+      const saveAndReload = async expected => {
+        const before = await page.evaluate(() => window.__internalTypeEditor.writes.length);
+        await save.click();
+        await expect.poll(() => page.evaluate(({ before, writeKind }) =>
+          window.__internalTypeEditor.writes.slice(before).find(write => write.kind === writeKind)?.body.internal_event_type,
+          { before, writeKind }
+        )).toBe(expected);
+        await page.getByTestId("fixture-remount-editor").click();
+        await expect(select).toContainText(expected || "No internal type");
+      };
+      await expect(select).toContainText("GFI Free");
+      await page.getByTestId("input-title").fill("Unrelated title edit");
+      await saveAndReload("GFI Free");
+      await chooseInternalType(page, "Finance");
+      await saveAndReload("Finance");
+      await chooseInternalType(page, "No internal type");
+      await saveAndReload(null);
+    });
+  }
+}
 
 test("CreateComplexEvent create mode saves the selected internal event type", async ({ page }) => {
   await mountEditor(page, "complex-create");

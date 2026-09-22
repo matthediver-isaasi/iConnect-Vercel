@@ -3107,9 +3107,12 @@ export default function EditEvent() {
               {!isGroupLimited && (
                 <div className="space-y-2">
                   <Label htmlFor="internal_event_type">Internal Event Type</Label>
-                  <Select value={formData.internal_event_type || "__none__"} onValueChange={(value) =>
-                    handleInputChange('internal_event_type', value === "__none__" ? "" : value)
-                  }>
+                  <Select value={formData.internal_event_type || "__none__"} onValueChange={(value) => {
+                    // Radix's native select can emit "" while hydration adds
+                    // options. Only the explicit __none__ option clears a type.
+                    if (value === "") return;
+                    handleInputChange('internal_event_type', value === "__none__" ? "" : value);
+                  }}>
                     <SelectTrigger id="internal_event_type" data-testid="select-internal-event-type"><SelectValue placeholder="No internal type" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">No internal type</SelectItem>
