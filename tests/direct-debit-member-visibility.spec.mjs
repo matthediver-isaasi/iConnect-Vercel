@@ -53,8 +53,17 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixture(page) {
+async function installFixture(page, current = false) {
   const state = { reads: [], writes: [], mockedSessionWrites: [], pageErrors: [] };
+  await page.route("**/*", route => {
+    const url = new URL(route.request().url());
+    return url.origin === "http://127.0.0.1:5000" ? route.continue() : route.abort("blockedbyclient");
+  });
+  const rows = PLANS.map(row => row.id === OLDER.id && current
+    ? { ...row, membershipPresentation: { current: current === true, displayStatus: current === true ? "current" : "membership_unverified",
+      historicalImport: { source: current === true ? "bnms_dd_alpha_adoption" : "bnms_dd_beta_adoption", adoptionId: "fixture-adoption", historyId: "fixture-history" },
+      evidence: { source: "administrative_recognition", effectiveFrom: "2026-09-21", effectiveUntil: "2027-10-01" } } }
+    : row);
   page.on("pageerror", error => state.pageErrors.push(error.message));
   await page.addInitScript(member => {
     localStorage.setItem("agcas_member", JSON.stringify(member));
@@ -105,6 +114,7 @@ async function installFixture(page) {
       if (view === "summary") {
         return json(route, {
           byStatus: { active: 100, first_payment_pending: 1 },
+          currentPlans: current === true ? 1 : 0,
           attention: [],
           pendingActivations: 0,
           pendingCancellations: 0,
@@ -117,12 +127,12 @@ async function installFixture(page) {
         if (query === "failure") {
           return json(route, { error: "Fixture plan lookup failed" }, 503);
         }
-        const status = url.searchParams.get("status");
+        const status = url.searchParams.get("displayStatus");
         const pageNumber = Number(url.searchParams.get("page") || 1);
         const pageSize = Number(url.searchParams.get("pageSize") || 50);
-        const matching = PLANS.filter(row =>
+        const matching = rows.filter(row =>
           (!query || `${row.payer_name} ${row.payer_email}`.toLowerCase().includes(query))
-          && (!status || row.status === status));
+          && (!status || (row.membershipPresentation?.displayStatus || row.status) === status));
         const offset = (pageNumber - 1) * pageSize;
         return json(route, {
           plans: matching.slice(offset, offset + pageSize),
@@ -134,7 +144,7 @@ async function installFixture(page) {
       }
       if (view === "plan" && url.searchParams.get("planId") === OLDER.id) {
         return json(route, {
-          plan: OLDER,
+          plan: rows.find(row => row.id === OLDER.id),
           agreement: {
             metadata: {
               dd: {
@@ -185,11 +195,11 @@ test("older imported members remain searchable with complete pagination, status,
   await expect(page.getByText("Existing mandate active · awaiting first payment · collections held")).toBeVisible();
 
   await page.getByTestId("select-plan-status").click();
-  await page.getByRole("option", { name: "first payment pending" }).click();
+  await page.getByRole("option", { name: "Awaiting first payment" }).click();
   await expect(page.getByTestId("text-plans-page")).toHaveText("Page 1");
   await expect.poll(() => state.reads.some(entry =>
     entry.includes("view=plans")
-    && entry.includes("status=first_payment_pending")
+    && entry.includes("displayStatus=first_payment_pending")
     && entry.includes("page=1"))).toBe(true);
 
   await page.getByTestId(`card-plan-${OLDER.id}`).click();
@@ -202,6 +212,46 @@ test("older imported members remain searchable with complete pagination, status,
 
   expect(state.writes).toEqual([]);
   expect(state.mockedSessionWrites.length).toBeLessThanOrEqual(1);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("verified current membership uses the same primary status in summary, filter, list and details, separately from holds", async ({ page }) => {
+  const state = await installFixture(page, true);
+  await page.goto("/DirectDebitAdmin");
+  await expect(page.getByTestId("stat-active")).toHaveText("1");
+  await expect(page.getByText("Current membership plans", { exact: true })).toBeVisible();
+  await page.getByTestId("select-plan-status").click();
+  await page.getByRole("option", { name: "Current", exact: true }).click();
+  await expect(page.getByTestId("text-plan-count")).toHaveText("Showing 1–1 of 1 plans");
+  await expect(page.getByTestId("badge-dd-status-current")).toHaveText("Current");
+  await expect(page.getByText("Existing mandate active · collections held", { exact: true })).toBeVisible();
+  await expect(page.getByText(/awaiting first payment/i)).toHaveCount(0);
+  await page.getByTestId(`card-plan-${OLDER.id}`).click();
+  await expect(page.getByTestId("text-membership-activation-status")).toHaveText("Current");
+  await expect(page.getByTestId("badge-dd-status-current")).toBeVisible();
+  await expect(page.getByTestId("text-plan-activation-rule")).toHaveCount(0);
+  await expect(page.getByText(/awaiting first payment/i)).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/dd-current-detail.png", fullPage: true });
+  expect(state.writes).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("canonical historic imports with unconfirmed entitlement are not labelled as new joiners", async ({ page }) => {
+  const state = await installFixture(page, "unverified");
+  await page.goto("/DirectDebitAdmin");
+  await expect(page.getByTestId("stat-active")).toHaveText("0");
+  await page.getByTestId("select-plan-status").click();
+  await page.getByRole("option", { name: "Membership status unverified", exact: true }).click();
+  await expect(page.getByTestId("text-plan-count")).toHaveText("Showing 1–1 of 1 plans");
+  await expect(page.getByTestId("badge-dd-status-membership_unverified")).toBeVisible();
+  await expect(page.getByText(/awaiting first payment/i)).toHaveCount(0);
+  await page.getByTestId(`card-plan-${OLDER.id}`).click();
+  await expect(page.getByTestId("text-membership-activation-status")).toHaveText("Membership status unverified");
+  await expect(page.getByText("Historical Direct Debit membership; current entitlement has not been confirmed.")).toBeVisible();
+  await expect(page.getByTestId("text-plan-activation-rule")).toHaveCount(0);
+  await expect(page.getByText(/awaiting first payment/i)).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/dd-unverified-detail.png", fullPage: true });
+  expect(state.writes).toEqual([]);
   expect(state.pageErrors).toEqual([]);
 });
 

@@ -1,0 +1,216 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { directDebitMembershipPresentation, loadDirectDebitMembershipPresentations } from './directDebitMembershipPresentation.js';
+import { ALPHA_RECOGNITION_TENANT as tenant } from './alphaMembershipRecognition.js';
+import { listPlans, planDetail, buildSummary } from '../admin/gocardless-dd.js';
+
+const today = '2026-09-21';
+const history = (patch = {}) => ({
+  id: 'history', tenant_id: tenant, member_id: 'member', billing_agreement_id: 'agreement',
+  status: 'active', term_start_date: '2026-01-01', term_end_date: '2026-12-31',
+  ...patch,
+});
+const plan = { id: 'plan', tenant_id: tenant, member_id: 'member', billing_agreement_id: 'agreement',
+  status: 'first_payment_pending', provider: 'gocardless', collection_stopped_at: today };
+const recognition = {
+  tenant_id: tenant, member_id: 'member', history_id: 'history', agreement_id: 'agreement',
+  effective_from: today, effective_until: '2027-10-01',
+};
+const project = (record, patch = {}, owner = {}) => directDebitMembershipPresentation({ ...plan, ...patch }, [record], owner, today);
+
+test('verified dated current membership is independent of held unpaid billing, with no mutations', () => {
+  const row = history({ payment_status: 'unpaid' });
+  const before = structuredClone({ row, plan });
+  assert.equal(project(row).displayStatus, 'current');
+  assert.equal(project(row).evidence.source, 'membership_history');
+  assert.deepEqual({ row, plan }, before);
+});
+
+test('administrative recognition is exact, bounded, revocable evidence, not import provenance', () => {
+  const row = history({ status: 'pending_payment_setup', term_start_date: '2026-10-01',
+    term_end_date: '2027-09-30', membershipRecognition: recognition });
+  assert.equal(project(row).displayStatus, 'current');
+  assert.equal(project(row).evidence.effectiveFrom, today);
+  for (const patch of [{ revoked_at: today }, { member_id: 'wrong' }, { agreement_id: 'wrong' },
+    { effective_from: '2026-01-01' }, { effective_until: '2099-01-01' }]) {
+    assert.equal(project({ ...row, membershipRecognition: { ...recognition, ...patch } }).current, false);
+  }
+  for (const day of ['2026-09-20', '2027-10-01']) {
+    assert.equal(directDebitMembershipPresentation(plan, [row], {}, day).current, false);
+  }
+  assert.equal(project({ ...row, membershipRecognition: null, imported: true }).current, false);
+});
+
+test('status/date/pause/missing evidence matrix fails closed; mandates never grant entitlement', () => {
+  for (const patch of [
+    { status: 'paused' }, { status: 'expired' }, { status: 'cancelled' }, { status: 'failed' },
+    { status: 'pending_activation' }, { status: 'pending_payment_setup' }, { status: 'unknown' },
+    { term_start_date: '2026-10-01' }, { term_end_date: '2026-09-20' },
+    { term_start_date: null }, { term_start_date: 'not-a-date' },
+    { term_end_date: null }, { term_end_date: '2025-01-01' },
+  ]) {
+    assert.equal(project(history(patch)).current, false, JSON.stringify(patch));
+  }
+  assert.equal(project(history(), {}, { membership_paused: true }).current, false);
+  assert.equal(project(history(), {}, null).current, false);
+  assert.equal(directDebitMembershipPresentation({ ...plan, status: 'active' }, [], {}, today).current, false);
+});
+
+test('arrears, failure, cancellation, suspension and completion retain operational priority', () => {
+  for (const status of ['payment_grace_period', 'payment_overdue', 'payment_failed', 'failed',
+    'cancelled', 'suspended', 'restricted', 'completed', 'paused']) {
+    assert.equal(project(history(), { status }).displayStatus, status);
+  }
+  assert.equal(project(history({ membership_source: 'organisation' })).displayStatus, 'current');
+  assert.equal(project(history({ membership_source: 'organisation', status: 'pending_payment_setup',
+    membershipRecognition: recognition })).current, false);
+});
+
+// This mock implements reads only; any write/provider call fails immediately.
+function database(tables, failure) {
+  return { from(table) {
+    const filters = [];
+    let single = false;
+    const result = () => {
+      if (table === failure) return { error: { message: 'fixture read failure' } };
+      const data = (tables[table] || []).filter(r => filters.every(f => f(r)));
+      return { data: single ? data[0] || null : structuredClone(data) };
+    };
+    const query = {
+      select() { return this; }, order() { return this; }, limit() { return this; },
+      eq(k, v) { filters.push(r => r[k] === v); return this; },
+      in(k, v) { filters.push(r => v.includes(r[k])); return this; },
+      maybeSingle() { single = true; return this; },
+      range(start, end) { const r = result(); return Promise.resolve(r.error ? r : { data: r.data.slice(start, end + 1) }); },
+      then(resolve) { resolve(result()); },
+    };
+    return query;
+  } };
+}
+function tables() {
+  const now = new Date().toISOString().slice(0, 10);
+  return {
+    member: [{ id: 'member', tenant_id: tenant, email: 'member@fixture.invalid' }],
+    membership_billing_agreements: [{ id: 'agreement', tenant_id: tenant, member_id: 'member', provider: 'gocardless' }],
+    membership_payment_plans: [{ ...plan }],
+    member_membership_history: [history({ term_start_date: now, term_end_date: `${Number(now.slice(0, 4)) + 1}-12-31` })],
+  };
+}
+
+test('list/detail/summary/current filter parity and awaiting filter exclusion with read-only mocks', async () => {
+  const data = tables(), before = structuredClone(data), db = database(data);
+  const list = await listPlans(tenant, { status: 'current', pageSize: 1 }, db);
+  assert.equal(list.total, 1);
+  const detail = await planDetail(tenant, 'plan', { status() { throw new Error('unexpected HTTP error'); } }, { db });
+  const summary = await buildSummary(tenant, { db });
+  assert.deepEqual(list.plans[0].membershipPresentation, detail.plan.membershipPresentation);
+  assert.equal(summary.currentMembers, list.total);
+  assert.equal(summary.byStatus.first_payment_pending, 1, 'raw API preserved');
+  assert.equal((await listPlans(tenant, { displayStatus: 'first_payment_pending' }, db)).total, 0);
+  assert.equal((await listPlans(tenant, { status: 'first_payment_pending' }, db)).total, 1, 'legacy raw filter preserved');
+  assert.equal(detail.plan.status, 'first_payment_pending');
+  assert.equal(detail.plan.collection_stopped_at, today);
+  assert.equal(detail.plan.collectionPresentation.held, true);
+  assert.deepEqual(data, before);
+});
+
+test('current filtering precedes pagination and preserves organization support', async () => {
+  const data = tables();
+  data.member_membership_history[0].status = 'pending_activation';
+  data.organization = [{ id: 'org', tenant_id: tenant }];
+  data.membership_billing_agreements.push({ id: 'oa', tenant_id: tenant, organization_id: 'org', provider: 'gocardless' });
+  data.membership_payment_plans.push({ ...plan, id: 'op', member_id: null, organization_id: 'org', billing_agreement_id: 'oa' });
+  data.organisation_membership_history = [{ ...data.member_membership_history[0], id: 'oh', member_id: null,
+    organization_id: 'org', billing_agreement_id: 'oa', status: 'active' }];
+  const result = await listPlans(tenant, { status: 'current', pageSize: 1 }, database(data));
+  assert.equal(result.total, 1);
+  assert.equal(result.plans[0].id, 'op');
+});
+
+test('history and recognition read errors surface instead of false current or empty success', async () => {
+  for (const failure of ['member_membership_history', 'organisation_membership_history', 'bnms_dd_alpha_membership_recognition']) {
+    await assert.rejects(loadDirectDebitMembershipPresentations(database(tables(), failure), tenant, [plan]), /lookup|recognition/i);
+  }
+  const data = tables();
+  data.bnms_dd_alpha_membership_recognition = [{ ...recognition, member_id: 'wrong' }];
+  await assert.rejects(loadDirectDebitMembershipPresentations(database(data), tenant, [plan]), /ownership/);
+});
+
+test('current filtering retains deleted-member, cross-tenant and provider exclusions', async () => {
+  for (const mutate of [
+    data => { data.member[0].email = 'deleted_member@deleted.local'; },
+    data => { data.member[0].tenant_id = 'another-tenant'; },
+    data => { data.membership_payment_plans[0].provider = 'stripe'; },
+    data => { data.membership_billing_agreements[0].provider = 'stripe'; },
+  ]) {
+    const data = tables();
+    mutate(data);
+    assert.equal((await listPlans(tenant, { status: 'current' }, database(data))).total, 0);
+    assert.equal((await buildSummary(tenant, { db: database(data) })).currentMembers, 0);
+  }
+});
+
+test('canonical Alpha/Beta/pilot adoption distinguishes historic unknown entitlement from genuine joiners', async () => {
+  for (const source of ['bnms_dd_alpha_adoption', 'bnms_dd_beta_adoption', 'bnms_dd_pilot_adoption']) {
+    const data = tables();
+    data.member_membership_history[0].status = 'pending_activation';
+    data[source] = [{ id: 'adoption', tenant_id: tenant, member_id: 'member',
+      agreement_id: 'agreement', plan_id: 'plan', history_id: 'history' }];
+    for (const status of ['first_payment_pending', 'mandate_pending', 'active']) {
+      data.membership_payment_plans[0].status = status;
+      const db = database(data);
+      const result = await listPlans(tenant, { displayStatus: 'membership_unverified', pageSize: 1 }, db);
+      assert.equal(result.total, 1);
+      assert.equal(result.plans[0].membershipPresentation.historicalImport.source, source);
+      assert.equal(result.plans[0].membershipPresentation.current, false);
+      for (const filter of ['current', 'first_payment_pending', 'mandate_pending', 'active', 'pending_activation']) {
+        assert.equal((await listPlans(tenant, { displayStatus: filter }, db)).total, 0, `${source} ${filter}`);
+      }
+      const summary = await buildSummary(tenant, { db });
+      assert.equal(summary.byDisplayStatus.membership_unverified, 1);
+      assert.equal(summary.pendingActivations, 0);
+      const detail = await planDetail(tenant, 'plan', {}, { db });
+      assert.deepEqual(detail.plan.membershipPresentation, result.plans[0].membershipPresentation);
+    }
+    data.membership_payment_plans[0].status = 'payment_overdue';
+    assert.equal((await listPlans(tenant, { displayStatus: 'payment_overdue' }, database(data))).total, 1);
+    delete data[source];
+    data.membership_payment_plans[0].status = 'first_payment_pending';
+    data.membership_payment_plans[0].metadata = { bnms_release_required: true, bnms_beta_held: true };
+    const fresh = await listPlans(tenant, { displayStatus: 'first_payment_pending' }, database(data));
+    assert.equal(fresh.total, 1, 'unverified arbitrary metadata cannot establish historical import');
+    assert.equal(fresh.plans[0].membershipPresentation.historicalImport, null);
+    assert.equal((await buildSummary(tenant, { db: database(data) })).pendingActivations, 1);
+  }
+});
+
+test('Current and pending-activation summary/filter parity with duplicates, preserving raw filters', async () => {
+  const data = tables();
+  data.member_membership_history.push({ ...data.member_membership_history[0], id: 'z-pending', status: 'pending_activation' });
+  data.membership_payment_plans.push({ ...data.membership_payment_plans[0], id: 'duplicate-plan' });
+  const db = database(data);
+  for (const status of ['first_payment_pending', 'mandate_pending', 'active']) {
+    data.membership_payment_plans.forEach(p => { p.status = status; });
+    const summary = await buildSummary(tenant, { db });
+    assert.equal(summary.currentPlans, 2, 'label explicitly counts plans, not unique people');
+    assert.equal(summary.pendingActivations, 0);
+    assert.equal((await listPlans(tenant, { displayStatus: 'current', pageSize: 1 }, db)).total, 2);
+    assert.equal((await listPlans(tenant, { displayStatus: status }, db)).total, 0);
+    assert.equal((await listPlans(tenant, { status }, db)).total, 2);
+    assert.equal((await listPlans(tenant, { displayStatus: 'pending_activation' }, db)).total, 0);
+  }
+});
+
+test('canonical adoption ownership mismatches, ambiguous evidence and read errors fail explicitly', async () => {
+  const adoption = { id: 'a', tenant_id: tenant, member_id: 'member', agreement_id: 'agreement', plan_id: 'plan', history_id: 'history' };
+  for (const patch of [{ member_id: 'other' }, { agreement_id: 'other' }, { history_id: 'missing' }]) {
+    const data = tables();
+    data.bnms_dd_beta_adoption = [{ ...adoption, ...patch }];
+    await assert.rejects(loadDirectDebitMembershipPresentations(database(data), tenant, [plan]), /ownership/);
+  }
+  const data = tables();
+  data.bnms_dd_beta_adoption = [adoption];
+  data.bnms_dd_pilot_adoption = [adoption];
+  await assert.rejects(loadDirectDebitMembershipPresentations(database(data), tenant, [plan]), /Ambiguous/);
+  await assert.rejects(loadDirectDebitMembershipPresentations(database(tables(), 'bnms_dd_beta_adoption'), tenant, [plan]), /lookup/);
+});

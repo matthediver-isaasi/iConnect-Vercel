@@ -36,6 +36,8 @@ function fmtDate(v, withTime = false) {
 }
 
 const STATUS_VARIANTS = {
+  current: "default",
+  membership_unverified: "secondary",
   active: "default",
   pending: "secondary",
   mandate_pending: "secondary",
@@ -53,13 +55,13 @@ function StatusBadge({ status }) {
   if (!status) return null;
   return (
     <Badge variant={STATUS_VARIANTS[status] || "outline"} data-testid={`badge-dd-status-${status}`}>
-      {String(status).replace(/_/g, " ")}
+      {status === "current" ? "Current" : status === "membership_unverified" ? "Membership status unverified" : status === "first_payment_pending" ? "Awaiting first payment" : String(status).replace(/_/g, " ")}
     </Badge>
   );
 }
 
 const PLAN_STATUS_FILTERS = [
-  "all", "pending_activation", "first_payment_pending", "active", "payment_grace_period", "payment_overdue", "suspended",
+  "all", "current", "membership_unverified", "pending_activation", "first_payment_pending", "active", "payment_grace_period", "payment_overdue", "suspended",
   "restricted", "mandate_pending", "completed", "cancelled",
 ];
 const PLAN_PAGE_SIZE = 50;
@@ -266,11 +268,15 @@ function PlanDetail({ planId, onBack }) {
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-to-plans"><ArrowLeft /></Button>
         <h2 className="text-lg font-semibold">Plan detail</h2>
-        <StatusBadge status={plan.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : plan.status} />
-        {plan.mandatePresentation && <Badge variant="outline">Existing mandate active{plan.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{plan.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
+        <StatusBadge status={plan.membershipPresentation?.displayStatus || (plan.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : plan.status)} />
+        {plan.mandatePresentation && <Badge variant="outline">Existing mandate active{!plan.membershipPresentation?.current && !plan.membershipPresentation?.historicalImport && plan.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{plan.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
+        {plan.collectionPresentation?.held && !plan.mandatePresentation?.collectionHeld && <Badge variant="outline">Collections held</Badge>}
       </div>
 
-      {membershipActivation?.status === "pending_activation" && (
+      {plan.membershipPresentation?.historicalImport && !plan.membershipPresentation.current &&
+        <p className="text-sm text-muted-foreground">Historical Direct Debit membership; current entitlement has not been confirmed.</p>}
+
+      {!plan.membershipPresentation?.current && !plan.membershipPresentation?.historicalImport && membershipActivation?.status === "pending_activation" && (
         <Alert data-testid="alert-pending-membership-activation">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -306,14 +312,21 @@ function PlanDetail({ planId, onBack }) {
           <span data-testid="text-plan-grace-days">{dd?.grace_days ?? "—"}</span>
           <span className="text-muted-foreground">Membership year</span>
           <span data-testid="text-plan-year">{dd?.membership_year || "—"}</span>
-          <span className="text-muted-foreground">Activation rule</span>
-          <span data-testid="text-plan-activation-rule">{String(dd?.activation_rule || "—").replace(/_/g, " ")}</span>
+          {!plan.membershipPresentation?.current && !plan.membershipPresentation?.historicalImport && <>
+            <span className="text-muted-foreground">Activation rule</span>
+            <span data-testid="text-plan-activation-rule">{String(dd?.activation_rule || "—").replace(/_/g, " ")}</span>
+          </>}
           <span className="text-muted-foreground">Membership status</span>
           <span data-testid="text-membership-activation-status">
-            {String(membershipActivation?.status || "—").replace(/_/g, " ")}
+            {plan.membershipPresentation?.current ? "Current" : plan.membershipPresentation?.historicalImport ? "Membership status unverified" : String(membershipActivation?.status || "—").replace(/_/g, " ")}
           </span>
         </CardContent>
       </Card>
+
+      {(plan.membershipPresentation?.current || plan.membershipPresentation?.historicalImport) && <details className="text-sm text-muted-foreground">
+        <summary>Technical billing status</summary>
+        <p>Plan: {plan.status} · Activation rule: {dd?.activation_rule || "—"}</p>
+      </details>}
 
       <div className="flex flex-wrap gap-2">
         {actionButtons.map((a) => (
@@ -835,7 +848,7 @@ export default function DirectDebitAdmin() {
   });
 
   const planParams = new URLSearchParams({ view: "plans", page: String(page), pageSize: String(PLAN_PAGE_SIZE) });
-  if (statusFilter !== "all") planParams.set("status", statusFilter);
+  if (statusFilter !== "all") planParams.set("displayStatus", statusFilter);
   if (search) planParams.set("q", search);
   const plansUrl = `/api/admin/gocardless-dd?${planParams.toString()}`;
   const { data: plansData, isLoading: plansLoading, isError: plansError, error: plansQueryError } = useQuery({
@@ -892,8 +905,8 @@ export default function DirectDebitAdmin() {
             ) : (
               <>
                 <Card><CardContent className="pt-4">
-                  <p className="text-2xl font-semibold" data-testid="stat-active">{byStatus.active || 0}</p>
-                  <p className="text-xs text-muted-foreground">Active plans</p>
+                  <p className="text-2xl font-semibold" data-testid="stat-active">{summary?.currentPlans || 0}</p>
+                  <p className="text-xs text-muted-foreground">Current membership plans</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-arrears">{(byStatus.payment_grace_period || 0) + (byStatus.payment_overdue || 0)}</p>
@@ -939,7 +952,7 @@ export default function DirectDebitAdmin() {
                   <SelectTrigger className="w-56" data-testid="select-plan-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {PLAN_STATUS_FILTERS.map((s) => (
-                      <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s.replace(/_/g, " ")}</SelectItem>
+                      <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s === "current" ? "Current" : s === "membership_unverified" ? "Membership status unverified" : s === "first_payment_pending" ? "Awaiting first payment" : s.replace(/_/g, " ")}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -962,9 +975,10 @@ export default function DirectDebitAdmin() {
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{p.payer_name || "Unknown payer"}</span>
-                            <StatusBadge status={p.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : p.status} />
-                            {p.mandatePresentation && <Badge variant="outline">Existing mandate active{p.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{p.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
-                            {p.activation_pending && <StatusBadge status="pending_activation" />}
+                            <StatusBadge status={p.membershipPresentation?.displayStatus || (p.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : p.status)} />
+                            {p.mandatePresentation && <Badge variant="outline">Existing mandate active{!p.membershipPresentation?.current && !p.membershipPresentation?.historicalImport && p.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{p.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
+                            {p.collectionPresentation?.held && !p.mandatePresentation?.collectionHeld && <Badge variant="outline">Collections held</Badge>}
+                            {!p.membershipPresentation?.current && p.activation_pending && <StatusBadge status="pending_activation" />}
                             {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
                           </div>
                           <p className="text-xs text-muted-foreground">

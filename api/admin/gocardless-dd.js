@@ -20,6 +20,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
+import { directDebitCollectionPresentation, loadDirectDebitMembershipPresentations } from '../_lib/directDebitMembershipPresentation.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
@@ -209,10 +210,14 @@ export async function buildSummary(tenantId, { db: supabase = consoleDatabase } 
     .select('*')
     .eq('tenant_id', tenantId).order('id')), { plans: true });
   const byStatus = {};
+  const presentations = await loadDirectDebitMembershipPresentations(supabase, tenantId, plans);
+  const byDisplayStatus = {};
   const attention = [];
   const now = Date.now();
   for (const p of plans || []) {
     byStatus[p.status] = (byStatus[p.status] || 0) + 1;
+    const displayStatus = presentations.get(p.id).displayStatus;
+    byDisplayStatus[displayStatus] = (byDisplayStatus[displayStatus] || 0) + 1;
     if (p.status === STATUS.PAYMENT_GRACE_PERIOD || p.status === STATUS.PAYMENT_OVERDUE) {
       attention.push({
         ...p,
@@ -236,19 +241,16 @@ export async function buildSummary(tenantId, { db: supabase = consoleDatabase } 
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('chargeback_reversed_after_payout', true).order('id'));
-  const [pendingMemberActivations, pendingOrganisationActivations] = await Promise.all([
-    visibleCount(() => supabase.from('member_membership_history').select('*')
-      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit').order('id')),
-    visibleCount(() => supabase.from('organisation_membership_history').select('*')
-      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit').order('id')),
-  ]);
   return {
     byStatus,
+    byDisplayStatus,
+    currentMembers: byDisplayStatus.current || 0,
+    currentPlans: byDisplayStatus.current || 0,
     attention,
     pendingCancellations: pendingCancellations || 0,
     failedAccounting: failedAccounting || 0,
     chargebacksAfterPayout: chargebacksAfterPayout || 0,
-    pendingActivations: (pendingMemberActivations || 0) + (pendingOrganisationActivations || 0),
+    pendingActivations: [...presentations.values()].filter(p => p.pendingActivation).length,
   };
 }
 
@@ -260,10 +262,11 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
     .select('*, membership_billing_agreements!membership_payment_plans_billing_agreement_id_fkey(id, member_id, organization_id, status, metadata)')
     .eq('tenant_id', tenantId)
     .order('updated_at', { ascending: false }).order('id');
-  if (query.status && !['all', 'pending_activation'].includes(query.status)) q = q.eq('status', query.status);
+  if (query.status && !['all', 'current', 'pending_activation'].includes(query.status)) q = q.eq('status', query.status);
     return q;
   });
   const plans = await filterDirectDebitRows(db, tenantId, rawPlans, { plans: true });
+  const presentations = await loadDirectDebitMembershipPresentations(db, tenantId, plans);
 
   // Resolve display names (member/org) in bulk.
   const memberIds = [...new Set((plans || []).map((p) => p.membership_billing_agreements?.member_id || p.member_id).filter(Boolean))];
@@ -290,17 +293,26 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
     const org = orgMap.get(ag?.organization_id || p.organization_id);
     return {
       ...p,
+      membershipPresentation: presentations.get(p.id),
+      collectionPresentation: directDebitCollectionPresentation(p),
       mandatePresentation: migratedMandatePresentation(p),
       membership_billing_agreements: undefined,
       agreement: ag ? { id: ag.id, status: ag.status, member_id: ag.member_id, organization_id: ag.organization_id, dd: ag.metadata?.dd || null } : null,
       activation_status: activationByAgreement.get(ag?.id) || null,
-      activation_pending: activationByAgreement.get(ag?.id) === 'pending_activation',
+      activation_pending: presentations.get(p.id).pendingActivation,
       payer_name: org?.name || (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : null),
       payer_email: member?.email || null,
     };
   });
   if (query.status === 'pending_activation') {
     rows = rows.filter((r) => r.activation_pending);
+  }
+  if (query.status === 'current') rows = rows.filter(r => r.membershipPresentation.displayStatus === 'current');
+  // Legacy status remains the raw financial filter. The console explicitly
+  // opts into presentation filtering; both filters run before pagination.
+  if (query.displayStatus && query.displayStatus !== 'all') {
+    rows = rows.filter(r => query.displayStatus === 'pending_activation'
+      ? r.activation_pending : r.membershipPresentation.displayStatus === query.displayStatus);
   }
   const qText = (query.q || '').toLowerCase().trim();
   if (qText) {
@@ -335,6 +347,7 @@ export async function planDetail(tenantId, planId, res, { db: supabase = console
   if (!(await filterDirectDebitRows(supabase, tenantId, [plan], { plans: true })).length) { res.status(404); return { error: 'Plan not found' }; }
 
   const agreement = (await lookupConsoleRows(supabase, tenantId, 'membership_billing_agreements', [plan.billing_agreement_id])).get(plan.billing_agreement_id) || null;
+  const presentations = await loadDirectDebitMembershipPresentations(supabase, tenantId, [plan]);
   const membershipHistoryTable = agreement?.member_id
     ? 'member_membership_history'
     : (agreement?.organization_id ? 'organisation_membership_history' : null);
@@ -367,6 +380,8 @@ export async function planDetail(tenantId, planId, res, { db: supabase = console
   return {
     plan: {
       ...plan,
+      membershipPresentation: presentations.get(plan.id),
+      collectionPresentation: directDebitCollectionPresentation(plan),
       mandatePresentation: migratedMandatePresentation(await loadMigratedMandatePresentation(supabase, {
         ...plan, membership_billing_agreements: agreement,
       })),

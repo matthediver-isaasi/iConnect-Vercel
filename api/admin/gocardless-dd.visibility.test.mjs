@@ -15,7 +15,7 @@ function fixture() {
   }));
   const tables = {
     member: members, membership_billing_agreements: agreements, membership_payment_plans: plans,
-    member_membership_history: [{ id: 'history', tenant_id: 'tenant', billing_agreement_id: agreements[1204].id, status: 'pending_activation' }],
+    member_membership_history: [{ id: 'history', tenant_id: 'tenant', member_id: members[1204].id, billing_agreement_id: agreements[1204].id, status: 'pending_activation' }],
   };
   const calls = [];
   return { calls, from(table) {
