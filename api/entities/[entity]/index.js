@@ -2562,7 +2562,12 @@ export default async function handler(req, res) {
         if (!authz.ok) {
           return res.status(authz.status || 403).json({ error: authz.error });
         }
-        Object.assign(sanitizedBody, authz.body);
+        // Authorization may remove private fields. A merge would restore keys
+        // left in the original request; snapshot first because admin bodies
+        // may alias sanitizedBody.
+        const authorizedBody = { ...authz.body };
+        for (const key of Object.keys(sanitizedBody)) delete sanitizedBody[key];
+        Object.assign(sanitizedBody, authorizedBody);
       }
 
       if (entityNorm === 'membergroup' && tenantCtx.tenantId) {
@@ -2998,6 +3003,11 @@ export default async function handler(req, res) {
         } catch (err) {
           console.error('[Entity POST] Zoho sync await threw:', err);
         }
+      }
+
+      if ((entityNorm === 'event' || entityNorm === 'complexevent')
+        && !(await hasAdminAccess(tenantCtx))) {
+        delete data.internal_event_type;
       }
 
       // If there are pending workflow confirmations or a sync result, include them in the response

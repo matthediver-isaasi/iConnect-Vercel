@@ -86,7 +86,11 @@ function normalizeHiddenGroupEventFields(out) {
   if ('speaker_awards_granted_at' in out) delete out.speaker_awards_granted_at;
   if ('event_type' in out) out.event_type = null;
   if ('internal_reference' in out) out.internal_reference = null;
-  if ('internal_event_type' in out) out.internal_event_type = null;
+  // This classification is tenant-admin-only. Omit it from group-admin writes
+  // instead of coercing it to NULL: event editors can submit a full form on an
+  // unrelated save, and coercion would erase an administrator's persisted
+  // classification.
+  if ('internal_event_type' in out) delete out.internal_event_type;
   if ('cta_override_url' in out) out.cta_override_url = null;
   if ('cta_override_mode' in out) out.cta_override_mode = 'card';
   if ('cta_button_label' in out) out.cta_button_label = null;

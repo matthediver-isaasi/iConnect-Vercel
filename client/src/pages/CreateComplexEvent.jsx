@@ -29,6 +29,7 @@ import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
+import { internalEventTypePayload } from "@/lib/internalEventTypes";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -1954,7 +1955,7 @@ export default function CreateComplexEvent() {
         allow_public_invoice_po: !isGroupLimited && allowPublicInvoicePo === true,
         pricing_config: { collectThirdPartyConsent: collectThirdPartyConsent === true },
         internal_reference: formData.internal_reference || null,
-        internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
+        ...internalEventTypePayload(formData.internal_event_type, { isGroupLimited }),
         xero_account_code: formData.xero_account_code || null,
         event_type: serializeEventTypes(formData.event_type),
         registration_closes_at: formData.registration_closes_at || null,

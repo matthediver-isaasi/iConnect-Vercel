@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { parseInternalEventTypes } from "./internalEventTypes.js";
+import {
+  internalEventTypePayload,
+  parseInternalEventTypes,
+} from "./internalEventTypes.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const read = (path) => readFileSync(join(root, path), "utf8");
@@ -14,20 +17,34 @@ test("internal event type options parse safely and case-insensitively deduplicat
   assert.deepEqual(parseInternalEventTypes(null), []);
 });
 
-test("simple and complex event forms persist nullable internal classifications", () => {
+test("editor payload behavior persists, clears, or protects internal classifications", () => {
+  assert.deepEqual(internalEventTypePayload("Finance"), { internal_event_type: "Finance" });
+  assert.deepEqual(internalEventTypePayload(""), { internal_event_type: null });
+  assert.deepEqual(internalEventTypePayload("Finance", { isGroupLimited: true }), {});
+
+  const persisted = { internal_event_type: "Finance", title: "Before" };
+  const unrelatedGroupLimitedSave = {
+    ...persisted,
+    title: "After",
+    ...internalEventTypePayload("", { isGroupLimited: true }),
+  };
+  assert.equal(unrelatedGroupLimitedSave.internal_event_type, "Finance");
+});
+
+test("simple create/edit and complex create/edit use the protected payload behavior", () => {
   const create = read("client/src/pages/CreateEvent.jsx");
   const edit = read("client/src/pages/EditEvent.jsx");
   const complex = read("client/src/pages/CreateComplexEvent.jsx");
-  assert.match(create, /internal_event_type:\s*isGroupLimited \? null : \(formData\.internal_event_type \|\| null\)/);
+  for (const source of [create, edit, complex]) {
+    assert.match(source, /\.\.\.internalEventTypePayload\(formData\.internal_event_type, \{ isGroupLimited \}\)/);
+  }
   assert.match(edit, /internal_event_type:\s*event\.internal_event_type \|\| ""/);
-  assert.match(edit, /internal_event_type:\s*isGroupLimited \? null : \(formData\.internal_event_type \|\| null\)/);
   assert.match(complex, /internal_event_type:\s*existingEvent\.internal_event_type \|\| ""/);
-  assert.match(complex, /internal_event_type:\s*isGroupLimited \? null : \(formData\.internal_event_type \|\| null\)/);
 });
 
 test("group administrators cannot set the private classification", () => {
   const source = read("api/_lib/groupAdminEventWrite.js");
-  assert.match(source, /if \('internal_event_type' in out\) out\.internal_event_type = null;/);
+  assert.match(source, /if \('internal_event_type' in out\) delete out\.internal_event_type;/);
 });
 
 test("public settings and event endpoints never expose internal classifications", () => {

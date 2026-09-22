@@ -52,3 +52,16 @@ test("historical Direct Debit invoice endpoint is discoverable through the Verce
   assert.equal(typeof result?.handler, "function");
   assert.deepEqual(result?.params, {});
 });
+
+for (const entity of ["Event", "ComplexEvent"]) {
+  test(`generic ${entity} collection and record handlers are available in development`, async () => {
+    const collection = await findHandler(`/api/entities/${entity}`);
+    const record = await findHandler(`/api/entities/${entity}/event-id`);
+
+    assert.equal(typeof collection?.handler, "function");
+    assert.deepEqual(collection?.params, { entity });
+    assert.equal(typeof record?.handler, "function");
+    assert.deepEqual(record?.params, { entity, id: "event-id" });
+    assert.notEqual(collection?.handler, record?.handler);
+  });
+}

@@ -76,6 +76,7 @@ import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayM
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
+import { internalEventTypePayload } from "@/lib/internalEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { persistAgendaLinesWithRollback } from "@/lib/eventAgendaPersistence";
@@ -1792,7 +1793,7 @@ export default function EditEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
-      internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
+      ...internalEventTypePayload(formData.internal_event_type, { isGroupLimited }),
       xero_account_code: isGroupLimited ? null : (formData.xero_account_code || null),
       event_type: serializeEventTypes(formData.event_type),
       // For one-off events, program_tag should be empty string; for program events, use the selected program

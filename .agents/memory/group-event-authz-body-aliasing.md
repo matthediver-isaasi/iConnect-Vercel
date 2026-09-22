@@ -14,9 +14,17 @@ the update payload becomes `{}`. An empty Supabase `.update({})` matches zero
 rows, returns PGRST116, which the handler maps to a clean 404 with no
 `console.error` — invisible in Vercel logs.
 
-The CREATE handler does `Object.assign(sanitizedBody, authz.body)` WITHOUT the
-delete loop, so admin self-assign is a harmless no-op — that's why creating an
-event always worked but editing one 404'd.
+Create-path authorization must propagate removed keys, not just overwritten
+values. A plain merge can retain an unauthorized field from the original
+request even when authorization removed it from its returned copy.
+
+**Why:** changing a private field guard from null-coercion to omission exposed
+this difference: update preserved stored data correctly, but create retained
+the crafted original input.
+
+**How to apply:** replace with a snapshot of the authorized body (or check
+identity before clearing), and exercise both create and update with crafted
+private fields. A passing update test does not establish create safety.
 
 **Why:** authz helpers that mutate-or-passthrough must be alias-safe at the call
 site. Don't clear-then-merge unless you know the source is a distinct object.

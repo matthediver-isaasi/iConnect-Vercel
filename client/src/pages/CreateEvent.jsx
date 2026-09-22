@@ -63,6 +63,7 @@ import { reconcileSpeakerAwards } from "@/lib/speakerAwardLifecycle";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
+import { internalEventTypePayload } from "@/lib/internalEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
@@ -1138,7 +1139,7 @@ export default function CreateEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
-      internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
+      ...internalEventTypePayload(formData.internal_event_type, { isGroupLimited }),
       event_type: serializeEventTypes(formData.event_type),
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isProgramEvent ? formData.program_tag : "",

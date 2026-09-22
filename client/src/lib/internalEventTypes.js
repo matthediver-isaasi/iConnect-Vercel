@@ -1,5 +1,12 @@
 export const INTERNAL_EVENT_TYPES_SETTING_KEY = "internal_event_types";
 
+export function internalEventTypePayload(value, { isGroupLimited = false } = {}) {
+  // Group-limited editors do not expose this tenant-admin-only field. Omitting
+  // it from writes preserves any classification already stored on the event.
+  if (isGroupLimited) return {};
+  return { internal_event_type: value || null };
+}
+
 export function parseInternalEventTypes(value) {
   if (!value) return [];
   try {
