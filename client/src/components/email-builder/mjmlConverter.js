@@ -2,6 +2,7 @@ import mjml2html from 'mjml-browser';
 import { BLOCK_TYPES, resolveButtonStyles } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues, spacingToMjml } from './SpacingControl';
+import { applyHybridColumnFallback, HYBRID_COLUMN_SECTION_CLASS } from './hybridColumns';
 
 const escapeHtml = (text) => {
   if (!text) return '';
@@ -329,7 +330,7 @@ const wrapDynMarkers = (token, inner) => {
       `;
 };
 
-const blockToMjml = (block) => {
+const blockToMjml = (block, { hybridColumns = false } = {}) => {
   switch (block.type) {
     case BLOCK_TYPES.SECTION: {
       const paddingVal = getPaddingAttr(block.styles);
@@ -576,7 +577,8 @@ const blockToMjml = (block) => {
         return `<mj-column width="${col.width || '50%'}" padding-left="${paddingLeft}" padding-right="${paddingRight}"${columnBg}>${colBlocks || '<mj-text></mj-text>'}</mj-column>`;
       }).join('');
       const columnsBg = block.styles.backgroundColor ? ` background-color="${block.styles.backgroundColor}"` : '';
-      return `<mj-section padding="${getPaddingAttr(block.styles)}"${columnsBg}>${columnsContent}</mj-section>`;
+      const sectionClass = hybridColumns ? ` css-class="${HYBRID_COLUMN_SECTION_CLASS}"` : '';
+      return `<mj-section${sectionClass} padding="${getPaddingAttr(block.styles)}"${columnsBg}>${columnsContent}</mj-section>`;
     }
 
     default:
@@ -626,7 +628,7 @@ const collectUsedFonts = (blocks) => {
   return usedFonts;
 };
 
-export const designToMjml = (design, { footerHtml } = {}) => {
+export const designToMjml = (design, { footerHtml, hybridColumns = false } = {}) => {
   const { blocks = [], globalStyles = {} } = design;
   
   const usedFonts = collectUsedFonts(blocks);
@@ -634,7 +636,10 @@ export const designToMjml = (design, { footerHtml } = {}) => {
     .map(font => `<mj-font name="${font}" href="${GOOGLE_FONTS[font]}" />`)
     .join('\n        ');
   
-  const mjmlBlocks = blocks.filter(b => !b.hidden).map(blockToMjml).join('\n');
+  const mjmlBlocks = blocks
+    .filter(b => !b.hidden)
+    .map(block => blockToMjml(block, { hybridColumns }))
+    .join('\n');
 
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
@@ -680,9 +685,9 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   `;
 };
 
-export const designToHtml = (design, { footerHtml } = {}) => {
+export const designToHtml = (design, { footerHtml, hybridColumns = false } = {}) => {
   try {
-    const mjmlString = designToMjml(design, { footerHtml });
+    const mjmlString = designToMjml(design, { footerHtml, hybridColumns });
     const { html, errors } = mjml2html(mjmlString, {
       validationLevel: 'soft',
     });
@@ -691,7 +696,7 @@ export const designToHtml = (design, { footerHtml } = {}) => {
       console.warn('[EmailBuilder] MJML conversion warnings:', errors);
     }
     
-    return html;
+    return hybridColumns ? applyHybridColumnFallback(html) : html;
   } catch (error) {
     console.error('[EmailBuilder] Failed to convert design to HTML:', error);
     return null;

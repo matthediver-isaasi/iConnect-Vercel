@@ -929,3 +929,31 @@ mtime_ms = 1789989145676
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/199c9828-7eb6-4317-989a-43cd18c49b98/961ad203-3846-4373-b3c1-e95cc7c5d73d"
 storage_version_token = "1789989975041468"
 content_type = "text/csv"
+
+[[outputs]]
+id = "VtSXLbXDe-K0TVZcRVP5m"
+uri = "file://tests/fixtures/gmail-columns/generated/gmail-columns.after.html"
+type = "html"
+title = "Candidate sponsor email — browser preview only"
+description = "Sanitized offline candidate with three sponsors, CTA and footer. Not proof of Gmail or Outlook compatibility."
+logical_id = "332a3903-e7b5-42f7-9846-a9b1982d870f"
+content_hash = "sha256:520f8b267d006a92c1d3e19e1f6957bd4f32cd04007ac5256738b2a7cecf5a1b"
+size = 15517
+mtime_ms = 1790089816194
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/332a3903-e7b5-42f7-9846-a9b1982d870f/935aa41f-e713-49f8-9a5d-e48b5f38cd55"
+storage_version_token = "1790089872574403"
+content_type = "text/html"
+
+[[outputs]]
+id = "CufsGzx2f_BL-fg219iu6"
+uri = "file://tests/fixtures/gmail-columns/generated/gmail-columns.before.html"
+type = "html"
+title = "Baseline sponsor email"
+description = "Sanitized baseline for comparison. Recipient-free EML copies and release checklist are under tests/fixtures/gmail-columns."
+logical_id = "171023b2-642c-4d2f-835e-a56731e3336a"
+content_hash = "sha256:85103ef2ba219afa58b02d6232ca23964ca03854b56fde59bcc3c03a4685275a"
+size = 15233
+mtime_ms = 1790089816182
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/171023b2-642c-4d2f-835e-a56731e3336a/97320574-f162-4616-8c6f-cc4534a53795"
+storage_version_token = "1790089873216978"
+content_type = "text/html"
