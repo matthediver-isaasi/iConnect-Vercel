@@ -10,10 +10,12 @@ import {
   acquireViewerSessionRequest,
   getViewerSessionScope,
   invalidateViewerSessionRequest,
-  isViewerSessionRevalidationDue,
   useViewerSessionPreload,
-  VIEWER_SESSION_REVALIDATE_MS,
 } from "@/lib/viewerSessionPreload";
+import {
+  resolveRoutineSessionRole,
+  useViewerSessionRevalidation,
+} from "@/lib/viewerSessionLifecycle";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -1071,6 +1073,7 @@ export default function Layout({ children, currentPageName }) {
     setSessionValidated,
     setAuthResolved,
     setCanvasMemberSnapshot,
+    sessionRoleSnapshot,
     setSessionRoleSnapshot,
     setRetrySessionRole: setContextRetrySessionRole,
   } = useLayoutContext();
@@ -1096,6 +1099,8 @@ export default function Layout({ children, currentPageName }) {
   const [authRevision, setAuthRevision] = useState(0);
   const [sessionError, setSessionError] = useState(null);
   const [sessionValidatedAt, setSessionValidatedAt] = useState(0);
+  const routineRevalidationRef = useRef(false);
+  const routineRevalidationInFlightRef = useRef(false);
   const viewerSessionScope = getViewerSessionScope({
     tenantSlug: publicClient.getTenantSlug(),
     hostname: window.location.hostname,
@@ -1105,6 +1110,8 @@ export default function Layout({ children, currentPageName }) {
   const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
 
   const retrySessionRoleValidation = React.useCallback(() => {
+    routineRevalidationRef.current = false;
+    routineRevalidationInFlightRef.current = false;
     authGenerationRef.current += 1;
     invalidateViewerSessionRequest(viewerSessionScope);
     setSessionValidated(false);
@@ -1112,6 +1119,18 @@ export default function Layout({ children, currentPageName }) {
     setSessionValidatedAt(0);
     setAuthRevision(value => value + 1);
   }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
+
+  const revalidateViewerSession = React.useCallback(() => {
+    // A routine check is not an authentication boundary. Keep the currently
+    // verified, identity-matched portal and role mounted while the bounded
+    // request is in flight; its authoritative outcome is committed below.
+    if (routineRevalidationInFlightRef.current) return;
+    routineRevalidationRef.current = true;
+    routineRevalidationInFlightRef.current = true;
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setAuthRevision(value => value + 1);
+  }, [viewerSessionScope]);
 
   const queryClient = useQueryClient();
   useEffect(() => subscribeRoleSettingsCopy(() => {
@@ -1537,7 +1556,7 @@ useEffect(() => {
 
   // Helper function to check if a feature is excluded for the current member
   // Uses the new hierarchical role visibility system
-  const isFeatureExcluded = (featureId) => {
+  const isFeatureExcluded = React.useCallback((featureId) => {
     if (!memberInfo || !featureId) return false;
     if (roleStatus !== 'ready') return true;
     const customObjectId = getCustomObjectIdFromPortalRoleAccessId(featureId);
@@ -1557,7 +1576,7 @@ useEffect(() => {
     
     // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
     return isResourceExcluded(allExclusions, featureId);
-  };
+  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole]);
 
   // Unread inbox summary for the nav bell badge AND the login popup. Only
   // fetched for members who can reach the inbox, so excluded members never hit a
@@ -1932,6 +1951,9 @@ useEffect(() => {
     const lease = createViewerRequestLease(authGenerationRef);
     const isCancelled = () => !lease.isCurrent();
     const sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
+    const isRoutineRevalidation = routineRevalidationRef.current;
+    routineRevalidationRef.current = false;
+    const validationStartedAt = Date.now();
 
     // Check server session first for multi-tab persistence
     const checkServerSession = async () => {
@@ -1954,18 +1976,51 @@ useEffect(() => {
               ...stripTrustedMemberProjections(member),
               sessionExpiry,
             };
+            const refreshedSessionRole = isRoutineRevalidation
+              ? await resolveRoutineSessionRole(
+                member,
+                roleId => base44.entities.Role.get(roleId),
+                10000 - (Date.now() - validationStartedAt),
+              )
+              : member.sessionRole;
+            if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
             localStorage.setItem('agcas_member', JSON.stringify(memberData));
-            setMemberInfo(memberData);
-            // Commit member identity and the server-only projection together.
-            // Do not persist the projection to localStorage or derive it from
-            // the independently cached organizationInfo fetch.
-            setContextMemberInfo(memberData);
-            setCanvasMemberSnapshot(member.canvasMemberSnapshot || null);
-            setSessionRoleSnapshot(normalizeSessionRoleSnapshot(
-              member.sessionRole,
+            const comparableMember = { ...memberData };
+            const comparableCurrentMember = memberInfo ? { ...memberInfo } : null;
+            delete comparableMember.sessionExpiry;
+            if (comparableCurrentMember) delete comparableCurrentMember.sessionExpiry;
+            const unchangedMember = isRoutineRevalidation
+              && JSON.stringify(comparableCurrentMember) === JSON.stringify(comparableMember);
+            // Publishing a fresh but identical member object repaints page-owned
+            // Canvas content and discards live input state. Authoritative member
+            // changes still commit normally.
+            if (!unchangedMember) {
+              setMemberInfo(memberData);
+              setContextMemberInfo(memberData);
+            }
+            const nextCanvasSnapshot = member.canvasMemberSnapshot || null;
+            setCanvasMemberSnapshot(current => (
+              isRoutineRevalidation
+                && JSON.stringify(current) === JSON.stringify(nextCanvasSnapshot)
+                ? current
+                : nextCanvasSnapshot
+            ));
+            const nextRoleSnapshot = normalizeSessionRoleSnapshot(
+              refreshedSessionRole,
               memberData,
               createSessionRoleKey(viewerSessionScope),
-            ));
+            );
+            const comparableRoleSnapshot = snapshot => {
+              if (!snapshot) return null;
+              const { session_key: _sessionKey, ...projection } = snapshot;
+              return projection;
+            };
+            const unchangedRole = isRoutineRevalidation
+              && sessionRoleSnapshot?.status === 'ready'
+              && nextRoleSnapshot?.status === 'ready'
+              && JSON.stringify(comparableRoleSnapshot(sessionRoleSnapshot))
+                === JSON.stringify(comparableRoleSnapshot(nextRoleSnapshot));
+            if (!unchangedRole) setSessionRoleSnapshot(nextRoleSnapshot);
             // SECURITY: Mark session as validated - this enables authenticated API access
             setSessionValidated(true);
             setSessionValidatedAt(Date.now());
@@ -2003,10 +2058,13 @@ useEffect(() => {
 
     const handleAuth = async () => {
       // Every layout needs validated viewer state for audience-targeted content.
-      // Reset both flags before the request so stale authenticated state cannot
-      // briefly classify a guest as authenticated after logout/session expiry.
-      setAuthResolved(false);
-      setSessionValidated(false);
+      // Cold checks and explicit invalidations block immediately. A routine
+      // bounded refresh retains the last verified identity and permissions
+      // until the server provides an authoritative outcome.
+      if (!isRoutineRevalidation) {
+        setAuthResolved(false);
+        setSessionValidated(false);
+      }
       setSessionError(null);
 
       // Try server session first (for password-based auth with cross-tab persistence)
@@ -2018,9 +2076,14 @@ useEffect(() => {
         ? new Error('Unable to verify your session. Please try again.')
         : null);
       if (!sessionResult.valid) {
-        setMemberInfo(null);
-        setOrganizationInfo(null);
-        setContextMemberInfo(null);
+        // A transport failure is not proof of logout, but cached authorization
+        // may not be extended indefinitely. Close readiness after the bounded
+        // attempt while retaining identity data so retry remains recoverable.
+        if (sessionResult.serverResponded || !isRoutineRevalidation) {
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          setContextMemberInfo(null);
+        }
         setSessionValidated(false);
         if (sessionResult.serverResponded) {
           localStorage.removeItem('agcas_member');
@@ -2029,6 +2092,7 @@ useEffect(() => {
         }
       }
       setAuthResolved(true);
+      routineRevalidationInFlightRef.current = false;
     };
 
     handleAuth();
@@ -2038,31 +2102,11 @@ useEffect(() => {
     };
   }, [authRevision, viewerSessionScope]); // Routes and visibility metadata are not session boundaries.
 
-  useEffect(() => {
-    if (!authResolved || !sessionValidated || !sessionValidatedAt) return;
-
-    let revalidationStarted = false;
-    const revalidateIfDue = () => {
-      if (!revalidationStarted
-        && document.visibilityState !== 'hidden'
-        && isViewerSessionRevalidationDue(sessionValidatedAt)) {
-        revalidationStarted = true;
-        retrySessionRoleValidation();
-      }
-    };
-    const remaining = Math.max(
-      0,
-      VIEWER_SESSION_REVALIDATE_MS - (Date.now() - sessionValidatedAt),
-    );
-    const timeout = window.setTimeout(revalidateIfDue, remaining);
-    window.addEventListener('focus', revalidateIfDue);
-    document.addEventListener('visibilitychange', revalidateIfDue);
-    return () => {
-      window.clearTimeout(timeout);
-      window.removeEventListener('focus', revalidateIfDue);
-      document.removeEventListener('visibilitychange', revalidateIfDue);
-    };
-  }, [authResolved, sessionValidated, sessionValidatedAt, retrySessionRoleValidation]);
+  useViewerSessionRevalidation({
+    enabled: authResolved && sessionValidated,
+    validatedAt: sessionValidatedAt,
+    onRevalidate: revalidateViewerSession,
+  });
 
   useEffect(() => {
     if (!authResolved || sessionValidated || sessionError
@@ -2504,25 +2548,26 @@ useEffect(() => {
     })
     .filter(Boolean); // Remove any null entries
 
-  const childrenWithProps = React.Children.map(children, child => {
-    if (React.isValidElement(child)) {
-      return React.cloneElement(child, { 
-        memberInfo, 
-        organizationInfo,
-        memberRole,
-        // isAdmin removed - access control now uses isFeatureExcluded() exclusively
-        refreshOrganizationInfo: () => { // Conditionally refresh org info for non-team members
-          if (memberInfo && !memberInfo.is_team_member) {
-            fetchOrganizationInfo(memberInfo.organization_id);
-          }
-        },
-        isFeatureExcluded,
-        reloadMemberInfo, // Add the new function to props
-        hasBanner: !!portalBanner // Pass banner status to hide page headers when banner is present
-      });
-    }
-    return child;
-  });
+  // Reuse the exact child element across routine validation bookkeeping. This
+  // prevents page-owned renderers from repainting unchanged content after a
+  // successful idle check while still updating for authoritative data changes.
+  const childrenWithProps = useMemo(() => React.Children.map(children, child => {
+    if (!React.isValidElement(child)) return child;
+    return React.cloneElement(child, {
+      memberInfo,
+      organizationInfo,
+      memberRole,
+      // isAdmin removed - access control now uses isFeatureExcluded() exclusively
+      refreshOrganizationInfo: () => {
+        if (memberInfo && !memberInfo.is_team_member) {
+          fetchOrganizationInfo(memberInfo.organization_id);
+        }
+      },
+      isFeatureExcluded,
+      reloadMemberInfo,
+      hasBanner: !!portalBanner,
+    });
+  }), [children, memberInfo, organizationInfo, memberRole, isFeatureExcluded, portalBanner]);
 
   const rendersPublicShell = isPublicPage();
   useLayoutEffect(() => {

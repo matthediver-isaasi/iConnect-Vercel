@@ -20,17 +20,29 @@ const ROLE = {
   name: "Session boundary role",
   excluded_features: [],
 };
+const NEXT_MEMBER = {
+  ...MEMBER,
+  id: "member-session-boundary-next",
+  email: "session-boundary-next@example.invalid",
+  first_name: "Next",
+  tenant_id: "tenant-session-boundary-next",
+};
+const NEXT_ROLE = {
+  ...ROLE,
+  tenant_id: NEXT_MEMBER.tenant_id,
+  name: "Next session boundary role",
+};
 
-function sessionBody() {
+function sessionBody(member = MEMBER, role = ROLE) {
   return {
-    ...MEMBER,
+    ...member,
     sessionRole: {
       status: "ready",
-      member_id: MEMBER.id,
-      tenant_id: TENANT.id,
-      role_id: MEMBER.role_id,
+      member_id: member.id,
+      tenant_id: member.tenant_id,
+      role_id: member.role_id,
       session_key: "fixture-session",
-      role: ROLE,
+      role,
     },
   };
 }
@@ -100,6 +112,11 @@ async function installFixture(page) {
     authStatus: 200,
     authBody: sessionBody(),
     authGate: deferred(true),
+    authAttempts: [],
+    roleReads: 0,
+    roleBody: ROLE,
+    roleGate: deferred(true),
+    roleAttempts: [],
     logoutGate: deferred(false),
     logoutReads: 0,
     writes: [],
@@ -112,6 +129,20 @@ async function installFixture(page) {
     },
     releaseAuth() {
       state.authGate.release();
+    },
+    releaseAuthAttempt(attempt) {
+      const request = state.authAttempts[attempt - 1];
+      if (!request) throw new Error(`Auth attempt ${attempt} has not started`);
+      request.gate.release();
+    },
+    setRole({ body = ROLE, hold = false } = {}) {
+      state.roleBody = body;
+      state.roleGate = deferred(!hold);
+    },
+    releaseRoleAttempt(attempt) {
+      const request = state.roleAttempts[attempt - 1];
+      if (!request) throw new Error(`Role attempt ${attempt} has not started`);
+      request.gate.release();
     },
     releaseLogout() {
       state.logoutGate.release();
@@ -162,13 +193,21 @@ async function installFixture(page) {
       const gate = state.authGate;
       const status = state.authStatus;
       const body = state.authBody;
+      state.authAttempts.push({ gate, status, body });
       await gate.promise;
       return json(route, body, status);
     }
     if (url.pathname === "/api/auth/tenant-user-me") {
       return json(route, { authenticated: false }, 401);
     }
-    if (url.pathname.startsWith("/api/entities/Role/")) return json(route, ROLE);
+    if (url.pathname.startsWith("/api/entities/Role/")) {
+      state.roleReads += 1;
+      const gate = state.roleGate;
+      const body = state.roleBody;
+      state.roleAttempts.push({ gate, body });
+      await gate.promise;
+      return json(route, body);
+    }
     if (url.pathname === "/api/entities/Role") return json(route, [ROLE]);
     if (url.pathname === "/api/entities/PortalMenu") {
       return json(route, [{
@@ -326,30 +365,223 @@ async function expectShellClosed(page) {
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
 }
 
-test("navigation before expiry reuses auth, then five-minute expiry closes the shell until revalidated", async ({ page }) => {
+async function prepareRetentionState(page, value) {
+  await page.evaluate(() => {
+    const content = [...document.querySelectorAll("p")]
+      .find((node) => node.textContent.startsWith("Session boundary content:"));
+    if (!content) throw new Error("Fixture portal content was not mounted");
+    const fixture = document.createElement("div");
+    fixture.innerHTML = `
+      <label>Idle draft <input aria-label="Idle draft" /></label>
+      <details>
+        <summary>Idle disclosure</summary>
+        <p>Open control content</p>
+      </details>
+      <div data-idle-scroll style="height: 100px; overflow: auto">
+        <div style="height: 600px">Scrollable fixture content</div>
+      </div>
+    `;
+    content.parentElement.append(fixture);
+  });
+  const input = page.getByRole("textbox", { name: "Idle draft" });
+  const disclosure = page.getByText("Idle disclosure", { exact: true });
+  await input.fill(value);
+  await disclosure.click();
+  await page.evaluate(() => {
+    window.__idleFixtureInput = document.querySelector('input[aria-label="Idle draft"]');
+    window.__idleFixtureScroll = document.querySelector("[data-idle-scroll]");
+    window.__idleFixtureScroll.scrollTop = 120;
+  });
+  await expect(disclosure.locator("..")).toHaveAttribute("open", "");
+  await expect.poll(() => page.evaluate(() => window.__idleFixtureScroll.scrollTop)).toBe(120);
+  return input;
+}
+
+async function expectRetentionState(page, input, value, scrollTop) {
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue(value);
+  await expect(page.getByText("Idle disclosure", { exact: true }).locator("..")).toHaveAttribute("open", "");
+  await expect.poll(() => page.evaluate(() => ({
+    sameInput: window.__idleFixtureInput === document.querySelector('input[aria-label="Idle draft"]'),
+    connected: window.__idleFixtureInput?.isConnected,
+    scrollTop: window.__idleFixtureScroll?.scrollTop,
+  }))).toEqual({ sameInput: true, connected: true, scrollTop });
+}
+
+test("slow five-minute timer revalidation keeps the active portal route mounted and interactive", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   const state = await installFixture(page);
   await page.goto("/session-boundary");
   await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
   expect(state.authReads).toBe(1);
 
-  await page.evaluate(() => {
-    history.pushState({}, "", "/session-boundary-next");
-    dispatchEvent(new PopStateEvent("popstate"));
-  });
-  await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, "unsaved timer draft");
+  const scrollTop = await page.evaluate(() => window.__idleFixtureScroll.scrollTop);
+
+  state.setAuth({ hold: true });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(2);
+  await expectRetentionState(page, input, "unsaved timer draft", scrollTop);
+  await input.fill("edited while timer check is pending");
   await expect(page.getByText("Loading portal…", { exact: true })).toHaveCount(0);
+
+  state.releaseAuth();
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await expectRetentionState(page, input, "edited while timer check is pending", scrollTop);
+  await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
+  expect(state.authReads).toBe(2);
+
+  state.setAuth();
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(3);
+  await expectRetentionState(page, input, "edited while timer check is pending", scrollTop);
+  expectReadOnlyClean(state);
+});
+
+test("overdue focus and visibility checks coalesce while retaining the second portal route", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  await page.addInitScript(() => {
+    let fixtureVisibility = "visible";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => fixtureVisibility,
+    });
+    window.__setFixtureVisibility = (value) => {
+      fixtureVisibility = value;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+  });
+  await page.goto("/session-boundary-next");
+  await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, "unsaved focus draft");
+  const scrollTop = await page.evaluate(() => window.__idleFixtureScroll.scrollTop);
+  expect(state.authReads).toBe(1);
+
+  await page.evaluate(() => window.__setFixtureVisibility("hidden"));
+  await page.clock.fastForward(FIVE_MINUTES + 1);
+  expect(state.authReads).toBe(1);
+
+  state.setAuth({ hold: true });
+  await page.evaluate(() => {
+    window.__setFixtureVisibility("visible");
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => state.authReads).toBe(2);
+  await expectRetentionState(page, input, "unsaved focus draft", scrollTop);
+  await expect(page.getByText("Loading portal…", { exact: true })).toHaveCount(0);
+
+  state.releaseAuth();
+  await expectRetentionState(page, input, "unsaved focus draft", scrollTop);
+  expect(state.authReads).toBe(2);
+  expectReadOnlyClean(state);
+});
+
+test("legacy routine checks retain content while refreshing role permissions and time out closed", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  const { sessionRole: _sessionRole, ...legacyMember } = sessionBody();
+  state.setAuth({ body: legacyMember });
+  await page.goto("/session-boundary");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await expect.poll(() => state.roleReads).toBe(1);
+  const input = await prepareRetentionState(page, "legacy role draft");
+  const scrollTop = await page.evaluate(() => window.__idleFixtureScroll.scrollTop);
+
+  state.setRole({
+    body: {
+      ...ROLE,
+      name: "Revoked legacy role",
+      excluded_features: ["fixture.workspace"],
+    },
+    hold: true,
+  });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(2);
+  await expect.poll(() => state.roleReads).toBe(2);
+  await expectRetentionState(page, input, "legacy role draft", scrollTop);
+
+  state.releaseRoleAttempt(2);
+  await expect(page.getByText("Revoked legacy role", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
+
+  state.setRole({ hold: true });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(3);
+  await expect.poll(() => state.roleReads).toBe(3);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await page.clock.fastForward(10_000);
+  await expect(page.getByRole("alert")).toContainText("Unable to verify your session");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toHaveCount(0);
+  expectReadOnlyClean(state);
+});
+
+test("routine timeout closes access and explicit retry restores the route", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  await page.goto("/session-boundary");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, "timeout draft");
+  const scrollTop = await page.evaluate(() => window.__idleFixtureScroll.scrollTop);
+
+  state.setAuth({ hold: true });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(2);
+  await expectRetentionState(page, input, "timeout draft", scrollTop);
+
+  await page.clock.fastForward(10_000);
+  await expect(page.getByRole("alert")).toContainText("Unable to verify your session");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
+
+  state.setAuth();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect.poll(() => state.authReads).toBe(3);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
+  expectReadOnlyClean(state);
+});
+
+test("tenant account change supersedes a held routine response and rejects its late identity", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  await page.goto("/session-boundary-next");
+  await expect(page.getByText("Boundary Member", { exact: true })).toBeVisible();
   expect(state.authReads).toBe(1);
 
   state.setAuth({ hold: true });
   await page.clock.fastForward(FIVE_MINUTES);
   await expect.poll(() => state.authReads).toBe(2);
-  await expectShellClosed(page);
+  await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toBeVisible();
 
-  state.releaseAuth();
+  state.setAuth({ body: sessionBody(NEXT_MEMBER, NEXT_ROLE), hold: true });
+  await page.evaluate((nextMember) => {
+    const oldValue = localStorage.getItem("agcas_member");
+    const newValue = JSON.stringify(nextMember);
+    localStorage.setItem("agcas_member", newValue);
+    dispatchEvent(new StorageEvent("storage", {
+      key: "agcas_member",
+      oldValue,
+      newValue,
+    }));
+  }, NEXT_MEMBER);
+  await expect.poll(() => state.authReads).toBe(3);
+  await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
+
+  state.releaseAuthAttempt(2);
+  await page.clock.runFor(1);
+  await expect(page.getByText("Boundary Member", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Next Member", { exact: true })).toHaveCount(0);
+  expect(state.authReads).toBe(3);
+
+  state.releaseAuthAttempt(3);
+  await expect(page.getByText("Next Member", { exact: true })).toBeVisible();
+  await expect(page.getByText("Boundary Member", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
-  expect(state.authReads).toBe(2);
+  expect(state.authReads).toBe(3);
   expectReadOnlyClean(state);
 });
 

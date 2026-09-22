@@ -32,3 +32,21 @@ Route readiness and session lifetime are separate boundaries. A pathname change 
 **Why:** Route-scoped authentication cleared trusted roles on every navigation and repeatedly replaced the entire portal with its loading state. Reusing permissions indefinitely would fix the visual symptom by weakening revocation handling.
 
 **How to apply:** Scope session discovery to the tenant and authentication generation, fence old responses, and test ordinary navigation separately from expiry, explicit invalidation, and account changes. Route decision leases still expire on navigation and must never carry public/blank/microsite chrome into another destination.
+
+Routine session checks must retain the current validated page while their bounded request is pending; they are not deliberate security invalidations.
+
+**Why:** Clearing readiness for every five-minute or overdue focus check hides the whole portal and can discard page state. Removing checks or indefinitely trusting cached permissions would instead weaken revocation handling.
+
+**How to apply:** Coalesce timer/focus/visibility triggers, retain access only during the bounded attempt, and fail closed recoverably on timeout or network failure. Apply authoritative roles on success even when the role ID has not changed. Keep logout, identity changes and explicit permission invalidation blocking and fence late responses.
+
+Successful background checks need retention assertions after completion as well as while pending.
+
+**Why:** Equivalent new projection objects can repaint page-owned Canvas content even when the outer portal shell never closes, losing live controls and input state.
+
+**How to apply:** Keep equivalent authoritative projections stable without suppressing real permission changes, and assert exact input-node identity across repeated successful refreshes.
+
+Equivalent legacy snapshots are not evidence that permissions remain unchanged.
+
+**Why:** A legacy auth response omits the role projection; preserving its session key with an infinitely fresh fallback query can retain revoked permissions indefinitely.
+
+**How to apply:** Resolve legacy permissions afresh within the routine check's bounded budget before comparing authoritative projections. Never use equality of legacy metadata to suppress role revalidation.
