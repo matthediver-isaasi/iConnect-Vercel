@@ -1,5 +1,11 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, generateTrackingToken, rewriteLinksForTracking, getTenantBaseUrl } from '../_lib/campaignService.js';
+import {
+  getCampaign,
+  generateTrackingToken,
+  rewriteLinksForTracking,
+  getTenantBaseUrl,
+  validateCampaignSenderEmail,
+} from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
@@ -204,6 +210,14 @@ export default async function handler(req, res) {
     const { success, campaign, error } = await getCampaign(campaignId, tenantId);
     if (!success || !campaign) {
       return res.status(404).json({ error: error || 'Campaign not found' });
+    }
+
+    const senderValidation = validateCampaignSenderEmail(campaign.from_email);
+    if (!senderValidation.valid) {
+      return res.status(400).json({
+        error: senderValidation.error,
+        code: 'INVALID_SENDER_EMAIL',
+      });
     }
 
     const { data: tenant } = await supabase

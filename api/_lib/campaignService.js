@@ -50,7 +50,7 @@ async function enrichCampaignCounts(campaign) {
   if (!['sent', 'sending', 'preparing', 'paused', 'failed', 'cancelled'].includes(campaign.status)) return campaign;
 
   try {
-    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult, pendingResult] = await Promise.all([
+    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult, pendingResult, failedResult] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['sent', 'delivered', 'opened', 'clicked']),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
@@ -68,12 +68,15 @@ async function enrichCampaignCounts(campaign) {
       // sitting in 'pending' or 'processing' (the GRAFTAs-style stuck state).
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['pending', 'processing']),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).eq('status', 'failed'),
     ]);
 
     if (sentResult.error) throw sentResult.error;
     if (openedResult.error) throw openedResult.error;
     if (clickedResult.error) throw clickedResult.error;
     if (deliveredResult.error) throw deliveredResult.error;
+    if (failedResult.error) throw failedResult.error;
 
     const liveSentCount = sentResult.count || 0;
     const liveOpenedCount = openedResult.count || 0;
@@ -81,6 +84,7 @@ async function enrichCampaignCounts(campaign) {
     const liveDeliveredCount = deliveredResult.count || 0;
     const likelyDeliveredCount = (pendingSentResult.count || 0);
     const livePendingCount = pendingResult?.count || 0;
+    const liveFailedCount = failedResult.count || 0;
 
     const needsUpdate = campaign.sent_count !== liveSentCount ||
       campaign.opened_count !== liveOpenedCount ||
@@ -106,7 +110,8 @@ async function enrichCampaignCounts(campaign) {
       clicked_count: liveClickedCount,
       delivered_count: liveDeliveredCount,
       likely_delivered_count: likelyDeliveredCount,
-      pending_count: livePendingCount
+      pending_count: livePendingCount,
+      failed_count: liveFailedCount
     };
   } catch (err) {
     console.warn('[Campaign Service] Failed to enrich campaign counts:', campaign.id, err.message);
@@ -747,7 +752,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
   try {
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, status, name, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
+      .select('id, status, name, from_email, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
@@ -766,6 +771,14 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
 
     if (!resumableFromPaused && !resumableFromStuck) {
       return { success: false, error: `Cannot resume campaign with status: ${campaign.status}. Only paused or finished campaigns with remaining recipients can be resumed.` };
+    }
+
+    // A resume is a new authorization to submit the remaining recipients.
+    // Validate before counting recipients or changing campaign state so legacy
+    // campaigns with malformed stored senders remain completely untouched.
+    const senderValidation = validateCampaignSenderEmail(campaign.from_email);
+    if (!senderValidation.valid) {
+      return { success: false, error: senderValidation.error, code: 'INVALID_SENDER_EMAIL' };
     }
 
     const { count: pendingCount } = await supabase
@@ -2621,6 +2634,26 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
   }
 }
 
+const CAMPAIGN_SENDER_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Validate the literal sender stored on a campaign. Sending code deliberately
+ * does not fall back to tenant defaults: the operator must correct and save
+ * the campaign so the sender shown in the editor is the sender submitted.
+ */
+export function validateCampaignSenderEmail(fromEmail) {
+  const value = typeof fromEmail === 'string' ? fromEmail.trim() : '';
+  if (value && value === fromEmail && CAMPAIGN_SENDER_EMAIL_REGEX.test(value)) {
+    return { valid: true };
+  }
+
+  const displayedValue = value || '(empty)';
+  return {
+    valid: false,
+    error: `Sender email address "${displayedValue}" is invalid. Enter a valid email address (for example, name@example.com) in Sender Information, save the campaign, and try again.`,
+  };
+}
+
 export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
@@ -2630,6 +2663,11 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
     const { success, campaign, error } = await getCampaign(campaignId, tenantId);
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
+    }
+
+    const senderValidation = validateCampaignSenderEmail(campaign.from_email);
+    if (!senderValidation.valid) {
+      return { success: false, error: senderValidation.error, code: 'INVALID_SENDER_EMAIL' };
     }
 
     if (campaign.status !== 'draft') {
@@ -2848,20 +2886,20 @@ export async function processSendingCampaigns() {
           continue;
         }
 
-        const { count: sentCount } = await supabase
-          .from('email_campaign_recipient')
-          .select('*', { count: 'exact', head: true })
-          .eq('campaign_id', sc.id)
-          .in('status', ['sent', 'delivered', 'opened', 'clicked']);
-
-        await updateCampaign(sc.id, {
-          status: 'sent',
+        const outcome = await getCampaignSendOutcome(sc.id, 'sending');
+        const { data: completedRows } = await supabase.from('email_campaign').update({
+          status: outcome.status,
           completed_at: new Date().toISOString(),
-          sent_count: sentCount || 0
-        }, sc.tenant_id);
+          sent_count: outcome.sent
+        }).eq('id', sc.id).eq('tenant_id', sc.tenant_id).eq('status', 'sending').select('id');
 
-        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) completed - no pending recipients`);
-        results.push({ campaignId: sc.id, name: sc.name, status: 'sent', sent: sentCount || 0, remaining: 0 });
+        if (!completedRows?.length) {
+          const freshCampaign = await getCampaign(sc.id, sc.tenant_id);
+          results.push({ campaignId: sc.id, name: sc.name, ...outcome, status: freshCampaign.campaign?.status || 'changed', remaining: 0 });
+          continue;
+        }
+        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) completed with status '${outcome.status}'`);
+        results.push({ campaignId: sc.id, name: sc.name, ...outcome, remaining: 0 });
         continue;
       }
 
@@ -2910,19 +2948,33 @@ export async function processSendingCampaigns() {
 
       const batchResult = await sendBatch(sc.id, sc.tenant_id, campaign, tenantSlug, null);
 
+      if (batchResult.blocked) {
+        console.error(`[Campaign Service] Campaign ${sc.id} (${sc.name}) blocked before submission: ${batchResult.error}`);
+        results.push({
+          campaignId: sc.id,
+          name: sc.name,
+          status: batchResult.status || campaign.status,
+          blocked: true,
+          code: batchResult.code,
+          error: batchResult.error,
+          remaining: batchResult.remaining,
+        });
+        continue;
+      }
+
       if (batchResult.remaining === 0) {
         const freshCampaign = await getCampaign(sc.id, sc.tenant_id);
-        if (freshCampaign.campaign?.status === 'cancelled') {
-          console.log(`[Campaign Service] Campaign ${sc.id} was cancelled during batch — not marking as sent`);
-          results.push({ campaignId: sc.id, name: sc.name, status: 'cancelled' });
+        if (freshCampaign.campaign?.status === 'cancelled' || freshCampaign.campaign?.status === 'paused') {
+          console.log(`[Campaign Service] Campaign ${sc.id} was ${freshCampaign.campaign.status} during batch — preserving status`);
+          results.push({ campaignId: sc.id, name: sc.name, ...batchResult, status: freshCampaign.campaign.status });
           continue;
         }
-        await updateCampaign(sc.id, {
-          status: 'sent',
+        await supabase.from('email_campaign').update({
+          status: batchResult.status,
           completed_at: new Date().toISOString(),
-          sent_count: freshCampaign.campaign?.sent_count || 0
-        }, sc.tenant_id);
-        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) fully sent`);
+          sent_count: batchResult.sent
+        }).eq('id', sc.id).eq('tenant_id', sc.tenant_id).eq('status', 'sending');
+        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) completed with status '${batchResult.status}'`);
       }
 
       results.push({
@@ -2930,6 +2982,12 @@ export async function processSendingCampaigns() {
         name: sc.name,
         sent: batchResult.sent,
         failed: batchResult.failed,
+        pending: batchResult.pending,
+        queued: batchResult.queued,
+        processing: batchResult.processing,
+        errors: batchResult.errors,
+        status: batchResult.status,
+        error: batchResult.error,
         remaining: batchResult.remaining
       });
     }
@@ -3497,32 +3555,201 @@ async function claimPendingRecipients(campaignId, batchSize = BATCH_SIZE) {
   return claimed || [];
 }
 
+const SENT_RECIPIENT_STATUSES = ['sent', 'delivered', 'opened', 'clicked'];
+
+export function determineCampaignSendOutcome({
+  campaignStatus = 'sending',
+  sent = 0,
+  failed = 0,
+  queued = 0,
+  processing = 0,
+  errors = [],
+} = {}) {
+  const pending = queued + processing;
+  const result = {
+    status: campaignStatus,
+    sent,
+    failed,
+    pending,
+    queued,
+    processing,
+    errors,
+    complete: pending === 0,
+  };
+
+  // An operator decision always wins over a delivery outcome. In particular,
+  // an in-flight request must never turn a paused/cancelled campaign into sent.
+  if (campaignStatus === 'cancelled' || campaignStatus === 'paused') return result;
+  if (pending > 0) return { ...result, status: 'sending', complete: false };
+
+  if (sent === 0 && failed > 0) {
+    const firstError = errors[0]?.error;
+    return {
+      ...result,
+      status: 'failed',
+      error: `No emails were sent; all ${failed} recipient ${failed === 1 ? 'delivery' : 'deliveries'} failed.${firstError ? ` First error: ${firstError}` : ''}`,
+    };
+  }
+
+  return { ...result, status: 'sent' };
+}
+
+async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
+  const countStatus = statusFilter => {
+    let query = supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId);
+    query = Array.isArray(statusFilter)
+      ? query.in('status', statusFilter)
+      : query.eq('status', statusFilter);
+    return query.then(({ count, error }) => {
+      if (error) throw error;
+      return count || 0;
+    });
+  };
+
+  const [sent, failed, queued, processing, failureResult] = await Promise.all([
+    countStatus(SENT_RECIPIENT_STATUSES),
+    countStatus('failed'),
+    countStatus('pending'),
+    countStatus('processing'),
+    supabase
+      .from('email_campaign_recipient')
+      .select('email, error_message')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'failed')
+      .not('error_message', 'is', null)
+      .limit(20),
+  ]);
+  if (failureResult.error) throw failureResult.error;
+
+  const errors = (failureResult.data || []).map(row => ({
+    email: row.email,
+    error: row.error_message,
+  }));
+  return determineCampaignSendOutcome({
+    campaignStatus,
+    sent,
+    failed,
+    queued,
+    processing,
+    errors,
+  });
+}
+
+async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
+  const { data: currentCampaign, error } = await supabase
+    .from('email_campaign')
+    .select('id, status, category_review_required, from_email')
+    .eq('id', campaignId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (error || !currentCampaign) {
+    return {
+      allowed: false,
+      blocked: true,
+      code: 'CAMPAIGN_SEND_GATE_UNAVAILABLE',
+      error: 'Campaign could not be verified before sending. No recipients were claimed or submitted; try again after confirming the campaign still exists.',
+    };
+  }
+
+  if (currentCampaign.status === 'cancelled' || currentCampaign.status === 'paused') {
+    return {
+      allowed: false,
+      stopped: true,
+      campaign: currentCampaign,
+      cancelled: currentCampaign.status === 'cancelled',
+      paused: currentCampaign.status === 'paused',
+    };
+  }
+
+  if (currentCampaign.category_review_required) {
+    return {
+      allowed: false,
+      blocked: true,
+      reviewRequired: true,
+      campaign: currentCampaign,
+      code: 'CAMPAIGN_REVIEW_REQUIRED',
+      error: 'Campaign requires audience and category review before sending can continue.',
+    };
+  }
+
+  if (currentCampaign.status !== 'sending') {
+    return {
+      allowed: false,
+      blocked: true,
+      campaign: currentCampaign,
+      code: 'CAMPAIGN_NOT_SENDING',
+      error: `Campaign cannot submit recipients while its status is "${currentCampaign.status}".`,
+    };
+  }
+
+  // Check both the authoritative stored value and the payload that will be
+  // passed to sendEmail. This fails closed if a caller supplied a stale or
+  // malformed campaign object even when the row was corrected concurrently.
+  for (const fromEmail of [currentCampaign.from_email, campaign?.from_email]) {
+    const senderValidation = validateCampaignSenderEmail(fromEmail);
+    if (!senderValidation.valid) {
+      return {
+        allowed: false,
+        blocked: true,
+        campaign: currentCampaign,
+        code: 'INVALID_SENDER_EMAIL',
+        error: senderValidation.error,
+      };
+    }
+  }
+
+  return { allowed: true, campaign: currentCampaign };
+}
+
+async function releaseClaimedRecipients(claimedRecipients, status = 'pending') {
+  if (!claimedRecipients.length) return;
+  await supabase
+    .from('email_campaign_recipient')
+    .update({ status })
+    .in('id', claimedRecipients.map(r => r.id))
+    .eq('status', 'processing');
+}
+
 export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE) {
+  // Gate before the claim mutation. In particular, malformed legacy campaigns
+  // discovered by the worker must not move recipient rows to processing.
+  const initialGate = await checkCampaignBatchGate(campaignId, tenantId, campaign);
+  if (!initialGate.allowed) {
+    return {
+      success: false,
+      status: initialGate.campaign?.status,
+      remaining: null,
+      ...initialGate,
+    };
+  }
+
   const claimedRecipients = await claimPendingRecipients(campaignId, batchSize);
 
   if (claimedRecipients.length === 0) {
-    return { sent: 0, failed: 0, remaining: 0 };
+    const outcome = await getCampaignSendOutcome(campaignId);
+    return { ...outcome, remaining: outcome.pending };
   }
 
-  const { data: campaignCheck } = await supabase
-    .from('email_campaign')
-    .select('status, category_review_required')
-    .eq('id', campaignId)
-    .single();
-
-  if (campaignCheck?.status === 'cancelled' || campaignCheck?.category_review_required) {
-    console.log(`[Campaign Service] Campaign ${campaignId} cancelled — releasing ${claimedRecipients.length} claimed recipients`);
-    await supabase
-      .from('email_campaign_recipient')
-      .update({ status: campaignCheck?.category_review_required ? 'pending' : 'cancelled' })
-      .in('id', claimedRecipients.map(r => r.id))
-      .eq('status', 'processing');
+  // Re-run the same fail-closed gate immediately before provider submissions.
+  // This closes the claim/send race for pauses, cancellations, review flags,
+  // sender edits, deleted campaigns, and database verification failures.
+  const submissionGate = await checkCampaignBatchGate(campaignId, tenantId, campaign);
+  if (!submissionGate.allowed) {
+    console.log(`[Campaign Service] Campaign ${campaignId} stopped — releasing ${claimedRecipients.length} claimed recipients`);
+    await releaseClaimedRecipients(
+      claimedRecipients,
+      submissionGate.cancelled ? 'cancelled' : 'pending',
+    );
+    const outcome = await getCampaignSendOutcome(campaignId, submissionGate.campaign?.status);
     return {
-      sent: 0,
-      failed: 0,
-      remaining: 0,
-      cancelled: campaignCheck?.status === 'cancelled',
-      reviewRequired: campaignCheck?.category_review_required === true,
+      ...outcome,
+      success: false,
+      remaining: outcome.pending,
+      ...submissionGate,
     };
   }
 
@@ -3536,23 +3763,20 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
     else failedCount++;
   }
 
-  const { count: remainingCount } = await supabase
-    .from('email_campaign_recipient')
-    .select('*', { count: 'exact', head: true })
-    .eq('campaign_id', campaignId)
-    .in('status', ['pending', 'processing']);
-
-  const { count: totalSentCount } = await supabase
-    .from('email_campaign_recipient')
-    .select('*', { count: 'exact', head: true })
-    .eq('campaign_id', campaignId)
-    .in('status', ['sent', 'delivered', 'opened', 'clicked']);
+  const outcome = await getCampaignSendOutcome(campaignId, submissionGate.campaign.status);
 
   await updateCampaign(campaignId, {
-    sent_count: totalSentCount || 0
+    sent_count: outcome.sent
   }, tenantId);
 
-  return { sent: sentCount, failed: failedCount, remaining: remainingCount || 0 };
+  return {
+    ...outcome,
+    // Retain batch counters for worker diagnostics while the public counters
+    // above describe the campaign as a whole.
+    batchSent: sentCount,
+    batchFailed: failedCount,
+    remaining: outcome.pending,
+  };
 }
 
 // IMPORTANT — race-condition fix history:
@@ -3580,6 +3804,13 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     const { success, campaign, error } = await getCampaign(campaignId, tenantId);
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
+    }
+
+    // This must remain before the atomic status claim and audience preparation:
+    // an invalid sender must not create/claim recipient rows or reach Mailgun.
+    const senderValidation = validateCampaignSenderEmail(campaign.from_email);
+    if (!senderValidation.valid) {
+      return { success: false, error: senderValidation.error, code: 'INVALID_SENDER_EMAIL' };
     }
 
     if (campaign.status !== 'draft' && campaign.status !== 'scheduled') {
@@ -3686,37 +3917,84 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     const updatedCampaign = updatedCampaignResult.campaign || campaign;
 
     const batchResult = await sendBatch(campaignId, tenantId, updatedCampaign, tenantSlug, requestHost);
+    if (batchResult.blocked) {
+      return {
+        success: false,
+        status: batchResult.status,
+        code: batchResult.code,
+        error: batchResult.error,
+      };
+    }
     if (batchResult.reviewRequired) {
       return {
         success: false,
         error: 'Campaign requires audience and category review before sending can continue.',
       };
     }
+    if (batchResult.stopped) {
+      return {
+        success: true,
+        status: batchResult.cancelled ? 'cancelled' : 'paused',
+        totalRecipients: recipients.length,
+        remaining: batchResult.remaining,
+      };
+    }
 
     if (batchResult.remaining === 0) {
       const finalCheck = await getCampaign(campaignId, tenantId);
-      if (finalCheck.campaign?.status === 'cancelled') {
-        console.log(`[Campaign Service] Campaign ${campaignId} was cancelled during send — not marking as sent`);
+      if (finalCheck.campaign?.status === 'cancelled' || finalCheck.campaign?.status === 'paused') {
+        const preservedStatus = finalCheck.campaign.status;
+        console.log(`[Campaign Service] Campaign ${campaignId} was ${preservedStatus} during send — preserving status`);
         return {
           success: true,
-          status: 'cancelled',
+          status: preservedStatus,
           totalRecipients: recipients.length,
           sent: batchResult.sent,
           failed: batchResult.failed,
-          remaining: 0
+          pending: batchResult.pending,
+          queued: batchResult.queued,
+          processing: batchResult.processing,
+          errors: batchResult.errors,
+          remaining: batchResult.pending
         };
       }
-      await updateCampaign(campaignId, {
-        status: 'sent',
+      const { data: finalizedRows, error: finalizeError } = await supabase.from('email_campaign').update({
+        status: batchResult.status,
         completed_at: new Date().toISOString()
-      }, tenantId);
+      }).eq('id', campaignId).eq('tenant_id', tenantId).eq('status', 'sending').select('id');
+      if (finalizeError) throw finalizeError;
+
+      // Pause/cancel may win after finalCheck but before the guarded update.
+      // Report that operator-selected state rather than the computed outcome.
+      if (!finalizedRows?.length) {
+        const racedCampaign = await getCampaign(campaignId, tenantId);
+        if (racedCampaign.campaign?.status === 'cancelled' || racedCampaign.campaign?.status === 'paused') {
+          return {
+            success: true,
+            status: racedCampaign.campaign.status,
+            totalRecipients: recipients.length,
+            sent: batchResult.sent,
+            failed: batchResult.failed,
+            pending: batchResult.pending,
+            queued: batchResult.queued,
+            processing: batchResult.processing,
+            errors: batchResult.errors,
+            remaining: batchResult.pending,
+          };
+        }
+      }
 
       return {
-        success: true,
-        status: 'sent',
+        success: batchResult.status !== 'failed',
+        status: batchResult.status,
+        error: batchResult.error,
         totalRecipients: recipients.length,
         sent: batchResult.sent,
         failed: batchResult.failed,
+        pending: batchResult.pending,
+        queued: batchResult.queued,
+        processing: batchResult.processing,
+        errors: batchResult.errors,
         remaining: 0
       };
     }
@@ -3727,11 +4005,23 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       totalRecipients: recipients.length,
       sent: batchResult.sent,
       failed: batchResult.failed,
+      pending: batchResult.pending,
+      queued: batchResult.queued,
+      processing: batchResult.processing,
+      errors: batchResult.errors,
       remaining: batchResult.remaining
     };
   } catch (err) {
     console.error('[Campaign Service] Error sending campaign:', err);
-    await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
+    // Do not overwrite an operator pause/cancellation that raced this error.
+    try {
+      await supabase.from('email_campaign').update({ status: 'failed' })
+        .eq('id', campaignId)
+        .eq('tenant_id', tenantId)
+        .in('status', ['preparing', 'sending']);
+    } catch {
+      // Preserve the original, actionable send error.
+    }
     return { success: false, error: err.message };
   }
 }
@@ -3761,8 +4051,12 @@ export async function getCampaignStats(campaignId, tenantId) {
       statusFailedCount,
       statusUnsubscribedCount,
       statusComplainedCount,
+      statusPendingCount,
+      statusProcessingCount,
+      statusCancelledCount,
       hasOpensCount,
-      hasClicksCount
+      hasClicksCount,
+      failureResult,
     ] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'sent').then(r => { if (r.error) throw r.error; return r.count || 0; }),
@@ -3773,9 +4067,14 @@ export async function getCampaignStats(campaignId, tenantId) {
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'failed').then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'unsubscribed').then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'complained').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'pending').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'processing').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'cancelled').then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('open_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('click_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('email, error_message').eq('campaign_id', campaignId).eq('status', 'failed').not('error_message', 'is', null).limit(20),
     ]);
+    if (failureResult.error) throw failureResult.error;
 
     const stats = {
       total: totalCount,
@@ -3786,6 +4085,14 @@ export async function getCampaignStats(campaignId, tenantId) {
       clicked: hasClicksCount,
       bounced: statusBouncedCount,
       failed: statusFailedCount,
+      pending: statusPendingCount + statusProcessingCount,
+      queued: statusPendingCount,
+      processing: statusProcessingCount,
+      cancelled: statusCancelledCount,
+      errors: (failureResult.data || []).map(row => ({
+        email: row.email,
+        error: row.error_message,
+      })),
       unsubscribed: statusUnsubscribedCount,
       complained: statusComplainedCount
     };

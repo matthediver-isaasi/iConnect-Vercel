@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
+import { dispatchCampaignSendFeedback } from "@/lib/campaignSendFeedback";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -454,7 +455,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
         maybeEmitPlanQuotaFromBody(data);
         throw new Error(data.error || "Failed to send");
       }
-      toast.success(data.message || "Campaign sending");
+      dispatchCampaignSendFeedback(data, toast);
       setComposeOpen(false);
       refetchCampaigns();
     } catch (err) {

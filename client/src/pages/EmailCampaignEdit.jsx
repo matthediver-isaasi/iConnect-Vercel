@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
+import { dispatchCampaignSendFeedback } from "@/lib/campaignSendFeedback";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign, normalizeEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
@@ -39,6 +40,14 @@ import {
 } from "@/components/ui/popover";
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
+
+const CAMPAIGN_SENDER_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getSenderEmailError(value) {
+  const email = typeof value === 'string' ? value.trim() : '';
+  if (email && email === value && CAMPAIGN_SENDER_EMAIL_REGEX.test(email)) return null;
+  return `Enter a valid sender email address (for example, name@example.com). The current value "${email || '(empty)'}" cannot be used to send.`;
+}
 
 function getMemberSenderLabel(member) {
   return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
@@ -404,6 +413,7 @@ export default function EmailCampaignEdit() {
   const hasCurrentContent = !!(formData.html_content.trim() || formData.design_json);
   const categoryReviewRequired = Boolean(campaign?.category_review_required) && !reviewResolved;
   const categoryReviewReady = reviewSelections.audience && reviewSelections.category && reviewConfirmed;
+  const senderEmailError = getSenderEmailError(formData.from_email);
 
   const applyTemplate = (template) => {
     const next = applyCampaignTemplate(formData, template);
@@ -539,6 +549,11 @@ export default function EmailCampaignEdit() {
       return;
     }
 
+    if (senderEmailError) {
+      toast.error(senderEmailError);
+      return;
+    }
+
     const list = Array.isArray(recipients) ? recipients : [recipients];
     if (list.length === 0) return;
 
@@ -585,6 +600,10 @@ export default function EmailCampaignEdit() {
 
   const handleOpenSendConfirm = async () => {
     if (!isEditing || !id) return;
+    if (senderEmailError) {
+      toast.error(senderEmailError);
+      return;
+    }
     setShowSendConfirmDialog(true);
     setLoadingServerCount(true);
     setServerRecipientCount(null);
@@ -616,6 +635,11 @@ export default function EmailCampaignEdit() {
       return;
     }
 
+    if (senderEmailError) {
+      toast.error(senderEmailError);
+      return;
+    }
+
     setSending(true);
     setShowSendConfirmDialog(false);
     try {
@@ -641,10 +665,8 @@ export default function EmailCampaignEdit() {
 
       if (scheduleMode === 'scheduled') {
         toast.success('Campaign scheduled successfully');
-      } else if (result.status === 'sending') {
-        toast.success(`Campaign sending started — ${result.sent} of ${result.totalRecipients} sent so far. The rest will be sent automatically.`);
       } else {
-        toast.success(`Campaign sent to ${result.sent || result.sentCount || recipientPreviewCount || 0} recipients`);
+        dispatchCampaignSendFeedback(result, toast);
       }
 
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
@@ -661,6 +683,7 @@ export default function EmailCampaignEdit() {
   const canSendCampaign = isEditing && 
     formData.subject && 
     formData.html_content && 
+    !senderEmailError &&
     hasAudienceSelected &&
     !affectedSelectedList &&
     !categoryReviewRequired &&
@@ -706,7 +729,7 @@ export default function EmailCampaignEdit() {
               }
               setShowTestEmailDialog(true);
             }}
-            disabled={testSending || !formData.subject || !formData.html_content}
+            disabled={testSending || !formData.subject || !formData.html_content || Boolean(senderEmailError)}
             data-testid="button-test-send"
           >
             {testSending ? (
@@ -870,8 +893,15 @@ export default function EmailCampaignEdit() {
                   value={formData.from_email}
                   onChange={(e) => setFormData(prev => ({ ...prev, from_email: e.target.value }))}
                   placeholder="e.g., news@company.com"
+                  aria-invalid={Boolean(senderEmailError)}
+                  aria-describedby={senderEmailError ? "from-email-error" : undefined}
                   data-testid="input-from-email"
                 />
+                {senderEmailError && (
+                  <p id="from-email-error" className="text-xs text-destructive" data-testid="error-from-email">
+                    {senderEmailError}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="reply_to">Reply-To Email</Label>

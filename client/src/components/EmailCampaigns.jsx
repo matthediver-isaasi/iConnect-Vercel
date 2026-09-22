@@ -23,6 +23,7 @@ import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign } from '@/components/email-builder/types';
 import DOMPurify from 'dompurify';
 import TestSendDialog from '@/components/TestSendDialog';
+import { getCampaignSendFeedback } from '@shared/campaignSendFeedback.js';
 
 export default function EmailCampaigns() {
   const navigate = useNavigate();
@@ -436,11 +437,8 @@ export default function EmailCampaigns() {
       }
 
       const result = await response.json();
-      if (result.status === 'sending') {
-        toast.success(`Campaign sending started — ${result.sent} of ${result.totalRecipients} sent so far. The rest will be sent automatically.`);
-      } else {
-        toast.success(`Campaign sent to ${result.sent || result.totalRecipients} recipients`);
-      }
+      const feedback = getCampaignSendFeedback(result);
+      toast[feedback.type](feedback.message);
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
       setShowPreviewDialog(false);
     } catch (error) {
@@ -765,6 +763,12 @@ export default function EmailCampaigns() {
         bounced: stats.bounced || 0,
         unsubscribed: stats.unsubscribed || 0,
         complained: stats.complained || 0,
+        failed: stats.failed || 0,
+        pending: stats.pending || 0,
+        queued: stats.queued || 0,
+        processing: stats.processing || 0,
+        cancelled: stats.cancelled || 0,
+        errors: Array.isArray(stats.errors) ? stats.errors : [],
         openRate: stats.openRate || 0,
         clickRate: stats.clickRate || 0,
         bounceRate: stats.bounceRate || 0,
@@ -819,6 +823,10 @@ export default function EmailCampaigns() {
             return r.status === 'complained';
           case 'failed':
             return r.status === 'failed';
+          case 'pending':
+            return r.status === 'pending' || r.status === 'processing';
+          case 'cancelled':
+            return r.status === 'cancelled';
           default:
             return true;
         }
@@ -851,13 +859,16 @@ export default function EmailCampaigns() {
     rows.push(['Campaign', statsData.name]);
     rows.push([]);
     rows.push(['Metric', 'Count']);
-    rows.push(['Sent', statsData.sent]);
+    rows.push(['Accepted by provider', statsData.sent]);
     rows.push(['Delivered', statsData.delivered]);
     rows.push(['Opened', statsData.opened]);
     rows.push(['Clicked', statsData.clicked]);
     rows.push(['Bounced', statsData.bounced]);
     rows.push(['Unsubscribed', statsData.unsubscribed]);
     rows.push(['Complaints', statsData.complained]);
+    rows.push(['Failed', statsData.failed]);
+    rows.push(['Pending', statsData.pending]);
+    rows.push(['Cancelled', statsData.cancelled]);
 
     if (statsData.heatmapData && statsData.heatmapData.length > 0) {
       rows.push([]);
@@ -1050,13 +1061,13 @@ export default function EmailCampaigns() {
 
         <Card data-testid="stat-emails-delivered">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Emails Delivered</CardTitle>
+            <CardTitle className="text-sm font-medium">Emails Accepted</CardTitle>
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalSent.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
-              Total emails sent to recipients
+              Accepted by the email provider; delivery may still be pending
             </p>
           </CardContent>
         </Card>
@@ -1126,7 +1137,7 @@ export default function EmailCampaigns() {
                     <TableHead>Campaign</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Audience</TableHead>
-                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Accepted</TableHead>
                     <TableHead className="text-right">Opens</TableHead>
                     <TableHead className="text-right">Clicks</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -1139,6 +1150,9 @@ export default function EmailCampaigns() {
                       : 0;
                     const clickRate = campaign.sent_count > 0 
                       ? ((campaign.clicked_count || 0) / campaign.sent_count * 100).toFixed(1)
+                      : 0;
+                    const completedFailureCount = campaign.status === 'sent'
+                      ? (campaign.failed_count || 0)
                       : 0;
 
                     return (
@@ -1166,6 +1180,15 @@ export default function EmailCampaigns() {
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
                               {getStatusBadge(campaign.status)}
+                              {completedFailureCount > 0 && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-warning/50 text-warning"
+                                  data-testid={`badge-completed-with-failures-${campaign.id}`}
+                                >
+                                  Completed with {completedFailureCount} failure{completedFailureCount === 1 ? '' : 's'}
+                                </Badge>
+                              )}
                               {campaign.deleted_category_name && (
                                 <Badge
                                   variant="outline"
@@ -1195,7 +1218,7 @@ export default function EmailCampaigns() {
                             </div>
                             {campaign.status === 'sending' && campaign.total_recipients > 0 && (
                               <span className="text-xs text-warning" data-testid={`text-sending-progress-${campaign.id}`}>
-                                {campaign.sent_count || 0} / {campaign.total_recipients} sent
+                                {campaign.sent_count || 0} / {campaign.total_recipients} accepted
                               </span>
                             )}
                             {campaign.status === 'scheduled' && campaign.scheduled_at && (
@@ -1221,7 +1244,7 @@ export default function EmailCampaigns() {
                         <TableCell className="text-right font-medium">
                           {campaign.status === 'sending' && campaign.total_recipients > 0
                             ? `${campaign.sent_count || 0} / ${campaign.total_recipients}`
-                            : (campaign.sent_count || '-')}
+                            : (campaign.sent_count ?? 0)}
                         </TableCell>
                         <TableCell className="text-right">
                           {campaign.status === 'sent' ? (
@@ -1351,7 +1374,7 @@ export default function EmailCampaigns() {
                                 )}
                               </Button>
                             )}
-                            {campaign.status === 'sent' && (
+                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1790,7 +1813,7 @@ export default function EmailCampaigns() {
                     variant="outline"
                     size="sm"
                     onClick={handleShowDetails}
-                    disabled={loadingRecipients || !statsData?.sent}
+                    disabled={loadingRecipients || !statsData?.total}
                     data-testid="button-view-details"
                   >
                     {loadingRecipients ? (
@@ -1808,7 +1831,7 @@ export default function EmailCampaigns() {
             <div className="flex-1 overflow-y-auto space-y-6 p-1">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { key: 'sent', label: 'Sent', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
+                  { key: 'sent', label: 'Accepted', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
                   { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
                   { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
                   { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-warning/10 dark:bg-warning/20', text: 'text-warning dark:text-warning', accent: 'text-warning', ring: 'ring-amber-400' },
@@ -1833,7 +1856,7 @@ export default function EmailCampaigns() {
                   <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
                     <span className="font-medium text-warning dark:text-warning">
-                      {statsData.sent_only} recipients still showing as "sent" without delivery confirmation.
+                      {statsData.sent_only} provider-accepted emails do not yet have delivery confirmation.
                     </span>
                     <span className="text-warning dark:text-warning ml-1">
                       This may indicate delayed or missing webhook data from Mailgun. Use "Sync with Mailgun" to recover missing events.
@@ -1842,9 +1865,12 @@ export default function EmailCampaigns() {
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {[
                   { key: 'bounced', label: 'Bounced', value: statsData.bounced, color: 'text-red-600', ring: 'ring-red-400' },
+                  { key: 'failed', label: 'Failed', value: statsData.failed, color: 'text-red-600', ring: 'ring-red-400' },
+                  { key: 'pending', label: 'Pending', value: statsData.pending, color: 'text-warning', ring: 'ring-amber-400' },
+                  { key: 'cancelled', label: 'Cancelled', value: statsData.cancelled, color: 'text-muted-foreground', ring: 'ring-slate-400' },
                   { key: 'unsubscribed', label: 'Unsubscribed', value: statsData.unsubscribed, color: 'text-warning', ring: 'ring-orange-400' },
                   { key: 'complained', label: 'Complaints', value: statsData.complained, color: 'text-rose-600', ring: 'ring-rose-400' },
                 ].map(({ key, label, value, color, ring }) => (
@@ -1861,6 +1887,35 @@ export default function EmailCampaigns() {
                   </div>
                 ))}
               </div>
+
+              {statsData.pending > 0 && (
+                <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-lg" data-testid="notice-pending-recipients">
+                  <Clock className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium">{statsData.pending} recipient{statsData.pending === 1 ? '' : 's'} pending.</span>
+                    <span className="text-muted-foreground ml-1">
+                      {statsData.queued} queued and {statsData.processing} processing.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {statsData.errors.length > 0 && (
+                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg" data-testid="campaign-failure-errors">
+                  <div className="flex items-center gap-2 text-sm font-medium text-destructive mb-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Delivery errors
+                  </div>
+                  <ul className="space-y-1 text-sm">
+                    {statsData.errors.map((failure, index) => (
+                      <li key={`${failure.email || 'recipient'}-${index}`} className="break-words">
+                        {failure.email && <span className="font-medium">{failure.email}: </span>}
+                        {failure.error || 'Unknown provider error'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {!statsDetailView && statsData.heatmapData && statsData.heatmapData.length > 0 && (
                 <div>

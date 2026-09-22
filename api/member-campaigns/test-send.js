@@ -7,6 +7,7 @@ import {
   getTenantBaseUrl,
   applyDynamicSlotValues,
   stripHiddenDynamicRegions,
+  validateCampaignSenderEmail,
 } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
@@ -95,6 +96,14 @@ export default async function handler(req, res) {
   try {
     const { success, campaign, error } = await getCampaign(campaignId, tenantContext.tenantId);
     if (!success || !campaign) return res.status(404).json({ error: error || 'Campaign not found' });
+
+    const senderValidation = validateCampaignSenderEmail(campaign.from_email);
+    if (!senderValidation.valid) {
+      return res.status(400).json({
+        error: senderValidation.error,
+        code: 'INVALID_SENDER_EMAIL',
+      });
+    }
 
     const { data: tenant } = await supabase
       .from('tenant')
