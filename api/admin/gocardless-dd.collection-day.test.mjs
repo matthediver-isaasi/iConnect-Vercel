@@ -38,11 +38,11 @@ test('both preview and confirm require both DD and finance features', async () =
   }
 });
 
-function dbFixture({ crossTenant = false, wrongOwner = false, paused = false, rpcError = null } = {}) {
+function dbFixture({ crossTenant = false, wrongOwner = false, paused = false, deleted = false, missingMember = false, lookupError = false, rpcError = null } = {}) {
   const agreement = { id: 'agreement', tenant_id: 'tenant', provider: 'gocardless', status: 'active',
     member_id: 'member', gocardless_mandate_id: 'MD1',
     metadata: { dd: { collection_policy: { version: 1, pricing_policy: 'dynamic' } } } };
-  const plan = { id: 'plan', tenant_id: crossTenant ? 'other' : 'tenant', billing_agreement_id: 'agreement',
+  const plan = { id: 'plan', provider: 'gocardless', tenant_id: crossTenant ? 'other' : 'tenant', billing_agreement_id: 'agreement',
     member_id: wrongOwner ? 'other-member' : 'member', status: paused ? 'paused' : 'active',
     dynamic_next_collection_date: '2090-01-15',
     metadata: { collection_mode: 'dynamic', dynamic_first_date: '2090-01-15' } };
@@ -54,6 +54,13 @@ function dbFixture({ crossTenant = false, wrongOwner = false, paused = false, rp
       return {
         select() { return this; },
         eq(key, value) { filters[key] = value; return this; },
+        in(key, values) { filters[key] = values; return this; },
+        then(resolve) {
+          const row = table === 'member' ? { id: 'member', tenant_id: 'tenant', email: deleted ? 'deleted_abc@deleted.local' : null } :
+            table === 'membership_payment_plans' ? plan : agreement;
+          resolve({ data: !(table === 'member' && missingMember) && Object.entries(filters).every(([k, v]) => Array.isArray(v) ? v.includes(row[k]) : row[k] === v) ? [row] : [],
+            error: lookupError ? { message: 'Identity lookup unavailable' } : null });
+        },
         async maybeSingle() {
           assert.equal(filters.tenant_id, 'tenant', 'Must use authenticated tenant, not body tenant');
           const row = table === 'membership_payment_plans' ? plan : agreement;
@@ -75,7 +82,7 @@ const gc = { getMandate: async () => ({ id: 'MD1', status: 'active', next_possib
 test('API scopes plan lookup to authenticated tenant and rejects owner and lifecycle mismatches', async () => {
   for (const [options, status, pattern] of [
     [{ crossTenant: true }, 404, /Plan not found/],
-    [{ wrongOwner: true }, 409, /ownership/],
+    [{ wrongOwner: true }, 404, /Plan not found/],
     [{ paused: true }, 409, /paused/],
   ]) {
     const db = dbFixture(options);
@@ -83,6 +90,19 @@ test('API scopes plan lookup to authenticated tenant and rejects owner and lifec
     await handleCollectionDayAction(request, res, { ...auth, db, gc: { getMandate: () => assert.fail('No provider access') } });
     assert.equal(res.statusCode, status);
     assert.match(res.body.error, pattern);
+    assert.equal(db.calls.length, 0);
+  }
+});
+
+test('collection-day actions cannot access deleted or missing members and identity lookup errors are explicit', async () => {
+  for (const options of [{ deleted: true }, { missingMember: true }, { lookupError: true }]) {
+    const db = dbFixture(options);
+    const res = response();
+    await handleCollectionDayAction(request, res, {
+      ...auth, db, gc: { getMandate: () => assert.fail('No provider access for unavailable member') },
+    });
+    assert.equal(res.statusCode, options.lookupError ? 409 : 404);
+    assert.match(res.body.error, options.lookupError ? /lookup unavailable/ : /Plan not found/);
     assert.equal(db.calls.length, 0);
   }
 });

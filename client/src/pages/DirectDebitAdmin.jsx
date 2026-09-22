@@ -39,6 +39,7 @@ const STATUS_VARIANTS = {
   active: "default",
   pending: "secondary",
   mandate_pending: "secondary",
+  first_payment_pending: "secondary",
   payment_grace_period: "warning",
   payment_overdue: "destructive",
   payment_failed: "destructive",
@@ -58,9 +59,10 @@ function StatusBadge({ status }) {
 }
 
 const PLAN_STATUS_FILTERS = [
-  "all", "pending_activation", "active", "payment_grace_period", "payment_overdue", "suspended",
+  "all", "pending_activation", "first_payment_pending", "active", "payment_grace_period", "payment_overdue", "suspended",
   "restricted", "mandate_pending", "completed", "cancelled",
 ];
+const PLAN_PAGE_SIZE = 50;
 
 const RECON_BUCKETS = [
   { key: "all", label: "All payments" },
@@ -79,6 +81,17 @@ async function api(url, opts) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json;
+}
+
+function QueryError({ error, message = "This information could not be loaded." }) {
+  return (
+    <Alert variant="destructive" data-testid="alert-query-error">
+      <AlertCircle className="h-4 w-4" />
+      <AlertDescription>
+        {message}{error?.message ? ` ${error.message}` : ""}
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +219,7 @@ function ActionDialog({ action, plan, payment, open, onClose, onDone }) {
 
 function PlanDetail({ planId, onBack }) {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "plan", planId],
     queryFn: () => api(`/api/admin/gocardless-dd?view=plan&planId=${planId}`),
   });
@@ -215,7 +228,17 @@ function PlanDetail({ planId, onBack }) {
     queryClient.invalidateQueries({ queryKey: ["/api/admin/gocardless-dd"] });
   };
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (isLoading) return <Skeleton className="h-64 w-full" data-testid="loading-plan-detail" />;
+  if (isError) {
+    return (
+      <div className="space-y-3">
+        <Button variant="ghost" onClick={onBack} data-testid="button-back-to-plans">
+          <ArrowLeft className="h-4 w-4" /> Back to plans
+        </Button>
+        <QueryError error={error} message="Plan details could not be loaded." />
+      </div>
+    );
+  }
   const {
     plan, agreement, payments = [], statusHistory = [], adminActions = [],
     cancellationRequests = [], refunds = [], retryAttempts = [], membershipActivation,
@@ -438,7 +461,7 @@ function CancellationRequests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState("pending");
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/dd-cancellation-requests", status],
     queryFn: () => api(`/api/admin/dd-cancellation-requests?status=${status}`),
   });
@@ -474,7 +497,9 @@ function CancellationRequests() {
           {["pending", "approved", "rejected", "withdrawn"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
         </SelectContent>
       </Select>
-      {isLoading ? <Skeleton className="h-32 w-full" /> : requests.length === 0 ? (
+      {isLoading ? <Skeleton className="h-32 w-full" data-testid="loading-cancellation-requests" /> : isError ? (
+        <QueryError error={error} message="Cancellation requests could not be loaded." />
+      ) : requests.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4" data-testid="text-no-requests">No {status} cancellation requests.</p>
       ) : requests.map((r) => (
         <Card key={r.id} data-testid={`card-request-${r.id}`}>
@@ -548,7 +573,7 @@ function CancellationRequests() {
 
 function Reconciliation() {
   const [bucket, setBucket] = useState("all");
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "reconciliation", bucket],
     queryFn: () => api(`/api/admin/gocardless-dd?view=reconciliation&bucket=${bucket}`),
   });
@@ -567,7 +592,9 @@ function Reconciliation() {
           <a href={`/api/admin/gocardless-dd?view=export&bucket=${bucket}`} download>Export CSV</a>
         </Button>
       </div>
-      {isLoading ? <Skeleton className="h-32 w-full" /> : (
+      {isLoading ? <Skeleton className="h-32 w-full" data-testid="loading-reconciliation" /> : isError ? (
+        <QueryError error={error} message="Payments and payouts could not be loaded." />
+      ) : (
         <>
           <div className="space-y-1">
             {payments.length === 0 && <p className="text-sm text-muted-foreground py-4">No payments in this bucket.</p>}
@@ -622,7 +649,7 @@ function MigrationTab() {
   const [memberId, setMemberId] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "migration"],
     queryFn: () => api("/api/admin/gocardless-dd?view=migration"),
   });
@@ -657,22 +684,28 @@ function MigrationTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          ["invited", "Invited"],
-          ["accepted", "Accepted (set-up started)"],
-          ["mandate_active", "Mandate active"],
-          ["subscription_active", "Subscription active"],
-        ].map(([key, label]) => (
-          <Card key={key}><CardContent className="pt-4">
-            <p className="text-2xl font-semibold" data-testid={`stat-migration-${key}`}>{counts[key] || 0}</p>
-            <p className="text-xs text-muted-foreground">{label}</p>
-          </CardContent></Card>
-        ))}
-      </div>
-      <p className="text-xs text-muted-foreground" data-testid="text-migration-dropoff">
-        Declined {counts.declined || 0} · Expired {counts.expired || 0} · Revoked {counts.revoked || 0} · Failed {counts.failed || 0}
-      </p>
+      {isLoading ? <Skeleton className="h-24 w-full" data-testid="loading-migration-summary" /> : isError ? (
+        <QueryError error={error} message="Migration activity could not be loaded." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              ["invited", "Invited"],
+              ["accepted", "Accepted (set-up started)"],
+              ["mandate_active", "Mandate active"],
+              ["subscription_active", "Subscription active"],
+            ].map(([key, label]) => (
+              <Card key={key}><CardContent className="pt-4">
+                <p className="text-2xl font-semibold" data-testid={`stat-migration-${key}`}>{counts[key] || 0}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </CardContent></Card>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground" data-testid="text-migration-dropoff">
+            Declined {counts.declined || 0} · Expired {counts.expired || 0} · Revoked {counts.revoked || 0} · Failed {counts.failed || 0}
+          </p>
+        </>
+      )}
 
       <Card>
         <CardHeader><CardTitle className="text-base">Invite a member to switch to Direct Debit</CardTitle></CardHeader>
@@ -698,7 +731,7 @@ function MigrationTab() {
         </CardContent>
       </Card>
 
-      {isLoading ? <Skeleton className="h-40 w-full" /> : invites.length === 0 ? (
+      {isLoading ? <Skeleton className="h-40 w-full" data-testid="loading-migration-invites" /> : isError ? null : invites.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6" data-testid="text-no-invites">No migration invitations yet.</p>
       ) : invites.map((inv) => (
         <Card key={inv.id} data-testid={`card-invite-${inv.id}`}>
@@ -742,12 +775,13 @@ const RENEWAL_STATUS_VARIANTS = {
 };
 
 function RenewalsTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "renewals"],
     queryFn: () => api("/api/admin/gocardless-dd?view=renewals"),
   });
   const renewals = data?.renewals || [];
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  if (isLoading) return <Skeleton className="h-40 w-full" data-testid="loading-renewals" />;
+  if (isError) return <QueryError error={error} message="Plan renewals could not be loaded." />;
   if (renewals.length === 0) {
     return <p className="text-sm text-muted-foreground py-6" data-testid="text-no-renewals">No plan renewals recorded yet.</p>;
   }
@@ -788,20 +822,24 @@ export default function DirectDebitAdmin() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const queryClient = useQueryClient();
 
   const blocked = isAccessReady && isFeatureExcluded(FEATURE_ID);
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, isError: summaryError, error: summaryQueryError } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "summary"],
     queryFn: () => api("/api/admin/gocardless-dd?view=summary"),
     enabled: !blocked,
   });
 
-  const plansUrl = `/api/admin/gocardless-dd?view=plans${statusFilter !== "all" ? `&status=${statusFilter}` : ""}${search ? `&q=${encodeURIComponent(search)}` : ""}`;
-  const { data: plansData, isLoading: plansLoading } = useQuery({
-    queryKey: ["/api/admin/gocardless-dd", "plans", statusFilter, search],
+  const planParams = new URLSearchParams({ view: "plans", page: String(page), pageSize: String(PLAN_PAGE_SIZE) });
+  if (statusFilter !== "all") planParams.set("status", statusFilter);
+  if (search) planParams.set("q", search);
+  const plansUrl = `/api/admin/gocardless-dd?${planParams.toString()}`;
+  const { data: plansData, isLoading: plansLoading, isError: plansError, error: plansQueryError } = useQuery({
+    queryKey: ["/api/admin/gocardless-dd", "plans", statusFilter, search, page, PLAN_PAGE_SIZE],
     queryFn: () => api(plansUrl),
     enabled: !blocked,
   });
@@ -823,6 +861,12 @@ export default function DirectDebitAdmin() {
   }
 
   const plans = plansData?.plans || [];
+  const plansTotal = plansData?.total ?? 0;
+  const plansPage = plansData?.page ?? page;
+  const plansPageSize = plansData?.pageSize ?? PLAN_PAGE_SIZE;
+  const plansHasMore = plansData?.hasMore ?? (plansPage * plansPageSize < plansTotal);
+  const firstPlanNumber = plansTotal ? ((plansPage - 1) * plansPageSize) + 1 : 0;
+  const lastPlanNumber = plansTotal ? Math.min((plansPage - 1) * plansPageSize + plans.length, plansTotal) : 0;
   const byStatus = summary?.byStatus || {};
 
   return (
@@ -841,7 +885,11 @@ export default function DirectDebitAdmin() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            {summaryLoading ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20" />) : (
+            {summaryLoading ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20" />) : summaryError ? (
+              <div className="col-span-full">
+                <QueryError error={summaryQueryError} message="Direct Debit totals could not be loaded." />
+              </div>
+            ) : (
               <>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-active">{byStatus.active || 0}</p>
@@ -873,7 +921,7 @@ export default function DirectDebitAdmin() {
 
           <Tabs defaultValue="plans">
             <TabsList>
-              <TabsTrigger value="plans" data-testid="tab-plans">Plans</TabsTrigger>
+              <TabsTrigger value="plans" data-testid="tab-plans">Plans{!plansLoading && !plansError ? ` (${plansTotal})` : ""}</TabsTrigger>
               <TabsTrigger value="requests" data-testid="tab-requests">Cancellation requests{summary?.pendingCancellations ? ` (${summary.pendingCancellations})` : ""}</TabsTrigger>
               <TabsTrigger value="reconciliation" data-testid="tab-reconciliation">Payments & payouts</TabsTrigger>
               <TabsTrigger value="renewals" data-testid="tab-renewals">Renewals</TabsTrigger>
@@ -885,9 +933,9 @@ export default function DirectDebitAdmin() {
                 <div className="relative">
                   <Search className="h-4 w-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input className="pl-8 w-64" placeholder="Search payer or subscription..." value={search}
-                    onChange={(e) => setSearch(e.target.value)} data-testid="input-plan-search" />
+                    onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-plan-search" />
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
                   <SelectTrigger className="w-56" data-testid="select-plan-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {PLAN_STATUS_FILTERS.map((s) => (
@@ -896,29 +944,52 @@ export default function DirectDebitAdmin() {
                   </SelectContent>
                 </Select>
               </div>
-              {plansLoading ? <Skeleton className="h-40 w-full" /> : plans.length === 0 ? (
+              <p className="text-xs text-muted-foreground" data-testid="text-plan-scope">
+                This list contains adopted Direct Debit plans linked to membership billing. Mandates found by discovery alone remain in GoCardless integration discovery and are not plans until they are adopted.
+              </p>
+              {plansLoading ? <Skeleton className="h-40 w-full" data-testid="loading-plans" /> : plansError ? (
+                <QueryError error={plansQueryError} message="Direct Debit plans could not be loaded." />
+              ) : plans.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6" data-testid="text-no-plans">No Direct Debit plans match.</p>
-              ) : plans.map((p) => (
-                <Card key={p.id} className="hover-elevate cursor-pointer" onClick={() => setSelectedPlan(p.id)} data-testid={`card-plan-${p.id}`}>
-                  <CardContent className="py-3 flex items-center justify-between gap-2 flex-wrap text-sm">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{p.payer_name || "Unknown payer"}</span>
-                        <StatusBadge status={p.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : p.status} />
-                        {p.mandatePresentation && <Badge variant="outline">Existing mandate active{p.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{p.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
-                        {p.activation_pending && <StatusBadge status="pending_activation" />}
-                        {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {money(p.amount_minor, p.currency)}/mo · next {fmtDate(p.next_charge_date)}
-                        {p.grace_expires_at && ` · grace expires ${fmtDate(p.grace_expires_at, true)}`}
-                        {p.retry_count ? ` · ${p.retry_count} retries` : ""}
-                        {p.payer_email ? ` · ${p.payer_email}` : ""}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground" data-testid="text-plan-count">
+                    Showing {firstPlanNumber}–{lastPlanNumber} of {plansTotal} plans
+                  </p>
+                  {plans.map((p) => (
+                    <Card key={p.id} className="hover-elevate cursor-pointer" onClick={() => setSelectedPlan(p.id)} data-testid={`card-plan-${p.id}`}>
+                      <CardContent className="py-3 flex items-center justify-between gap-2 flex-wrap text-sm">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{p.payer_name || "Unknown payer"}</span>
+                            <StatusBadge status={p.mandatePresentation?.awaitingFirstPayment ? "first_payment_pending" : p.status} />
+                            {p.mandatePresentation && <Badge variant="outline">Existing mandate active{p.mandatePresentation.awaitingFirstPayment ? " · awaiting first payment" : ""}{p.mandatePresentation.collectionHeld ? " · collections held" : ""}</Badge>}
+                            {p.activation_pending && <StatusBadge status="pending_activation" />}
+                            {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {money(p.amount_minor, p.currency)}/mo · next {fmtDate(p.next_charge_date)}
+                            {p.grace_expires_at && ` · grace expires ${fmtDate(p.grace_expires_at, true)}`}
+                            {p.retry_count ? ` · ${p.retry_count} retries` : ""}
+                            {p.payer_email ? ` · ${p.payer_email}` : ""}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <Button variant="outline" size="sm" disabled={plansPage <= 1}
+                      onClick={() => setPage((current) => Math.max(1, current - 1))} data-testid="button-plans-previous">
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground" data-testid="text-plans-page">Page {plansPage}</span>
+                    <Button variant="outline" size="sm" disabled={!plansHasMore}
+                      onClick={() => setPage((current) => current + 1)} data-testid="button-plans-next">
+                      Next
+                    </Button>
+                  </div>
+                </>
+              )}
             </TabsContent>
 
             <TabsContent value="requests"><CancellationRequests /></TabsContent>

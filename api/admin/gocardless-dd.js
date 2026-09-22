@@ -39,12 +39,14 @@ import {
 } from '../_lib/gocardlessAutoRetry.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 import { createInvitation } from '../_lib/gocardlessDdInvitations.js';
-import { createMigrationInvite, buildMigrationFunnel } from '../_lib/gocardlessDdMigration.js';
+import { createMigrationInvite, migrationFunnelStage } from '../_lib/gocardlessDdMigration.js';
 import { sendDdMigrationInviteEmail } from '../_lib/gocardlessDdEmails.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 import { changeGoCardlessCollectionDay } from '../_lib/gocardlessCollectionScheduleChange.js';
+import { filterConsoleRows, filterDirectDebitRows, readConsoleRows, paginateConsolePlans, lookupConsoleRows } from '../_lib/directDebitConsoleEligibility.js';
+const consoleDatabase = supabase;
 
 export default async function handler(req, res) {
   if (req.method === 'POST' && ['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
@@ -81,7 +83,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     console.error('[admin/gocardless-dd] error:', err);
-    return res.status(500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.statusCode === 400 ? 400 : 500).json({ error: err.message || 'Internal server error' });
   }
 }
 
@@ -112,6 +114,7 @@ export async function handleCollectionDayAction(req, res, {
       .eq('tenant_id', context.tenantId).eq('id', req.body.planId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!(await filterDirectDebitRows(db, context.tenantId, [plan], { plans: true })).length) return res.status(404).json({ error: 'Plan not found' });
     const result = await db.from('membership_billing_agreements').select('*')
       .eq('tenant_id', context.tenantId).eq('id', plan.billing_agreement_id).maybeSingle();
     if (result.error) throw new Error(result.error.message);
@@ -134,39 +137,59 @@ async function handleGet(req, res, tenantId) {
   if (view === 'plan') return res.json(await planDetail(tenantId, req.query.planId, res));
   if (view === 'reconciliation') return res.json(await reconciliationView(tenantId, req.query));
   if (view === 'export') return exportReconciliationCsv(res, tenantId, req.query);
-  if (view === 'migration') return res.json(await buildMigrationFunnel(tenantId));
+  if (view === 'migration') return res.json(await consoleMigrationFunnel(tenantId));
   if (view === 'renewals') return res.json(await listRenewals(tenantId, req.query));
   return res.status(400).json({ error: `Unknown view '${view}'` });
 }
 
 // Phase 5 — renewal ledger view (membership_dd_renewals rows + member names).
+async function visibleMigrationInvite(tenantId, inviteId) {
+  const { data, error } = await supabase.from('membership_dd_migration_invites')
+    .select('*').eq('tenant_id', tenantId).eq('id', inviteId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data && (await filterConsoleRows(supabase, tenantId, [data])).length > 0;
+}
+
+async function consoleMigrationFunnel(tenantId) {
+  const rows = await filterConsoleRows(supabase, tenantId, await readConsoleRows(() =>
+    supabase.from('membership_dd_migration_invites').select('*').eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false }).order('id')));
+  const agreements = await lookupConsoleRows(supabase, tenantId, 'membership_billing_agreements', rows.map(r => r.billing_agreement_id));
+  const members = await lookupConsoleRows(supabase, tenantId, 'member', rows.map(r => r.member_id));
+  const plans = await filterDirectDebitRows(supabase, tenantId, await readConsoleRows(() =>
+    supabase.from('membership_payment_plans').select('*').eq('tenant_id', tenantId).order('id')), { plans: true });
+  const byAgreement = new Map(plans.map(p => [p.billing_agreement_id, p]));
+  const counts = Object.fromEntries(['invited', 'accepted', 'mandate_active', 'subscription_active', 'declined', 'expired', 'revoked', 'superseded', 'failed'].map(k => [k, 0]));
+  const invites = rows.map(row => {
+    const agreement = agreements.get(row.billing_agreement_id);
+    const plan = byAgreement.get(row.billing_agreement_id);
+    const member = members.get(row.member_id);
+    const stage = migrationFunnelStage(row, { agreement, plan });
+    if (stage in counts) counts[stage]++;
+    return { ...row, token: undefined, stage, memberName: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : null,
+      memberEmail: member?.email || null, hasMandate: !!agreement?.gocardless_mandate_id, planStatus: plan?.status || null };
+  });
+  return { counts, invites };
+}
+
 async function listRenewals(tenantId, query = {}) {
-  let q = supabase
+  const renewals = await readConsoleRows(() => {
+    let q = supabase
     .from('membership_dd_renewals')
     .select('*')
     .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false })
-    .limit(200);
+    .order('created_at', { ascending: false }).order('id');
   if (query.status) q = q.eq('status', query.status);
-  const { data: renewals, error } = await q;
-  if (error) throw new Error(`load renewals failed: ${error.message}`);
-  const rows = renewals || [];
+    return q;
+  });
+  const rows = await filterConsoleRows(supabase, tenantId, renewals);
   const memberIds = [...new Set(rows.map((r) => r.member_id).filter(Boolean))];
-  let membersById = new Map();
-  if (memberIds.length) {
-    const { data: members } = await supabase
-      .from('member').select('id, first_name, last_name, email').in('id', memberIds);
-    membersById = new Map((members || []).map((m) => [m.id, m]));
-  }
+  const membersById = await lookupConsoleRows(supabase, tenantId, 'member', memberIds);
   // Task #3621 — the ledger holds both DD and monthly-card renewals; the
   // previous agreement's provider tells them apart.
   const prevAgreementIds = [...new Set(rows.map((r) => r.previous_agreement_id).filter(Boolean))];
-  let providerByAgreement = new Map();
-  if (prevAgreementIds.length) {
-    const { data: prevAgreements } = await supabase
-      .from('membership_billing_agreements').select('id, provider').in('id', prevAgreementIds);
-    providerByAgreement = new Map((prevAgreements || []).map((a) => [a.id, a.provider || 'gocardless']));
-  }
+  const prevAgreements = await lookupConsoleRows(supabase, tenantId, 'membership_billing_agreements', prevAgreementIds);
+  const providerByAgreement = new Map([...prevAgreements.values()].map(a => [a.id, a.provider || 'gocardless']));
   return {
     renewals: rows.map((r) => {
       const m = membersById.get(r.member_id);
@@ -180,11 +203,11 @@ async function listRenewals(tenantId, query = {}) {
   };
 }
 
-async function buildSummary(tenantId) {
-  const { data: plans } = await supabase
+export async function buildSummary(tenantId, { db: supabase = consoleDatabase } = {}) {
+  const plans = await filterDirectDebitRows(supabase, tenantId, await readConsoleRows(() => supabase
     .from('membership_payment_plans')
-    .select('id, status, grace_expires_at, arrears_policy_applied, retry_count, next_charge_date, amount_minor, currency')
-    .eq('tenant_id', tenantId);
+    .select('*')
+    .eq('tenant_id', tenantId).order('id')), { plans: true });
   const byStatus = {};
   const attention = [];
   const now = Date.now();
@@ -197,26 +220,27 @@ async function buildSummary(tenantId) {
       });
     }
   }
-  const { count: pendingCancellations } = await supabase
+  const visibleCount = async (makeQuery) => (await filterDirectDebitRows(supabase, tenantId, await readConsoleRows(makeQuery))).length;
+  const pendingCancellations = await visibleCount(() => supabase
     .from('membership_dd_cancellation_requests')
-    .select('id', { count: 'exact', head: true })
+    .select('*')
     .eq('tenant_id', tenantId)
-    .eq('status', 'pending');
-  const { count: failedAccounting } = await supabase
+    .eq('status', 'pending').order('id'));
+  const failedAccounting = await visibleCount(() => supabase
     .from('gocardless_payments')
-    .select('id', { count: 'exact', head: true })
+    .select('*')
     .eq('tenant_id', tenantId)
-    .eq('accounting_sync_status', 'failed');
-  const { count: chargebacksAfterPayout } = await supabase
+    .eq('accounting_sync_status', 'failed').order('id'));
+  const chargebacksAfterPayout = await visibleCount(() => supabase
     .from('gocardless_payments')
-    .select('id', { count: 'exact', head: true })
+    .select('*')
     .eq('tenant_id', tenantId)
-    .eq('chargeback_reversed_after_payout', true);
-  const [{ count: pendingMemberActivations }, { count: pendingOrganisationActivations }] = await Promise.all([
-    supabase.from('member_membership_history').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit'),
-    supabase.from('organisation_membership_history').select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit'),
+    .eq('chargeback_reversed_after_payout', true).order('id'));
+  const [pendingMemberActivations, pendingOrganisationActivations] = await Promise.all([
+    visibleCount(() => supabase.from('member_membership_history').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit').order('id')),
+    visibleCount(() => supabase.from('organisation_membership_history').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit').order('id')),
   ]);
   return {
     byStatus,
@@ -228,48 +252,42 @@ async function buildSummary(tenantId) {
   };
 }
 
-async function listPlans(tenantId, query) {
-  let q = supabase
+export async function listPlans(tenantId, query = {}, db = supabase) {
+  paginateConsolePlans([], query); // Reject invalid paging before database work.
+  const rawPlans = await readConsoleRows(() => {
+    let q = db
     .from('membership_payment_plans')
     .select('*, membership_billing_agreements!membership_payment_plans_billing_agreement_id_fkey(id, member_id, organization_id, status, metadata)')
     .eq('tenant_id', tenantId)
-    .order('updated_at', { ascending: false })
-    .limit(200);
-  if (query.status && query.status !== 'pending_activation') q = q.eq('status', query.status);
-  const { data: plans, error } = await q;
-  if (error) throw new Error(`list plans failed: ${error.message}`);
+    .order('updated_at', { ascending: false }).order('id');
+  if (query.status && !['all', 'pending_activation'].includes(query.status)) q = q.eq('status', query.status);
+    return q;
+  });
+  const plans = await filterDirectDebitRows(db, tenantId, rawPlans, { plans: true });
 
   // Resolve display names (member/org) in bulk.
-  const memberIds = [...new Set((plans || []).map((p) => p.membership_billing_agreements?.member_id).filter(Boolean))];
-  const orgIds = [...new Set((plans || []).map((p) => p.membership_billing_agreements?.organization_id).filter(Boolean))];
-  const [membersRes, orgsRes] = await Promise.all([
-    memberIds.length ? supabase.from('member').select('id, first_name, last_name, email').in('id', memberIds) : { data: [] },
-    orgIds.length ? supabase.from('organization').select('id, name').in('id', orgIds) : { data: [] },
+  const memberIds = [...new Set((plans || []).map((p) => p.membership_billing_agreements?.member_id || p.member_id).filter(Boolean))];
+  const orgIds = [...new Set((plans || []).map((p) => p.membership_billing_agreements?.organization_id || p.organization_id).filter(Boolean))];
+  const [memberMap, orgMap] = await Promise.all([
+    lookupConsoleRows(db, tenantId, 'member', memberIds),
+    lookupConsoleRows(db, tenantId, 'organization', orgIds),
   ]);
-  const memberMap = new Map((membersRes.data || []).map((m) => [m.id, m]));
-  const orgMap = new Map((orgsRes.data || []).map((o) => [o.id, o]));
-  const agreementIds = (plans || []).map((p) => p.billing_agreement_id).filter(Boolean);
-  const [memberHistoryRes, organisationHistoryRes] = await Promise.all([
-    agreementIds.length
-      ? supabase.from('member_membership_history').select('billing_agreement_id, status')
-        .eq('tenant_id', tenantId).in('billing_agreement_id', agreementIds)
-      : { data: [] },
-    agreementIds.length
-      ? supabase.from('organisation_membership_history').select('billing_agreement_id, status')
-        .eq('tenant_id', tenantId).in('billing_agreement_id', agreementIds)
-      : { data: [] },
+  const [memberHistory, organisationHistory] = await Promise.all([
+    readConsoleRows(() => db.from('member_membership_history').select('id, billing_agreement_id, status')
+      .eq('tenant_id', tenantId).order('id')),
+    readConsoleRows(() => db.from('organisation_membership_history').select('id, billing_agreement_id, status')
+      .eq('tenant_id', tenantId).order('id')),
   ]);
   const activationByAgreement = new Map(
-    [...(memberHistoryRes.data || []), ...(organisationHistoryRes.data || [])]
+    [...memberHistory, ...organisationHistory]
       .filter((h) => h.billing_agreement_id)
       .map((h) => [h.billing_agreement_id, h.status]),
   );
 
-  const evidencedPlans = await Promise.all((plans || []).map(plan => loadMigratedMandatePresentation(supabase, plan)));
-  let rows = evidencedPlans.map((p) => {
+  let rows = plans.map((p) => {
     const ag = p.membership_billing_agreements;
-    const member = ag?.member_id ? memberMap.get(ag.member_id) : null;
-    const org = ag?.organization_id ? orgMap.get(ag.organization_id) : null;
+    const member = memberMap.get(ag?.member_id || p.member_id);
+    const org = orgMap.get(ag?.organization_id || p.organization_id);
     return {
       ...p,
       mandatePresentation: migratedMandatePresentation(p),
@@ -291,10 +309,20 @@ async function listPlans(tenantId, query) {
       (r.payer_email || '').toLowerCase().includes(qText) ||
       (r.gocardless_subscription_id || '').toLowerCase().includes(qText));
   }
-  return { plans: rows };
+  const result = paginateConsolePlans(rows, query);
+  const originals = new Map(plans.map(p => [p.id, p]));
+  // Evidence is presentation only; fetch it after eligibility/search/paging.
+  for (let offset = 0; offset < result.plans.length; offset += 10) {
+    const batch = await Promise.all(result.plans.slice(offset, offset + 10).map(async row => ({
+      ...row,
+      mandatePresentation: migratedMandatePresentation(await loadMigratedMandatePresentation(db, originals.get(row.id))),
+    })));
+    result.plans.splice(offset, batch.length, ...batch);
+  }
+  return result;
 }
 
-async function planDetail(tenantId, planId, res) {
+export async function planDetail(tenantId, planId, res, { db: supabase = consoleDatabase } = {}) {
   if (!planId) { res.status(400); return { error: 'planId required' }; }
   const { data: plan, error } = await supabase
     .from('membership_payment_plans')
@@ -304,10 +332,9 @@ async function planDetail(tenantId, planId, res) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!plan) { res.status(404); return { error: 'Plan not found' }; }
+  if (!(await filterDirectDebitRows(supabase, tenantId, [plan], { plans: true })).length) { res.status(404); return { error: 'Plan not found' }; }
 
-  const agreement = plan.billing_agreement_id
-    ? (await supabase.from('membership_billing_agreements').select('*').eq('id', plan.billing_agreement_id).eq('tenant_id', tenantId).maybeSingle()).data
-    : null;
+  const agreement = (await lookupConsoleRows(supabase, tenantId, 'membership_billing_agreements', [plan.billing_agreement_id])).get(plan.billing_agreement_id) || null;
   const membershipHistoryTable = agreement?.member_id
     ? 'member_membership_history'
     : (agreement?.organization_id ? 'organisation_membership_history' : null);
@@ -317,18 +344,23 @@ async function planDetail(tenantId, planId, res) {
     : Promise.resolve({ data: null });
 
   const [paymentsRes, historyRes, actionsRes, cancellationsRes, retryAttemptsRes, membershipActivationRes] = await Promise.all([
-    supabase.from('gocardless_payments').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
-    supabase.from('membership_payment_status_history').select('*').eq('entity_id', plan.id).order('created_at', { ascending: false }).limit(100),
-    supabase.from('membership_dd_admin_actions').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
-    supabase.from('membership_dd_cancellation_requests').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(20),
+    supabase.from('gocardless_payments').select('*').eq('tenant_id', tenantId).eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
+    supabase.from('membership_payment_status_history').select('*').eq('tenant_id', tenantId).eq('entity_id', plan.id).order('created_at', { ascending: false }).limit(100),
+    supabase.from('membership_dd_admin_actions').select('*').eq('tenant_id', tenantId).eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
+    supabase.from('membership_dd_cancellation_requests').select('*').eq('tenant_id', tenantId).eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(20),
     supabase.from('gocardless_payment_retry_attempts').select('*').eq('plan_id', plan.id).eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(100),
     membershipActivationPromise,
   ]);
-  const payments = paymentsRes.data || [];
+  for (const result of [paymentsRes, historyRes, actionsRes, cancellationsRes, retryAttemptsRes, membershipActivationRes]) {
+    if (result.error) throw new Error(`Plan detail lookup failed: ${result.error.message}`);
+  }
+  const payments = await filterDirectDebitRows(supabase, tenantId, paymentsRes.data || []);
+  const cancellationRequests = await filterDirectDebitRows(supabase, tenantId, cancellationsRes.data || []);
   const paymentIds = payments.map((p) => p.gocardless_payment_id).filter(Boolean);
   let refunds = [];
   if (paymentIds.length) {
-    const { data } = await supabase.from('gocardless_refunds').select('*').in('gocardless_payment_id', paymentIds).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('gocardless_refunds').select('*').eq('tenant_id', tenantId).in('gocardless_payment_id', paymentIds).order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
     refunds = data || [];
   }
 
@@ -343,7 +375,7 @@ async function planDetail(tenantId, planId, res) {
     payments,
     statusHistory: historyRes.data || [],
     adminActions: actionsRes.data || [],
-    cancellationRequests: cancellationsRes.data || [],
+    cancellationRequests,
     retryAttempts: retryAttemptsRes.data || [],
     membershipActivation: membershipActivationRes.data || null,
     refunds,
@@ -352,12 +384,12 @@ async function planDetail(tenantId, planId, res) {
 
 async function reconciliationView(tenantId, query) {
   const bucket = query.bucket || 'all';
-  let q = supabase
+  const rawPayments = await readConsoleRows(() => {
+    let q = supabase
     .from('gocardless_payments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .order('updated_at', { ascending: false })
-    .limit(300);
+    .order('updated_at', { ascending: false }).order('id');
   const filters = {
     awaiting_confirmation: (b) => b.in('status', ['pending_submission', 'submitted']),
     confirmed_not_paid_out: (b) => b.eq('status', 'confirmed').is('paid_out_at', null),
@@ -369,14 +401,16 @@ async function reconciliationView(tenantId, query) {
     chargeback_after_payout: (b) => b.eq('chargeback_reversed_after_payout', true),
   };
   if (filters[bucket]) q = filters[bucket](q);
-  const { data: payments, error } = await q;
-  if (error) throw new Error(error.message);
-  const { data: payouts } = await supabase
+    return q;
+  });
+  const payments = await filterDirectDebitRows(supabase, tenantId, rawPayments);
+  const { data: payouts, error: payoutError } = await supabase
     .from('gocardless_payouts')
     .select('*')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(50);
+  if (payoutError) throw new Error(payoutError.message);
   return { payments: payments || [], payouts: payouts || [] };
 }
 
@@ -419,33 +453,38 @@ async function recordAdminAction(tenantId, { planId = null, agreementId = null, 
   if (error) console.error('[admin/gocardless-dd] audit insert failed:', error.message);
 }
 
-async function loadPlanForAction(tenantId, planId, res) {
-  const { data: plan } = await supabase
+async function loadPlanForAction(tenantId, planId, res, db = supabase) {
+  const { data: plan, error } = await db
     .from('membership_payment_plans')
     .select('*')
     .eq('id', planId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   if (!plan) { res.status(404).json({ error: 'Plan not found' }); return null; }
+  if (!(await filterDirectDebitRows(db, tenantId, [plan], { plans: true })).length) { res.status(404).json({ error: 'Plan not found' }); return null; }
   let agreement = null;
   if (plan.billing_agreement_id) {
-    const { data } = await supabase
+    const { data, error: agreementError } = await db
       .from('membership_billing_agreements')
       .select('*')
       .eq('id', plan.billing_agreement_id)
       .eq('tenant_id', tenantId)
       .maybeSingle();
+    if (agreementError) throw new Error(agreementError.message);
     agreement = data;
   }
   return { plan, agreement };
 }
 
-async function handlePost(req, res, tenantId, actorEmail) {
+export async function handlePost(req, res, tenantId, actorEmail, { db: supabase = consoleDatabase, getProvider = gocardlessForTenant } = {}) {
+  const db = supabase;
   const { action, planId } = req.body || {};
   if (!action) return res.status(400).json({ error: 'action required' });
 
   if (action === 'note') {
     if (!planId || !req.body.note) return res.status(400).json({ error: 'planId and note required' });
+    if (!(await loadPlanForAction(tenantId, planId, res, db))) return;
     await recordAdminAction(tenantId, { planId, action: 'note', actorEmail, details: { note: req.body.note } });
     return res.json({ ok: true });
   }
@@ -461,6 +500,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (!member) return res.status(404).json({ error: 'Member not found' });
+    if (!(await filterConsoleRows(supabase, tenantId, [{ member_id: member.id }])).length) return res.status(404).json({ error: 'Member not found' });
     if (!member.email) return res.status(400).json({ error: 'Member has no email address' });
 
     // Eligibility: tier must have DD enabled + migration opted in, and an
@@ -519,6 +559,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
   if (action === 'migration_revoke') {
     const inviteId = req.body.inviteId;
     if (!inviteId) return res.status(400).json({ error: 'inviteId required' });
+    if (!(await visibleMigrationInvite(tenantId, inviteId))) return res.status(404).json({ error: 'Invitation not found' });
     const { data: revoked, error: revokeErr } = await supabase
       .from('membership_dd_migration_invites')
       .update({ status: 'revoked', updated_at: new Date().toISOString() })
@@ -536,12 +577,13 @@ async function handlePost(req, res, tenantId, actorEmail) {
   if (action === 'migration_note') {
     const { inviteId, note } = req.body;
     if (!inviteId || !note) return res.status(400).json({ error: 'inviteId and note required' });
+    if (!(await visibleMigrationInvite(tenantId, inviteId))) return res.status(404).json({ error: 'Invitation not found' });
     await recordAdminAction(tenantId, { action: 'migration_note', actorEmail, details: { inviteId, note } });
     return res.json({ ok: true });
   }
 
   if (!planId) return res.status(400).json({ error: 'planId required' });
-  const loaded = await loadPlanForAction(tenantId, planId, res);
+  const loaded = await loadPlanForAction(tenantId, planId, res, db);
   if (!loaded) return;
   const { plan, agreement } = loaded;
   if (action === 'manual_activate') {
@@ -558,7 +600,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
     }
     return res.json({ ok: true, result });
   }
-  const gc = await gocardlessForTenant(tenantId);
+  const gc = await getProvider(tenantId);
 
   switch (action) {
     case 'retry': {
@@ -594,6 +636,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
         .eq('tenant_id', tenantId)
         .maybeSingle();
       if (!payRow) return res.status(404).json({ error: 'Payment not found' });
+      if (payRow.plan_id !== plan.id || !(await filterDirectDebitRows(supabase, tenantId, [payRow])).length) return res.status(404).json({ error: 'Payment not found' });
       if (!['confirmed', 'paid_out'].includes(payRow.status)) {
         return res.status(409).json({ error: `Payment status '${payRow.status}' is not refundable` });
       }
@@ -707,6 +750,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
         .eq('gocardless_payment_id', paymentId)
         .maybeSingle();
       if (!payRow) return res.status(404).json({ error: 'Payment not found' });
+      if (payRow.plan_id !== plan.id || !(await filterDirectDebitRows(supabase, tenantId, [payRow])).length) return res.status(404).json({ error: 'Payment not found' });
       const live = await gc.getPayment(paymentId);
       const patch = { updated_at: new Date().toISOString() };
       if (live?.status && live.status !== payRow.status) patch.status = live.status;

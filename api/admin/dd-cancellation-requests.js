@@ -20,21 +20,26 @@ import {
   completeCancellationClaim,
 } from '../_lib/gocardlessAutoRetry.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
+import { filterDirectDebitRows } from '../_lib/directDebitConsoleEligibility.js';
 
-export default async function handler(req, res) {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+export default async function handler(req, res, {
+  db = supabase, getContext = getTenantContext, adminAccess = hasAdminAccess,
+  featureAccess = hasFeatureAccess, getProvider = gocardlessForTenant,
+  claimCancellation = claimPlanForCancellation,
+} = {}) {
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
   let context;
   try {
-    context = await getTenantContext(req);
+    context = await getContext(req);
   } catch {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  if (!context?.tenantId || !(await hasAdminAccess(context))) {
+  if (!context?.tenantId || !(await adminAccess(context))) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   // Same server-side feature RBAC as the DD console: member-role admins must
   // hold the Direct Debit Console key to review cancellation requests.
-  if (context.roleId && !(await hasFeatureAccess(context.roleId, 'commerce.gocardless-dd'))) {
+  if (context.roleId && !(await featureAccess(context.roleId, 'commerce.gocardless-dd'))) {
     return res.status(403).json({ error: 'Access denied' });
   }
   const tenantId = context.tenantId;
@@ -43,7 +48,7 @@ export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
       const status = req.query.status || 'pending';
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('membership_dd_cancellation_requests')
         .select('*')
         .eq('tenant_id', tenantId)
@@ -51,7 +56,7 @@ export default async function handler(req, res) {
         .order('created_at', { ascending: false })
         .limit(200);
       if (error) throw new Error(error.message);
-      return res.json({ requests: data || [] });
+      return res.json({ requests: await filterDirectDebitRows(db, tenantId, data || []) });
     }
 
     if (req.method === 'POST') {
@@ -59,31 +64,38 @@ export default async function handler(req, res) {
       if (!requestId || !['approve', 'reject'].includes(decision)) {
         return res.status(400).json({ error: "requestId and decision ('approve'|'reject') required" });
       }
-      const { data: request } = await supabase
+      const { data: request, error: requestError } = await db
         .from('membership_dd_cancellation_requests')
         .select('*')
         .eq('id', requestId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
-      if (!request) return res.status(404).json({ error: 'Request not found' });
+      if (requestError) throw new Error(requestError.message);
+      if (!request || !(await filterDirectDebitRows(db, tenantId, [request])).length) {
+        return res.status(404).json({ error: 'Request not found' });
+      }
       if (request.status !== 'pending') {
         return res.status(409).json({ error: `Request already ${request.status}` });
       }
 
       const details = [];
       if (decision === 'approve' && cancelScope !== 'none' && request.plan_id) {
-        const { data: plan } = await supabase
+        const { data: plan, error: planError } = await db
           .from('membership_payment_plans')
           .select('*')
           .eq('id', request.plan_id)
           .eq('tenant_id', tenantId)
           .maybeSingle();
+        if (planError) throw new Error(planError.message);
+        if (!plan || !(await filterDirectDebitRows(db, tenantId, [plan], { plans: true })).length) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
         if (plan) {
-          const cancellationClaim = await claimPlanForCancellation(plan, { actor: actorEmail || 'admin' });
+          const cancellationClaim = await claimCancellation(plan, { actor: actorEmail || 'admin' });
           if (!cancellationClaim) {
             return res.status(409).json({ error: 'A payment retry is currently in progress; try approving the cancellation again shortly' });
           }
-          const gc = await gocardlessForTenant(tenantId);
+          const gc = await getProvider(tenantId);
           let providerAccepted = false;
           try {
             if (plan.gocardless_subscription_id) {
@@ -111,11 +123,13 @@ export default async function handler(req, res) {
           await completeCancellationClaim(plan, cancellationClaim);
           details.push(`plan: ${JSON.stringify(result)}`);
           if (plan.billing_agreement_id) {
-            const { data: agreement } = await supabase
+            const { data: agreement, error: agreementError } = await db
               .from('membership_billing_agreements')
               .select('*')
               .eq('id', plan.billing_agreement_id)
+              .eq('tenant_id', tenantId)
               .maybeSingle();
+            if (agreementError) throw new Error(agreementError.message);
             if (agreement) {
               await applyStatusTransition({
                 entityType: 'billing_agreement',
@@ -132,7 +146,7 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: updated, error: updErr } = await supabase
+      const { data: updated, error: updErr } = await db
         .from('membership_dd_cancellation_requests')
         .update({
           status: decision === 'approve' ? 'approved' : 'rejected',
@@ -142,13 +156,14 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', requestId)
+        .eq('tenant_id', tenantId)
         .eq('status', 'pending')
         .select()
         .maybeSingle();
       if (updErr) throw new Error(updErr.message);
       if (!updated) return res.status(409).json({ error: 'Request was decided concurrently' });
 
-      await supabase.from('membership_dd_admin_actions').insert({
+      const { error: auditError } = await db.from('membership_dd_admin_actions').insert({
         tenant_id: tenantId,
         plan_id: request.plan_id,
         billing_agreement_id: request.billing_agreement_id,
@@ -156,6 +171,7 @@ export default async function handler(req, res) {
         actor_email: actorEmail,
         details: { requestId, decision, cancelScope, notes: notes || null, effects: details },
       });
+      if (auditError) throw new Error(auditError.message);
 
       return res.json({ ok: true, request: updated, effects: details });
     }

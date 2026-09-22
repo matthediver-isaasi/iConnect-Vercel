@@ -147,3 +147,4 @@
 - [Storage object absence](storage-object-absence.md) — SDK info errors may drop NoSuchKey; distinguish object absence from provider failure and public cache behavior.
 - [Consent report verification](consent-report-verification.md) — assert individual matrix cells; row-wide text can hide lost stored consent in unavailable categories.
 - [Select native hydration](select-native-hydration.md) — late Radix options can emit empty changes that erase saved selections; sentinel-based clearing must ignore these.
+- [Direct Debit console visibility](direct-debit-console-visibility.md) — console hiding must not change historical billing processing or turn mandate discovery into collection authority.

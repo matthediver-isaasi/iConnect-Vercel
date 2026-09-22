@@ -120,6 +120,17 @@ args = "npm run test:safety-boundaries"
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "direct-debit-admin"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/run-regression-suite.mjs direct-debit-admin"
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [userenv]
 
 [userenv.shared]
