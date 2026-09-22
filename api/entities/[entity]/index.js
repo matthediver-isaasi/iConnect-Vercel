@@ -6,6 +6,7 @@ import { supabase } from '../../_lib/database.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
 import {
@@ -802,7 +803,13 @@ export default async function handler(req, res) {
       const wantsCount = req.query.count === 'exact';
       let query = supabase
         .from(tableName)
-        .select(expand || '*', wantsCount ? { count: 'exact' } : undefined);
+        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*', wantsCount ? { count: 'exact' } : undefined);
+
+      if (entityNorm === 'memberresourcecategory') {
+        const scoped = scopeMemberResourceCategoryRead(query, tenantCtx, await hasAdminAccess(tenantCtx));
+        if (scoped.error) return res.status(scoped.error.status).json({ error: scoped.error.message });
+        query = scoped.query;
+      }
 
       // Resolve gallery access before adding pagination/count clauses. Applying
       // this boundary after fetching would expose an incorrect total and could
@@ -840,7 +847,7 @@ export default async function handler(req, res) {
       }
       
       // Apply tenant isolation filter (always applied for non-global entities)
-      if (shouldApplyTenantFilter) {
+      if (shouldApplyTenantFilter && entityNorm !== 'memberresourcecategory') {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           // Member-scoped entities filter by member_id
           // When allowsTenantWideAccess, use member_id from request filter (access controlled by RBAC)

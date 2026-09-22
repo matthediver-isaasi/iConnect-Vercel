@@ -12,6 +12,7 @@ import {
 import { supabase } from '../../_lib/database.js';
 import { deleteRepositoryFile } from '../../_lib/fileRepositoryDelete.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { hasGenericCommitmentFields, constrainGenericCommitmentMutation } from '../../_lib/rollingCommitmentEntityBoundary.js';
@@ -690,8 +691,14 @@ export default async function handler(req, res, dependencies = {}) {
       const { expand } = req.query;
       let query = supabase
         .from(tableName)
-        .select(expand || '*')
+        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*')
         .eq('id', id);
+
+      if (entityNorm === 'memberresourcecategory') {
+        const scoped = scopeMemberResourceCategoryRead(query, tenantCtx, await hasAdminAccess(tenantCtx));
+        if (scoped.error) return res.status(scoped.error.status).json({ error: scoped.error.message });
+        query = scoped.query;
+      }
 
       if (entityNorm === 'preferencefield') {
         query = query.or('entity_scope.is.null,entity_scope.neq.custom_object');
@@ -704,7 +711,7 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       // Apply tenant isolation filter for single-entity GET (always applied for non-global entities)
-      if (shouldApplyTenantFilter) {
+      if (shouldApplyTenantFilter && entityNorm !== 'memberresourcecategory') {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           if (allowsTenantWideAccess) {
             // Access controlled by RBAC - no member_id filter needed for by-ID access
