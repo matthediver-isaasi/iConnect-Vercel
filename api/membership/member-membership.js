@@ -23,6 +23,8 @@ const INSTALMENT_TABLE_MISSING_CODES = new Set(['42P01', '42703']);
 const HISTORY_TABLE_MISSING_CODES = new Set(['42P01', 'PGRST205']);
 const VALID_HISTORY_SOURCES = new Set(['personal', 'organisation']);
 const GC_COLLECTED_STATUSES = ['confirmed', 'paid_out'];
+const BNMS_TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const BNMS_LEGACY_CURRENT_CUTOFF = '2026-12-31';
 
 function dateValue(value) {
   if (!value) return Number.NaN;
@@ -32,6 +34,86 @@ function dateValue(value) {
 
 function firstPresent(...values) {
   return values.find((value) => value !== null && value !== undefined && value !== '') ?? null;
+}
+
+function parsedNotes(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recognise only the reviewed BNMS non-DD backfill shape. These rows represent
+ * a paid, currently valid legacy membership, but are deliberately not rolling
+ * commitments: their unknown start and renewal dates must remain unknown.
+ */
+export function shapeLegacyCurrentMembership(record, tenantId, now = new Date()) {
+  if (tenantId !== BNMS_TENANT_ID || record?.tenant_id !== BNMS_TENANT_ID
+      || record?.membership_source !== 'personal'
+      || record?.membership_year !== '2025/2026'
+      || record?.status !== 'active' || record?.payment_status !== 'paid'
+      || record?.payment_method !== 'upfront' || record?.billing_period !== 'annual'
+      || record?.currency !== 'GBP' || !hasValue(record?.tier_label)
+      || record?.config_id != null || record?.term_start_date != null
+      || record?.membership_renewal_date != null || record?.term_key != null
+      || record?.term_duration_months != null || record?.commitment_snapshot != null
+      || record?.billing_agreement_id != null) {
+    return null;
+  }
+  const notes = parsedNotes(record.notes);
+  if (notes?.source !== 'bnms_non_dd_current_backfill') return null;
+
+  const expiry = String(record.term_end_date || '');
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+  const expiryValue = dateValue(expiry);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)
+      || !Number.isFinite(expiryValue)
+      || new Date(expiryValue).toISOString().slice(0, 10) !== expiry
+      || expiryValue < today.getTime()
+      || expiry > BNMS_LEGACY_CURRENT_CUTOFF) {
+    return null;
+  }
+  const finalCostMissing = record.final_cost === null || record.final_cost === undefined;
+  const totalMissing = record.total_with_vat === null || record.total_with_vat === undefined;
+  const finalCost = finalCostMissing ? null : Number(record.final_cost);
+  const totalWithVat = totalMissing ? null : Number(record.total_with_vat);
+  // Operator-attested paid status is independent of price evidence. Both
+  // amounts may be unknown, but a partial or conflicting amount pair is not
+  // the canonical reviewed backfill shape.
+  if (finalCostMissing !== totalMissing
+      || (!finalCostMissing && (
+        !Number.isFinite(finalCost) || finalCost < 0
+        || !Number.isFinite(totalWithVat) || totalWithVat !== finalCost
+      ))) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    source: 'personal',
+    membershipYear: record.membership_year,
+    tierLabel: record.tier_label || null,
+    startDate: null,
+    endDate: expiry,
+    renewalDate: null,
+    paidAmount: finalCost,
+    currency: record.currency || 'GBP',
+    paymentMethod: 'upfront',
+    paymentStatus: 'paid',
+    readOnly: true,
+  };
+}
+
+export function findLegacyCurrentMembership(history, tenantId, now = new Date()) {
+  return (history || [])
+    .map((record) => shapeLegacyCurrentMembership(record, tenantId, now))
+    .find(Boolean) || null;
 }
 
 /**
@@ -783,6 +865,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const resolveActiveConfigs = dependencies.getAllActiveConfigs || getAllActiveConfigsStrict;
   const simulateMember = dependencies.simulateMembershipForMember || simulateMembershipForMember;
   const enrichHistoryPrices = dependencies.enrichMembershipHistoryPrices || enrichMembershipHistoryPrices;
+  const getNow = dependencies.getNow || (() => new Date());
 
   return async function handler(req, res) {
     if (!db) {
@@ -820,6 +903,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
           resolveActiveConfigs,
           simulateMember,
           enrichHistoryPrices,
+          now: getNow(),
         });
       }
 
@@ -959,6 +1043,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   resolveActiveConfigs = getAllActiveConfigsStrict,
   simulateMember = simulateMembershipForMember,
   enrichHistoryPrices = enrichMembershipHistoryPrices,
+  now = new Date(),
 } = {}) {
   const { memberId } = req.query;
 
@@ -1097,6 +1182,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   });
   await enrichHistoryPrices(history, { db, tenantId });
   await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
+  const legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
   const commitments = shapePersistedCommitments(history);
   const canEditSchedule = isAdmin && (!adminContext?.roleId || (
     await checkFeature(adminContext.roleId, 'commerce.gocardless-dd')
@@ -1199,6 +1285,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       config: null,
       currentYearCost: null,
       nextYearPreview: null,
+      legacyCurrentMembership,
       history,
       commitments,
       currentCommitments,
@@ -1218,7 +1305,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     : configResolvedFromPaidHistory
     ? { label: historicalSnapshot.record.membership_year, start: null }
     : calculateMembershipYearWindow(config);
-  const nextYear = configResolvedFromPaidHistory || personalRollingRecord
+  const nextYear = configResolvedFromPaidHistory || personalRollingRecord || legacyCurrentMembership
     ? null : calculateNextMembershipYearWindow(config);
   const currentYearStartDate = currentYear.start
     ? currentYear.start.toISOString().split('T')[0]
@@ -1233,8 +1320,10 @@ async function handleGet(req, res, tenantId, db = supabase, {
   // Pricing and simulation remain member-scoped. Organisation history is
   // included in the ledger display above, but must not make a member's
   // personal year card appear recorded.
-  const currentYearRecord = personalRollingRecord || historicalSnapshot?.record
-    || personalHistory.find(h => h.membership_year === currentYear.label);
+  const currentYearRecord = legacyCurrentMembership
+    ? null
+    : personalRollingRecord || historicalSnapshot?.record
+      || personalHistory.find(h => h.membership_year === currentYear.label);
 
   if (currentYearRecord) {
     const recAnnual = parseFloat(currentYearRecord.annual_cost);
@@ -1279,7 +1368,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       isNewMember: false,
       recordedFromHistory: true,
     };
-  } else if (!configResolvedFromPaidHistory) {
+  } else if (!configResolvedFromPaidHistory && !legacyCurrentMembership) {
     try {
       const simResult = await simulateMember(tenantId, memberId, {
         source: 'tab',
@@ -1293,7 +1382,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     }
   }
 
-  if (!configResolvedFromPaidHistory && nextYear) {
+  if (!configResolvedFromPaidHistory && !legacyCurrentMembership && nextYear) {
     try {
       const nextSimResult = await simulateMember(tenantId, memberId, {
         source: 'tab',
@@ -1322,6 +1411,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       source: configResolvedFromPaidHistory ? 'paid_history' : 'live',
     },
     pause,
+    legacyCurrentMembership,
     currentYearCost,
     nextYearPreview,
     history,

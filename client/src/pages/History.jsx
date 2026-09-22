@@ -1467,6 +1467,16 @@ export default function HistoryPage({ hasBanner }) {
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h3 className="font-semibold text-slate-900">{record.membershipRecognition ? 'Current membership' : presentation.heading}</h3>
               {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
+              {record.status && (
+                <Badge variant={record.status === 'active' ? 'secondary' : 'outline'} className="capitalize">
+                  {String(record.status).replaceAll('_', ' ')}
+                </Badge>
+              )}
+              {record.payment_status && (
+                <Badge variant={record.payment_status === 'paid' ? 'secondary' : 'outline'} className="capitalize">
+                  {String(record.payment_status).replaceAll('_', ' ')}
+                </Badge>
+              )}
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
                 {membershipSourceLabel(membershipSource)}
               </Badge>

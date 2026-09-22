@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   getMembershipHistorySchedule,
   historyScheduleDateLabel,
+  membershipHistoryTermLabel,
   retainedHistoryDate,
 } from './historySchedule.js';
 
@@ -22,6 +23,34 @@ test('preserves an ordinary membership-year heading and retained fixed term', ()
     endDate: '31 March 2027',
     paymentLabel: 'Card payment',
   });
+});
+
+test('presents a legacy upfront year and retained expiry without inventing a start', () => {
+  const record = {
+    membership_year: '2025/2026',
+    status: 'active',
+    payment_status: 'paid',
+    tier_label: 'Legacy Professional',
+    term_start_date: null,
+    term_end_date: '2026-09-30',
+    membership_renewal_date: null,
+    term_key: null,
+    commitment_snapshot: null,
+    billing_agreement_id: null,
+    notes: JSON.stringify({
+      source: 'bnms_non_dd_current_backfill',
+      term_start_date: '2025-10-01',
+      membership_renewal_date: '2026-10-01',
+    }),
+  };
+
+  assert.deepEqual(getMembershipHistorySchedule(record), {
+    heading: 'Membership 2025/2026',
+    schedule: null,
+    renewalDate: null,
+    endDate: '30 September 2026',
+  });
+  assert.equal(membershipHistoryTermLabel(record), '2025/2026');
 });
 
 test('uses a saved start for a readable rolling heading, never the term-key date', () => {

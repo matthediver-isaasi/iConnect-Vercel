@@ -148,3 +148,4 @@
 - [Consent report verification](consent-report-verification.md) — assert individual matrix cells; row-wide text can hide lost stored consent in unavailable categories.
 - [Select native hydration](select-native-hydration.md) — late Radix options can emit empty changes that erase saved selections; sentinel-based clearing must ignore these.
 - [Direct Debit console visibility](direct-debit-console-visibility.md) — console hiding must not change historical billing processing or turn mandate discovery into collection authority.
+- [BNMS upfront membership evidence](bnms-upfront-membership-evidence.md) — operator-attested existing membership is not provider settlement proof or authority to create future commitments.

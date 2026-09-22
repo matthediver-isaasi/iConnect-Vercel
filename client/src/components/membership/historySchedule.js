@@ -70,6 +70,36 @@ export function historyScheduleDateLabel(value) {
   });
 }
 
+/**
+ * Keep an end-only historical term narrow and truthful. Legacy imports can
+ * retain a real expiry without retaining evidence for their commencement.
+ */
+export function membershipHistoryTermLabel(record) {
+  const row = object(record);
+  const snapshot = object(row.commitment_snapshot);
+  const start = retainedHistoryDate(firstPresent(
+    row.term_start_date,
+    snapshot.term_start_date,
+  ));
+  const end = retainedHistoryDate(firstPresent(
+    row.term_end_date,
+    snapshot.term_end_date,
+  ));
+  const membershipYear = typeof row.membership_year === 'string'
+    ? row.membership_year.trim()
+    : '';
+
+  if (start && end && end >= start) {
+    return `${historyScheduleDateLabel(start)} – ${historyScheduleDateLabel(end)}`;
+  }
+  if (start) return `From ${historyScheduleDateLabel(start)}`;
+  // A year is a label, not evidence for a missing start date. Prefer it as the
+  // compact term heading and let the caller show the separately retained end.
+  if (membershipYear) return membershipYear;
+  if (end) return `Expires ${historyScheduleDateLabel(end)}`;
+  return 'Unknown';
+}
+
 function normaliseToken(value) {
   return typeof value === 'string'
     ? value.trim().toLowerCase().replace(/\s+/g, '_')

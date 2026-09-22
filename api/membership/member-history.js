@@ -44,6 +44,7 @@ const PERSONAL_COLUMNS = [
   'billing_agreement_id',
   'stripe_payment_intent_id',
   'status',
+  'payment_status',
   'created_at',
   'vat_rate_percent',
   'vat_amount',
@@ -85,6 +86,7 @@ const ORGANISATION_COLUMNS = [
   'billing_agreement_id',
   'stripe_payment_intent_id',
   'status',
+  'payment_status',
   'created_at',
 ].join(', ');
 

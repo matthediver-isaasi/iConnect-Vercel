@@ -126,3 +126,25 @@ test('preserves valid zero and historical fixed totals', () => {
   assert.equal(pricing.gross.text, '£0.00');
   assert.equal(pricing.monthly, null);
 });
+
+test('presents a nullable legacy upfront invoice amount without pricing simulation', () => {
+  const fromGross = getMembershipPricingPresentation({
+    final_cost: null,
+    total_with_vat: 125,
+    currency: 'GBP',
+    config_id: null,
+    commitment_snapshot: null,
+  });
+  assert.equal(fromGross.agreed.text, '£125.00');
+  assert.equal(fromGross.gross.text, '£125.00');
+  assert.equal(fromGross.net.text, 'Uncommitted');
+  assert.equal(fromGross.monthly, null);
+
+  const absent = getMembershipPricingPresentation({
+    final_cost: null,
+    total_with_vat: null,
+    currency: 'GBP',
+  });
+  assert.equal(absent.agreed.text, 'Uncommitted');
+  assert.equal(absent.gross.text, 'Uncommitted');
+});

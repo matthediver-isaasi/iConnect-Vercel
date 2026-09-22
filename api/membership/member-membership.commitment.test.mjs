@@ -5,7 +5,162 @@ import {
   shapePersistedCommitments,
   enrichDirectDebitCommitments,
   enrichStripeCommitmentSchedules,
+  shapeLegacyCurrentMembership,
+  createMemberMembershipHandler,
 } from './member-membership.js';
+
+const BNMS = 'ff2df806-b321-4254-b651-3af11fccf1db';
+
+function legacyCurrent(overrides = {}) {
+  return {
+    id: '0ff50f40-15b1-567f-a4d1-c353d9342fae',
+    tenant_id: BNMS,
+    membership_source: 'personal',
+    membership_year: '2025/2026',
+    status: 'active',
+    payment_status: 'paid',
+    payment_method: 'upfront',
+    billing_period: 'annual',
+    config_id: null,
+    term_start_date: null,
+    term_end_date: '2026-09-29',
+    membership_renewal_date: null,
+    term_key: null,
+    term_duration_months: null,
+    commitment_snapshot: null,
+    billing_agreement_id: null,
+    tier_label: 'Overseas full member',
+    final_cost: 109,
+    total_with_vat: 109,
+    currency: 'GBP',
+    notes: JSON.stringify({ source: 'bnms_non_dd_current_backfill' }),
+    ...overrides,
+  };
+}
+
+test('recognises the narrow paid BNMS legacy current membership without inventing dates', () => {
+  const result = shapeLegacyCurrentMembership(
+    legacyCurrent(),
+    BNMS,
+    new Date('2026-09-22T12:00:00Z'),
+  );
+  assert.equal(result.paidAmount, 109);
+  assert.equal(result.endDate, '2026-09-29');
+  assert.equal(result.startDate, null);
+  assert.equal(result.renewalDate, null);
+  assert.equal(result.readOnly, true);
+  assert.deepEqual(shapePersistedCommitments([legacyCurrent()]), []);
+});
+
+test('legacy current recognition fails closed for expired, cross-tenant, and paid-state conflicts', () => {
+  const now = new Date('2026-09-22T12:00:00Z');
+  assert.equal(shapeLegacyCurrentMembership(
+    legacyCurrent({ term_end_date: '2026-09-21' }), BNMS, now,
+  ), null);
+  assert.equal(shapeLegacyCurrentMembership(
+    legacyCurrent({ tenant_id: 'another-tenant' }), 'another-tenant', now,
+  ), null);
+  assert.equal(shapeLegacyCurrentMembership(
+    legacyCurrent({ payment_status: 'unpaid' }), BNMS, now,
+  ), null);
+  assert.equal(shapeLegacyCurrentMembership(
+    legacyCurrent({ total_with_vat: 110 }), BNMS, now,
+  ), null);
+  assert.equal(shapeLegacyCurrentMembership(
+    legacyCurrent({ notes: JSON.stringify({ source: 'untrusted' }) }), BNMS, now,
+  ), null);
+});
+
+test('operator-attested paid legacy membership preserves an unknown price rather than inventing zero', () => {
+  const result = shapeLegacyCurrentMembership(
+    legacyCurrent({ final_cost: null, total_with_vat: null }),
+    BNMS,
+    new Date('2026-09-22T12:00:00Z'),
+  );
+  assert.ok(result);
+  assert.equal(result.paymentStatus, 'paid');
+  assert.equal(result.paidAmount, null);
+});
+
+test('handler keeps live config separate while the recorded legacy price wins and no successor is simulated', async () => {
+  const memberId = 'd91d8aa3-4981-4ba0-b923-ab6ccb092f9f';
+  const row = legacyCurrent({ member_id: memberId });
+  const db = {
+    from(table) {
+      let selection = '';
+      const result = () => {
+        if (table === 'member' && selection.startsWith('id,')) {
+          return { data: {
+            id: memberId,
+            first_name: 'Pilot',
+            last_name: 'Member',
+            email: 'pilot@example.test',
+            tenant_id: BNMS,
+            organization_id: null,
+          }, error: null };
+        }
+        if (table === 'member') {
+          return { data: { membership_paused: false }, error: null };
+        }
+        if (table === 'member_membership_history') return { data: [row], error: null };
+        if (table === 'bnms_dd_alpha_membership_recognition') return { data: [], error: null };
+        throw new Error(`Unexpected table ${table}`);
+      };
+      const chain = {
+        select(value) { selection = value; return chain; },
+        eq() { return chain; },
+        order() { return chain; },
+        async maybeSingle() { return result(); },
+        then(resolve, reject) { return Promise.resolve(result()).then(resolve, reject); },
+      };
+      return chain;
+    },
+  };
+  let simulations = 0;
+  const handler = createMemberMembershipHandler({
+    db,
+    getTenantContext: async () => ({ tenantId: BNMS }),
+    getSessionMember: async () => ({ id: memberId, tenant_id: BNMS }),
+    hasAdminAccess: async () => true,
+    getConfigForMember: async () => ({
+      id: 'live-2026',
+      tenant_id: BNMS,
+      name: '2026-2027 Overseas full member',
+      structure_scope_type: 'member',
+      currency: 'GBP',
+      billing_period: 'annual',
+      membership_start_month: 10,
+      membership_start_day: 1,
+      online_card_payment: true,
+      annual_cost: 999,
+    }),
+    simulateMembershipForMember: async () => {
+      simulations++;
+      return { success: true, finalCost: 999 };
+    },
+    enrichMembershipHistoryPrices: async () => {},
+    getNow: () => new Date('2026-09-22T12:00:00Z'),
+  });
+  let statusCode = 200;
+  let payload;
+  await handler(
+    { method: 'GET', query: { memberId } },
+    {
+      status(code) { statusCode = code; return this; },
+      json(value) { payload = value; return value; },
+    },
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(payload.config.source, 'live');
+  assert.equal(payload.legacyCurrentMembership.paidAmount, 109);
+  assert.equal(payload.legacyCurrentMembership.endDate, '2026-09-29');
+  assert.equal(payload.legacyCurrentMembership.startDate, null);
+  assert.equal(payload.currentYearCost, null);
+  assert.equal(payload.nextYearPreview, null);
+  assert.deepEqual(payload.currentCommitments, []);
+  assert.equal(simulations, 0);
+});
 
 test('shapes an immutable rolling commitment without live pricing substitution', () => {
   const commitment = shapePersistedCommitment({
@@ -136,6 +291,34 @@ test('distinguishes scheduled terms and ignores ambiguous legacy rows', () => {
   assert.equal(commitments.length, 1);
   assert.equal(commitments[0].id, 'scheduled');
   assert.equal(commitments[0].lifecycle, 'scheduled');
+});
+
+test('does not create a future commitment from BNMS provenance notes', () => {
+  const commitments = shapePersistedCommitments([{
+    id: 'bnms-current-2025',
+    membership_year: '2025/2026',
+    status: 'active',
+    payment_status: 'paid',
+    config_id: null,
+    tier_label: 'Retained BNMS type',
+    final_cost: 120,
+    total_with_vat: 144,
+    currency: 'GBP',
+    term_start_date: null,
+    term_end_date: '2026-09-30',
+    membership_renewal_date: null,
+    term_key: null,
+    commitment_snapshot: null,
+    billing_agreement_id: null,
+    notes: JSON.stringify({
+      source: 'bnms_non_dd_current_backfill',
+      term_key: 'rolling:forged',
+      membership_renewal_date: '2099-01-01',
+      billing_agreement_id: 'forged',
+    }),
+  }]);
+
+  assert.deepEqual(commitments, []);
 });
 
 test('legacy Direct Debit with missing policy remains explicitly reviewable without inventing dates', () => {

@@ -42,6 +42,10 @@ import MonthlyCollectionSchedule, {
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
+import {
+  historyScheduleDateLabel,
+  membershipHistoryTermLabel,
+} from "@/components/membership/historySchedule";
 import MemberMembershipInstalments, {
   getMembershipSource,
   isMonthlyMembershipRecord,
@@ -109,14 +113,6 @@ function formatPaymentFrequency(value, monthlyAmount, currency) {
   return monthlyAmount != null && String(value).toLowerCase().includes('month')
     ? `${label.charAt(0).toUpperCase()}${label.slice(1)} (${formatCost(monthlyAmount, currency)} per collection)`
     : `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
-}
-
-function membershipTermLabel(record) {
-  if (record?.term_start_date || record?.term_end_date) {
-    return `${formatMembershipDate(record.term_start_date)} – ${formatMembershipDate(record.term_end_date)}`;
-  }
-  if (String(record?.membership_year || '').startsWith('rolling:')) return 'Dates unknown';
-  return record?.membership_year || 'Unknown';
 }
 
 function MemberYearCostSection({
@@ -237,7 +233,7 @@ function MemberYearCostSection({
       </div>
       <p className="font-semibold" data-testid={`text-member-year-${testIdPrefix}`}>
         {String(yearData.membershipYear || '').startsWith('rolling:')
-          ? membershipTermLabel({
+          ? membershipHistoryTermLabel({
             membership_year: yearData.membershipYear,
             term_start_date: yearData.startDate,
             term_end_date: yearData.endDate,
@@ -1274,6 +1270,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const personalHistory = history.filter((record) => getMembershipSource(record) === 'personal');
   const currentYearData = data?.currentYearCost || null;
   const nextYearData = data?.nextYearPreview || null;
+  const legacyCurrentMembership = data?.legacyCurrentMembership || null;
   const config = data?.config || null;
   const pricingCapability = data?.pricingCapability || null;
   const historicalReadOnly = pricingCapability?.mode === 'historical_read_only'
@@ -1366,6 +1363,55 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   return (
     <div className="space-y-4">
       {pauseControls}
+      {legacyCurrentMembership && (
+        <Card className="border-green-200 dark:border-green-900" data-testid="card-member-legacy-current">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+              <CalendarDays className="w-4 h-4" />
+              Current Membership
+              <Badge variant="secondary">Current</Badge>
+              <Badge variant="outline">Paid legacy record · read-only</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Membership Start Date</dt>
+                <dd className="font-medium" data-testid="text-legacy-current-start">Unknown</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Current Term End</dt>
+                <dd className="font-medium" data-testid="text-legacy-current-end">
+                  {formatMembershipDate(legacyCurrentMembership.endDate)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Membership Type</dt>
+                <dd className="font-medium">{legacyCurrentMembership.tierLabel || 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Recorded Paid Amount</dt>
+                <dd className="font-medium" data-testid="text-legacy-current-price">
+                  {legacyCurrentMembership.paidAmount == null
+                    ? 'Unknown'
+                    : formatCost(legacyCurrentMembership.paidAmount, legacyCurrentMembership.currency)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Payment Method</dt>
+                <dd className="font-medium">Upfront</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Membership Year</dt>
+                <dd className="font-medium">{legacyCurrentMembership.membershipYear}</dd>
+              </div>
+            </dl>
+            <p className="text-xs text-muted-foreground mt-4">
+              Persisted paid membership. No start date, renewal date, or future commitment was recorded.
+            </p>
+          </CardContent>
+        </Card>
+      )}
       {currentCommitments.map((commitment) => (
         <Card
           key={`${commitment.source}:${commitment.id}`}
@@ -1489,7 +1535,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           </CardContent>
         </Card>
       )}
-      {config && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
+      {config && !legacyCurrentMembership && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -1536,7 +1582,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         </Card>
       )}
 
-      {config && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
+      {config && !legacyCurrentMembership && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
             <CardHeader>
@@ -1623,7 +1669,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           )}
         </div>
       )}
-      {config && historicalReadOnly && !hasCurrentPersistedCommitment && (
+      {config && historicalReadOnly && !legacyCurrentMembership && !hasCurrentPersistedCommitment && (
         <Card data-testid="card-member-paid-snapshot-future">
           <CardContent className="py-4 text-sm text-muted-foreground">
             Future pricing is unavailable until a live member-scoped tier is matched.
@@ -1688,7 +1734,12 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                       <Fragment key={membershipRecordKey}>
                       <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">
-                          <div>{membershipTermLabel(record)}</div>
+                          <div>{membershipHistoryTermLabel(record)}</div>
+                          {!record.term_start_date && record.term_end_date && (
+                            <div className="text-xs text-muted-foreground font-normal mt-1">
+                              Expires: {historyScheduleDateLabel(record.term_end_date) || 'Unknown'}
+                            </div>
+                          )}
                           {(record.term_start_date || record.membership_renewal_date) && (
                             <div className="text-xs text-muted-foreground font-normal mt-1">
                               Renewal: {formatMembershipDate(record.membership_renewal_date)}
@@ -1698,7 +1749,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                                 : 'Duration unknown'}
                             </div>
                           )}
-                          {!record.term_start_date && !record.membership_renewal_date && (
+                          {!record.term_start_date && !record.term_end_date && !record.membership_renewal_date && (
                             <div className="text-xs text-muted-foreground font-normal mt-1">
                               Legacy record · commitment dates unknown
                             </div>

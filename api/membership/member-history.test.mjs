@@ -42,7 +42,8 @@ function mockedDb({
       const call = calls.at(-1);
       const filters = call.filters;
       const chain = {
-        select() {
+        select(columns) {
+          call.columns = columns;
           return chain;
         },
         eq(column, value) {
@@ -200,6 +201,53 @@ test('returns personal history for a member without an organisation', async () =
   assert.equal(res.payload.length, 1);
   assert.equal(res.payload[0].membership_source, 'personal');
   assert.equal(db.calls.filter((call) => call.table === 'organisation_membership_history').length, 0);
+});
+
+test('returns narrow BNMS legacy upfront display fields without consulting notes', async () => {
+  const legacy = {
+    id: 'bnms-current-2025',
+    tenant_id: 'tenant-1',
+    member_id: 'member-1',
+    membership_year: '2025/2026',
+    config_id: null,
+    tier_label: 'Retained BNMS type',
+    final_cost: null,
+    total_with_vat: 144,
+    currency: 'GBP',
+    term_start_date: null,
+    term_end_date: '2026-09-30',
+    membership_renewal_date: null,
+    term_key: null,
+    commitment_snapshot: null,
+    billing_agreement_id: null,
+    status: 'active',
+    payment_status: 'paid',
+    notes: JSON.stringify({
+      source: 'bnms_non_dd_current_backfill',
+      member_id: 'other-member',
+      term_start_date: '2025-10-01',
+    }),
+  };
+  const db = mockedDb({ rows: { member_membership_history: [legacy] } });
+  const res = response();
+  const handler = historyHandler({
+    db,
+    sessionMember: { ...member, organization_id: null },
+  });
+
+  await handler({ method: 'GET' }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.length, 1);
+  assert.equal(res.payload[0].tier_label, 'Retained BNMS type');
+  assert.equal(res.payload[0].total_with_vat, 144);
+  assert.equal(res.payload[0].payment_status, 'paid');
+  assert.equal(res.payload[0].term_start_date, null);
+  assert.equal(res.payload[0].term_end_date, '2026-09-30');
+  assert.equal(res.payload[0].membership_source, 'personal');
+  const historyRead = db.calls.find((call) => call.table === 'member_membership_history');
+  assert.match(historyRead.columns, /payment_status/);
+  assert.doesNotMatch(historyRead.columns, /\bnotes\b/);
 });
 
 test('returns organisation-only history for a member linked to an organisation', async () => {
