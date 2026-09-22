@@ -447,6 +447,7 @@ import { MemberTerminologyProvider } from '@/contexts/MemberTerminologyContext';
 import { DynamicMemberRedirector } from '@/components/routing/DynamicMemberRedirector';
 import { memberPageForPath } from '@/lib/memberDetailState.mjs';
 import { useQuery } from '@tanstack/react-query';
+import { useSessionMemberRole } from '@/hooks/useSessionMemberRole';
 import { publicClient } from '@/api/publicClient';
 const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
 
@@ -943,13 +944,22 @@ function SurveyAssignmentRoute() {
 function PagesContent() {
     const location = useLocation();
     const { branding, loading: brandingLoading } = useTenantBranding();
-    const { authResolved, memberInfo, memberRole } = useLayoutContext();
+    const { authResolved, sessionValidated, sessionRoleSnapshot, memberInfo, memberRole } = useLayoutContext();
+    const { roleStatus } = useSessionMemberRole();
     const { micrositesLoaded, activeMicrosite, micrositeBrandingLoading } = useMicrosite();
     const scope = JSON.stringify([
         location.key, location.pathname, location.search, branding?.id,
         memberInfo?.tenant_id, memberInfo?.id, memberInfo?.role_id, memberRole?.id,
         activeMicrosite?.id, activeMicrosite?.home_slug,
     ]);
+    // No route key here: this identifies compatible *presentation*, not a
+    // destination authorization. Closing any trust boundary discards it.
+    const shellScope = authResolved && sessionValidated && roleStatus === 'ready'
+        && !brandingLoading && micrositesLoaded && !micrositeBrandingLoading
+        && !activeMicrosite && memberInfo?.id
+        ? JSON.stringify([branding?.id, memberInfo.tenant_id, memberInfo.id,
+            memberInfo.role_id, memberRole?.id, sessionRoleSnapshot?.session_key])
+        : null;
 
     const routes = (
                 <>
@@ -1396,7 +1406,7 @@ function PagesContent() {
     const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute].includes(pageComponent);
     const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname);
     return (
-        <RouteLayoutProvider scope={scope} pageOwned={pageOwned}
+        <RouteLayoutProvider scope={scope} shellScope={shellScope} pageOwned={pageOwned}
             prerequisitesReady={!brandingLoading && authResolved && micrositesLoaded && !micrositeBrandingLoading}>
             <ScrollToTop />
             <Layout currentPageName={currentPage}>

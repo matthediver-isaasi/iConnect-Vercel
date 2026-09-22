@@ -11,6 +11,110 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 
+test('slow portal discovery preserves established shell DOM without inheriting destination authority', async () => {
+  let context;
+  let mounts = 0;
+  function Portal({ children }) {
+    useLayoutEffect(() => { mounts += 1; }, []);
+    return <section><header><input defaultValue="shell state" /></header><aside /><main>{children}</main></section>;
+  }
+  function Page({ decision }) {
+    usePageLayoutDecision(decision);
+    return <p>Destination</p>;
+  }
+  function Shell({ decision }) {
+    context = useContext(RouteLayoutContext);
+    useLayoutEffect(() => {
+      if (context.chromeReady) context.confirmPortalShell?.(!context.forcePublicLayout);
+    }, [context.confirmPortalShell, context.forcePublicLayout, context.chromeReady]);
+    const content = <div hidden={!context.chromeReady}><Page decision={decision} /></div>;
+    return context.forcePublicLayout ? <article>{content}</article> : <Portal>{content}</Portal>;
+  }
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const portal = { forcePublicLayout: false };
+  const render = (scope, decision, shellScope = 'tenant/member/session/role') => act(async () => {
+    root.render(<RouteLayoutProvider scope={scope} shellScope={shellScope} pageOwned>
+      <Shell decision={decision} />
+    </RouteLayoutProvider>);
+  });
+  try {
+    await render('/bookings', portal);
+    const header = container.querySelector('header');
+    header.querySelector('input').value = 'expanded navigation';
+    const abandonedCommit = context.commit;
+    const abandonedConfirmation = context.confirmPortalShell;
+    for (const route of ['/portal', '/bookings?back', '/portal?forward', '/portal?repeat']) {
+      await render(route, null);
+      assert.equal(container.querySelector('header'), header, `shell changed during slow discovery of ${route}`);
+      assert.equal(context.chromeReady, false);
+      assert.equal(context.publicChrome, 'none');
+      await act(async () => abandonedCommit({ forcePublicLayout: true }));
+      await act(async () => abandonedConfirmation(false));
+      assert.equal(context.chromeReady, false, 'previous route cannot authorize destination');
+      assert.equal(container.querySelector('header'), header, 'abandoned confirmation cannot discard current shell');
+      await render(route, portal);
+    }
+    assert.equal(mounts, 1);
+    assert.equal(header.querySelector('input').value, 'expanded navigation');
+    await render('/public', { forcePublicLayout: true });
+    assert.equal(container.querySelector('header'), null);
+    await render('/unknown', null);
+    assert.equal(context.forcePublicLayout, true, 'public destination clears established portal continuity');
+    for (const terminal of ['unknown', 'error']) {
+      await render('/member', portal);
+      await render(`/${terminal}-pending`, null);
+      assert.equal(context.chromeReady, false, 'unresolved error/miss cannot reveal destination');
+      await render(`/${terminal}-pending`, { forcePublicLayout: true, publicChrome: 'none' });
+      assert.equal(container.querySelector('header'), null, 'terminal error/miss obeys explicit no-chrome policy');
+      assert.equal(context.publicChrome, 'none');
+      assert.equal(context.chromeReady, true, 'terminal feedback can be shown');
+    }
+    await render('/member', portal);
+    await render('/blank', { forcePublicLayout: true, forceBlankLayout: true });
+    assert.equal(container.querySelector('header'), null);
+    for (const boundary of ['tenant-b', 'member-b', 'session-b', 'role-b', 'microsite', null]) {
+      await render('/member', portal);
+      await render('/portal', null, boundary);
+      assert.equal(container.querySelector('header'), null, `${boundary} cannot inherit shell`);
+      assert.equal(context.chromeReady, false);
+    }
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('static portal confirmation can retain only presentation for a page-owned destination', async () => {
+  let context;
+  function Reader() {
+    context = useContext(RouteLayoutContext);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  const render = (scope, pageOwned, shellScope = 'validated-session') => act(async () => {
+    root.render(<RouteLayoutProvider scope={scope} pageOwned={pageOwned} shellScope={shellScope}>
+      <Reader />
+    </RouteLayoutProvider>);
+  });
+  try {
+    await render('/portal', true);
+    assert.equal(context.forcePublicLayout, true, 'direct entry has no established shell');
+    await render('/bookings', false);
+    await act(async () => context.confirmPortalShell());
+    await render('/portal', true);
+    assert.equal(context.forcePublicLayout, false);
+    assert.equal(context.chromeReady, false);
+    assert.equal(context.forceBlankLayout, false);
+    assert.equal(context.publicPageMisses.size, 0);
+    await render('/portal', true, null);
+    assert.equal(context.forcePublicLayout, true, 'auth/role readiness closure fences presentation immediately');
+    await render('/portal', true);
+    assert.equal(context.forcePublicLayout, true, 'reopened trust cannot revive prior shell evidence');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test('public miss evidence survives shell remount only, not readiness, route or audience changes', async () => {
   let context;
   function Reader() {

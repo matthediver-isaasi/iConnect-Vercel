@@ -529,6 +529,76 @@ for (const version of [1, 2]) {
   });
 }
 
+test("isolated published payment details with no arrangement remove outer chrome and layout slot while editor remains selectable", async ({ browser }) => {
+  for (const version of [1, 2]) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const page = await context.newPage();
+    const fixture = await installFixtures(page, {
+      version,
+      viewer: "alpha",
+      duplicate: true,
+      summaryOverride: {
+        membership: { state: "active", memberSince: null, membershipType: "Professional — Alpha" },
+        payment: {
+          state: "none", method: "unavailable", nextPayment: null, amount: null,
+          currency: null, collectionStatus: "unavailable", plannedPayment: null,
+          confirmedPayment: null, nextCollection: null, mandateStatus: null,
+        },
+      },
+    });
+
+    await openPublished(page, fixture);
+    const firstCard = page.locator("[data-block-type='membership-summary']").first();
+    const paymentWrapper = page.locator("[data-block-type='payment-details']").first();
+    const followingCard = page.locator("[data-block-type='membership-summary']").nth(1);
+    await expect(paymentWrapper).toBeHidden();
+    await expect(followingCard).toBeVisible();
+    const gapAfterFirstCard = async () => {
+      const [first, following] = await Promise.all([
+        firstCard.boundingBox(),
+        followingCard.boundingBox(),
+      ]);
+      return following.y - (first.y + first.height);
+    };
+    // V1 closes the removed signed-auto-height row through reflow; V2 removes
+    // the hidden flex item. Neither layout should retain the 330px payment slot.
+    await expect.poll(gapAfterFirstCard).toBeLessThan(250);
+    const desktop = await paymentWrapper.evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        display: style.display,
+        width: rect.width,
+        height: rect.height,
+        background: style.backgroundColor,
+        borderWidth: style.borderWidth,
+        shadow: style.boxShadow,
+      };
+    });
+    expect(desktop).toMatchObject({ display: "none", width: 0, height: 0 });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(paymentWrapper).toBeHidden();
+    await expect.poll(gapAfterFirstCard).toBeLessThan(250);
+    expect(await paymentWrapper.evaluate(node => ({
+      display: getComputedStyle(node).display,
+      height: node.getBoundingClientRect().height,
+    }))).toEqual({ display: "none", height: 0 });
+
+    await page.goto(`/CanvasPageEditor?pageId=${fixture.fixturePage.id}`);
+    await expect(page.getByTestId("canvas-page-editor")).toBeVisible();
+    const editorPayment = page.locator("[data-block-type='payment-details']").first();
+    await expect(editorPayment).toBeVisible();
+    await expect(editorPayment.getByTestId("membership-editor-sample")).toBeVisible();
+    await editorPayment.click();
+    await expect(page.getByTestId("membership-data-inspector")).toBeVisible();
+
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+    await context.close();
+  }
+});
+
 test("isolated Auto height remains content-driven and long mobile content settles without clipping", async ({ browser }) => {
   for (const version of [1, 2]) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });

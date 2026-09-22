@@ -3,7 +3,7 @@ name: Route-owned chrome decisions
 description: Why Canvas chrome must be authorized synchronously at the shared route boundary.
 ---
 
-Treat header/footer visibility as a lease for a particular route, tenant, microsite, and audience. An unresolved lease allows neither component to mount. Resetting readiness in a child layout effect is too late: excluded components have already committed, even if the browser has not painted.
+Treat destination public header/footer visibility as a lease for a particular route, tenant, microsite, and audience. An unresolved lease allows neither public component to mount. Resetting readiness in a child layout effect is too late: excluded components have already committed, even if the browser has not painted.
 
 **Why:** Cold loads began with full chrome, and disabled dependent queries looked “not loading.” Cleanup resets also reopened the previous page's full chrome during navigation. Hiding the shell with CSS did not prevent DOM insertion or component effects.
 
@@ -20,3 +20,9 @@ Keep chrome authorization separate from starting network reads. Session and publ
 **Why:** Extending anti-flash readiness to the requests themselves serialized page loading behind settings and session validation, leaving a visually blank page. A prefetched cookie-backed response also cannot safely survive an account switch merely because the eventual viewer is authenticated.
 
 **How to apply:** Show neutral visible loading feedback; fence buffered responses across route, tenant, mount and account changes, including switches before the first auth result. Test request ordering with deliberately blocked settings/auth, as well as protected-content absence and header/footer insertion history.
+
+An already validated portal shell may persist across compatible navigation, but its presentation continuity must never serve as destination authorization.
+
+**Why:** Expiring route decisions is necessary, yet defaulting every unresolved dynamic destination to a public parent destroys sidebar DOM and local state even when the session remains valid. Session-request reuse alone cannot fix that transition.
+
+**How to apply:** Keep shell compatibility separate from route leases. Invalidate continuity on session, tenant, account, role, or microsite boundaries, and reconcile explicit public/blank settings when discovered. Keep pending destination content gated and test shell node identity and local state during slow discovery and history navigation, not just request counts.

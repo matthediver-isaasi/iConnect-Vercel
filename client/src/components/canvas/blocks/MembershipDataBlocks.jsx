@@ -49,6 +49,12 @@ export function MembershipDataView({
   const summary = normalizeCanvasMembershipSummary(result?.data);
   const ready = result?.status === 'ready';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
+  // A confirmed absence of payment data has no useful published presentation.
+  // Keep every unresolved/error lifecycle visible, and keep the editor sample
+  // selectable, but remove the complete public block (including its authored
+  // wrapper background/border and its V2 flow slot) once the normalized API
+  // state explicitly says `none`.
+  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor;
   const copy = content.states[state];
   const styles = Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [
     role, resolveTenantStyle(content.typography[role], tenantStyles),
@@ -81,7 +87,12 @@ export function MembershipDataView({
     @media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${selector}{min-height:${contentMinHeight('tablet')}px !important}}
     @media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${selector}{min-height:${contentMinHeight('mobile')}px !important}}
   ` : '';
-  const ref = useReportReflowHeight(block.id, extraHeight, { includeExtraHeightPublic: true });
+  const ref = useReportReflowHeight(block.id, extraHeight, {
+    includeExtraHeightPublic: true,
+    // V1 positioned pages use signed auto-height reflow for these cards. A
+    // hidden card must report zero so content below closes the authored gap.
+    allowZero: hidePublishedPaymentDetails,
+  });
   const href = safeMembershipLink(content.manageLink);
   const plannedPayment = summary.payment.plannedPayment;
   const confirmedPayment = summary.payment.confirmedPayment;
@@ -118,11 +129,14 @@ export function MembershipDataView({
     ...(summary.membership.paymentHistoryFrom ? ['paymentHistoryFrom'] : [])];
   return (
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
+      data-payment-details-visibility={hidePublishedPaymentDetails ? 'hidden' : undefined}
+      hidden={hidePublishedPaymentDetails}
       data-membership-state={state} aria-labelledby={`${id}-heading`}
       aria-busy={result?.status === 'loading'}
       style={{ width: '100%', minWidth: 0, minHeight, containerType: 'inline-size', visibility: awaitingStyles ? 'hidden' : undefined }}>
       <style dangerouslySetInnerHTML={{ __html: `${css}
         ${responsiveMinHeightCss}
+        [data-block-type="payment-details"]:has(> [data-payment-details-visibility="hidden"]){display:none !important}
         ${selector} .membership-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin:40px 0 0;padding:0}
         ${selector} .membership-title{display:flex;align-items:center;gap:24px 60px;flex-wrap:wrap}
         @container (max-width:650px){${selector} .membership-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}}

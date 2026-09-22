@@ -7,14 +7,23 @@ export const RouteLayoutContext = createContext(null);
  * Invalidate in render (before descendants can mount), never in an effect.
  * Tokens are objects so returning to an earlier URL cannot revive its lease.
  */
-export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesReady = true }) {
+export function RouteLayoutProvider({ children, scope, shellScope = null, pageOwned, prerequisitesReady = true }) {
   // Readiness can close temporarily while branding/auth metadata is refreshed.
   // Preserve the resolved shell kind across that temporary epoch, but require
   // the page to recommit its current decision before chrome becomes ready.
   // This avoids both parent-shell swaps and a frame of stale chrome when the
   // decision changed while prerequisites were unavailable.
-  const scopeToken = useMemo(() => ({}), [scope, pageOwned]);
+  // Presentation continuity is separate from the route decision lease. Only
+  // Layout can confirm a mounted, validated portal shell; a compatible next
+  // route may retain that parent, never its content/chrome authorization.
+  const shellToken = useMemo(() => ({}), [shellScope]);
+  const scopeToken = useMemo(() => ({}), [scope, pageOwned, shellToken]);
   const token = useMemo(() => ({}), [scopeToken, prerequisitesReady]);
+  const [shell, setShell] = useState(() => ({ token: shellToken, routeToken: token, established: false }));
+  if (shell.token !== shellToken || shell.routeToken !== token) {
+    setShell({ token: shellToken, routeToken: token,
+      established: shell.token === shellToken && shell.established });
+  }
   // Non-sensitive, confirmed public misses may survive the one shell remount
   // when a dynamic page resolves from public discovery to member chrome.
   // Route, tenant, audience and readiness epochs each discard this evidence.
@@ -40,6 +49,11 @@ export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesR
       layoutDecision: decision || current.layoutDecision,
     } : current);
   }, [token, scopeToken]);
+  const confirmPortalShell = useCallback((established = true) => {
+    setShell(current => current.token === shellToken && current.routeToken === token && shellScope
+      && current.established !== established
+      ? { token: shellToken, routeToken: token, established } : current);
+  }, [shellToken, shellScope, token]);
   const setForceBlankLayout = useCallback((value) => {
     setOverrides(previous => previous.token === token
       ? { ...previous, forceBlankLayout: value }
@@ -56,15 +70,19 @@ export function RouteLayoutProvider({ children, scope, pageOwned, prerequisitesR
   const ready = !pageOwned || (prerequisitesReady && !!decision);
   const local = overrides?.token === token ? overrides : {};
   const blank = local.forceBlankLayout ?? decision?.forceBlankLayout ?? layoutDecision?.forceBlankLayout ?? false;
+  const retainPortalShell = !!shellScope && shell.token === shellToken && shell.established;
   const value = {
     publicPageMisses,
     commit,
+    confirmPortalShell,
     pageOwned,
     chromeReady: ready,
     publicChrome: ready && !blank ? (decision?.publicChrome || 'both') : 'none',
-    // Until the decision arrives keep page components in the public shell.
+    // Cold/foreign audiences use the public discovery shell. A previously
+    // confirmed compatible portal keeps its DOM while chromeReady remains
+    // false and the new page obtains its own decision.
     forcePublicLayout: local.forcePublicLayout ?? (pageOwned
-      ? (blank || !layoutDecision || !!layoutDecision.forcePublicLayout)
+      ? (blank || (layoutDecision ? !!layoutDecision.forcePublicLayout : !retainPortalShell))
       : false),
     forceBlankLayout: blank,
     setForceBlankLayout,

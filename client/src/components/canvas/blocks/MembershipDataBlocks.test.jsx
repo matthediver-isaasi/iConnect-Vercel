@@ -174,6 +174,46 @@ test('guest, denied, error and loading never paint cached active data', () => {
   assert.match(render({ result: { status: 'ready', data: {} } }), /Join date not recorded/);
 });
 
+test('published payment details hide only for a ready normalized none state', () => {
+  const none = {
+    membership: { state: 'active' },
+    payment: { state: 'none' },
+  };
+  const published = render({
+    type: 'payment-details',
+    result: { status: 'ready', data: none },
+  });
+  assert.match(published, /data-payment-details-visibility="hidden"/);
+  assert.match(published, /hidden=""/);
+  assert.match(
+    published,
+    /\[data-block-type="payment-details"\]:has\(> \[data-payment-details-visibility="hidden"\]\)\{display:none !important\}/,
+  );
+
+  const editor = render({
+    type: 'payment-details',
+    asEditor: true,
+    result: { status: 'ready', data: none, isSample: true },
+  });
+  assert.doesNotMatch(editor, /<section[^>]*data-payment-details-visibility="hidden"/);
+  assert.doesNotMatch(editor, /<section[^>]*hidden=""/);
+  assert.match(editor, /No payment arrangement/);
+
+  for (const result of [
+    { status: 'loading', data: none },
+    { status: 'error', data: none },
+    { status: 'ready', data: { membership: {}, payment: { state: 'unavailable' } } },
+    { status: 'ready', data: { membership: {}, payment: { state: 'unexpected' } } },
+  ]) {
+    const html = render({ type: 'payment-details', result });
+    assert.doesNotMatch(html, /<section[^>]*data-payment-details-visibility="hidden"/);
+    assert.doesNotMatch(html, /<section[^>]*hidden=""/);
+  }
+
+  const summary = render({ result: { status: 'ready', data: none } });
+  assert.doesNotMatch(summary, /<section[^>]*data-payment-details-visibility="hidden"/);
+});
+
 test('custom membership type remains paired to the actual record while generated type copy retires', () => {
   const data = {
     membership: { state: 'active', membershipType: 'Chartered member' },

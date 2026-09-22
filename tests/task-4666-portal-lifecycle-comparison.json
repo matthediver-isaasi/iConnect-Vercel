@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-21T17:55:11.056Z",
+  "measuredAt": "2026-09-22T06:37:41.491Z",
   "environment": "same already-running development preview with controlled API interception; not production",
   "criticalFixtureDelayMs": 200,
   "repetitions": 3,
@@ -11,17 +11,27 @@
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 5289,
+              "visibleContentMs": 6134,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4872,
+              "visibleContentMs": 6287,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1898,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
@@ -30,57 +40,57 @@
               }
             },
             {
-              "name": "navigate-forward",
-              "visibleContentMs": 1564,
-              "loadingFallbackAppearances": 0,
-              "requests": {
-                "auth": 1,
-                "role": 1,
-                "page": 5
-              }
-            },
-            {
               "name": "browser-back",
-              "visibleContentMs": 1485,
+              "visibleContentMs": 1692,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 1622,
+              "visibleContentMs": 1567,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             }
           ],
           "totals": {
             "auth": 5,
             "role": 5,
-            "page": 23
+            "page": 18
           }
         },
         {
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 4171,
+              "visibleContentMs": 5127,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4926,
+              "visibleContentMs": 5292,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1895,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
@@ -89,57 +99,57 @@
               }
             },
             {
-              "name": "navigate-forward",
-              "visibleContentMs": 1491,
-              "loadingFallbackAppearances": 0,
-              "requests": {
-                "auth": 1,
-                "role": 1,
-                "page": 5
-              }
-            },
-            {
               "name": "browser-back",
-              "visibleContentMs": 1476,
+              "visibleContentMs": 1608,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 1468,
+              "visibleContentMs": 1519,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             }
           ],
           "totals": {
             "auth": 5,
             "role": 5,
-            "page": 23
+            "page": 18
           }
         },
         {
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 4080,
+              "visibleContentMs": 7140,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4428,
+              "visibleContentMs": 7422,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1644,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
@@ -148,57 +158,57 @@
               }
             },
             {
-              "name": "navigate-forward",
-              "visibleContentMs": 1504,
-              "loadingFallbackAppearances": 0,
-              "requests": {
-                "auth": 1,
-                "role": 1,
-                "page": 5
-              }
-            },
-            {
               "name": "browser-back",
-              "visibleContentMs": 1532,
+              "visibleContentMs": 1881,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 1508,
+              "visibleContentMs": 1816,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 5
+                "page": 4
               }
             }
           ],
           "totals": {
             "auth": 5,
             "role": 5,
-            "page": 23
+            "page": 18
           }
         }
       ],
       "summary": [
         {
           "name": "cold-document",
-          "medianVisibleContentMs": 4171,
+          "medianVisibleContentMs": 6134,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
             "role": 1,
-            "page": 4
+            "page": 3
           }
         },
         {
           "name": "same-context-reload",
-          "medianVisibleContentMs": 4872,
+          "medianVisibleContentMs": 6287,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 3
+          }
+        },
+        {
+          "name": "navigate-forward",
+          "medianVisibleContentMs": 1895,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
@@ -207,33 +217,23 @@
           }
         },
         {
-          "name": "navigate-forward",
-          "medianVisibleContentMs": 1504,
-          "medianLoadingFallbackAppearances": 0,
-          "medianRequests": {
-            "auth": 1,
-            "role": 1,
-            "page": 5
-          }
-        },
-        {
           "name": "browser-back",
-          "medianVisibleContentMs": 1485,
+          "medianVisibleContentMs": 1692,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
             "role": 1,
-            "page": 5
+            "page": 4
           }
         },
         {
           "name": "browser-forward",
-          "medianVisibleContentMs": 1508,
+          "medianVisibleContentMs": 1567,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
             "role": 1,
-            "page": 5
+            "page": 4
           }
         }
       ]
@@ -244,229 +244,229 @@
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 4671,
+              "visibleContentMs": 5505,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4789,
+              "visibleContentMs": 6064,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "navigate-forward",
-              "visibleContentMs": 637,
+              "visibleContentMs": 450,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-back",
-              "visibleContentMs": 1066,
+              "visibleContentMs": 421,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 996,
+              "visibleContentMs": 397,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             }
           ],
           "totals": {
             "auth": 2,
             "role": 2,
-            "page": 14
+            "page": 9
           }
         },
         {
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 5100,
+              "visibleContentMs": 5683,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4299,
+              "visibleContentMs": 6408,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "navigate-forward",
-              "visibleContentMs": 971,
+              "visibleContentMs": 504,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-back",
-              "visibleContentMs": 957,
+              "visibleContentMs": 432,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 589,
+              "visibleContentMs": 428,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             }
           ],
           "totals": {
             "auth": 2,
             "role": 2,
-            "page": 14
+            "page": 9
           }
         },
         {
           "steps": [
             {
               "name": "cold-document",
-              "visibleContentMs": 4004,
+              "visibleContentMs": 6885,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "same-context-reload",
-              "visibleContentMs": 4663,
+              "visibleContentMs": 6130,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 1,
                 "role": 1,
-                "page": 4
+                "page": 3
               }
             },
             {
               "name": "navigate-forward",
-              "visibleContentMs": 1158,
+              "visibleContentMs": 469,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-back",
-              "visibleContentMs": 978,
+              "visibleContentMs": 644,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             },
             {
               "name": "browser-forward",
-              "visibleContentMs": 969,
+              "visibleContentMs": 583,
               "loadingFallbackAppearances": 0,
               "requests": {
                 "auth": 0,
                 "role": 0,
-                "page": 2
+                "page": 1
               }
             }
           ],
           "totals": {
             "auth": 2,
             "role": 2,
-            "page": 14
+            "page": 9
           }
         }
       ],
       "summary": [
         {
           "name": "cold-document",
-          "medianVisibleContentMs": 4671,
+          "medianVisibleContentMs": 5683,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
             "role": 1,
-            "page": 4
+            "page": 3
           }
         },
         {
           "name": "same-context-reload",
-          "medianVisibleContentMs": 4663,
+          "medianVisibleContentMs": 6130,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 1,
             "role": 1,
-            "page": 4
+            "page": 3
           }
         },
         {
           "name": "navigate-forward",
-          "medianVisibleContentMs": 971,
+          "medianVisibleContentMs": 469,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 0,
             "role": 0,
-            "page": 2
+            "page": 1
           }
         },
         {
           "name": "browser-back",
-          "medianVisibleContentMs": 978,
+          "medianVisibleContentMs": 432,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 0,
             "role": 0,
-            "page": 2
+            "page": 1
           }
         },
         {
           "name": "browser-forward",
-          "medianVisibleContentMs": 969,
+          "medianVisibleContentMs": 428,
           "medianLoadingFallbackAppearances": 0,
           "medianRequests": {
             "auth": 0,
             "role": 0,
-            "page": 2
+            "page": 1
           }
         }
       ]

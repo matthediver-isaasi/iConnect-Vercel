@@ -216,6 +216,11 @@ async function installFixture(page, {
 
     const key = `${method} ${url.pathname}${url.search}`;
     state.requests.push(key);
+    // Synthetic navigation activity only; never forward fixture writes.
+    if (method === "PATCH" && url.pathname === `/api/entities/Member/${state.authBody?.id}`
+      && Object.keys(request.postDataJSON() || {}).join() === "last_activity") {
+      return json(route, { ...state.authBody, ...request.postDataJSON() });
+    }
     if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
       state.writes.push(key);
       return json(route, { error: `Read-only sidebar fixture blocked ${key}` }, 599);

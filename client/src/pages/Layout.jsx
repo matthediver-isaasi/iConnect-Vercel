@@ -1,6 +1,6 @@
 import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
@@ -1838,6 +1838,7 @@ useEffect(() => {
     pageOwned,
     authResolved,
     sessionValidated,
+    confirmPortalShell,
   } = useLayoutContext();
 
   useEffect(() => {
@@ -2522,6 +2523,15 @@ useEffect(() => {
     }
     return child;
   });
+
+  const rendersPublicShell = isPublicPage();
+  useLayoutEffect(() => {
+    if (visibilitySettingsFetched && !visibilitySettingsError && chromeReady
+      && authResolved && sessionValidated && roleStatus === 'ready') {
+      confirmPortalShell?.(!rendersPublicShell && !forceBlankLayout);
+    }
+  }, [confirmPortalShell, chromeReady, authResolved, sessionValidated, roleStatus,
+    rendersPublicShell, forceBlankLayout, visibilitySettingsFetched, visibilitySettingsError]);
 
   // EARLY RETURNS - must come AFTER all hooks to avoid React error #310
   // Wait for visibility settings to load before rendering layout
@@ -3312,6 +3322,11 @@ useEffect(() => {
               Skip to main content
             </a>
             <main id="main-content" tabIndex={-1} ref={mainContentRef} className={`flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain focus:outline-none${hasPortalPageBg ? '' : ' bg-gradient-to-br from-slate-50 to-blue-50'}`} style={hasPortalPageBg ? portalPageBgStyle : undefined}>
+              {pageOwned && !chromeReady && (
+                <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">
+                  Loading page…
+                </div>
+              )}
               {/* Render ALL top banners with appropriate component based on banner_type */}
               {topBanners.length > 0 && (
                 <div className="w-full">

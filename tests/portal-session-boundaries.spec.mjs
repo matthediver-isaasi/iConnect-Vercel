@@ -45,7 +45,7 @@ function pageRecord(slug) {
     builder_type: "canvas",
     layout_type: publicPage ? "public" : "member",
     public_chrome: "both",
-    hide_chrome: false,
+    hide_chrome: slug === "session-boundary-blank",
     tenant_id: TENANT.id,
     canvas_design: {
       version: 1,
@@ -93,6 +93,9 @@ function json(route, body, status = 200) {
 
 async function installFixture(page) {
   const state = {
+    pageGate: deferred(true),
+    pageReads: 0,
+    documents: 0,
     authReads: 0,
     authStatus: 200,
     authBody: sessionBody(),
@@ -133,9 +136,18 @@ async function installFixture(page) {
       state.external.push(`${method} ${url.href}`);
       return route.abort("blockedbyclient");
     }
-    if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (!url.pathname.startsWith("/api/")) {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) state.documents += 1;
+      return route.continue();
+    }
 
     const key = `${method} ${url.pathname}${url.search}`;
+    // Layout legitimately records navigation activity. Keep this exact write
+    // entirely in the fixture; all other writes remain blocked below.
+    if (method === "PATCH" && url.pathname === `/api/entities/Member/${MEMBER.id}`
+      && Object.keys(request.postDataJSON() || {}).join() === "last_activity") {
+      return json(route, { ...MEMBER, ...request.postDataJSON() });
+    }
     if (method === "POST" && url.pathname === "/api/auth/logout") {
       state.logoutReads += 1;
       await state.logoutGate.promise;
@@ -171,10 +183,14 @@ async function installFixture(page) {
       }]);
     }
     if (url.pathname === "/api/entities/Member") return json(route, [MEMBER]);
-    if (url.pathname === "/api/public/page/session-boundary"
+    if (url.pathname === "/api/public/page/portal"
+      || url.pathname === "/api/public/page/session-boundary"
       || url.pathname === "/api/public/page/session-boundary-next"
+      || url.pathname === "/api/public/page/session-boundary-blank"
       || url.pathname === "/api/public/page/session-boundary-public") {
       const slug = url.pathname.split("/").pop();
+      state.pageReads += 1;
+      await state.pageGate.promise;
       return json(route, { success: true, page: pageRecord(slug), elements: [], symbols: [] });
     }
     if (url.pathname === "/api/public/tenant-branding") {
@@ -232,6 +248,75 @@ function expectReadOnlyClean(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.external).toEqual([]);
 }
+
+test("slow /portal discovery and history navigation retain the actual shell and sidebar state", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/session-boundary");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Accept", exact: true }).click();
+  await page.getByTestId("button-sidebar-toggle").click();
+  await page.evaluate(() => {
+    window.shellHeader = document.querySelector("header");
+    window.shellSidebar = document.querySelector('[data-sidebar="sidebar"]');
+    window.shellToggle = document.querySelector('[data-testid="button-sidebar-toggle"]');
+  });
+  const documents = state.documents;
+  const authReads = state.authReads;
+  const assertShell = async () => {
+    expect(await page.evaluate(() => ({
+      header: !!window.shellHeader && window.shellHeader === document.querySelector("header"),
+      sidebar: !!window.shellSidebar && window.shellSidebar === document.querySelector('[data-sidebar="sidebar"]'),
+      toggle: window.shellToggle === document.querySelector('[data-testid="button-sidebar-toggle"]'),
+      collapsed: window.shellSidebar.closest("[data-state]").getAttribute("data-state") === "collapsed",
+    }))).toEqual({ header: true, sidebar: true, toggle: true, collapsed: true });
+    expect(state.authReads).toBe(authReads);
+    expect(state.documents).toBe(documents);
+  };
+  for (const action of ["push", "back", "forward", "back", "forward"]) {
+    state.pageGate = deferred(false);
+    const reads = state.pageReads;
+    if (action === "push") {
+      await page.evaluate(() => {
+        history.pushState({}, "", "/portal");
+        dispatchEvent(new PopStateEvent("popstate"));
+      });
+    } else if (action === "back") await page.goBack();
+    else await page.goForward();
+    await expect.poll(() => state.pageReads).toBeGreaterThan(reads);
+    await expect(page.getByRole("status")).toContainText("Loading page");
+    await assertShell();
+    state.pageGate.release();
+    const slug = action === "back" ? "session-boundary" : "portal";
+    await expect(page.getByText(`Session boundary content: ${slug}`, { exact: true })).toBeVisible();
+    await assertShell();
+  }
+  expectReadOnlyClean(state);
+});
+
+test("confirmed public and blank destinations replace retained portal chrome", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/session-boundary");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  for (const destination of ["public", "blank"]) {
+    state.pageGate = deferred(false);
+    const reads = state.pageReads;
+    await page.evaluate((slug) => {
+      history.pushState({}, "", `/session-boundary-${slug}`);
+      dispatchEvent(new PopStateEvent("popstate"));
+    }, destination);
+    await expect.poll(() => state.pageReads).toBeGreaterThan(reads);
+    await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
+    state.pageGate.release();
+    await expect(page.getByText(`Session boundary content: session-boundary-${destination}`, { exact: true })).toBeVisible();
+    await expect(page.locator('[data-sidebar="sidebar"]')).toHaveCount(0);
+    await page.goBack();
+    await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
+  }
+  expect(state.authReads).toBe(1);
+  expect(state.documents).toBe(1);
+  expectReadOnlyClean(state);
+});
 
 async function expectShellClosed(page) {
   // A page-owned Canvas route may show its own loading status while the route
