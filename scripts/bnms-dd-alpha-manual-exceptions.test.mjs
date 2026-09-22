@@ -16,6 +16,17 @@ test('approval is an exact immutable 2-invoice/5-attempt manual-only scope',()=>
   assert.equal(new Set(a.payments.map(p=>p.memberId)).size,3);
   assert.equal(a.events.length,6);
   assert.equal(a.provenance.approvedAt,null);
+  assert.equal(a.version,2);
+  assert.deepEqual(a.renewals,[{
+    kind:'unrelated_event',invoiceNumber:'200008893',id:'1ade600c-0a15-444c-bd25-842a5fd5aa70',
+    approvalDate:'2026-09-22',approvedAt:null,
+    source:'User explicitly approved renewed exception in current BNMS Alpha readiness task',
+    disposition:'keep_collections_held_manual_follow_up_no_financial_mutation',
+    previousDigest:'66b6c69bb31a3ba61cd0c040fe2c75c0d166da8b1566d9f0973f3e3d06a8a97a',
+    digest:'ca9971af3b504171078ad1cd8910f323242d7179e73f878063b66387a2a035a7',
+    observedChange:{creditNoteNumber:'200008893C',creditAmount:60,currency:'GBP',amountDue:207.27},
+    evidence:'exports/private-bnms-alpha-attestation-20260922/readiness-only-resume-0935.json; exports/private-bnms-alpha-readiness/checkpoint.json',
+  }]);
   a.payments.length=0;assert.equal(alphaManualApproval().payments.length,5);
   assert.throws(()=>assertAlphaManualEvidence([]),/changed or missing/);
 });

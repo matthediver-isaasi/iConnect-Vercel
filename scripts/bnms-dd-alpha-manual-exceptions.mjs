@@ -1,4 +1,5 @@
-// Script-only, exact resources from the completed 2026-09-21 readiness scan.
+// Script-only, exact resources from the completed 2026-09-21 readiness scan
+// plus the narrowly renewed event-invoice evidence approved on 2026-09-22.
 // Approval is permission to leave these items for manual follow-up, NOT to pay,
 // retry, write off, reconcile, or mutate any provider/canonical financial row.
 import {hash} from './bnms-dd-beta-invoices.mjs';
@@ -15,7 +16,7 @@ const invoices=[
   ['40f32190-8286-4f65-87af-6c051135e619','91c069bd-460b-43ba-9b03-dd8d191f8946','0e3abea3-02c7-4dfd-91a9-973d429b9173','2026-09-01T00:00:00',13.04,'fd523dfc76624093d39b83186995a8403760f411ab2f9e4daef0b6675fef13b4'],
 ].map(([memberId,contactId,id,date,amount,digest])=>({kind:'invoice',memberId,contactId,id,date,amount,status:'AUTHORISED',currency:'GBP',digest}));
 const events=[
-  ['e553175b-8a9b-523c-aa40-19fbdf1acc8a','07cd2024-ff4b-48f2-bf99-e71db5f92d42','1ade600c-0a15-444c-bd25-842a5fd5aa70','66b6c69bb31a3ba61cd0c040fe2c75c0d166da8b1566d9f0973f3e3d06a8a97a'],
+  ['e553175b-8a9b-523c-aa40-19fbdf1acc8a','07cd2024-ff4b-48f2-bf99-e71db5f92d42','1ade600c-0a15-444c-bd25-842a5fd5aa70','ca9971af3b504171078ad1cd8910f323242d7179e73f878063b66387a2a035a7'],
   ['b31a72f6-b764-4554-a6f7-0c262b5e9403','38a1a6a0-812b-49dd-a544-276509ca4002','58219674-c351-4fca-b009-6cbd4b4f323e','b566e7dcd9da60bdb20c015fb6bfea152c438ce983734775b0616d8bc1a59258'],
   ['ad806e51-cb3d-4269-b88d-3fb04082a839','93e15381-689e-4f23-94fa-b1afd039a0d0','44d32213-ccf8-4bd8-8f50-1261513f2803','91457504431bb8390bf36aa2a090e7d34e9fb17620f1b1c7ece07b8f10d32354'],
   ['22f26bba-cfbc-48a6-a881-a6f0f15ffd45','08c254a8-8346-4fb6-ab93-d16f9a03491b','3af832fe-0243-449c-b345-3db131f26c86','9f2fe1a6fd5257ce4ba24ebf4e3e48105efd62f9eb6d93f5ad2a807a6c13db3f'],
@@ -23,11 +24,21 @@ const events=[
   ['46d036ed-b430-44a7-83b0-e2abb5d16cd6','7da1b325-383b-43cf-9fac-07b5f19219bc','3028af51-72b9-469e-ad2a-7504e29f0685','a679210f3fe4ee3b8a8d0f26273001d2743f9c85994bc2c167c36a3076dfbd58'],
 ].map(([memberId,contactId,id,digest])=>({kind:'unrelated_event',memberId,contactId,id,digest}));
 const approval={
-  version:1,manifestSha256:'3aff20a6e04338c3b3532d57c6be4b8395afa5ff8d5dbbe878daab52017f395a',
+  version:2,manifestSha256:'3aff20a6e04338c3b3532d57c6be4b8395afa5ff8d5dbbe878daab52017f395a',
   provenance:{source:'User instruction relayed in current BNMS Alpha release-exceptions task',
     approvalDate:'2026-09-21',approvedAt:null,timePrecision:'Exact user-message timestamp unavailable; date from task context only',
     summary:'Leave two unpaid membership invoices and five historical failed attempts for three members untouched for manual follow-up; provide member details after run.',
     evidence:'exports/private-bnms-alpha-attestation-20260921/readiness-dryrun-renewed.json; exports/private-bnms-alpha-readiness/checkpoint.json'},
+  renewals:[{
+    kind:'unrelated_event',invoiceNumber:'200008893',id:'1ade600c-0a15-444c-bd25-842a5fd5aa70',
+    approvalDate:'2026-09-22',approvedAt:null,
+    source:'User explicitly approved renewed exception in current BNMS Alpha readiness task',
+    disposition:'keep_collections_held_manual_follow_up_no_financial_mutation',
+    previousDigest:'66b6c69bb31a3ba61cd0c040fe2c75c0d166da8b1566d9f0973f3e3d06a8a97a',
+    digest:'ca9971af3b504171078ad1cd8910f323242d7179e73f878063b66387a2a035a7',
+    observedChange:{creditNoteNumber:'200008893C',creditAmount:60,currency:'GBP',amountDue:207.27},
+    evidence:'exports/private-bnms-alpha-attestation-20260922/readiness-only-resume-0935.json; exports/private-bnms-alpha-readiness/checkpoint.json',
+  }],
   disposition:'manual_follow_up_no_financial_mutation',payments,invoices,events,
 };
 export const alphaManualApproval=()=>structuredClone(approval);
