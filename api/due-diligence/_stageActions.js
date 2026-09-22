@@ -1,7 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
-import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
@@ -1315,7 +1314,6 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
       .eq('id', tenantId)
       .single();
     const tenantName = tenantInfo?.name || '';
-    const tenantSlug = tenantInfo?.slug || '';
 
     // Resolve owner name + email via shared helper
     const { ownerName, ownerEmail } = await resolveDdOwnerForSubmission({
@@ -1504,27 +1502,8 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
       subject = replaceDoubleBracketPlaceholders(subject, doubleBracketPlaceholders);
       body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
 
-      let preferencesLink = '';
-      let preferencesUrl = '';
-      if (tenantSlug) {
-        const { data: recipientMember } = await supabase
-          .from('member')
-          .select('id')
-          .eq('email', normalizedEmail)
-          .eq('tenant_id', tenantId)
-          .single();
-
-        if (recipientMember) {
-          const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
-          const prefToken = generateMemberPreferencesToken(tenantId, recipientMember.id);
-          preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${prefToken}`;
-          preferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-        }
-      }
-      subject = subject.replace(/\{\{communication_preferences_link\}\}/gi, '');
-      subject = subject.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-      body = body.replace(/\{\{communication_preferences_link\}\}/gi, preferencesLink);
-      body = body.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+      // Preference aliases remain reserved until sendEmail knows the final
+      // envelope, including configured CC/BCC recipients.
 
       // Build email options
       const emailOptions = {

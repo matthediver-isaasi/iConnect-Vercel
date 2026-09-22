@@ -17,8 +17,14 @@ and identify where templates ship to Mailgun with un-substituted tokens.
 Single canonical generic helper:
 - `replacePlaceholders(template, entityType, entityData, context)` in
   `api/_lib/emailService.js:370` — the only function that handles both `{{}}`
-  and `[[]]` syntaxes generically. `context.tenantId` + `context.memberId` +
-  `context.tenantBaseUrl` enables `{{communication_preferences_link}}`.
+  and `[[]]` syntaxes generically. Preference tokens remain reserved until the
+  final transactional transport verifies the actual recipient; entity context
+  alone must not authorize a personal preference link.
+
+Both transactional transports (`emailService.js` and `tenantEmailService.js`)
+resolve preference tokens after their applicable footers. The latter covers
+membership reminders, fee-token/invoice emails and payment lifecycle messages,
+and retains its existing explicit-footer-only behavior.
 
 DD-owner helper (small, focused):
 - `applyDdOwnerPlaceholders(text, { ownerName, ownerEmail })` in
@@ -69,8 +75,8 @@ historically only resolved in one — are listed below.
 |---|---|---|---|
 | `[[member.first_name]]` / `_last_name` / `_full_name` / `_email` / `_id` | ✅ | emailService generic, send-submission-email, campaign sender, dd-meeting-* , article-briefs/send-copyright, sendTeamMemberInvite | The biggest single gap closed by this task |
 | `[[organization.name]]` / `_id` / `_invoicing_email` / `_phone` | ✅ | Same as above (wherever a member context is resolved) | sender will fall back to recipient organization when no submission tied |
-| `{{communication_preferences_link}}` / `_url` | ✅ | emailService generic (only when `tenantId` + `memberId` + `tenantBaseUrl` in context); campaign sender adds it directly | |
-| `{{unsubscribe_link}}` / `_url` | ✅ | Campaign sender | Per-recipient tracking token — campaign-only, do not replicate |
+| `{{communication_preferences_link}}` / `_url` | ✅ | Transactional final transport; campaign sender | Transactional delivery derives identity from the actual sole envelope recipient. It emits a signed member-preferences URL only for one uniquely verified member in the tenant with no CC/BCC; otherwise it renders a non-clickable fallback. |
+| `{{unsubscribe_link}}` / `_url` | ✅ | Transactional final transport; campaign sender | Transactional aliases follow the same sole-recipient verification rule. Campaign delivery keeps its existing tracked unsubscribe URL and one-click headers unchanged. |
 | `{{set_password_url}}` | ✅ | `api/forms/send-submission-email.js` only | Generates real password-reset URL via crypto-signed token; intentionally not duplicated to other senders |
 | `{{dd_owner}}` / `{{dd_owner_email}}` / `[[dd_owner]]` | ✅ | `applyDdOwnerPlaceholders` from `api/_lib/ddOwner.js` everywhere DD context is in scope | Contract crons + workflow + DD test-fires |
 | `{{recipient_name}}` / `{{recipient_email}}` / `{{meeting_type}}` / `{{duration}}` / `{{agent_name}}` / `{{booking_url}}` / `{{booking_link}}` | ✅ | dd-meeting-requests resend + add-alternative | Bespoke meeting-template tokens only used by these two senders |
@@ -173,6 +179,52 @@ the catalog. See §6 for the per-token gap fixes shipped in this task.
   later, route the rendered output through the generic helper.
 - Batched (per-audience) organization enrichment in campaigns — current
   implementation issues one Supabase embed per recipient (see fix #1).
+
+### Transactional unsubscribe aliases and final-envelope safety
+
+`{{unsubscribe_link}}`, `{{unsubscribe_url}}`,
+`{{communication_preferences_link}}`, and
+`{{communication_preferences_url}}` are reserved until the final transactional
+transport knows the real envelope. Earlier template/workflow passes must leave
+these tokens intact rather than signing from trigger-entity or sample-member
+context.
+
+The final transport may emit a personal signed preferences URL only when all of
+the following are true:
+
+1. there is exactly one syntactically valid `To` mailbox;
+2. there are no additional `To`, `CC`, or `BCC` recipients;
+3. that mailbox resolves to exactly one member in the sending tenant; and
+4. the tenant's trusted preferences origin is available.
+
+If any condition fails, the HTML/text must contain a non-clickable
+`Communication preferences unavailable` fallback and no personal bearer URL.
+The resolver also avoids bearer URLs in subjects and arbitrary HTML attributes.
+This is intentionally fail-closed: template/workflow identity, a request
+origin, or a sample member must never be used to guess the addressee.
+
+Campaigns are a separate contract. Their per-recipient campaign unsubscribe
+substitution, tracking token, `List-Unsubscribe`, and one-click header behavior
+remain unchanged and bypass transactional alias resolution.
+
+### BNMS production read-only verification (Task #4675)
+
+Read-only queries against the pinned destination production database found one
+active tenant template named **Welcome to the new BNMS website**. Its rendered
+content contains `{{unsubscribe_url}}` and no other unresolved placeholder.
+The template is in the `welcome` category and has configured sender/reply
+metadata.
+
+No production row in any foreign-key-backed template assignment currently
+references this template (including forms, DD stage email/member actions,
+campaigns, membership reminders/fees, meeting templates, member groups, or
+article briefs). Separate form and workflow JSON configuration lookups also
+returned no reference. Therefore the affected persisted delivery route is currently
+**unassigned**, not evidence of an active automated send. If the template is
+selected by a transactional sender or exercised through template test-send,
+the unsubscribe alias is handled at the shared final transport boundary under
+the rules above. This verification performed no sends, consent changes,
+template edits, or production writes, and retained no recipient PII.
 
 ---
 
@@ -350,11 +402,13 @@ should be added there.
 - `[[tenant.name]]` — Tenant (workspace / iConnect site) display name.
 - `{{tenant_name}}` — Tenant display name (curly alias). Also resolves in booking confirmations.
 
-### System & Links (5 tokens)
+### System & Links (7 tokens)
 - `{{set_password_url}}` — Generates a one-time password-setup link for the recipient member and replaces the placeholder with an HTML "Set your password" anchor.
 - `[[set_password_url]]` — Bracket alias of {{set_password_url}} — same generation logic.
-- `{{communication_preferences_link}}` — Pre-rendered HTML link ("Manage communication preferences") to the recipient’s preference centre.
-- `{{communication_preferences_url}}` — Plain URL to the recipient’s communication-preferences page.
+- `{{communication_preferences_link}}` — HTML link to the recipient’s communication-preferences page, signed only at the safe final transactional boundary.
+- `{{communication_preferences_url}}` — Plain-URL form of the same final-boundary preference link.
+- `{{unsubscribe_link}}` — Transactional alias for the safe preference link; campaigns retain their campaign-specific tracked link.
+- `{{unsubscribe_url}}` — Plain-URL alias of `{{unsubscribe_link}}`.
 - `{{timestamp}}` — ISO timestamp emitted by the email engine for diagnostic / audit purposes.
 
 ### Workflow Triggers & Invites (6 tokens)
@@ -624,8 +678,10 @@ Helper key:
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | `{{set_password_url}}` | ✅ | ✅ | · | · | · | · | · | · | · | · | · | · |
 | `[[set_password_url]]` | ✅ | ✅ | · | · | · | · | · | · | · | · | · | · |
-| `{{communication_preferences_link}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
-| `{{communication_preferences_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{communication_preferences_link}}` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `{{communication_preferences_url}}` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `{{unsubscribe_link}}` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `{{unsubscribe_url}}` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `{{timestamp}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
 
 ### Workflow Triggers & Invites

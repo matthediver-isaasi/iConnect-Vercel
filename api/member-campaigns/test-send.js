@@ -179,6 +179,7 @@ export default async function handler(req, res) {
         tenantId: tenantContext.tenantId,
         skipFooter: campaignSkipFooter,
         contentWidth: campaignContentWidth,
+        resolveTransactionalPreferences: false,
       });
 
       results.push(sendResult.success

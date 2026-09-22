@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { isPreferencePlaceholder } from './transactionalPreferences.js';
 import { buildInboxDelivery } from './transactionalInbox.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
 import { invoiceReferenceColumns, resolveFeeTokenInvoiceReference } from './feeTokenInvoiceReference.js';
@@ -15,6 +16,7 @@ import { invoiceReferenceColumns, resolveFeeTokenInvoiceReference } from './feeT
 function renderFeeLinkPlaceholders(str, data) {
   if (!str) return '';
   return String(str).replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (m, key) => {
+    if (isPreferencePlaceholder(key)) return m;
     if (Object.prototype.hasOwnProperty.call(data, key)) {
       const v = data[key];
       return v === null || v === undefined ? '' : String(v);

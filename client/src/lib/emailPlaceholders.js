@@ -23,6 +23,7 @@
  *   - api/pending-purchase-orders/index.js      (PO reminder emails)
  *   - api/_lib/membershipFeeTokenEmail.js       (membership fee-link emails)
  *   - api/_lib/membershipReminders.js           (membership renewal reminders)
+ *   - api/_lib/transactionalPreferences.js      (final-envelope preference links)
  *
  * Two syntaxes are supported by the engine:
  *   - {{token}}   — form-field / workflow-time substitutions
@@ -70,6 +71,8 @@ export const PLACEHOLDER_CONTEXTS = [
   'Membership Fee Link',
   'Membership Renewal Reminders',
   'Vacancy Application Decisions',
+  'Transactional Emails',
+  'Email Campaigns',
   'Email Footer (all emails)',
 ];
 
@@ -1152,19 +1155,49 @@ export const EMAIL_PLACEHOLDERS = [
     '{{communication_preferences_link}}',
     PLACEHOLDER_SYNTAX.CURLY,
     'System & Links',
-    'Pre-rendered HTML link ("Manage communication preferences") to the recipient\u2019s preference centre.',
-    ['Workflow Emails', 'DD Stage Actions'],
-    'api/_lib/emailService.js (replacePlaceholders), api/due-diligence/_stageActions.js',
-    { prerequisites: 'Tenant base URL, tenant ID and recipient member ID must be known.' },
+    'HTML link to the recipient\u2019s communication-preferences page. In transactional email it is resolved only at the final delivery boundary.',
+    ['Workflow Emails', 'DD Stage Actions', 'Transactional Emails'],
+    'api/_lib/transactionalPreferences.js, api/_lib/emailService.js',
+    {
+      prerequisites: 'A transactional message must have one verified member addressee in the tenant and no CC or BCC recipients.',
+      notes: 'The final transport derives identity from the actual envelope recipient, not template or workflow context. If the recipient is not uniquely verified, identity is unavailable, or the message has multiple To/CC/BCC recipients, no personal signed URL is emitted; a non-clickable safe fallback is rendered.',
+    },
   ),
   entry(
     '{{communication_preferences_url}}',
     PLACEHOLDER_SYNTAX.CURLY,
     'System & Links',
-    'Plain URL to the recipient\u2019s communication-preferences page.',
-    ['Workflow Emails', 'DD Stage Actions'],
-    'api/_lib/emailService.js, api/due-diligence/_stageActions.js',
-    { prerequisites: 'Tenant base URL and recipient member ID required.' },
+    'Plain URL to the recipient\u2019s communication-preferences page, subject to the same final-envelope checks as {{communication_preferences_link}}.',
+    ['Workflow Emails', 'DD Stage Actions', 'Transactional Emails'],
+    'api/_lib/transactionalPreferences.js, api/_lib/emailService.js',
+    {
+      prerequisites: 'A transactional message must have one verified member addressee in the tenant and no CC or BCC recipients.',
+      notes: 'No personal signed URL is emitted when recipient identity cannot be verified safely; the placeholder becomes a non-clickable fallback.',
+    },
+  ),
+  entry(
+    '{{unsubscribe_link}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'System & Links',
+    'Unsubscribe-link alias. Campaign delivery keeps its campaign-specific tracked unsubscribe link; transactional delivery resolves it to the verified recipient\u2019s communication-preferences page.',
+    ['Transactional Emails', 'Email Campaigns'],
+    'api/_lib/transactionalPreferences.js, api/_lib/emailService.js, api/_lib/campaignService.js',
+    {
+      prerequisites: 'For transactional delivery: exactly one verified member addressee in the tenant and no CC or BCC recipients.',
+      notes: 'Transactional resolution happens at the final transport boundary. Multi-recipient messages and unavailable or ambiguous identities receive a non-clickable safe fallback, never a personal signed link. Campaign substitution and one-click List-Unsubscribe headers are unchanged.',
+    },
+  ),
+  entry(
+    '{{unsubscribe_url}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'System & Links',
+    'Plain-URL alias of {{unsubscribe_link}}. Campaigns retain their tracked campaign URL; transactional delivery uses the verified recipient\u2019s communication-preferences URL.',
+    ['Transactional Emails', 'Email Campaigns'],
+    'api/_lib/transactionalPreferences.js, api/_lib/emailService.js, api/_lib/campaignService.js',
+    {
+      prerequisites: 'For transactional delivery: exactly one verified member addressee in the tenant and no CC or BCC recipients.',
+      notes: 'No personal signed URL is emitted for multiple To recipients, any CC/BCC recipient, or an unavailable/ambiguous tenant member identity. Those cases render a non-clickable safe fallback. Campaign behavior is unchanged.',
+    },
   ),
   entry(
     '{{timestamp}}',

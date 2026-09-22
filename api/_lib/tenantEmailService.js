@@ -3,6 +3,7 @@ import formData from 'form-data';
 import { supabase } from './database.js';
 import { isAmbiguousDeliveryFailure } from './emailService.js';
 import { recordTransactionalInboxMessage } from './transactionalInbox.js';
+import { resolveTransactionalPreferenceTokens } from './transactionalPreferences.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -130,6 +131,15 @@ export async function sendTenantEmail({
     if (footer) {
       finalHtml = finalHtml + footer;
     }
+
+    // This transport has an explicit-footer contract, unlike sendEmail's
+    // configured-footer path. Resolve only after that footer has been appended.
+    const resolved = await resolveTransactionalPreferenceTokens({
+      html: finalHtml, text, subject, to, cc, bcc, tenantId,
+    });
+    finalHtml = resolved.html;
+    text = resolved.text;
+    subject = resolved.subject;
 
     console.log(`[Tenant Email] Sending to: ${to}, domain: ${domain}`);
 

@@ -18,6 +18,7 @@
 // the Form Submissions page instead of them being silent.
 
 import { sendEmail } from './emailService.js';
+import { isPreferencePlaceholder } from './transactionalPreferences.js';
 import { randomUUID } from 'node:crypto';
 import { getAccountingProvider } from './accountingProvider.js';
 import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
@@ -786,6 +787,7 @@ export async function sendSubmissionEmails({
     const fieldMapping = emailConfig.field_mapping || {};
 
     for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
+      if (isPreferencePlaceholder(placeholder)) continue;
       if (fieldId && form_values) {
         const fieldValue = form_values[fieldId];
         const displayValue = await resolveFieldValue(fieldId, fieldValue);
@@ -800,8 +802,10 @@ export async function sendSubmissionEmails({
         const placeholder = `{{${field.id}}}`;
         const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
         const displayValue = await resolveFieldValue(field.id, fieldValue);
-        result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
-        if (labelPlaceholder) {
+        if (!isPreferencePlaceholder(field.id)) {
+          result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
+        }
+        if (labelPlaceholder && !isPreferencePlaceholder(field.label)) {
           result = result.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
         }
       }
@@ -828,6 +832,7 @@ export async function sendSubmissionEmails({
       ...dbPlaceholders,
     };
     for (const [key, value] of Object.entries(systemPlaceholders)) {
+      if (isPreferencePlaceholder(key)) continue;
       result = result.replace(new RegExp(escapeRegex(`{{${key}}}`), 'g'), value);
     }
 

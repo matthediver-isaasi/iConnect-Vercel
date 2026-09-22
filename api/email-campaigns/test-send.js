@@ -158,6 +158,7 @@ async function sendTestToRecipient(emailToUse, ctx) {
     tenantId,
     skipFooter: campaignSkipFooter,
     contentWidth: campaignContentWidth,
+    resolveTransactionalPreferences: false,
   });
 
   if (result.success) {

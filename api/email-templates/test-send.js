@@ -3,7 +3,6 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
-import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -81,21 +80,11 @@ export default async function handler(req, res) {
     const requestHost = getHostFromRequest(req);
     const tenantBaseUrl = getTenantBaseUrl(tenant?.slug, requestHost);
 
-    const prefContext = memberId ? { tenantBaseUrl, tenantId, memberId } : null;
-
     let subject = `[TEST] ${template.subject || 'No Subject'}`;
     let body = template.body || '';
 
-    subject = replacePlaceholders(subject, entityType, entityData, prefContext);
-    body = replacePlaceholders(body, entityType, entityData, prefContext);
-
-    if (prefContext) {
-      const prefToken = generateMemberPreferencesToken(tenantId, memberId);
-      const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${prefToken}`;
-      const preferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-      body = body.replace(/\{\{communication_preferences_link\}\}/gi, preferencesLink);
-      body = body.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-    }
+    subject = replacePlaceholders(subject, entityType, entityData);
+    body = replacePlaceholders(body, entityType, entityData);
 
     if (tenantBaseUrl && memberId) {
       const setPasswordUrl = `${tenantBaseUrl}/set-password?member=${memberId}`;

@@ -1,7 +1,7 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
-import { generateMemberPreferencesToken } from '../email-preferences/index.js';
+import { isPreferencePlaceholder, resolveTransactionalPreferenceTokens } from './transactionalPreferences.js';
 import { recordTransactionalInboxMessage } from './transactionalInbox.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
@@ -234,7 +234,7 @@ function getMailgunClient() {
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true }) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
@@ -301,6 +301,13 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     if (cc) console.log(`[Email Service] CC: ${cc}`);
     if (bcc) console.log(`[Email Service] BCC: ${bcc}`);
     console.log(`[Email Service] Subject: ${subject}`);
+
+    if (resolveTransactionalPreferences) {
+      const resolved = await resolveTransactionalPreferenceTokens({ html: finalHtml, text, subject, to, cc, bcc, tenantId, systemEmail });
+      finalHtml = resolved.html;
+      text = resolved.text;
+      subject = resolved.subject;
+    }
 
     const messageData = {
       from: fromAddress,
@@ -458,16 +465,11 @@ export function replacePlaceholders(template, entityType, entityData, context) {
 
   let result = template;
 
-  if (context?.tenantBaseUrl && context?.tenantId && context?.memberId) {
-    const prefToken = generateMemberPreferencesToken(context.tenantId, context.memberId);
-    const preferencesUrl = `${context.tenantBaseUrl}/email-preferences?t=${prefToken}`;
-    const preferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-    result = result.replace(/\{\{communication_preferences_link\}\}/gi, preferencesLink);
-    result = result.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-  }
+  // Preference tokens are reserved until the final transport envelope is known.
   
   // First handle {{placeholder}} syntax (form field mappings)
   result = result.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
+    if (isPreferencePlaceholder(path)) return match;
     const parts = path.split('.');
     console.log(`[replacePlaceholders] {{}} match="${match}", path="${path}", parts=${JSON.stringify(parts)}, parts[0]="${parts[0]}", entityType="${entityType}"`);
     if (parts[0] === entityType || parts[0] === 'record') {

@@ -380,13 +380,13 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
   
   let result = template;
   
-  const SPECIAL_PLACEHOLDERS = ['set_password_url', 'communication_preferences_link', 'communication_preferences_url'];
+  const SPECIAL_PLACEHOLDERS = ['set_password_url', 'communication_preferences_link', 'communication_preferences_url', 'unsubscribe_link', 'unsubscribe_url'];
   
   for (const [placeholder, mapping] of Object.entries(fieldMappings)) {
     if (!mapping) continue; // Skip auto mappings (null)
     
     // Never touch special placeholders - they are handled by dedicated processors later
-    if (SPECIAL_PLACEHOLDERS.includes(placeholder)) {
+    if (SPECIAL_PLACEHOLDERS.includes(placeholder.trim().toLowerCase())) {
       console.log(`[Workflows] Skipping special placeholder "${placeholder}" - handled by dedicated processor`);
       continue;
     }

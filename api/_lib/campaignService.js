@@ -3494,6 +3494,7 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       contentWidth: designInfo.contentWidth,
       enableTracking: true,
       unsubscribeUrl: oneClickUnsubscribeUrl,
+      resolveTransactionalPreferences: false,
       testMode: !!campaign.is_test_mode
     });
 
