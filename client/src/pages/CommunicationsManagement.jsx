@@ -19,6 +19,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
+import MemberCommunicationStatusReport from "@/components/communications/MemberCommunicationStatusReport";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import {
@@ -58,6 +59,7 @@ export default function CommunicationsManagementPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
   const [activeJobId, setActiveJobId] = useState(null);
+  const [communicationsTab, setCommunicationsTab] = useState('campaigns');
 
   const [expandedCategories, setExpandedCategories] = useState({});
 
@@ -225,6 +227,7 @@ export default function CommunicationsManagementPage() {
     }),
     staleTime: 0,
     retry: 1,
+    enabled: communicationsTab !== 'status-report',
   });
 
   const { data: allMembers = [], isLoading: membersLoading } = useQuery({
@@ -233,6 +236,7 @@ export default function CommunicationsManagementPage() {
       sort: { id: 'asc' },
     }),
     staleTime: 60000,
+    enabled: communicationsTab !== 'status-report',
   });
 
   const {
@@ -1588,7 +1592,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </CardHeader>
 
           <CardContent className="p-6">
-            <Tabs defaultValue="campaigns" className="w-full">
+            <Tabs value={communicationsTab} onValueChange={setCommunicationsTab} className="w-full">
               <TabsList className="mb-6">
                 <TabsTrigger value="campaigns" data-testid="tab-campaigns">
                   <Send className="w-4 h-4 mr-2" />
@@ -1610,6 +1614,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       {globalOptOutMembers.length}
                     </Badge>
                   )}
+                </TabsTrigger>
+                <TabsTrigger value="status-report" data-testid="tab-member-communication-status">
+                  Member Communication Status
                 </TabsTrigger>
               </TabsList>
 
@@ -2169,6 +2176,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     })()}
                   </>
                 )}
+              </TabsContent>
+              <TabsContent value="status-report">
+                <MemberCommunicationStatusReport active={communicationsTab === 'status-report'} />
               </TabsContent>
             </Tabs>
           </CardContent>
