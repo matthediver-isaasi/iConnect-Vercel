@@ -205,7 +205,6 @@ function normalizeExpectedDeliveryChanges(html) {
 test('Gmail transport keeps hybrid visual-builder columns intact after slots, tracking, and sendEmail', async () => {
   const generated = designToHtml(design, {
     footerHtml: builderFooter,
-    hybridColumns: true,
   });
   assert.ok(generated, 'visual builder produced candidate HTML');
 
@@ -268,7 +267,6 @@ test(`sendEmail appends a responsive ${footerWidth}px footer with an Outlook des
     ...design,
     globalStyles: { ...design.globalStyles, useDefaultFooter: false },
   }, {
-    hybridColumns: true,
   });
 
   const result = await sendEmail({

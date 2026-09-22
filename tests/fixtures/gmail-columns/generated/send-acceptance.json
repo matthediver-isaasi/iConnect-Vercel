@@ -1,0 +1,189 @@
+{
+  "run": "client-check-03",
+  "startedAt": "2026-09-22T18:39:14.624Z",
+  "acceptedCount": 20,
+  "deliveryConfirmed": false,
+  "renderingVerified": false,
+  "results": [
+    {
+      "label": "received-minimal",
+      "variant": "BASELINE",
+      "inbox": 1,
+      "htmlBytes": 8365,
+      "sha256": "ef2c9c45bb20eb24b05ba7617ea72701f2ea3d64997743a5338a8af5ebc18b27",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:15.186Z"
+    },
+    {
+      "label": "received-minimal",
+      "variant": "BASELINE",
+      "inbox": 2,
+      "htmlBytes": 8365,
+      "sha256": "ef2c9c45bb20eb24b05ba7617ea72701f2ea3d64997743a5338a8af5ebc18b27",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:15.404Z"
+    },
+    {
+      "label": "received-minimal",
+      "variant": "CANDIDATE",
+      "inbox": 1,
+      "htmlBytes": 8634,
+      "sha256": "4af7f73eb88cad29ffd421f0551db37aa1c5b4986f577fc0ee241fb463e291d4",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:15.598Z"
+    },
+    {
+      "label": "received-minimal",
+      "variant": "CANDIDATE",
+      "inbox": 2,
+      "htmlBytes": 8634,
+      "sha256": "4af7f73eb88cad29ffd421f0551db37aa1c5b4986f577fc0ee241fb463e291d4",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:15.812Z"
+    },
+    {
+      "label": "generated-three",
+      "variant": "BASELINE",
+      "inbox": 1,
+      "htmlBytes": 13883,
+      "sha256": "6cd46a04a34c686f1930db3a0eb9c88956c154cd824f94956289ec6b09649810",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:16.039Z"
+    },
+    {
+      "label": "generated-three",
+      "variant": "BASELINE",
+      "inbox": 2,
+      "htmlBytes": 13883,
+      "sha256": "6cd46a04a34c686f1930db3a0eb9c88956c154cd824f94956289ec6b09649810",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:16.266Z"
+    },
+    {
+      "label": "generated-three",
+      "variant": "CANDIDATE",
+      "inbox": 1,
+      "htmlBytes": 14167,
+      "sha256": "4b42c49cc6b4b35d392339522389c99eda8c6861ce46e04bbc87561062362c0a",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:16.492Z"
+    },
+    {
+      "label": "generated-three",
+      "variant": "CANDIDATE",
+      "inbox": 2,
+      "htmlBytes": 14167,
+      "sha256": "4b42c49cc6b4b35d392339522389c99eda8c6861ce46e04bbc87561062362c0a",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:17.015Z"
+    },
+    {
+      "label": "generated-two",
+      "variant": "BASELINE",
+      "inbox": 1,
+      "htmlBytes": 11676,
+      "sha256": "f8f3deb014965e74c25d88a8b5d8f4b873354bede4073c4c1d056718ff2cf19c",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:17.238Z"
+    },
+    {
+      "label": "generated-two",
+      "variant": "BASELINE",
+      "inbox": 2,
+      "htmlBytes": 11676,
+      "sha256": "f8f3deb014965e74c25d88a8b5d8f4b873354bede4073c4c1d056718ff2cf19c",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:17.461Z"
+    },
+    {
+      "label": "generated-two",
+      "variant": "CANDIDATE",
+      "inbox": 1,
+      "htmlBytes": 11909,
+      "sha256": "a41add34634978c2e3a29cc1dd6516ce80793e5fd22f37147b3a1629bc47c44d",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:17.662Z"
+    },
+    {
+      "label": "generated-two",
+      "variant": "CANDIDATE",
+      "inbox": 2,
+      "htmlBytes": 11909,
+      "sha256": "a41add34634978c2e3a29cc1dd6516ce80793e5fd22f37147b3a1629bc47c44d",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:17.855Z"
+    },
+    {
+      "label": "generated-60-40",
+      "variant": "BASELINE",
+      "inbox": 1,
+      "htmlBytes": 11811,
+      "sha256": "5aa2d7eab1dfa441742fb55c86e98ae442b247d78240559f805d2b498c5a7365",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:18.081Z"
+    },
+    {
+      "label": "generated-60-40",
+      "variant": "BASELINE",
+      "inbox": 2,
+      "htmlBytes": 11811,
+      "sha256": "5aa2d7eab1dfa441742fb55c86e98ae442b247d78240559f805d2b498c5a7365",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:18.301Z"
+    },
+    {
+      "label": "generated-60-40",
+      "variant": "CANDIDATE",
+      "inbox": 1,
+      "htmlBytes": 12044,
+      "sha256": "9d42c5842b41e8bb94c629b106f8748d8e3dd68b56a7b0ea887f19937fb84ead",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:18.477Z"
+    },
+    {
+      "label": "generated-60-40",
+      "variant": "CANDIDATE",
+      "inbox": 2,
+      "htmlBytes": 12044,
+      "sha256": "9d42c5842b41e8bb94c629b106f8748d8e3dd68b56a7b0ea887f19937fb84ead",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:18.678Z"
+    },
+    {
+      "label": "received-full-length",
+      "variant": "BASELINE",
+      "inbox": 1,
+      "htmlBytes": 147611,
+      "sha256": "82c650e5df6dcdbf5818b292fb449292cd17cd6b024376dacd620101501400cc",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:19.158Z"
+    },
+    {
+      "label": "received-full-length",
+      "variant": "BASELINE",
+      "inbox": 2,
+      "htmlBytes": 147611,
+      "sha256": "82c650e5df6dcdbf5818b292fb449292cd17cd6b024376dacd620101501400cc",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:19.463Z"
+    },
+    {
+      "label": "received-full-length",
+      "variant": "CANDIDATE",
+      "inbox": 1,
+      "htmlBytes": 148852,
+      "sha256": "11bce48800bebcadbba6fa817cae59c35ab5e6d143ddd51d2ec913cd436abf75",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:19.753Z"
+    },
+    {
+      "label": "received-full-length",
+      "variant": "CANDIDATE",
+      "inbox": 2,
+      "htmlBytes": 148852,
+      "sha256": "11bce48800bebcadbba6fa817cae59c35ab5e6d143ddd51d2ec913cd436abf75",
+      "status": "accepted",
+      "acceptedAt": "2026-09-22T18:39:20.039Z"
+    }
+  ]
+}

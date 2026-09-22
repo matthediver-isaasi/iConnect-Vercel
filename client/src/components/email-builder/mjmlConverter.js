@@ -685,7 +685,7 @@ export const designToMjml = (design, { footerHtml, hybridColumns = false } = {})
   `;
 };
 
-export const designToHtml = (design, { footerHtml, hybridColumns = false } = {}) => {
+export const designToHtml = (design, { footerHtml, hybridColumns = true } = {}) => {
   try {
     const mjmlString = designToMjml(design, { footerHtml, hybridColumns });
     const { html, errors } = mjml2html(mjmlString, {

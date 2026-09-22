@@ -115,7 +115,7 @@
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
 - [Directory Data Studio file access](directory-data-studio-file-access.md) — directory opt-in is not publication consent; file downloads must recheck source permissions, not just tenant membership.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
-- [Email column release gate](email-column-release-gate.md) — hybrid fallback stays test-only until received Gmail/mobile/classic Outlook checks; source CSS and browser tests are not client proof.
+- [Email column release gate](email-column-release-gate.md) — received-client approval and its CSS-evidence waiver; browser tests alone are not Gmail/Outlook proof.
 - [Transactional preference identity](transactional-preference-boundary.md) — personalization identity is not recipient authority; resolve after the final envelope and footer, separate from campaigns.
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.

@@ -1,0 +1,349 @@
+From: fixture@example.invalid
+To: recipient@example.invalid
+Subject: CID unequal 60/40 candidate
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="fixture-related-boundary"
+
+--fixture-related-boundary
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+<!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+.mj-column-per-100 { width:100% !important; max-width: 100%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+.moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  
+    <style type="text/css">
+      @media only screen and (max-width:479px) {
+        .gmail-hybrid-column { max-width:100% !important; }
+      }
+    </style>
+  </head>
+  <body style="word-spacing:normal;background-color:#f4f4f4;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#f4f4f4;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:600px;" width="600" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:600px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:16px 16px 0px 16px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="600px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:568px;" width="568" bgcolor="#f3f3f3" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#f3f3f3;background-color:#f3f3f3;margin:0px auto;max-width:568px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#f3f3f3;background-color:#f3f3f3;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:10px 14px 10px 14px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:324px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-60 mj-outlook-group-fix gmail-hybrid-column" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;max-width:324px;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:#fff0f0;vertical-align:top;padding-right:6px;padding-left:0px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:8px 8px 8px 8px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:302px;">
+              
+      <img
+         alt="Sanitized sponsor 1" src="cid:fixture-image@example.invalid" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="302" height="auto"
+      />
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:2px 8px 8px 8px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p>Sanitized fixture sponsor 1</p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td><td class="" style="vertical-align:top;width:216px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-40 mj-outlook-group-fix gmail-hybrid-column" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;max-width:216px;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="background-color:#f0fff0;vertical-align:top;padding-right:0px;padding-left:6px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:8px 8px 8px 8px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:194px;">
+              
+      <img
+         alt="Sanitized sponsor 2" src="cid:fixture-image@example.invalid" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="194" height="auto"
+      />
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:2px 8px 8px 8px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p>Sanitized fixture sponsor 2</p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:4px 8px 12px 8px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1;text-align:center;color:#000000;"
+      ><table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"><tr><td bgcolor="#263b68" role="presentation" style="border:none;border-radius:4px;color:#ffffff !important;cursor:auto;mso-padding-alt:12px 24px 12px 24px;background-color:#263b68 !important;"><a href="#" target="_blank" style="display:inline-block;background-color:#263b68 !important;color:#ffffff !important;font-size:16px;font-weight:bold;line-height:120%;margin:0;text-decoration:none !important;text-transform:none;padding:12px 24px 12px 24px;mso-padding-alt:0;border-radius:4px;"><span style="color:#ffffff !important;text-decoration:none !important;">Fixture action</span></a></td></tr></table></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="tenant-email-footer-outlook" width="600px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="tenant-email-footer-outlook" role="presentation" style="width:568px;" width="568" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  class="tenant-email-footer" style="margin:0px auto;max-width:568px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:568px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:12px;line-height:1.5;text-align:left;color:#666666;"
+      ><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:12px;color:#666666;">Sanitized builder footer</td></tr></table></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    
+      </div>
+    
+  </body>
+</html>
+  
+--fixture-related-boundary
+Content-Type: image/png; name="fixture-image.png"
+Content-Transfer-Encoding: base64
+Content-ID: <fixture-image@example.invalid>
+Content-Disposition: inline; filename="fixture-image.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAPAAAABgCAIAAACsUWiGAAABrElEQVR4nO3SsU0DUQBEwavmmiB3
+LZagTPrCsUWKtOK/Wb0CNpjrx+ygXesDZn85oO2oAW1H7Q30/fE8v89Hqu+v+/iADjXXBjTQQAMN
+NNBAF5prAxpooIEGGmigC821AQ000EADDTTQhebagAYaaKCBBhroQnNtQAMNNNBAAw10obk2oIEG
+GmiggQa60Fwb0EADDTTQQANdaK4NaKCBBhpooIEuNNcGNNBAAw000EAXmmsDGmiggQYaaKALzbUB
+DTTQQAMNNNCF5tqABhpooIEGGuhCc21AAw000EADDXShuTaggQYaaKCBBrrQXBvQQAMNNNBAA11o
+rg1ooIEGGmiggS401wY00EADDTTQQBeaawMaaKCBBhpooAvNtQENNNBAAw000IXm2oAGGmiggQYa
+6EJzbUADDTTQQAMNdKG5NqCBBhpooIEGutBcG9BAAw000EADXWiuDWiggQYaaKCBLjTXBjTQQAMN
+NNBAF5prAxpooIEGGmigC821AQ000EADDTTQhebagAYaaKCBBhroQnNtQAMNNNBAA/0btNl/H9B2
+1IC2owa0HbUX7xEqBEFWdHAAAAAASUVORK5CYII=
+--fixture-related-boundary--

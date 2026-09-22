@@ -116,14 +116,15 @@ const columnsDesign = ({
 
 const msoComments = html => html.match(/<!--\[if[\s\S]*?<!\[endif\]-->/g) || [];
 
-test('hybrid Columns is explicitly gated and option-off output is byte-equivalent', () => {
+test('normal generation enables approved hybrid Columns and preserves explicit rollback', () => {
   const design = columnsDesign();
   const baseline = designToHtml(design);
   const explicitOff = designToHtml(design, { hybridColumns: false });
   const corrected = designToHtml(design, { hybridColumns: true });
 
-  assert.equal(explicitOff, baseline);
-  assert.doesNotMatch(baseline, /gmail-hybrid-column|HYBRID_COLUMNS/);
+  assert.equal(baseline, corrected);
+  assert.doesNotMatch(explicitOff, /gmail-hybrid-column|HYBRID_COLUMNS/);
+  assert.match(baseline, /gmail-hybrid-column/);
   assert.match(corrected, /@media only screen and \(max-width:479px\)/);
   assert.doesNotMatch(corrected, /HYBRID_COLUMNS/);
 });
@@ -133,7 +134,7 @@ test('candidate preserves every conditional MSO block byte-for-byte', () => {
     const design = columnsDesign({ width, columnWidths: ['28%', '72%'] });
     assert.deepEqual(
       msoComments(designToHtml(design, { hybridColumns: true })),
-      msoComments(designToHtml(design)),
+      msoComments(designToHtml(design, { hybridColumns: false })),
     );
   }
 });
@@ -162,7 +163,7 @@ test('candidate uses Outlook-computed pixel bounds while retaining desktop perce
 
 test('hybrid correction remains scoped with images, buttons, backgrounds, padding, and footer', () => {
   const footerHtml = '<table role="presentation"><tr><td>Local fixture footer</td></tr></table>';
-  const baseline = designToHtml(columnsDesign({ columnWidths: ['50%', '50%'] }), { footerHtml });
+  const baseline = designToHtml(columnsDesign({ columnWidths: ['50%', '50%'] }), { footerHtml, hybridColumns: false });
   const candidate = designToHtml(
     columnsDesign({ columnWidths: ['50%', '50%'] }),
     { footerHtml, hybridColumns: true },
@@ -214,7 +215,6 @@ test('optional Chromium layout: mobile stacks and CSS-free desktop remains side-
     const html = designToHtml(
       columnsDesign({ width: scenario.canvas, columnWidths: scenario.widths }),
       {
-        hybridColumns: true,
         footerHtml: '<table role="presentation"><tr><td>Fixture footer</td></tr></table>',
       },
     );

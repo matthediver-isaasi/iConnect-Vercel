@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { BLOCK_TYPES } from '../../../../client/src/components/email-builder/types.js';
+import { createFixtureImage } from '../fixture-image.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 Object.assign(globalThis, {
@@ -18,6 +19,11 @@ const { designToHtml } = await import('../../../../client/src/components/email-b
 const { applyHybridColumnFallback } = await import('../../../../client/src/components/email-builder/hybridColumns.js');
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 mkdirSync(outputDirectory, { recursive: true });
+const assetDirectory = join(outputDirectory, 'assets');
+mkdirSync(assetDirectory, { recursive: true });
+const fixtureImageCid = 'fixture-image@example.invalid';
+const fixturePng = createFixtureImage();
+writeFileSync(join(assetDirectory, 'fixture-image.png'), fixturePng);
 
 const sponsorImage = (label, color) => (
   `data:image/svg+xml,${encodeURIComponent(
@@ -67,7 +73,7 @@ const sponsorBlocks = index => [
   }] : []),
 ];
 
-const design = {
+const makeDesign = (widths = ['33.333%', '33.333%', '33.334%'], imageSource) => ({
   globalStyles: { contentWidth: '600px', contentPadding: '16px', contentBackgroundColor: '#ffffff' },
   blocks: [{
     id: 'columns',
@@ -80,14 +86,19 @@ const design = {
       paddingLeft: '14',
       backgroundColor: '#f3f3f3',
     },
-    columns: ['33.333%', '33.333%', '33.334%'].map((width, index) => ({
+    columns: widths.map((width, index) => ({
       id: `column-${index}`,
       width,
       backgroundColor: ['#fff0f0', '#f0fff0', '#f0f0ff'][index],
-      blocks: sponsorBlocks(index),
+      blocks: sponsorBlocks(index).map(block => (
+        block.type === BLOCK_TYPES.IMAGE && imageSource
+          ? { ...block, src: imageSource }
+          : block
+      )),
     })),
   }],
-};
+});
+const design = makeDesign();
 
 const footerHtml = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:12px;color:#666666;">Sanitized builder footer</td></tr></table>';
 const dataImageNote = '<!-- Fixture images are self-contained data URLs for local browser rendering; Gmail may block data image URLs. -->';
@@ -114,12 +125,74 @@ const writeFixture = (basename, subject, sourceHtml, { usesDataImages = false } 
   console.log(`${basename}.eml: ${Buffer.byteLength(readFileSync(emlPath))} bytes`);
 };
 
+const writeCidFixture = (basename, subject, html) => {
+  const htmlPath = join(outputDirectory, `${basename}.html`);
+  const emlPath = join(outputDirectory, `${basename}.eml`);
+  const boundary = 'fixture-related-boundary';
+  writeFileSync(htmlPath, html);
+  writeFileSync(emlPath, [
+    'From: fixture@example.invalid',
+    'To: recipient@example.invalid',
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/related; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    html,
+    `--${boundary}`,
+    'Content-Type: image/png; name="fixture-image.png"',
+    'Content-Transfer-Encoding: base64',
+    `Content-ID: <${fixtureImageCid}>`,
+    'Content-Disposition: inline; filename="fixture-image.png"',
+    '',
+    fixturePng.toString('base64').match(/.{1,76}/g).join('\r\n'),
+    `--${boundary}--`,
+    '',
+  ].join('\r\n'));
+  console.log(`${basename}.html: ${Buffer.byteLength(html)} decoded HTML bytes`);
+  console.log(`${basename}.eml: ${Buffer.byteLength(readFileSync(emlPath))} bytes`);
+};
+
 writeFixture(
   'gmail-columns.before',
   'Gmail columns generated baseline',
   designToHtml(design, { footerHtml, hybridColumns: false }),
   { usesDataImages: true },
 );
+
+const cidSource = `cid:${fixtureImageCid}`;
+const cidGeneratedBaseline = designToHtml(makeDesign(undefined, cidSource), { footerHtml, hybridColumns: false });
+const cidGeneratedCandidate = designToHtml(makeDesign(undefined, cidSource), { footerHtml, hybridColumns: true });
+writeCidFixture(
+  'send-ready-gmail-columns.before',
+  'CID generated baseline',
+  cidGeneratedBaseline,
+);
+writeCidFixture(
+  'send-ready-gmail-columns.after',
+  'CID generated candidate',
+  cidGeneratedCandidate,
+);
+
+for (const [name, widths, label] of [
+  ['gmail-columns-two', ['50%', '50%'], 'equal two-column'],
+  ['gmail-columns-60-40', ['60%', '40%'], 'unequal 60/40'],
+]) {
+  const variant = makeDesign(widths, cidSource);
+  writeCidFixture(
+    `${name}.before`,
+    `CID ${label} baseline`,
+    designToHtml(variant, { footerHtml, hybridColumns: false }),
+  );
+  writeCidFixture(
+    `${name}.after`,
+    `CID ${label} candidate`,
+    designToHtml(variant, { footerHtml, hybridColumns: true }),
+  );
+}
 writeFixture(
   'gmail-columns.after',
   'Gmail columns generated candidate',
@@ -144,4 +217,21 @@ writeFixture(
   applyHybridColumnFallback(markedReceived),
 );
 
-console.log('Note: generated sponsor images use data URLs for local rendering; Gmail may block data image URLs.');
+const receivedWithCid = received.replace(/\bsrc=""/g, `src="${cidSource}"`);
+const markedReceivedWithCid = receivedWithCid.replace(
+  '<div style="margin:0px auto;max-width:700px;">',
+  '<div class="gmail-hybrid-section" style="margin:0px auto;max-width:700px;">',
+);
+writeCidFixture(
+  'send-ready-received-columns.before',
+  'CID received baseline',
+  receivedWithCid,
+);
+writeCidFixture(
+  'send-ready-received-columns.after',
+  'CID received candidate',
+  applyHybridColumnFallback(markedReceivedWithCid),
+);
+
+console.log(`CID mapping: ${fixtureImageCid} -> generated/assets/fixture-image.png`);
+console.log('Note: original generated fixtures retain data URLs; send-ready and width variants use a local CID PNG.');
