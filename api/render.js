@@ -10,7 +10,7 @@ return async function handler(req, res) {
     // Short SSR cache keyed on host so unfurl bots see fresh tenant data quickly
     const host = req.headers['x-forwarded-host'] || req.headers.host || '';
     res.setHeader('Vary', 'Host, X-Forwarded-Host');
-    res.setHeader('Cache-Control', req.pageRouteOutcome
+    res.setHeader('Cache-Control', (req.pageRouteOutcome || req.resourceReleaseSensitive)
       ? 'private, no-store' : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
     res.setHeader('X-Tenant-Host', host);
     return res.status(req.pageRouteOutcome === 'missing' ? 404 : 200).send(html);

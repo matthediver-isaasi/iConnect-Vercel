@@ -26,6 +26,7 @@
 // in executeQuerySpec / the fetch helpers.
 
 import { PUBLIC_SIMPLE_EVENT_STATUSES } from '../../shared/eventTiming.js';
+import { isResourceReleased } from '../../shared/resourceRelease.js';
 
 // ---------------------------------------------------------------------------
 // Whitelisted entity catalog
@@ -357,10 +358,11 @@ export function isComplexEventRowVisible(row, ctx) {
 // group-gated, role-gated (admins bypass member gating).
 export function isResourceRowVisible(
   row,
-  { isAdmin = false, roleId = null, groupIds = new Set() } = {}
+  { isAdmin = false, roleId = null, groupIds = new Set(), now = Date.now() } = {}
 ) {
   if (!row) return false;
   if (row.status !== 'active') return false;
+  if (!isResourceReleased(row, now)) return false;
   if (isAdmin) return true;
   if (row.member_group_id && !groupIds.has(row.member_group_id)) return false;
   const allowed = row.allowed_role_ids;
@@ -848,7 +850,7 @@ async function execEvents({ supabase, tenantId, spec, viewer, catalogEntry }) {
   return buildResult(spec, rows, catalogEntry, new Map());
 }
 
-async function execResources({ supabase, tenantId, spec, viewer, catalogEntry }) {
+async function execResources({ supabase, tenantId, spec, viewer, catalogEntry, now }) {
   let rows = await fetchAllRows(() =>
     supabase
       .from('resource')
@@ -863,6 +865,7 @@ async function execResources({ supabase, tenantId, spec, viewer, catalogEntry })
       isAdmin: viewer.isAdmin,
       roleId: viewer.roleId,
       groupIds: viewer.groupIds,
+      now,
     })
   );
   rows = applyNativeAndDateFilters(rows, spec, catalogEntry);
@@ -956,7 +959,7 @@ async function execBookings({ supabase, tenantId, spec, viewer, catalogEntry }) 
  *   - viewer     { isAdmin, roleId, groupIds:Set, canAccessFeature(key) }
  * @returns {{ok:true, result:object} | {ok:false, reason:string}}
  */
-export async function executeQuerySpec({ supabase, tenantId, spec, viewer }) {
+export async function executeQuerySpec({ supabase, tenantId, spec, viewer, now = Date.now() }) {
   const catalogEntry = STRUCTURED_ENTITIES[spec.entity];
   if (!catalogEntry) return { ok: false, reason: 'Unknown entity' };
   if (!tenantId) return { ok: false, reason: 'Tenant required' };
@@ -970,7 +973,7 @@ export async function executeQuerySpec({ supabase, tenantId, spec, viewer }) {
     return { ok: false, reason: 'This data is not available to you' };
   }
 
-  const args = { supabase, tenantId, spec, viewer, catalogEntry };
+  const args = { supabase, tenantId, spec, viewer, catalogEntry, now };
   try {
     let result;
     if (spec.entity === 'organization' || spec.entity === 'member') {

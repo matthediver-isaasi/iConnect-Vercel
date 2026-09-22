@@ -9,9 +9,11 @@
 // order is deterministic across page boundaries (no skipped/duplicated rows
 // when many resources share the same release_date).
 import { base44 } from '@/api/base44Client';
+import { resourceQueryOptions } from './resourceQueryOptions.mjs';
 
-export async function listAllResources() {
+export async function listAllResources({ management = false } = {}) {
   return base44.entities.Resource.listAll({
     sort: { release_date: 'desc', id: 'asc' },
+    ...resourceQueryOptions({ management }),
   });
 }

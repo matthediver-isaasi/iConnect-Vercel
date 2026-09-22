@@ -10,6 +10,7 @@ import {
   loadOrganisationLoginGate,
 } from '../../_lib/organisationLoginGate.js';
 import { supabase } from '../../_lib/database.js';
+import { applyResourceReadReleaseScope } from '../../_lib/resourceReleaseAccess.js';
 import { deleteRepositoryFile } from '../../_lib/fileRepositoryDelete.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
@@ -270,6 +271,7 @@ const entityTableByNormalizedName = new Map(
 const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
 export default async function handler(req, res, dependencies = {}) {
+  const requestNow = Date.now();
   const { entity, id } = req.query;
   console.log(`[Entity ${req.method}] Incoming request: entity="${entity}", id="${id}"`);
   if (typeof entity !== 'string' || typeof id !== 'string') {
@@ -693,6 +695,13 @@ export default async function handler(req, res, dependencies = {}) {
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*')
         .eq('id', id);
+
+      if (entityNorm === 'resource') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        ({ query } = await applyResourceReadReleaseScope({
+          query, req, ctx: tenantCtx, db: supabase, hasAdminAccess, now: requestNow,
+        }));
+      }
 
       if (entityNorm === 'memberresourcecategory') {
         const scoped = scopeMemberResourceCategoryRead(query, tenantCtx, await hasAdminAccess(tenantCtx));

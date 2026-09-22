@@ -46,6 +46,7 @@ export const PUBLIC_CANVAS_LAYOUT_TYPES = [
  * @returns {boolean}
  */
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
+import { isResourceReleased } from '../../shared/resourceRelease.js';
 
 export function isChunkVisibleToMember(chunk, ctx) {
   if (!chunk) return false;
@@ -68,6 +69,7 @@ export function isChunkVisibleToMember(chunk, ctx) {
 
   if (type === 'resource') {
     if (chunk.status !== 'active') return false;
+    if (!isResourceReleased(chunk, now)) return false;
     if (!isAdmin) {
       if (chunk.member_group_id && !groupIds.has(chunk.member_group_id)) {
         return false;

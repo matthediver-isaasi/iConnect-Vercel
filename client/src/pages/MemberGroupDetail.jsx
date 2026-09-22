@@ -89,6 +89,7 @@ import { parseEventTypes } from "@/lib/utils";
 import { fetchEventAttendeeCounts } from "@/lib/eventAttendeeCounts";
 import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
+import { resourceQueryOptions, RESOURCE_READ_CACHE_KEYS } from "@/lib/resourceQueryOptions.mjs";
 import ForumThreadList from "@/components/forum/ForumThreadList";
 import GroupEmailManager from "@/components/group-email/GroupEmailManager";
 import GroupAdminSupportSection from "@/components/support/GroupAdminSupportSection";
@@ -1596,8 +1597,8 @@ export default function MemberGroupDetailPage() {
 
   // --- Group resources section ---
   const { data: groupResources = [], isLoading: loadingResources } = useQuery({
-    queryKey: ["member-group-resources", groupId],
-    queryFn: () => base44.entities.Resource.filter({ member_group_id: groupId }),
+    queryKey: ["member-group-resources", groupId, isGroupAdmin ? "management" : "read"],
+    queryFn: () => base44.entities.Resource.list(resourceQueryOptions({ groupId, management: isGroupAdmin })),
     enabled: accessChecked && !!groupId,
     staleTime: 0,
     refetchOnMount: true,
@@ -1834,6 +1835,7 @@ export default function MemberGroupDetailPage() {
       });
     },
     onSuccess: () => {
+      RESOURCE_READ_CACHE_KEYS.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
       queryClient.invalidateQueries({
         queryKey: ["member-group-resources", groupId],
       });
@@ -1903,6 +1905,7 @@ export default function MemberGroupDetailPage() {
       });
     },
     onSuccess: () => {
+      RESOURCE_READ_CACHE_KEYS.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
       queryClient.invalidateQueries({
         queryKey: ["member-group-resources", groupId],
       });
@@ -1925,6 +1928,7 @@ export default function MemberGroupDetailPage() {
   const deleteResourceMutation = useMutation({
     mutationFn: async (id) => base44.entities.Resource.delete(id),
     onSuccess: () => {
+      RESOURCE_READ_CACHE_KEYS.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
       queryClient.invalidateQueries({
         queryKey: ["member-group-resources", groupId],
       });

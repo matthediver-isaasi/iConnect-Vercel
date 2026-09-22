@@ -1,7 +1,10 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 
 export default async function handler(req, res) {
+  const now = Date.now();
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -68,11 +71,13 @@ export default async function handler(req, res) {
       if (!config) continue;
 
       try {
-        const { data: entities, error: fetchError } = await supabase
+        let query = supabase
           .from(config.table)
           .select(config.fields)
           .in('id', ids)
           .eq('tenant_id', tenantId);
+        if (entityType === 'resource') query = applyResourceReleaseFilter(query, now);
+        const { data: entities, error: fetchError } = await query;
 
         if (fetchError) {
           console.error(`[Bookmarks Enriched] Error fetching ${entityType}:`, fetchError);

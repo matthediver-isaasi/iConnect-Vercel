@@ -1,7 +1,9 @@
+import { isResourceReleased } from '../../shared/resourceRelease.js';
+
 // Public discovery must not reveal group-only or attendance-gated resources,
 // even if is_public is true. Apply before projecting any target URL.
-export function isPublicLibraryResource(resource) {
-  return !resource.member_group_id &&
+export function isPublicLibraryResource(resource, now = Date.now()) {
+  return isResourceReleased(resource, now) && !resource.member_group_id &&
     !(Array.isArray(resource.linked_events) && resource.linked_events.length > 0);
 }
 

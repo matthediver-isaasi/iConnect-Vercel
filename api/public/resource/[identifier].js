@@ -8,8 +8,10 @@ const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, 
 
 export function createPublicResourceHandler({
   db = supabase, resolveTenant = resolveTenantFromRequest, getContext = getTenantContext,
+  clock = Date.now,
 } = {}) {
  return async function handler(req, res) {
+  const now = clock();
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -71,7 +73,7 @@ export function createPublicResourceHandler({
 
     // Match public-library exclusions before any metadata/target projection.
     // Authenticated viewers must use the permission-complete single endpoint.
-    if (!isPublicLibraryResource(resource)) {
+    if (!isPublicLibraryResource(resource, now)) {
       return res.status(404).json({ error: 'Resource not found or inactive' });
     }
 

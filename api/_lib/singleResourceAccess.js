@@ -3,6 +3,7 @@ import {
   computeHiddenSubcategories,
   isResourceHiddenByCategories,
 } from './resourceCategoryAccess.js';
+import { isResourceReleased } from '../../shared/resourceRelease.js';
 
 async function rows(query) {
   const { data, error } = await query;
@@ -58,11 +59,11 @@ export async function canAccessResourceEvents(db, resource, ctx) {
   });
 }
 
-export async function readSingleResource({ db, ctx, id, isAdmin, categoryPrivileged, canAdministerGroupContent = false, eventAccess = canAccessResourceEvents }) {
+export async function readSingleResource({ db, ctx, id, isAdmin, categoryPrivileged, canAdministerGroupContent = false, eventAccess = canAccessResourceEvents, now = Date.now() }) {
   const resources = await rows(db.from('resource').select('*')
     .eq('tenant_id', ctx.tenantId).eq('id', id).eq('status', 'active').limit(1));
   const resource = resources[0];
-  if (!resource) return null;
+  if (!resource || !isResourceReleased(resource, now)) return null;
   if (!isAdmin && resource.is_public !== true &&
       (!ctx.roleId || (resource.allowed_role_ids?.length && !resource.allowed_role_ids.includes(ctx.roleId)))) return null;
   if (resource.member_group_id) {
@@ -75,7 +76,7 @@ export async function readSingleResource({ db, ctx, id, isAdmin, categoryPrivile
       if (!ctx.memberId) return null;
       const assignments = await rows(db.from('member_group_assignment').select('expires_at')
         .eq('group_id', group.id).eq('member_id', ctx.memberId));
-      if (!assignments.some(a => !a.expires_at || Date.parse(a.expires_at) > Date.now())) return null;
+      if (!assignments.some(a => !a.expires_at || Date.parse(a.expires_at) > now)) return null;
     }
   }
   const categories = await fetchCategoriesWithAccess(db, ctx.tenantId);
@@ -89,6 +90,7 @@ export async function readSingleResource({ db, ctx, id, isAdmin, categoryPrivile
 
 export function createSingleResourceHandler({ db, getContext, hasAdminAccess, hasFeatureAccess }) {
   return async (req, res) => {
+    const now = Date.now();
     res.setHeader('Cache-Control', 'private, no-store');
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     try {
@@ -109,7 +111,7 @@ export function createSingleResourceHandler({ db, getContext, hasAdminAccess, ha
       const canAdministerGroupContent = ctx.roleId
         ? await hasFeatureAccess(ctx.roleId, 'events.browse-events.create', ctx.memberExcludedFeatures || [])
         : false;
-      const resource = await readSingleResource({ db, ctx, id, isAdmin, categoryPrivileged, canAdministerGroupContent });
+      const resource = await readSingleResource({ db, ctx, id, isAdmin, categoryPrivileged, canAdministerGroupContent, now });
       if (!resource) return res.status(404).json({ error: 'Resource not found or unavailable.' });
       return res.status(200).json(resource);
     } catch (error) {

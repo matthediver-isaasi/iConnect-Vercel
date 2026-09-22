@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
   isImmediateEvent,
@@ -321,7 +322,7 @@ async function resolveForumThread(tenantId, { id, slug }) {
   };
 }
 
-async function resolveResource(tenantId, identifier) {
+async function resolveResource(tenantId, identifier, now) {
   if (!supabase || !identifier) return null;
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
   let q = supabase
@@ -330,6 +331,7 @@ async function resolveResource(tenantId, identifier) {
     .eq('tenant_id', tenantId)
     .eq('status', 'active');
   q = isUUID ? q.eq('id', identifier) : q.eq('slug', identifier);
+  q = applyResourceReleaseFilter(q, now);
   const { data } = await q.maybeSingle();
   if (!data) return null;
   const resourceTypeName = data.resource_type === 'tenant_form'
@@ -708,6 +710,7 @@ function resolveListRouteMeta(pathname, tenant) {
  * defaults for any null fields.
  */
 export async function resolveEntityMeta(req, tenant) {
+  const now = Date.now();
   if (!tenant?.id || !supabase) return null;
   const { pathname, search } = parsePath(req);
 
@@ -779,13 +782,15 @@ export async function resolveEntityMeta(req, tenant) {
     // Resources
     const resourceSlugMatch = pathname.match(/^\/resources\/([^/]+)\/?$/i);
     if (resourceSlugMatch) {
-      return await resolveResource(tenant.id, decodeURIComponent(resourceSlugMatch[1]));
+      req.resourceReleaseSensitive = true;
+      return await resolveResource(tenant.id, decodeURIComponent(resourceSlugMatch[1]), now);
     }
     if (/^\/(?:Resources|PublicResources)\/?$/i.test(pathname)) {
       const id = getQueryParam(search, 'resourceId') || getQueryParam(search, 'id');
       const slug = getQueryParam(search, 'slug');
       if (id || slug) {
-        const meta = await resolveResource(tenant.id, id || slug);
+        req.resourceReleaseSensitive = true;
+        const meta = await resolveResource(tenant.id, id || slug, now);
         if (meta) return meta;
       }
     }

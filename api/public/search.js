@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { stripHtml } from '../_lib/searchTextBuilder.js';
 import { resolveMicrositeByPrefix, listActiveMicrosites, isMissingMicrositeSchema } from '../_lib/microsites.js';
@@ -53,6 +54,7 @@ export function buildPublicPageSearchResult(page, searchTerm) {
 }
 
 export default async function handler(req, res) {
+  const now = Date.now();
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -158,13 +160,13 @@ export default async function handler(req, res) {
         .eq('status', 'published')
         .limit(limitNum)),
       
-      contentQuery(supabase
+      contentQuery(applyResourceReleaseFilter(supabase
         .from('resource')
         .select('id, title, description, image_url, resource_type, is_public, search_text')
         .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .eq('status', 'active')
-        .limit(limitNum)),
+        .limit(limitNum), now)),
       
       runPagesQuery(),
 

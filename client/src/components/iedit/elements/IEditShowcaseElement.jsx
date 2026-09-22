@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
+import { listAllResources } from "@/lib/listAllResources";
 import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -69,9 +70,10 @@ function CardSlotEditor({ index, card, onUpdate }) {
     }
   });
 
-  // Fetch items based on content type (using public endpoints for public pages)
+  // This selector is editor-only. Its management data must not share the
+  // renderer's public cache or grant management scope to public requests.
   const { data: items = [] } = useQuery({
-    queryKey: ['public-showcase-items', card.contentType],
+    queryKey: ['showcase-editor-items', card.contentType, card.contentType === 'resources' ? 'management' : 'public'],
     queryFn: async () => {
       let result;
       switch (card.contentType) {
@@ -79,7 +81,7 @@ function CardSlotEditor({ index, card, onUpdate }) {
           result = await publicClient.listNews();
           return Array.isArray(result) ? result : [];
         case 'resources':
-          result = await publicClient.listResources();
+          result = await listAllResources({ management: true });
           return Array.isArray(result) ? result : [];
         case 'articles':
           result = await publicClient.listArticles();

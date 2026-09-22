@@ -3,6 +3,7 @@ import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken 
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
+import { applyResourceReadReleaseScope } from '../../_lib/resourceReleaseAccess.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
@@ -403,6 +404,7 @@ const isDeletedMember = (member) => {
 import { hasGenericCommitmentFields } from '../../_lib/rollingCommitmentEntityBoundary.js';
 
 export default async function handler(req, res) {
+  const requestNow = Date.now();
   const { entity } = req.query;
   if (typeof entity !== 'string') {
     return res.status(400).json({ error: 'Entity is required' });
@@ -804,6 +806,13 @@ export default async function handler(req, res) {
       let query = supabase
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*', wantsCount ? { count: 'exact' } : undefined);
+
+      if (entityNorm === 'resource') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        ({ query } = await applyResourceReadReleaseScope({
+          query, req, ctx: tenantCtx, db: supabase, hasAdminAccess, now: requestNow,
+        }));
+      }
 
       if (entityNorm === 'memberresourcecategory') {
         const scoped = scopeMemberResourceCategoryRead(query, tenantCtx, await hasAdminAccess(tenantCtx));

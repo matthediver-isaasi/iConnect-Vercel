@@ -42,6 +42,14 @@ test('inactive, draft, foreign tenant and missing resources are unavailable', as
     assert.equal((await read(resource)).value, null);
   }
 });
+test('single display release gate applies to admins, category managers and group content admins', async () => {
+  const now = Date.parse('2026-06-01T12:00:00Z');
+  for (const privilege of [{}, { isAdmin: true }, { categoryPrivileged: true }, { canAdministerGroupContent: true }]) {
+    assert.equal((await read({ release_date: '2026-06-01T12:00:00.001Z' }, {}, { now, ...privilege })).value, null);
+    assert.equal((await read({ release_date: 'invalid' }, {}, { now, ...privilege })).value, null);
+    assert.ok((await read({ release_date: '2026-06-01T12:00:00Z' }, {}, { now, ...privilege })).value);
+  }
+});
 test('private role allowlist, roleless fail-closed, public and admin exceptions', async () => {
   assert.equal((await read({ allowed_role_ids: ['other'] })).value, null);
   assert.equal((await read({}, {}, { ctx: { ...ctx, roleId: null } })).value, null);

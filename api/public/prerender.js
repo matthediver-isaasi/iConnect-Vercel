@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveUnknownPagePolicy } from '../_lib/unknownPagePolicy.js';
 import { renderTenantHtml } from '../_lib/renderHtml.js';
 import { projectCanvasMemberTokensForGuest } from '../../shared/canvasMemberTokens.js';
@@ -961,7 +962,7 @@ function clampLimit(n, def, max) {
   return Math.min(max, Math.floor(v));
 }
 
-async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
+async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
   const c = block.content || {};
   try {
     if (block.type === 'event-list') {
@@ -1038,6 +1039,7 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
         .eq('status', 'active')
         .order('created_at', { ascending: false });
       if (c.resourceType) q = q.eq('resource_type', c.resourceType);
+      q = applyResourceReleaseFilter(q, now);
       const { data } = await q.limit(limit);
       const items = (data || []).filter((r) => r.is_public !== false);
       if (items.length === 0) return null;
@@ -1156,7 +1158,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
 
       const dynamicBlocks = collectCanvasBlocks(guestDesign);
       for (const block of dynamicBlocks) {
-        const section = await renderCanvasDynamicBlock(supabaseClient, tenant, block);
+        const section = await renderCanvasDynamicBlock(supabaseClient, tenant, block, options.now);
         if (section) {
           if (section.html) bodySections.push(section.html);
           if (section.texts) allTexts.push(...section.texts);
@@ -1248,7 +1250,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
 // Returns null when the microsite has no home page or the target page is not
 // publicly served (unpublished / wrong layout) — the caller then falls through
 // to the default-site bare-slug lookup.
-async function renderMicrositeHomePage(supabaseClient, tenant, microsite, baseUrl) {
+async function renderMicrositeHomePage(supabaseClient, tenant, microsite, baseUrl, now) {
   if (!microsite || !microsite.home_page_id) return null;
   const { data: homePage } = await supabaseClient
     .from('i_edit_page')
@@ -1256,14 +1258,14 @@ async function renderMicrositeHomePage(supabaseClient, tenant, microsite, baseUr
     .eq('id', microsite.home_page_id)
     .maybeSingle();
   if (!homePage?.slug) return null;
-  const pageData = await renderCustomPage(supabaseClient, tenant, homePage.slug, baseUrl, { microsite });
+  const pageData = await renderCustomPage(supabaseClient, tenant, homePage.slug, baseUrl, { microsite, now });
   if (pageData) {
     pageData.ogUrl = `${baseUrl}/${microsite.path_prefix}`;
   }
   return pageData;
 }
 
-async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
+async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
   const pages = {
     'PublicEvents': {
       title: `Events | ${tenant.name}`,
@@ -1340,13 +1342,13 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
       title: `Resources | ${tenant.name}`,
       description: `Browse resources from ${tenant.name}`,
       query: async () => {
-        const { data } = await supabaseClient
+        const { data } = await applyResourceReleaseFilter(supabaseClient
           .from('resource')
           .select('id, title, description, resource_type, release_date')
           .eq('tenant_id', tenant.id)
           .eq('status', 'active')
           .order('release_date', { ascending: false })
-          .limit(50);
+          .limit(50), now);
         return (data || []).map(r => `<li><strong>${escapeHtml(r.title)}</strong>${r.resource_type ? ` (${escapeHtml(resourceTypeLabel(r.resource_type))})` : ''}${r.release_date ? ` - ${escapeHtml(new Date(r.release_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}</li>`).join('\n');
       }
     }
@@ -1371,6 +1373,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
 export function createPrerenderHandler({ database = supabase, resolveTenant = resolvePageTenant, renderShell = renderTenantHtml } = {}) {
 const supabase = database;
 return async function handler(req, res) {
+  const now = Date.now();
   // A prerender response is a public representation and must not be shared
   // between guest/member sessions (or vice versa). It is deliberately always
   // guest-projected even if a crawler forwards a logged-in cookie.
@@ -1464,7 +1467,7 @@ return async function handler(req, res) {
       const url = new URL(requestPath, 'http://localhost');
       const pageSlug = url.searchParams.get('slug');
       if (pageSlug) {
-        pageData = await renderCustomPage(supabase, tenant, pageSlug, baseUrl);
+        pageData = await renderCustomPage(supabase, tenant, pageSlug, baseUrl, { now });
       }
     }
 
@@ -1483,7 +1486,7 @@ return async function handler(req, res) {
         ...supportedArticleBasePaths,
       ].map(p => p.toLowerCase()));
       if (articleListPaths.has(normalizedReq)) {
-        pageData = await renderListPage(supabase, tenant, 'PublicArticles', baseUrl);
+        pageData = await renderListPage(supabase, tenant, 'PublicArticles', baseUrl, now);
         if (pageData) {
           pageData.ogUrl = `${baseUrl}${articleConfig.canonicalListPath}`;
         }
@@ -1491,7 +1494,7 @@ return async function handler(req, res) {
         for (const lp of listPages) {
           const aliasesLower = lp.aliases.map(a => a.toLowerCase());
           if (aliasesLower.includes(normalizedReq)) {
-            pageData = await renderListPage(supabase, tenant, lp.type, baseUrl);
+            pageData = await renderListPage(supabase, tenant, lp.type, baseUrl, now);
             if (pageData && lp.canonicalPath) {
               pageData.ogUrl = `${baseUrl}${lp.canonicalPath}`;
             }
@@ -1516,7 +1519,7 @@ return async function handler(req, res) {
         const segment = decodeURIComponent(singleSegmentMatch[1]);
         const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, segment);
         if (microsite) {
-          pageData = await renderMicrositeHomePage(supabase, tenant, microsite, baseUrl);
+          pageData = await renderMicrositeHomePage(supabase, tenant, microsite, baseUrl, now);
         }
       }
     }
@@ -1524,7 +1527,7 @@ return async function handler(req, res) {
     if (!pageData) {
       const bareSlugMatch = requestPath.match(/^\/([a-zA-Z][a-zA-Z0-9-]+)$/);
       if (bareSlugMatch) {
-        pageData = await renderCustomPage(supabase, tenant, decodeURIComponent(bareSlugMatch[1]), baseUrl);
+        pageData = await renderCustomPage(supabase, tenant, decodeURIComponent(bareSlugMatch[1]), baseUrl, { now });
       }
     }
 
@@ -1540,7 +1543,7 @@ return async function handler(req, res) {
         const slug = decodeURIComponent(micrositePathMatch[2]);
         const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
         if (microsite) {
-          pageData = await renderCustomPage(supabase, tenant, slug, baseUrl, { microsite });
+          pageData = await renderCustomPage(supabase, tenant, slug, baseUrl, { microsite, now });
         }
       }
     }
@@ -1571,7 +1574,7 @@ return async function handler(req, res) {
       const notFoundSlug = tenant.settings?.not_found_page_slug;
       if (notFoundSlug && typeof notFoundSlug === 'string') {
         try {
-          const notFoundPage = await renderCustomPage(supabase, tenant, notFoundSlug, baseUrl);
+          const notFoundPage = await renderCustomPage(supabase, tenant, notFoundSlug, baseUrl, { now });
           if (notFoundPage) {
             const html = buildHtmlPage({
               title: notFoundPage.title,

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { listAllResources } from "@/lib/listAllResources";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -90,8 +91,8 @@ export default function TagManagementPage() {
     : articleDisplayName;
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
-    queryKey: ['admin-resources'],
-    queryFn: () => base44.entities.Resource.list('-release_date'),
+    queryKey: ['admin-resources', 'management'],
+    queryFn: () => listAllResources({ management: true }),
     staleTime: 0,
     refetchOnMount: true,
   });

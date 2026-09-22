@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { listAllResources } from "@/lib/listAllResources";
+import { resourceReleaseLocalValue, resourceReleaseInstant } from "@/lib/resourceReleaseTime.mjs";
+import { RESOURCE_READ_CACHE_KEYS } from "@/lib/resourceQueryOptions.mjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,9 +86,9 @@ export default function ResourceManagementPage() {
   }, [isFeatureExcluded, isAccessReady]);
 
   const { data: resources = [], isLoading } = useQuery({
-    queryKey: ['admin-resources'],
+    queryKey: ['admin-resources', 'management'],
     queryFn: async () => {
-      const all = await listAllResources();
+      const all = await listAllResources({ management: true });
       // Group resources (member_group_id set) are managed on MemberGroupDetail,
       // not in the tenant-wide resource library.
       return all.filter((r) => !r.member_group_id);
@@ -578,6 +580,7 @@ export default function ResourceManagementPage() {
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Resource.create(data),
     onSuccess: async () => {
+      await Promise.all(RESOURCE_READ_CACHE_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
       // Remove all cached queries first to force fresh fetch
       queryClient.removeQueries({ queryKey: ['admin-resources'] });
       queryClient.removeQueries({ queryKey: ['public-resources'] });
@@ -599,6 +602,7 @@ export default function ResourceManagementPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Resource.update(id, data),
     onSuccess: async () => {
+      await Promise.all(RESOURCE_READ_CACHE_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
       // Remove all cached queries first to force fresh fetch
       queryClient.removeQueries({ queryKey: ['admin-resources'] });
       queryClient.removeQueries({ queryKey: ['public-resources'] });
@@ -620,6 +624,7 @@ export default function ResourceManagementPage() {
   const deleteMutation = useMutation({
     mutationFn: (id) => base44.entities.Resource.delete(id),
     onSuccess: async () => {
+      await Promise.all(RESOURCE_READ_CACHE_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
       // Remove all cached queries first to force fresh fetch
       queryClient.removeQueries({ queryKey: ['admin-resources'] });
       queryClient.removeQueries({ queryKey: ['public-resources'] });
@@ -644,6 +649,7 @@ export default function ResourceManagementPage() {
       }
     },
     onSuccess: async () => {
+      await Promise.all(RESOURCE_READ_CACHE_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
       // Remove all cached queries first to force fresh fetch
       queryClient.removeQueries({ queryKey: ['admin-resources'] });
       queryClient.removeQueries({ queryKey: ['public-resources'] });
@@ -908,7 +914,7 @@ export default function ResourceManagementPage() {
       author_id: resource.author_id || "",
       author_name: resource.author_name || "",
       status: resource.status || "active",
-      release_date: resource.release_date || resource.published_date || new Date().toISOString()
+      release_date: resource.release_date || resource.published_date || null
     });
     setEventSearchQuery("");
     setShowEventSearch(false);
@@ -2386,10 +2392,14 @@ export default function ResourceManagementPage() {
                   <Input
                     id="release-date"
                     type="datetime-local"
-                    value={editingResource.release_date ? new Date(editingResource.release_date).toISOString().slice(0, 16) : ''}
+                    value={resourceReleaseLocalValue(editingResource.release_date)}
                     onChange={(e) => {
-                      const dateValue = e.target.value ? new Date(e.target.value).toISOString() : new Date().toISOString();
-                      setEditingResource({ ...editingResource, release_date: dateValue });
+                      try {
+                        const dateValue = resourceReleaseInstant(e.target.value, editingResource.release_date);
+                        setEditingResource({ ...editingResource, release_date: dateValue });
+                      } catch (error) {
+                        toast.error(error.message);
+                      }
                     }}
                     className="flex-1"
                   />

@@ -3,7 +3,12 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories, filterResourcesByCategoryAccess } from '../_lib/resourceCategoryAccess.js';
 import { isPublicLibraryResource, projectPublicResourceAccess } from '../_lib/publicResourceProjection.js';
 
-export default async function handler(req, res) {
+export function createPublicResourcesHandler({
+  db = null, resolveTenant = resolveTenantFromRequest, clock = Date.now,
+} = {}) {
+ return async function handler(req, res) {
+  const now = clock();
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -19,14 +24,14 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!db && (!supabaseUrl || !supabaseServiceKey)) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = db || createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await resolveTenant(req);
 
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
@@ -90,7 +95,7 @@ export default async function handler(req, res) {
 
     const tenant_domain = tenant.domain || `${tenant.slug}.iconn.app`;
     const publicResources = filterResourcesByCategoryAccess(resources || [], guestHiddenSubcats)
-      .filter(isPublicLibraryResource)
+      .filter((resource) => isPublicLibraryResource(resource, now))
       .map((resource) => projectPublicResourceAccess(resource, tenant_domain));
 
     res.json(publicResources);
@@ -98,4 +103,7 @@ export default async function handler(req, res) {
     console.error('[Public Resources] Error:', error);
     res.status(500).json({ error: 'Failed to fetch resources' });
   }
+ };
 }
+
+export default createPublicResourcesHandler();

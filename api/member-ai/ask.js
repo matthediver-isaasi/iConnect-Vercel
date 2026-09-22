@@ -23,6 +23,7 @@
 // happens strictly AFTER that filter.
 
 import OpenAI from 'openai';
+import { isResourceReleased } from '../../shared/resourceRelease.js';
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
@@ -222,6 +223,7 @@ async function synthesizeStructuredAnswer(openai, question, result) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -337,6 +339,7 @@ export default async function handler(req, res) {
             tenantId: ctx.tenantId,
             spec: validated.spec,
             viewer,
+            now,
           });
           if (exec.ok) {
             const answer =
@@ -415,14 +418,14 @@ export default async function handler(req, res) {
     const candidates = mergeCandidates(matchResults.map((r) => r.data));
 
     // --- Security boundary: keep only accessible, relevant chunks ---
-    const now = new Date();
+    const requestDate = new Date(now);
     const visibilityCtx = {
       isAdmin,
       roleId,
       groupIds,
       canAccessFeature: (key) => access.canAccessFeature(key),
       tenantId: ctx.tenantId,
-      now,
+      now: requestDate,
     };
 
     const aboveFloor = candidates.filter(
@@ -434,23 +437,22 @@ export default async function handler(req, res) {
 
     // Task #3306: resources exclusively tagged with subcategories of
     // role-restricted categories are hidden from excluded roles. Chunk
-    // metadata predates this rule (no subcategories field), so enforce it
-    // live: when the viewer has hidden subcategories, look up the surviving
-    // resource chunks' subcategories and drop hidden ones (missing rows fail
-    // closed). Skips all extra queries when no restrictions apply.
+    // metadata can be stale. Always hydrate live resource release/status/access
+    // fields before using indexed text, even when no categories are hidden.
     if (visible.some((m) => m.content_type === 'resource')) {
       const categories = await fetchCategoriesWithAccess(supabase, ctx.tenantId);
       const hiddenSubcats = computeHiddenSubcategories(categories, {
         roleId,
         isPrivileged: isAdmin,
       });
-      if (hiddenSubcats.size > 0) {
+      {
         const resourceIds = [...new Set(
           visible.filter((m) => m.content_type === 'resource').map((m) => m.source_id)
         )];
         const { data: resourceRows, error: resourceErr } = await supabase
           .from('resource')
-          .select('id, subcategories')
+          .select('id, subcategories, release_date, status, member_group_id, allowed_role_ids')
+          .eq('tenant_id', ctx.tenantId)
           .in('id', resourceIds);
         if (resourceErr) throw resourceErr;
         const byId = new Map((resourceRows || []).map((r) => [r.id, r]));
@@ -458,6 +460,8 @@ export default async function handler(req, res) {
           if (m.content_type !== 'resource') return true;
           const row = byId.get(m.source_id);
           if (!row) return false; // fail closed on missing/deleted rows
+          if (!isResourceReleased(row, now)) return false;
+          if (!isChunkVisibleToMember({ ...m, ...row }, visibilityCtx)) return false;
           return !isResourceHiddenByCategories(row, hiddenSubcats);
         });
       }
@@ -492,7 +496,7 @@ export default async function handler(req, res) {
 
     // --- Recency-aware re-rank (strictly AFTER the visibility filter) ---
     const recency = isRecencyQuestion(question);
-    const ranked = rerankByRecency(visible, { recency, now });
+    const ranked = rerankByRecency(visible, { recency, now: requestDate });
 
     // --- Select context chunks with a per-source cap so one source can't
     // crowd out the rest; backfill from leftovers if under budget. ---
@@ -527,7 +531,7 @@ export default async function handler(req, res) {
       })
       .join('\n\n---\n\n');
 
-    const todayStr = now.toLocaleDateString('en-GB', {
+    const todayStr = requestDate.toLocaleDateString('en-GB', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',

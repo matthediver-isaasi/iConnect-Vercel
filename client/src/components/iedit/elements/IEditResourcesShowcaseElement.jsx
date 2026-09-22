@@ -67,8 +67,11 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
 
   // Fetch available resources
   const { data: resources = [] } = useQuery({
-    queryKey: ['resources-list'],
-    queryFn: async () => await base44.entities.Resource.list('-release_date') || []
+    queryKey: ['resources-list', 'management'],
+    queryFn: async () => await base44.entities.Resource.list({
+      sort: { release_date: 'desc' },
+      queryParams: { resource_context: 'management' },
+    }) || []
   });
 
   // Fetch button styles
