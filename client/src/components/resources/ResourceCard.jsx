@@ -98,6 +98,23 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
       return;
     }
     const shouldOpenInNewTab = openInNewTab ?? resource.open_in_new_tab !== false;
+    if (resource.resource_type === 'external_link') {
+      // Domain-authenticated sites need the source origin, but never the
+      // resource ID, path or query. Scope this policy to this navigation only.
+      // strict-origin also suppresses referrers on HTTPS -> HTTP downgrades.
+      const link = document.createElement('a');
+      link.href = resource.target_url;
+      link.target = shouldOpenInNewTab ? '_blank' : '_self';
+      link.rel = 'noopener';
+      link.referrerPolicy = 'strict-origin';
+      document.body.appendChild(link);
+      try {
+        link.click();
+      } finally {
+        link.remove();
+      }
+      return;
+    }
     if (shouldOpenInNewTab) {
       window.open(resource.target_url, '_blank', 'noopener,noreferrer');
     } else {
