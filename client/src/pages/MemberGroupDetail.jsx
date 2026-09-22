@@ -3128,7 +3128,7 @@ export default function MemberGroupDetailPage() {
                   <SelectItem value="download">File download</SelectItem>
                   <SelectItem value="external_link">External link</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
-                  <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Tenant form</SelectItem>
+                  <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Form</SelectItem>
                 </SelectContent>
               </Select>
             </div>
