@@ -95,22 +95,19 @@ export default async function handler(req, res) {
       ? 'https://iconn.app/api/auth/outlook/callback'
       : `http://${req.headers.host}/api/auth/outlook/callback`;
     
-    const isValidIconnHost = (h) => h && (/^([a-zA-Z0-9-]+\.)+iconn\.app$/.test(h) || h === 'iconn.app');
-    const queryHost = req.query.originHost;
+    const isValidIconnHost = (h) => typeof h === 'string'
+      && (/^(?:[a-zA-Z0-9-]+\.)+iconn\.app$/.test(h) || h === 'iconn.app');
     const forwardedHost = req.headers['x-forwarded-host'];
     const hostHeader = req.headers.host;
-    const originHost = (isValidIconnHost(queryHost) ? queryHost : null)
-      || (isValidIconnHost(forwardedHost) ? forwardedHost : null)
+    const originHost = (isValidIconnHost(forwardedHost) ? forwardedHost : null)
       || (isValidIconnHost(hostHeader) ? hostHeader : null)
       || (isProduction ? 'iconn.app' : 'localhost:5000');
-    console.log(`[Outlook OAuth] Host resolution: query=${queryHost}, x-forwarded-host=${forwardedHost}, host=${hostHeader}, resolved=${originHost}`);
-    
     const statePayload = {
       nonce,
       tenantId: tenantContext.tenantId,
       identityId: identityId,
       userType: tenantContext.tenantUserId ? 'tenant_user' : 'member',
-      returnTo: normalizeInternalReturnTo(req.query.returnTo, '/settings'),
+      returnTo: normalizeInternalReturnTo(req.query.returnTo, '/admin/settings'),
       originHost: originHost,
       timestamp: Date.now()
     };
@@ -129,10 +126,9 @@ export default async function handler(req, res) {
     authUrl.searchParams.set('state', signedState);
     authUrl.searchParams.set('prompt', req.query.teamsOrganizer === 'true' ? 'consent' : 'select_account');
 
-    console.log('[Outlook OAuth] Initiating auth for identity:', identityId);
     res.redirect(authUrl.toString());
   } catch (error) {
-    console.error('[Outlook OAuth] Error initiating auth:', error);
+    console.error('[Outlook OAuth]', { operation: 'initiate', code: 'initiation_failed' });
     res.status(500).json({ error: 'Failed to initiate Outlook authentication' });
   }
 }

@@ -341,6 +341,6 @@ test('OAuth callback redirect sinks reject external returnTo values', () => {
       isProduction: false,
       originHost: 'tenant-a.iconn.app',
     }),
-    '/settings?outlook_connected=true'
+    '/admin/settings?outlook_connected=true'
   );
 });

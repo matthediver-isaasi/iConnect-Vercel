@@ -14,12 +14,38 @@ function formatSyncFrequency(minutes) {
 }
 
 const OUTLOOK_ERROR_MESSAGES = {
-  access_denied: 'Microsoft authorization was cancelled or denied.',
+  access_denied: 'Microsoft authorization was cancelled or denied. Retry when you are ready and approve the requested permissions.',
+  oauth_denied: 'Microsoft authorization was cancelled or denied. Retry when you are ready and approve the requested permissions.',
   no_refresh_token: 'Microsoft did not issue an offline token. Reconnect and approve the requested permissions.',
   token_exchange_failed: 'Microsoft could not complete authorization. Please reconnect.',
-  save_failed: 'Authorization succeeded, but the connection could not be saved.',
-  csrf_error: 'The authorization session expired. Please start again.'
+  save_failed: 'Microsoft authorization succeeded, but the connection could not be saved. Retry the connection; if it fails again, contact support.',
+  csrf_error: 'The authorization session expired. Please start the connection again.',
+  invalid_state: 'The Microsoft authorization session is invalid or expired. Start the connection again from this page.',
+  missing_params: 'Microsoft returned an incomplete authorization response. Start the connection again; if it continues, contact support.',
+  user_info_failed: 'Microsoft authorized access, but we could not load your account details. Retry the connection and confirm your account is available.',
+  callback_failed: 'We could not finish the Microsoft connection. Retry from this page; if it fails again, contact support.',
+  config: 'Microsoft 365 is not configured for this site. Contact an administrator before retrying.',
+  configuration_error: 'Microsoft 365 is not configured for this site. Contact an administrator before retrying.',
+  configuration_failed: 'Microsoft 365 is not configured for this site. Contact an administrator before retrying.',
+  config_error: 'Microsoft 365 is not configured for this site. Contact an administrator before retrying.',
+  provider: 'Microsoft could not complete the request. Retry the connection; if Microsoft continues to reject it, contact your administrator.',
+  provider_failed: 'Microsoft could not complete the request. Retry the connection; if Microsoft continues to reject it, contact your administrator.',
+  provider_error: 'Microsoft could not complete the request. Retry the connection; if Microsoft continues to reject it, contact your administrator.'
 };
+
+const GENERIC_OUTLOOK_ERROR = 'Microsoft authorization could not be completed because of a provider or site configuration error. Retry the connection; if it fails again, contact your administrator.';
+
+function removeOutlookCallbackParams() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('outlook_connected');
+  url.searchParams.delete('outlook_error');
+  const search = url.searchParams.toString();
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${url.pathname}${search ? `?${search}` : ''}${url.hash}`
+  );
+}
 
 export default function OutlookConnection({ isAdmin = false }) {
   const { toast } = useToast();
@@ -28,6 +54,11 @@ export default function OutlookConnection({ isAdmin = false }) {
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [syncFrequency, setSyncFrequency] = useState(null);
+  const [connectionError] = useState(() => {
+    const code = new URLSearchParams(window.location.search).get('outlook_error');
+    return code ? (OUTLOOK_ERROR_MESSAGES[code] || GENERIC_OUTLOOK_ERROR) : null;
+  });
+  const [statusError, setStatusError] = useState(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -38,33 +69,34 @@ export default function OutlookConnection({ isAdmin = false }) {
         title: 'Outlook Connected',
         description: 'Your Outlook account has been connected successfully.',
       });
-      window.history.replaceState({}, '', window.location.pathname);
-      setTimeout(() => fetchConnectionStatus(), 500);
-    } else {
-      fetchConnectionStatus();
     }
 
+    fetchConnectionStatus();
     fetchSyncFrequency();
 
-    if (urlParams.get('outlook_error')) {
+    if (connectionError) {
       toast({
         title: 'Connection Failed',
-         description: OUTLOOK_ERROR_MESSAGES[urlParams.get('outlook_error')] || 'Microsoft authorization failed. Please try again.',
+        description: connectionError,
         variant: 'destructive',
       });
-      window.history.replaceState({}, '', window.location.pathname);
     }
+
+    if (justConnected || connectionError) removeOutlookCallbackParams();
   }, []);
 
   const fetchConnectionStatus = async () => {
+    setStatusError(null);
     try {
       const response = await fetch('/api/outlook/status', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        setConnection(data);
+      if (!response.ok) {
+        throw new Error(`status request returned ${response.status}`);
       }
+      const data = await response.json();
+      setConnection(data);
     } catch (err) {
       console.error('Failed to fetch Outlook status:', err);
+      setStatusError('We could not load the Outlook connection status. Check your connection and retry.');
     } finally {
       setLoading(false);
     }
@@ -81,13 +113,13 @@ export default function OutlookConnection({ isAdmin = false }) {
     }
   };
 
-  const handleConnect = (teamsOrganizer = false) => {
+  const getConnectUrl = (teamsOrganizer = false) => {
     const params = new URLSearchParams({
       returnTo: window.location.pathname,
       originHost: window.location.host
     });
     if (teamsOrganizer) params.set('teamsOrganizer', 'true');
-    window.location.href = `/api/auth/outlook?${params.toString()}`;
+    return `/api/auth/outlook?${params.toString()}`;
   };
 
   const handleDisconnect = async () => {
@@ -181,6 +213,42 @@ export default function OutlookConnection({ isAdmin = false }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {(connectionError || statusError) && (
+          <div
+            className="mb-4 space-y-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive"
+            role="alert"
+            aria-live="assertive"
+            data-testid="outlook-connection-error"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium">
+                  {connectionError ? 'Microsoft connection failed' : 'Outlook status unavailable'}
+                </p>
+                <p className="text-sm">{connectionError || statusError}</p>
+              </div>
+            </div>
+            {connectionError ? (
+              <Button size="sm" variant="outline" asChild>
+                <a href={getConnectUrl(isAdmin)} data-testid="button-retry-outlook">
+                  <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Retry Microsoft connection
+                </a>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={fetchConnectionStatus}
+                data-testid="button-retry-outlook-status"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Retry status
+              </Button>
+            )}
+          </div>
+        )}
         {connection?.connected ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
@@ -214,9 +282,11 @@ export default function OutlookConnection({ isAdmin = false }) {
                     <p className="text-sm">Reconnect to restore access. Existing mail and calendar data is not removed.</p>
                   </div>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => handleConnect(false)} data-testid="button-reconnect-outlook">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Reconnect Microsoft 365
+                <Button size="sm" variant="outline" asChild>
+                  <a href={getConnectUrl(false)} data-testid="button-reconnect-outlook">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Reconnect Microsoft 365
+                  </a>
                 </Button>
               </div>
             )}
@@ -233,9 +303,11 @@ export default function OutlookConnection({ isAdmin = false }) {
                   </div>
                 </div>
                 {(connection.canConfigureTeams || isAdmin) ? (
-                  <Button size="sm" variant="outline" onClick={() => handleConnect(true)} data-testid="button-authorize-teams">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Authorize Teams as administrator
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={getConnectUrl(true)} data-testid="button-authorize-teams">
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Authorize Teams as administrator
+                    </a>
                   </Button>
                 ) : (
                   <p className="text-sm font-medium">Ask a tenant administrator to complete Teams organiser setup.</p>
@@ -308,14 +380,16 @@ export default function OutlookConnection({ isAdmin = false }) {
                <li>Create Microsoft Teams online meetings</li>
                <li>Retrieve Teams attendance reports</li>
             </ul>
-            <Button
-              onClick={() => handleConnect(isAdmin)}
-              className="gap-2"
-              data-testid="button-connect-outlook"
-            >
-              <Mail className="h-4 w-4" />
-              Connect Outlook
-              <ExternalLink className="h-3 w-3" />
+            <Button asChild>
+              <a
+                href={getConnectUrl(isAdmin)}
+                className="gap-2"
+                data-testid="button-connect-outlook"
+              >
+                <Mail className="h-4 w-4" />
+                Connect Outlook
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </Button>
           </div>
         )}
