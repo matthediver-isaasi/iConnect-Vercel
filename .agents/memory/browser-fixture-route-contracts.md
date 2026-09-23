@@ -20,3 +20,9 @@ Tenant-policy browser fixtures need a controlled hostname as well as mocked APIs
 **Why:** A proxied development hostname was interpreted as a tenant subdomain and replaced the fixture's cached tenant. Ordinary role redirects still passed, masking that the tenant-specific policy was not exercised.
 
 **How to apply:** Use an isolated local origin or deliberately mapped tenant hostname for tenant-policy tests. Block external provider traffic too: mocking `/api/` alone does not isolate legacy direct-Supabase reads.
+
+Match mocked API requests by root pathname, not only a glob containing `/api/`.
+
+**Why:** Vite serves client source modules under `/src/api/`; a broad interception can return fixture JSON for JavaScript modules and leave the entire app blank before any route test runs.
+
+**How to apply:** In broad Playwright handlers, continue requests whose URL pathname does not start with `/api/` before selecting response fixtures.

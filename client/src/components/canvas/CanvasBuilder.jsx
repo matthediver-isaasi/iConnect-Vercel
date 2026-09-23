@@ -2098,7 +2098,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         <div className="flex-1 flex min-h-0 relative">
           {/* Palette */}
           <aside
-            className="w-56 border-r border-slate-200 bg-white p-3 overflow-y-auto"
+            className="w-56 border-r border-slate-200 bg-white p-3 overflow-y-auto overscroll-y-contain"
             aria-label="Block palette"
             data-testid="panel-palette"
           >
@@ -2108,7 +2108,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
           {/* Stage */}
           <main
-            className="flex-1 overflow-auto p-6 bg-slate-100"
+            className="flex-1 overflow-auto overscroll-y-contain p-6 bg-slate-100"
             ref={stageWrapperRef}
             data-testid="panel-stage"
             onPointerDown={handleStagePanPointerDown}
@@ -2213,7 +2213,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
           {/* Inspector */}
           <aside
-            className="w-72 border-l border-slate-200 bg-white p-3 overflow-y-auto"
+            className="w-72 border-l border-slate-200 bg-white p-3 overflow-y-auto overscroll-y-contain"
             aria-label="Inspector"
             data-testid="panel-inspector"
           >
