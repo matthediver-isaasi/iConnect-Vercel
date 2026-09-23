@@ -6,6 +6,7 @@ import {
   appendInternalQuery,
   normalizeInternalReturnTo,
 } from '../../../shared/safeReturnTo.js';
+import { isValidOutlookOAuthRedirectUri } from '../../_lib/outlookOAuthRedirect.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -159,6 +160,9 @@ export function createOutlookCallbackHandler({
     // any navigation authority carried by the request.
     const stateData = verifyOutlookState(state, sessionSecret, now());
     if (!stateData) return redirectError('invalid_state');
+    if (!isValidOutlookOAuthRedirectUri(stateData.oauthRedirectUri, { isProduction })) {
+      return redirectError('invalid_state');
+    }
 
     const cookies = parse(req.headers.cookie || '');
     if (!noncesMatch(cookies.outlook_oauth_nonce, stateData.nonce)) {
@@ -174,9 +178,7 @@ export function createOutlookCallbackHandler({
     }
 
     const { tenantId, identityId, returnTo, originHost } = stateData;
-    const redirectUri = isProduction
-      ? 'https://iconn.app/api/auth/outlook/callback'
-      : 'http://localhost:5000/api/auth/outlook/callback';
+    const redirectUri = stateData.oauthRedirectUri;
 
     try {
       const tokenResponse = await fetchImpl('https://login.microsoftonline.com/common/oauth2/v2.0/token', {

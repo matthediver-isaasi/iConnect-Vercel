@@ -18,6 +18,7 @@ function signedState(overrides = {}) {
     identityId: 'identity-a',
     returnTo: '/admin/settings?tab=integrations',
     originHost: 'gsf.dev.iconn.app',
+    oauthRedirectUri: 'http://localhost:5000/api/auth/outlook/callback',
     timestamp: NOW,
     ...overrides,
   });
@@ -78,9 +79,10 @@ function databaseDouble({
   return database;
 }
 
-function providerFetch() {
+function providerFetch(requests = []) {
   let request = 0;
-  return async () => {
+  return async (url, options) => {
+    requests.push({ url, options });
     request += 1;
     if (request === 1) {
       return {
@@ -108,10 +110,10 @@ function providerFetch() {
   };
 }
 
-async function invoke({ query, cookie = 'outlook_oauth_nonce=nonce-value', database } = {}) {
+async function invoke({ query, cookie = 'outlook_oauth_nonce=nonce-value', database, requests = [] } = {}) {
   const handler = createOutlookCallbackHandler({
     database: database || databaseDouble(),
-    fetchImpl: providerFetch(),
+    fetchImpl: providerFetch(requests),
     scopeEvaluator: () => ({ healthState: 'healthy', missingScopes: [] }),
     clientId: 'client-id',
     clientSecret: 'client-secret',
@@ -157,6 +159,33 @@ test('first save persists scope health and clears nonce', async () => {
   assert.equal(insert.value.health_error, null);
   assert.match(res.headers['Set-Cookie'], /Max-Age=0/);
   assert.equal(res.redirectUrl, '/admin/settings?tab=integrations&outlook_connected=true');
+});
+
+test('token exchange uses the exact redirect URI carried by signed initiation state', async () => {
+  const requests = [];
+  const redirectUri = 'https://example-project.replit.dev/api/auth/outlook/callback';
+  await invoke({
+    requests,
+    query: { code: 'provider-code', state: signedState({ oauthRedirectUri: redirectUri }) },
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(
+    new URLSearchParams(requests[0].options.body).get('redirect_uri'),
+    redirectUri,
+  );
+});
+
+test('callback rejects a signed but unapproved OAuth redirect URI before provider access', async () => {
+  const requests = [];
+  const res = await invoke({
+    requests,
+    query: {
+      code: 'provider-code',
+      state: signedState({ oauthRedirectUri: 'https://evil.example/api/auth/outlook/callback' }),
+    },
+  });
+  assert.equal(requests.length, 0);
+  assert.equal(res.redirectUrl, '/admin/settings?outlook_error=invalid_state');
 });
 
 test('identity reconnect updates only the signed tenant', async () => {

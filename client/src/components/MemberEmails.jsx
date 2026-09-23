@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getActiveTenantId, subscribeToActiveTenantId } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,12 +33,32 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
   const [syncing, setSyncing] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('idle');
   const [composeOpen, setComposeOpen] = useState(false);
+  const tenantId = useSyncExternalStore(
+    subscribeToActiveTenantId,
+    getActiveTenantId,
+    () => null
+  );
+  const contextKey = `${tenantId || ''}\u0000${memberId || ''}\u0000${memberEmail || ''}`;
+  const contextRef = useRef(contextKey);
+
+  useEffect(() => {
+    contextRef.current = contextKey;
+    setComposeOpen(false);
+    setExpandedEmail(null);
+    setAutoSyncStatus('idle');
+    setSyncing(false);
+  }, [contextKey]);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['member-emails', memberId],
-    queryFn: async () => {
+    queryKey: ['member-emails', tenantId, memberId],
+    queryFn: async ({ signal }) => {
+      if (!tenantId) {
+        throw new Error('Select an organisation before loading member emails.');
+      }
       const response = await fetch(`/api/outlook/emails/${memberId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        signal,
+        headers: { 'X-Tenant-Id': tenantId }
       });
       if (!response.ok) {
         const err = await response.json();
@@ -45,14 +66,16 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
       }
       return response.json();
     },
-    enabled: !!memberId
+    enabled: !!tenantId && !!memberId
   });
 
   useEffect(() => {
-    if (!memberId) return;
+    if (!tenantId || !memberId) return;
     
     let cancelled = false;
     let timeoutId = null;
+    const controller = new AbortController();
+    const requestContext = contextKey;
     
     const autoSync = async () => {
       setAutoSyncStatus('syncing');
@@ -61,17 +84,18 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         const response = await fetch('/api/outlook/sync', {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
           body: JSON.stringify({ memberId })
         });
         
-        if (cancelled) return;
+        if (cancelled || contextRef.current !== requestContext) return;
         
         if (response.ok) {
           const result = await response.json();
           if (result.synced > 0) {
             setAutoSyncStatus('synced');
-            queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+            queryClient.invalidateQueries({ queryKey: ['member-emails', tenantId, memberId] });
           } else {
             setAutoSyncStatus('uptodate');
           }
@@ -80,7 +104,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('Auto-sync failed:', err);
+          if (err?.name !== 'AbortError') console.error('Auto-sync failed:', err);
           setAutoSyncStatus('failed');
         }
       }
@@ -98,23 +122,26 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
     
     return () => {
       cancelled = true;
+      controller.abort();
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
     };
-  }, [memberId, queryClient]);
+  }, [contextKey, memberId, queryClient, tenantId]);
 
   const handleSync = async () => {
+    const requestContext = contextKey;
     setSyncing(true);
     try {
       const response = await fetch('/api/outlook/sync', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
         body: JSON.stringify({ memberId })
       });
       
       const result = await response.json();
+      if (contextRef.current !== requestContext) return;
       
       if (response.ok) {
         toast({
@@ -130,13 +157,14 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         });
       }
     } catch (err) {
+      if (contextRef.current !== requestContext) return;
       toast({
         title: 'Error',
         description: 'Failed to sync emails',
         variant: 'destructive',
       });
     } finally {
-      setSyncing(false);
+      if (contextRef.current === requestContext) setSyncing(false);
     }
   };
 
@@ -154,7 +182,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         body: JSON.stringify({ emailId, is_pinned: !currentValue })
       });
       if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+        queryClient.invalidateQueries({ queryKey: ['member-emails', tenantId, memberId] });
       }
     } catch (err) {
       console.error('Failed to toggle pin:', err);
@@ -171,7 +199,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         body: JSON.stringify({ emailId, is_flagged: !currentValue })
       });
       if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+        queryClient.invalidateQueries({ queryKey: ['member-emails', tenantId, memberId] });
       }
     } catch (err) {
       console.error('Failed to toggle flag:', err);
@@ -414,6 +442,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
         open={composeOpen}
         onOpenChange={setComposeOpen}
         memberId={memberId}
+        tenantId={tenantId}
         memberEmail={memberEmail}
         memberName={memberName}
         onSuccess={() => {

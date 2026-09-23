@@ -1,8 +1,13 @@
-import { getSession } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getAgentEmailsForTenant, isAgentOnlyEmail, getOrgMapForTenant, isIntraOrgEmail } from '../../_lib/agentEmails.js';
+import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 
-export default async function handler(req, res) {
+export async function handleMemberEmailHistory(req, res, dependencies = {}) {
+  const database = dependencies.database || supabase;
+  const loadContext = dependencies.getTenantContext || getTenantContext;
+  const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
+  const loadAgentEmails = dependencies.getAgentEmailsForTenant || getAgentEmailsForTenant;
+  const loadOrgMap = dependencies.getOrgMapForTenant || getOrgMapForTenant;
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -17,31 +22,33 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sessionResult = await getSession(req);
-    
-    if (!sessionResult || !sessionResult.data) {
+    if (!database) return res.status(503).json({ error: 'Database not configured' });
+    const context = await loadContext(req);
+    if (!context?.isAuthenticated || !context.tenantId) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
-
-    const session = sessionResult.data;
-    if (!session.tenantId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+    if (context.tenantMismatch || !(await checkAdmin(context))) {
+      return res.status(403).json({ error: 'Administrator access required' });
+    }
+    if (!req.headers?.['x-tenant-id'] || req.headers['x-tenant-id'] !== context.tenantId) {
+      return res.status(403).json({ error: 'Tenant context does not match' });
     }
 
     const { memberId } = req.query;
     
-    if (!memberId) {
+    if (typeof memberId !== 'string' || !memberId.trim()) {
       return res.status(400).json({ error: 'Member ID is required' });
     }
 
-    const { data: member, error: memberError } = await supabase
+    const { data: member, error: memberError } = await database
       .from('member')
-      .select('id, email')
+      .select('id, email, tenant_id')
       .eq('id', memberId)
-      .eq('tenant_id', session.tenantId)
-      .single();
+      .eq('tenant_id', context.tenantId)
+      .maybeSingle();
 
-    if (memberError || !member) {
+    if (memberError) throw memberError;
+    if (!member || /^deleted_.+@deleted\.local$/i.test(String(member.email || ''))) {
       return res.status(404).json({ error: 'Member not found' });
     }
 
@@ -49,25 +56,25 @@ export default async function handler(req, res) {
     const offset = parseInt(req.query.offset) || 0;
 
     const [agentEmails, orgMap] = await Promise.all([
-      getAgentEmailsForTenant(session.tenantId),
-      getOrgMapForTenant(session.tenantId)
+      loadAgentEmails(context.tenantId),
+      loadOrgMap(context.tenantId)
     ]);
 
     // Fetch emails for this member with a reasonable max limit
     // We filter agent-only and intra-org emails in memory to handle JSONB recipient arrays
     // Max 1000 emails per member to prevent memory issues
     const MAX_EMAILS_PER_MEMBER = 1000;
-    const { data: allEmails, error: emailsError } = await supabase
+    const { data: allEmails, error: emailsError } = await database
       .from('member_email')
       .select('*, synced_by_identity_id')
-      .eq('tenant_id', session.tenantId)
+      .eq('tenant_id', context.tenantId)
       .eq('member_id', memberId)
       .order('sent_at', { ascending: false, nullsFirst: false })
       .order('received_at', { ascending: false, nullsFirst: false })
       .limit(MAX_EMAILS_PER_MEMBER);
 
     if (emailsError) {
-      console.error('[Outlook Emails] Database error:', emailsError);
+      console.error('[Outlook Emails] Email history query failed');
       return res.status(500).json({ error: 'Failed to fetch emails' });
     }
 
@@ -89,10 +96,10 @@ export default async function handler(req, res) {
     let agentNames = {};
     
     if (identityIds.length > 0) {
-      const { data: connections } = await supabase
+      const { data: connections } = await database
         .from('outlook_connection')
         .select('identity_id, display_name, microsoft_email')
-        .eq('tenant_id', session.tenantId)
+        .eq('tenant_id', context.tenantId)
         .in('identity_id', identityIds);
       
       if (connections) {
@@ -115,7 +122,11 @@ export default async function handler(req, res) {
       memberEmail: member.email
     });
   } catch (error) {
-    console.error('[Outlook Emails] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[Outlook Emails] Unexpected history failure');
+    return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+export default function handler(req, res) {
+  return handleMemberEmailHistory(req, res);
 }

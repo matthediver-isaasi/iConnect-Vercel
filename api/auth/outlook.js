@@ -5,6 +5,7 @@ import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { MICROSOFT_BASE_SCOPES, MICROSOFT_SCOPES } from '../_lib/microsoftGraph.js';
 import { normalizeInternalReturnTo } from '../../shared/safeReturnTo.js';
+import { getOutlookOAuthRedirectUri } from '../_lib/outlookOAuthRedirect.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
@@ -91,9 +92,10 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', nonceCookie);
 
     const isProduction = process.env.NODE_ENV === 'production';
-    const redirectUri = isProduction 
-      ? 'https://iconn.app/api/auth/outlook/callback'
-      : `http://${req.headers.host}/api/auth/outlook/callback`;
+    const redirectUri = getOutlookOAuthRedirectUri({
+      isProduction,
+      host: req.headers.host,
+    });
     
     const isValidIconnHost = (h) => typeof h === 'string'
       && (/^(?:[a-zA-Z0-9-]+\.)+iconn\.app$/.test(h) || h === 'iconn.app');
@@ -109,6 +111,7 @@ export default async function handler(req, res) {
       userType: tenantContext.tenantUserId ? 'tenant_user' : 'member',
       returnTo: normalizeInternalReturnTo(req.query.returnTo, '/admin/settings'),
       originHost: originHost,
+      oauthRedirectUri: redirectUri,
       timestamp: Date.now()
     };
 
