@@ -142,7 +142,7 @@ export default function ComposeEmailModal({
     sendInFlightRef.current = true;
     setSending(true);
     try {
-      const response = await fetch('/api/outlook/send', {
+      const response = await fetch('/api/crm/send', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
@@ -163,21 +163,21 @@ export default function ComposeEmailModal({
         || requestGenerationRef.current !== requestGeneration
       ) return;
 
-      if (data?.deliveryUnknown === true) {
+      if (data?.deliveryUnknown === true || data?.ambiguousEffect === true) {
         setDeliveryUncertain(true);
         toast({
-          title: 'Delivery Status Unknown',
-          description: 'Microsoft may have accepted this email, but delivery could not be confirmed. To avoid a duplicate, do not send this draft again; check Sent Items or refresh email history first.',
+          title: 'Acceptance Status Unknown',
+          description: 'Mailgun may have accepted this email, but acceptance could not be confirmed. To avoid a duplicate, do not send this draft again; refresh email history before composing another message.',
           variant: 'destructive',
         });
       } else if (response.ok) {
         toast({
-          title: 'Email Sent',
+          title: 'Email Accepted',
           description: data.warning
-            ? `Microsoft accepted the email to ${recipient}. ${data.warning}`
-            : `Microsoft accepted the email to ${recipient}.`,
+            ? `Mailgun accepted the email to ${recipient} for delivery. Acceptance does not guarantee delivery. ${data.warning}`
+            : `Mailgun accepted the email to ${recipient} for delivery. Acceptance does not guarantee delivery.`,
         });
-        // Delivery is confirmed, so the pending-request dismissal fence can
+        // Provider acceptance is confirmed, so the pending-request dismissal fence can
         // be released before deliberately closing the successful draft.
         sendInFlightRef.current = false;
         handleOpenChange(false);
@@ -201,8 +201,8 @@ export default function ComposeEmailModal({
       ) return;
       setDeliveryUncertain(true);
       toast({
-        title: 'Delivery Status Unknown',
-        description: 'The connection ended before delivery could be confirmed. To avoid a duplicate, do not send this draft again; check Sent Items or refresh email history first.',
+        title: 'Acceptance Status Unknown',
+        description: 'The connection ended before Mailgun acceptance could be confirmed. To avoid a duplicate, do not send this draft again; refresh email history before composing another message.',
         variant: 'destructive',
       });
     } finally {
@@ -242,7 +242,7 @@ export default function ComposeEmailModal({
         <DialogHeader>
           <DialogTitle>Compose Email</DialogTitle>
           <DialogDescription>
-            Review the exact recipients before sending{memberName ? ` to ${memberName}` : ''}
+            Review the exact recipients before sending{memberName ? ` to ${memberName}` : ''}. Mailgun uses this organisation&apos;s verified sender domain, or the ICONN fallback sender when none is verified.
           </DialogDescription>
         </DialogHeader>
 
@@ -277,7 +277,7 @@ export default function ComposeEmailModal({
             {recipientError && <p className="mt-2 text-destructive" role="alert">{recipientError}</p>}
             {deliveryUncertain && (
               <p className="mt-2 text-destructive" role="alert">
-                Delivery could not be confirmed. Check Sent Items or refresh email history before composing another message.
+                Mailgun acceptance could not be confirmed. Refresh email history before composing another message.
               </p>
             )}
           </div>

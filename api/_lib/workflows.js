@@ -1414,7 +1414,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         labelKey: 'automations',
       });
       const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId, inboxDelivery });
-      console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
+      console.log('[Workflows] Email delivery result:', workflowEmailLogMetadata(emailResult));
       
       results.push(workflowEmailActionResult(emailResult, {
         template_id: action.config?.template_id,
@@ -2999,6 +2999,19 @@ export function workflowEmailActionResult(emailResult = {}, extra = {}) {
     // routine failed email.
     ambiguousEffect: emailResult.ambiguousEffect === true,
     ...extra,
+  };
+}
+
+// Never log sendEmail wholesale: provider errors and opt-in rendered fields may
+// contain message content, recipients, sender identities, or URL tokens.
+export function workflowEmailLogMetadata(emailResult = {}) {
+  return {
+    success: emailResult.success === true,
+    provider: typeof emailResult.provider === 'string' ? emailResult.provider : null,
+    messageId: typeof emailResult.messageId === 'string' ? emailResult.messageId : null,
+    status: Number.isInteger(emailResult.status) ? emailResult.status : null,
+    ambiguousEffect: emailResult.ambiguousEffect === true,
+    fallback: emailResult.fallback === true,
   };
 }
 

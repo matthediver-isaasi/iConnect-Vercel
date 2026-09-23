@@ -26,6 +26,52 @@ import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 import ComposeEmailModal from './ComposeEmailModal';
 
+export async function loadAuthenticatedTenant(intentTenantId, signal) {
+  const headers = intentTenantId ? { 'X-Tenant-Id': intentTenantId } : {};
+  const response = await fetch('/api/auth/tenant-user-me', {
+    credentials: 'include',
+    cache: 'no-store',
+    signal,
+    headers,
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Authenticated organisation context is unavailable. Sign in again before sending email.');
+  }
+  if (data?.authenticated && !data?.tenant?.id) {
+    throw new Error('Authenticated organisation context is invalid. Sign in again before sending email.');
+  }
+  if (data?.tenant?.id && intentTenantId && data.tenant.id !== intentTenantId) {
+    throw new Error('Organisation context changed. Reload this page before sending email.');
+  }
+  if (data?.authenticated && data.tenant.id) return data.tenant.id;
+
+  // A member with legitimate CRM administration access may not have a
+  // tenant-user session. Resolve that authenticated identity separately;
+  // never use this fallback to mask a failed tenant-user request.
+  const memberResponse = await fetch('/api/auth/me', {
+    credentials: 'include',
+    cache: 'no-store',
+    signal,
+    headers,
+  });
+  const member = await memberResponse.json().catch(() => null);
+  if (!memberResponse.ok || !member?.id || !member?.tenant_id) {
+    throw new Error(member?.error || 'Authenticated organisation context is unavailable. Sign in again before sending email.');
+  }
+  if (intentTenantId && member.tenant_id !== intentTenantId) {
+    throw new Error('Organisation context changed. Reload this page before sending email.');
+  }
+  return member.tenant_id;
+}
+
+export function memberEmailProviderLabel(email) {
+  const provider = String(email?.email_provider || '').trim().toLowerCase();
+  if (provider === 'mailgun') return 'Mailgun';
+  if (provider === 'outlook' || provider === 'microsoft_graph' || provider === 'graph') return 'Outlook';
+  return null;
+}
+
 export default function MemberEmails({ memberId, memberEmail, memberName }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -33,11 +79,24 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
   const [syncing, setSyncing] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('idle');
   const [composeOpen, setComposeOpen] = useState(false);
-  const tenantId = useSyncExternalStore(
+  const intendedTenantId = useSyncExternalStore(
     subscribeToActiveTenantId,
     getActiveTenantId,
     () => null
   );
+  const tenantContext = useQuery({
+    queryKey: ['authenticated-email-tenant', intendedTenantId],
+    queryFn: ({ signal }) => loadAuthenticatedTenant(intendedTenantId, signal),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const tenantContextReady = tenantContext.isSuccess
+    && !tenantContext.isFetching
+    && !tenantContext.error;
+  const tenantId = tenantContextReady ? tenantContext.data : null;
   const contextKey = `${tenantId || ''}\u0000${memberId || ''}\u0000${memberEmail || ''}`;
   const contextRef = useRef(contextKey);
 
@@ -206,11 +265,30 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
     }
   };
 
-  if (isLoading) {
+  if (tenantContext.isPending || tenantContext.isFetching || isLoading) {
     return (
       <Card>
         <CardContent className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (tenantContext.error) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+            <div>
+              <p className="font-medium">Unable to verify organisation</p>
+              <p className="text-sm text-muted-foreground">{tenantContext.error.message}</p>
+            </div>
+            <Button variant="outline" onClick={() => tenantContext.refetch()} data-testid="button-retry-email-context">
+              Try Again
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -226,11 +304,26 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
               <p className="font-medium">Unable to load emails</p>
               <p className="text-sm text-muted-foreground">{error.message}</p>
             </div>
-            <Button variant="outline" onClick={() => refetch()} data-testid="button-retry-emails">
-              Try Again
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refetch()} data-testid="button-retry-emails">
+                Try Again
+              </Button>
+              <Button onClick={() => setComposeOpen(true)} data-testid="button-compose-email">
+                <Send className="h-4 w-4 mr-2" />
+                Compose
+              </Button>
+            </div>
           </div>
         </CardContent>
+        <ComposeEmailModal
+          open={composeOpen}
+          onOpenChange={setComposeOpen}
+          memberId={memberId}
+          tenantId={tenantId}
+          memberEmail={memberEmail}
+          memberName={memberName}
+          onSuccess={() => refetch()}
+        />
       </Card>
     );
   }
@@ -319,6 +412,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
               <div className="space-y-2">
                 {emails.map((email) => {
                   const emailDate = email.sent_at || email.received_at;
+                  const providerLabel = memberEmailProviderLabel(email);
                   const contactLine = email.direction === 'inbound'
                     ? (email.from_name || email.from_address || 'Unknown sender')
                     : `To: ${email.to_addresses?.[0]?.name || email.to_addresses?.[0]?.address || 'Unknown recipient'}`;
@@ -385,9 +479,14 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                           <Badge variant={email.direction === 'inbound' ? 'secondary' : 'outline'}>
                             {email.direction === 'inbound' ? 'Received' : 'Sent'}
                           </Badge>
+                          {providerLabel && (
+                            <span className="text-xs text-muted-foreground/70" data-testid={`text-email-provider-${email.id}`}>
+                              via {providerLabel}
+                            </span>
+                          )}
                           {email.synced_by_name && (
                             <span className="text-xs text-muted-foreground/70">
-                              via {email.synced_by_name}
+                              by {email.synced_by_name}
                             </span>
                           )}
                         </div>

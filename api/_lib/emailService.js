@@ -228,6 +228,35 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
+// Keep the provider call behind a tiny injectable boundary. Production always
+// supplies the configured Mailgun client; tests can verify the exact final
+// envelope without loading credentials or contacting Mailgun.
+export async function deliverMailgunMessage(client, domain, messageData) {
+  return client.messages.create(domain, messageData);
+}
+
+export function mailgunSuccessMetadata(
+  response,
+  domain,
+  messageData,
+  fallback = false,
+  includeRenderedContent = false,
+) {
+  return {
+    success: true,
+    messageId: response.id,
+    domain,
+    fromAddress: messageData.from,
+    provider: 'mailgun',
+    ...(fallback ? { fallback: true } : {}),
+    ...(includeRenderedContent ? {
+      renderedSubject: messageData.subject,
+      renderedHtml: messageData.html,
+      renderedText: messageData.text,
+    } : {}),
+  };
+}
+
 // Architectural rule: platform→tenant-owner system messages (admin password
 // reset, signup verification, admin invites, billing notifications) MUST come
 // from `mail.iconn.app`, NOT a tenant's own verified sending domain. Pass
@@ -235,11 +264,11 @@ function getMailgunClient() {
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
-  if (!MAILGUN_API_KEY) {
+  if (!MAILGUN_API_KEY && !dependencies.client) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
       success: false,
@@ -247,7 +276,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     };
   }
 
-  const client = getMailgunClient();
+  const client = dependencies.client || getMailgunClient();
   if (!client) {
     return {
       success: false,
@@ -258,8 +287,12 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   // Log tenantId for debugging email domain resolution
   console.log(`[Email Service] tenantId provided: ${tenantId || 'none'}${systemEmail ? ' (systemEmail=true, forcing platform domain)' : ''}`);
 
-  let domain = DEFAULT_DOMAIN;
-  let fromAddress = from || DEFAULT_FROM;
+  const fallbackDomain = dependencies.defaultDomain || DEFAULT_DOMAIN;
+  const defaultFrom = dependencies.defaultFrom || DEFAULT_FROM;
+  let domain = fallbackDomain;
+  let fromAddress = from || defaultFrom;
+  let attemptedDomain = domain;
+  let attemptedFromAddress = fromAddress;
 
   if (systemEmail) {
     // System (platform→tenant-owner) messages: always send from the platform
@@ -271,7 +304,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     fromAddress = PLATFORM_SYSTEM_FROM;
     console.log(`[Email Service] systemEmail=true → forcing platform domain: ${domain}, from: ${fromAddress}`);
   } else {
-    const tenantConfig = await getTenantEmailConfig(tenantId);
+    const loadTenantEmailConfig = dependencies.getTenantEmailConfig || getTenantEmailConfig;
+    const tenantConfig = await loadTenantEmailConfig(tenantId);
     if (tenantConfig) {
       domain = tenantConfig.domain;
       if (!from) {
@@ -286,9 +320,12 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   try {
     let finalHtml = html || '';
     if (!skipFooter) {
-      const footer = await getEmailFooter(tenantId);
+      const loadEmailFooter = dependencies.getEmailFooter || getEmailFooter;
+      const footer = await loadEmailFooter(tenantId);
       if (footer) {
-        const processedFooter = await replaceSocialPlaceholdersInFooter(footer, tenantId);
+        const replaceSocialPlaceholders = dependencies.replaceSocialPlaceholdersInFooter
+          || replaceSocialPlaceholdersInFooter;
+        const processedFooter = await replaceSocialPlaceholders(footer, tenantId);
         const constrainedFooter = constrainFooterForEmail(processedFooter);
         const wrappedFooter = wrapEmailFooter(constrainedFooter, contentWidth);
         finalHtml = finalHtml + wrappedFooter;
@@ -302,7 +339,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     console.log(`[Email Service] Subject: ${subject}`);
 
     if (resolveTransactionalPreferences) {
-      const resolved = await resolveTransactionalPreferenceTokens({ html: finalHtml, text, subject, to, cc, bcc, tenantId, systemEmail });
+      const resolvePreferenceTokens = dependencies.resolveTransactionalPreferenceTokens
+        || resolveTransactionalPreferenceTokens;
+      const resolved = await resolvePreferenceTokens({ html: finalHtml, text, subject, to, cc, bcc, tenantId, systemEmail });
       finalHtml = resolved.html;
       text = resolved.text;
       subject = resolved.subject;
@@ -375,14 +414,12 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
 
     // Try sending with the tenant domain first
     try {
-      const response = await client.messages.create(domain, messageData);
+      attemptedDomain = domain;
+      attemptedFromAddress = messageData.from;
+      const response = await deliverMailgunMessage(client, domain, messageData);
       console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
       await maybeRecordInbox();
-      return {
-        success: true,
-        messageId: response.id,
-        domain: domain,
-      };
+      return mailgunSuccessMetadata(response, domain, messageData, false, includeRenderedContent);
     } catch (primaryError) {
       // If tenant domain fails with auth/domain error, fall back to default domain
       const errorMsg = primaryError.message || primaryError.toString();
@@ -392,22 +429,25 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
                           primaryError.status === 401 ||
                           primaryError.status === 403;
       
-      if (isAuthError && domain !== DEFAULT_DOMAIN) {
-        console.warn(`[Email Service] Tenant domain ${domain} failed (${errorMsg}), falling back to ${DEFAULT_DOMAIN}`);
+      if (isAuthError && domain !== fallbackDomain) {
+        console.warn(`[Email Service] Tenant domain ${domain} failed (${errorMsg}), falling back to ${fallbackDomain}`);
         
         // Update from address to use fallback domain
-        const fallbackFrom = from || DEFAULT_FROM;
+        const fallbackFrom = from || defaultFrom;
         messageData.from = fallbackFrom;
-        
-        const fallbackResponse = await client.messages.create(DEFAULT_DOMAIN, messageData);
+        attemptedDomain = fallbackDomain;
+        attemptedFromAddress = messageData.from;
+
+        const fallbackResponse = await deliverMailgunMessage(client, fallbackDomain, messageData);
         console.log(`[Email Service] Email sent via fallback domain. Message ID: ${fallbackResponse.id}`);
         await maybeRecordInbox();
-        return {
-          success: true,
-          messageId: fallbackResponse.id,
-          domain: DEFAULT_DOMAIN,
-          fallback: true,
-        };
+        return mailgunSuccessMetadata(
+          fallbackResponse,
+          fallbackDomain,
+          messageData,
+          true,
+          includeRenderedContent,
+        );
       }
       
       // Re-throw if not an auth error or already using default domain
@@ -423,7 +463,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       success: false,
       error: status ? `${status}: ${errMsg}` : errMsg,
       status: status || null,
-      domain,
+      domain: attemptedDomain,
+      fromAddress: attemptedFromAddress,
+      provider: 'mailgun',
       // A transport interruption can happen after the provider accepted the
       // message, so callers must surface it for manual review rather than
       // automatically replaying the send.

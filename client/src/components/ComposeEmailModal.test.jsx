@@ -122,6 +122,8 @@ test('shows exact recipients and sends the pinned mailbox with parsed CC', async
     await settle();
 
     assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, '/api/crm/send');
+    assert.notEqual(requests[0].url, '/api/outlook/send');
     assert.deepEqual(JSON.parse(requests[0].options.body), {
       tenantId: 'tenant-a',
       memberId: 'member-a',
@@ -218,7 +220,7 @@ test('ignores a late send response after recipient context changes', async () =>
   }
 });
 
-test('locks the draft when the server reports ambiguous Graph delivery', async () => {
+test('locks the draft when the server reports unknown provider acceptance', async () => {
   let fetchCount = 0;
   globalThis.fetch = async () => {
     fetchCount += 1;
@@ -238,7 +240,7 @@ test('locks the draft when the server reports ambiguous Graph delivery', async (
     await settle();
     assert.equal(fetchCount, 1);
     assert.equal(view.successCount, 0);
-    assert.match(document.body.textContent, /Check Sent Items or refresh email history/);
+    assert.match(document.body.textContent, /Refresh email history before composing another message/i);
     assert.equal(document.querySelector('[data-testid="button-send-email"]').disabled, true);
 
     await act(async () => {
@@ -246,6 +248,33 @@ test('locks the draft when the server reports ambiguous Graph delivery', async (
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     assert.equal(fetchCount, 1);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('locks the draft when Mailgun reports an ambiguous acceptance effect', async () => {
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return response({
+      error: 'Mailgun acceptance could not be confirmed',
+      ambiguousEffect: true,
+    }, 502);
+  };
+  const view = await mount();
+  try {
+    await act(async () => {
+      change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
+      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+      document.querySelector('[data-testid="button-send-email"]')
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await settle();
+    assert.equal(fetchCount, 1);
+    assert.equal(view.successCount, 0);
+    assert.match(document.body.textContent, /Mailgun acceptance could not be confirmed/i);
+    assert.equal(document.querySelector('[data-testid="button-send-email"]').disabled, true);
   } finally {
     await view.cleanup();
   }

@@ -6,6 +6,7 @@ import {
   executeCreateContractAction,
   membershipInvoiceDeliveryActionState,
   workflowEmailActionResult,
+  workflowEmailLogMetadata,
 } from './workflows.js';
 import { supabase } from './database.js';
 
@@ -49,6 +50,35 @@ test('an explicitly ambiguous external email result overrides failed status retr
   assert.equal(outcome.hadSuccessfulEffect, true);
   assert.equal(outcome.error.ddAmbiguousEffect, true);
   assert.equal(outcome.error.ddKnownQueryFailure, undefined);
+});
+
+test('workflow email logging allowlists delivery metadata and excludes confidential fields', () => {
+  const sensitive = 'SENTINEL_DO_NOT_LOG';
+  const metadata = workflowEmailLogMetadata({
+    success: false,
+    provider: 'mailgun',
+    messageId: '<safe-provider-id>',
+    status: 502,
+    ambiguousEffect: true,
+    fallback: false,
+    error: `provider error ${sensitive}`,
+    renderedSubject: `subject ${sensitive}`,
+    renderedHtml: `<p>${sensitive}</p>`,
+    renderedText: sensitive,
+    to: `recipient-${sensitive}@example.test`,
+    fromAddress: `sender-${sensitive}@example.test`,
+    token: sensitive,
+  });
+
+  assert.deepEqual(metadata, {
+    success: false,
+    provider: 'mailgun',
+    messageId: '<safe-provider-id>',
+    status: 502,
+    ambiguousEffect: true,
+    fallback: false,
+  });
+  assert.equal(JSON.stringify(metadata).includes(sensitive), false);
 });
 
 test('membership invoice email ambiguity makes the create-membership action failed', () => {
