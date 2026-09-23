@@ -61,6 +61,8 @@ Destination SQL TLS may require the public Supabase root CA rather than the cont
 
 **How to apply:** Supply the trusted provider CA while retaining certificate and hostname verification, and independently pin the REST project and SQL pooler project identity for live data runners.
 
+For hash-pinned SQL audit/replay runners, normalize PostgreSQL dates identically on initial and replay reads. Prefer `SELECT to_jsonb(row_alias)` when validating JSON manifests with ISO date strings: node-postgres can decode a direct `SELECT *` date column into a JavaScript Date, causing a false immutable-row drift failure even though the database is unchanged. Test a complete zero-write replay, not only the first insert.
+
 **Member-auth E2E is impossible in this workspace:** `getSessionMember`
 selects `member` with an embedded `organization:organization_id(tenant_id)`
 join, and the SOURCE DB's `organization` table has no `tenant_id` column —

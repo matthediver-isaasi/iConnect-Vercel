@@ -97,6 +97,37 @@ function tables() {
   };
 }
 
+test('Beta and unheld pilot use supplemental recognition without changing collection or pending contracts', async () => {
+  for (const cohort of ['beta', 'pilot']) {
+    const data = tables();
+    const held = cohort === 'beta';
+    data.membership_payment_plans[0].status = held ? 'first_payment_pending' : 'mandate_pending';
+    data.membership_payment_plans[0].collection_stopped_at = held ? today : null;
+    data.member_membership_history = [history({
+      status: 'pending_payment_setup', payment_status: 'unpaid', term_start_date: '2026-10-01',
+      term_end_date: '2027-09-30', membership_renewal_date: '2027-10-01',
+    })];
+    data[`bnms_dd_${cohort}_adoption`] = [{
+      id: 'adoption', tenant_id: tenant, member_id: 'member', agreement_id: 'agreement', plan_id: 'plan', history_id: 'history',
+    }];
+    data.bnms_membership_recognition_beta_pilot = [{ ...recognition, cohort }];
+    const before = structuredClone(data);
+    const load = day => loadDirectDebitMembershipPresentations(database(data), tenant, data.membership_payment_plans, day);
+    assert.equal((await load(today)).get('plan').displayStatus, 'current');
+    assert.equal((await load('2027-09-30')).get('plan').displayStatus, 'current');
+    assert.equal((await load('2027-10-01')).get('plan').displayStatus, 'membership_unverified');
+    assert.deepEqual(data, before);
+    data.member[0].membership_paused = true;
+    assert.equal((await load(today)).get('plan').current, false);
+    data.member[0].membership_paused = false;
+    data.bnms_membership_recognition_beta_pilot[0].revoked_at = today;
+    assert.equal((await load(today)).get('plan').current, false);
+    data.bnms_membership_recognition_beta_pilot[0].revoked_at = null;
+    data.bnms_membership_recognition_beta_pilot[0].member_id = 'wrong-owner';
+    await assert.rejects(load(today), /ownership/);
+  }
+});
+
 test('list/detail/summary/current filter parity and awaiting filter exclusion with read-only mocks', async () => {
   const data = tables(), before = structuredClone(data), db = database(data);
   const list = await listPlans(tenant, { status: 'current', pageSize: 1 }, db);

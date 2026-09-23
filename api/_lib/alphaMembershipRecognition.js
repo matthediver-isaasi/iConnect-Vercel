@@ -1,6 +1,10 @@
 // Administrative membership recognition is NOT settlement, collection release,
 // a contract amendment, a joining date, or permission to create a payment.
 export const ALPHA_RECOGNITION_TENANT = 'ff2df806-b321-4254-b651-3af11fccf1db';
+export const MEMBERSHIP_RECOGNITION_TABLES = [
+  'bnms_dd_alpha_membership_recognition',
+  'bnms_membership_recognition_beta_pilot',
+];
 export function currentMembershipRecognition(record, today = new Date().toISOString().slice(0, 10)) {
   const recognition = record?.membershipRecognition;
   if (!recognition || record.membership_source === 'organisation'
@@ -15,24 +19,33 @@ export function currentMembershipRecognition(record, today = new Date().toISOStr
   return recognition;
 }
 
-export async function attachAlphaMembershipRecognition(db, tenantId, memberId, records, today) {
+export async function attachMembershipRecognition(db, tenantId, memberId, records, today) {
   if (tenantId !== ALPHA_RECOGNITION_TENANT || !records.length) return records;
-  const { data, error } = await db.from('bnms_dd_alpha_membership_recognition')
-    .select('tenant_id,member_id,history_id,agreement_id,effective_from,effective_until,revoked_at')
-    .eq('tenant_id', tenantId).eq('member_id', memberId);
-  // During schema-first/rolling deployment an absent new relation means no
-  // recognition, never inferred current access. All other failures are explicit.
-  if (['42P01', 'PGRST205'].includes(error?.code)) return records;
-  if (error) throw new Error('Unable to load administrative membership recognition', { cause: error });
-  for (const row of data || []) {
-    if (row.tenant_id !== tenantId || row.member_id !== memberId) {
-      throw new Error('Membership recognition ownership mismatch');
+  const recognized = new Set();
+  for (const table of MEMBERSHIP_RECOGNITION_TABLES) {
+    const { data, error } = await db.from(table)
+      .select('tenant_id,member_id,history_id,agreement_id,effective_from,effective_until,revoked_at')
+      .eq('tenant_id', tenantId).eq('member_id', memberId);
+    // During schema-first/rolling deployment an absent new relation means no
+    // recognition, never inferred current access. All other failures are explicit.
+    if (['42P01', 'PGRST205'].includes(error?.code)) continue;
+    if (error) throw new Error('Unable to load administrative membership recognition', { cause: error });
+    for (const row of data || []) {
+      if (row.tenant_id !== tenantId || row.member_id !== memberId) {
+        throw new Error('Membership recognition ownership mismatch');
+      }
+      const record = records.find(item => item.id === row.history_id && item.membership_source !== 'organisation');
+      if (!record) continue;
+      const candidate = { ...record, membershipRecognition: row };
+      const recognition = currentMembershipRecognition(candidate, today);
+      if (recognition) {
+        if (recognized.has(record.id)) throw new Error('Overlapping administrative membership recognition');
+        recognized.add(record.id);
+        record.membershipRecognition = recognition;
+      }
     }
-    const record = records.find(item => item.id === row.history_id && item.membership_source !== 'organisation');
-    if (!record) continue;
-    const candidate = { ...record, membershipRecognition: row };
-    const recognition = currentMembershipRecognition(candidate, today);
-    if (recognition) record.membershipRecognition = recognition;
   }
   return records;
 }
+// Backwards-compatible export for existing Canvas/history/access callers.
+export const attachAlphaMembershipRecognition = attachMembershipRecognition;

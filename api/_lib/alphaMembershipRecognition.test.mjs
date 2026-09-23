@@ -47,12 +47,31 @@ test('recognition makes membership current while preserving every financial and 
   assert.equal(buildCanvasSummary({ selected: selectCanvasCommitment([unrecognised], [], today), plan, today }).membership.state, 'pending');
   assert.equal(buildCanvasSummary({ selected: selectCanvasCommitment([h], [], today), plan, paused: true, today }).membership.state, 'paused');
 });
-function db(data, error) {
+function db(data, error, supplemental = []) {
   const filters = [];
   const query = { select() { return this; }, eq(key, value) { filters.push([key, value]); return this; },
     then(resolve) { return Promise.resolve({ data, error }).then(resolve); } };
-  return { filters, from(name) { assert.equal(name, 'bnms_dd_alpha_membership_recognition'); return query; } };
+  return { filters, from(name) {
+    if (name === 'bnms_membership_recognition_beta_pilot') return {
+      select() { return this; }, eq() { return this; },
+      then(resolve) { return Promise.resolve({ data: supplemental, error }).then(resolve); },
+    };
+    assert.equal(name, 'bnms_dd_alpha_membership_recognition'); return query;
+  } };
 }
+test('supplemental Beta/pilot recognition uses the same bounded nonfinancial projection and rejects overlap', async () => {
+  for (const cohort of ['beta', 'pilot']) {
+    const h = { ...record(), membershipRecognition: undefined };
+    const before = structuredClone(h);
+    await attachAlphaMembershipRecognition(db([], null, [{ ...recognition(), cohort }]), tenant, 'member', [h], '2026-09-21');
+    assert.ok(currentMembershipRecognition(h, '2027-09-30'));
+    assert.equal(currentMembershipRecognition(h, '2027-10-01'), null);
+    assert.equal(buildCanvasSummary({ selected: selectCanvasCommitment([h], [], '2026-09-21'), today: '2026-09-21' }).membership.state, 'active');
+    assert.deepEqual({ ...h, membershipRecognition: undefined }, before);
+  }
+  await assert.rejects(attachAlphaMembershipRecognition(
+    db([recognition()], null, [recognition()]), tenant, 'member', [{ ...record(), membershipRecognition: undefined }], '2026-09-21'), /Overlapping/);
+});
 test('recognition reader scopes tenant/member and fails closed across owner, schema and read errors', async () => {
   const h = { ...record(), membershipRecognition: undefined };
   const database = db([recognition()]);

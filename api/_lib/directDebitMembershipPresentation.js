@@ -1,5 +1,5 @@
 import { readConsoleRows, lookupConsoleRows } from './directDebitConsoleEligibility.js';
-import { ALPHA_RECOGNITION_TENANT, currentMembershipRecognition } from './alphaMembershipRecognition.js';
+import { ALPHA_RECOGNITION_TENANT, MEMBERSHIP_RECOGNITION_TABLES, currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { selectCanvasCommitment, buildCanvasSummary } from '../membership/canvas-summary.js';
 
 // Entitlement presentation only. Never change the agreement, payment plan,
@@ -74,8 +74,9 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
     }
     let recognition;
     try {
-      recognition = await readConsoleRows(() => db.from('bnms_dd_alpha_membership_recognition')
-        .select('*').eq('tenant_id', tenantId).order('history_id'));
+      recognition = (await Promise.all(MEMBERSHIP_RECOGNITION_TABLES.map(table =>
+        readConsoleRows(() => db.from(table)
+          .select('*').eq('tenant_id', tenantId).order('history_id'))))).flat();
     } catch (error) {
       // Missing deployment schema is not evidence of entitlement.
       throw new Error('Unable to load administrative membership recognition', { cause: error });
@@ -85,7 +86,12 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
       if (row.tenant_id !== tenantId || (history && (row.member_id !== history.member_id || row.agreement_id !== history.billing_agreement_id))) {
         throw new Error('Membership recognition ownership mismatch');
       }
-      if (history) history.membershipRecognition = row;
+      if (history && !row.revoked_at) {
+        if (history.membershipRecognition && !history.membershipRecognition.revoked_at) {
+          throw new Error('Overlapping administrative membership recognition');
+        }
+        history.membershipRecognition = row;
+      }
     }
   }
   return new Map(identities.map(({ plan, memberId, orgId }) => {
