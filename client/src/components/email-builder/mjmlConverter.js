@@ -46,8 +46,12 @@ const buttonToMjml = (block) => {
   } = styles;
   const fontFamily = styles.fontFamily ? `font-family:${escapeHtml(styles.fontFamily)};` : '';
   const content = escapeHtml(block.content);
+  // Parent text-align positions text, not an intrinsic-width table. Keep the
+  // legacy table align for Outlook and explicit margins for CSS-aware clients.
+  const align = styles.textAlign;
+  const margin = align === 'left' ? '0 auto 0 0' : align === 'right' ? '0 0 0 auto' : '0 auto';
 
-  return `<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"><tr><td bgcolor="${bgColor}" role="presentation" style="border:none;border-radius:${borderRadius};color:${color} !important;cursor:auto;mso-padding-alt:${innerPad};background-color:${bgColor} !important;"><a href="${href}" target="_blank" style="display:inline-block;background-color:${bgColor} !important;color:${color} !important;${fontFamily}font-size:${fontSize};font-weight:${fontWeight};line-height:120%;margin:0;text-decoration:none !important;text-transform:none;padding:${innerPad};mso-padding-alt:0;border-radius:${borderRadius};"><span style="color:${color} !important;text-decoration:none !important;">${content}</span></a></td></tr></table>`;
+  return `<table border="0" cellpadding="0" cellspacing="0" role="presentation" align="${align}" style="border-collapse:separate;line-height:100%;margin:${margin};"><tr><td bgcolor="${bgColor}" role="presentation" style="border:none;border-radius:${borderRadius};color:${color} !important;cursor:auto;mso-padding-alt:${innerPad};background-color:${bgColor} !important;"><a href="${href}" target="_blank" style="display:inline-block;background-color:${bgColor} !important;color:${color} !important;${fontFamily}font-size:${fontSize};font-weight:${fontWeight};line-height:120%;margin:0;text-decoration:none !important;text-transform:none;padding:${innerPad};mso-padding-alt:0;border-radius:${borderRadius};"><span style="color:${color} !important;text-decoration:none !important;">${content}</span></a></td></tr></table>`;
 };
 
 
@@ -197,7 +201,7 @@ const childBlockToMjml = (block) => {
       />`;
     case BLOCK_TYPES.BUTTON:
       return `<mj-text
-        align="${block.styles.textAlign || 'center'}"
+        align="${resolveButtonStyles(block.styles).textAlign}"
         padding="${getPaddingAttr(block.styles)}"
       >${buttonToMjml(block)}</mj-text>`;
     case BLOCK_TYPES.DIVIDER:
@@ -235,7 +239,7 @@ const childBlockToMjml = (block) => {
       return wrapDynMarkers(block.token, dynamicImageToMjml(block));
     case BLOCK_TYPES.DYNAMIC_BUTTON:
       return wrapDynMarkers(block.token, `<mj-text
-        align="${block.styles.textAlign || 'center'}"
+        align="${resolveButtonStyles(block.styles).textAlign}"
         padding="${getPaddingAttr(block.styles)}"
       >${dynamicButtonToMjml(block)}</mj-text>`);
     case BLOCK_TYPES.PLACEHOLDER:
@@ -399,7 +403,7 @@ const blockToMjml = (block, { hybridColumns = false } = {}) => {
         <mj-section padding="${btnSectionPad}">
           <mj-column>
             <mj-text
-              align="${block.styles.textAlign || 'center'}"
+              align="${resolveButtonStyles(block.styles).textAlign}"
               padding="${getPaddingAttr(block.styles)}"
             >${buttonToMjml(block)}</mj-text>
           </mj-column>
@@ -506,7 +510,7 @@ const blockToMjml = (block, { hybridColumns = false } = {}) => {
         <mj-section padding="${dbSectionPad}">
           <mj-column>
             <mj-text
-              align="${block.styles.textAlign || 'center'}"
+              align="${resolveButtonStyles(block.styles).textAlign}"
               padding="${getPaddingAttr(block.styles)}"
             >${dynamicButtonToMjml(block)}</mj-text>
           </mj-column>
@@ -543,7 +547,7 @@ const blockToMjml = (block, { hybridColumns = false } = {}) => {
             return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" padding="${getPaddingAttr(b.styles)}" />`;
           }
           if (b.type === BLOCK_TYPES.BUTTON) {
-            return `<mj-text align="${b.styles.textAlign || 'center'}" padding="${getPaddingAttr(b.styles)}">${buttonToMjml(b)}</mj-text>`;
+            return `<mj-text align="${resolveButtonStyles(b.styles).textAlign}" padding="${getPaddingAttr(b.styles)}">${buttonToMjml(b)}</mj-text>`;
           }
           if (b.type === BLOCK_TYPES.DIVIDER) {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;

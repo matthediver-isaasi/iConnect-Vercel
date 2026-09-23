@@ -99,7 +99,8 @@ export const resolveButtonStyles = (styles = {}) => {
     fontSize: styles.fontSize || DEFAULT_BUTTON_STYLES.fontSize,
     fontWeight: styles.fontWeight || DEFAULT_BUTTON_STYLES.fontWeight,
     borderRadius: styles.borderRadius || DEFAULT_BUTTON_STYLES.borderRadius,
-    textAlign: styles.textAlign || DEFAULT_BUTTON_STYLES.textAlign,
+    textAlign: ['left', 'center', 'right'].includes(styles.textAlign)
+      ? styles.textAlign : DEFAULT_BUTTON_STYLES.textAlign,
     innerPadding,
     innerPaddingValues,
   };
