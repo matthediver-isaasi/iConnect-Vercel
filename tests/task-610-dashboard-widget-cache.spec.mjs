@@ -50,10 +50,26 @@ async function viteModulePaths(request) {
   if (!reactModule) {
     throw new Error("The existing preview must serve Vite-transformed React modules.");
   }
-  return {
+  const modules = {
     react: reactModule,
     dependency: name => reactModule.replace(/react\.js\?/, `${name}.js?`),
   };
+  // A fresh isolated Vite process may still be materialising optimized
+  // dependencies after transforming WidgetCard. Warm every fixture import
+  // before navigation so the first browser test is as reliable as later ones.
+  const warmPaths = [
+    "/@react-refresh",
+    "/@vite/client",
+    "/src/index.css",
+    "/src/components/dashboard/WidgetCard.jsx",
+    modules.react,
+    modules.dependency("react-dom_client"),
+    modules.dependency("@tanstack_react-query"),
+    modules.dependency("react-router-dom"),
+  ];
+  const warmed = await Promise.all(warmPaths.map(path => request.get(path)));
+  for (const response of warmed) expect(response.ok()).toBeTruthy();
+  return modules;
 }
 
 function fixtureHtml({ react, dependency }, widgets, { embedded }) {
@@ -128,7 +144,7 @@ test("many-widget dashboard paints warm results and refreshes only the selected 
     if (match) {
       const [, id, action] = match;
       calls.push({ id, action, method: req.method(), embed: url.searchParams.get("embed") });
-      if (action === "refresh") values.set(id, 999);
+      const requestId = action === "refresh" ? `refresh-${id}` : null;
       return json(route, {
         widget: MANY_WIDGETS.find(widget => widget.id === id),
         data: { type: "scalar", value: values.get(id), total: values.get(id) },
@@ -136,6 +152,11 @@ test("many-widget dashboard paints warm results and refreshes only the selected 
           status: "current",
           pending: false,
           updatedAt: action === "refresh" ? "2026-09-24T12:00:00.000Z" : CURRENT_AT,
+          ...(requestId && {
+            completedRequestId: requestId,
+            completedRequestOutcome: "success",
+            refresh: { outcome: "success" },
+          }),
         },
       });
     }
@@ -155,7 +176,9 @@ test("many-widget dashboard paints warm results and refreshes only the selected 
     .toBe(MANY_WIDGETS.length);
 
   await page.getByTestId("button-refresh-widget-cache-widget-7").click();
-  await expect(page.getByTestId("widget-card-cache-widget-7")).toContainText("999");
+  // The aggregate is intentionally unchanged; request correlation, rather
+  // than a numeric difference, confirms that this refresh completed.
+  await expect(page.getByTestId("widget-card-cache-widget-7")).toContainText("107");
   await expect(page.getByTestId("widget-cache-status-cache-widget-7"))
     .toContainText("Widget refreshed.");
   expect(calls.filter(call => call.action === "refresh")).toEqual([{
@@ -202,8 +225,10 @@ test("Canvas keeps stale data visible through pending and failed refresh states"
           cache: {
             status: "pending",
             pending: true,
+            requestId: "canvas-refresh-a",
             updatedAt: STALE_AT,
             retryAfterSeconds: 1,
+            refresh: { outcome: "queued" },
           },
         });
       }
@@ -216,6 +241,9 @@ test("Canvas keeps stale data visible through pending and failed refresh states"
             pending: false,
             updatedAt: STALE_AT,
             error: "Upstream report timed out",
+            completedRequestId: "canvas-refresh-a",
+            completedRequestOutcome: "failed",
+            refresh: { outcome: "failed" },
           },
         });
       }
@@ -249,6 +277,11 @@ test("Canvas keeps stale data visible through pending and failed refresh states"
     .toContainText(/Stale · Last updated/);
   await expect(page.getByTestId("widget-cache-status-canvas-cache-b"))
     .toContainText(/^Updated /);
+  // An overdue/stale row is not active work and must not create a polling
+  // loop before a user explicitly requests a refresh.
+  await page.waitForTimeout(1_200);
+  expect(calls.filter(call => call.id === "canvas-cache-a" && call.action === "data"))
+    .toHaveLength(1);
 
   const refresh = page.getByTestId("button-refresh-widget-canvas-cache-a");
   await refresh.click();

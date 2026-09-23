@@ -27,6 +27,21 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     const migration = await readFile(new URL('../../../migrations/dashboard_widget_result_cache.sql', import.meta.url), 'utf8');
     await client.query(migration);
     await client.query(migration); // deployment replay is safe
+    const forward = await readFile(new URL('../../../migrations/dashboard_widget_refresh_receipts.sql', import.meta.url), 'utf8');
+    // Seed pre-upgrade cached state, then prove the forward upgrade preserves it.
+    const legacyId = randomUUID();
+    await client.query(`INSERT INTO dashboard_widget(id,title,widget_type,scope,config)
+      VALUES($1,'Legacy','bar','shared','{"source":"organization"}')`,[legacyId]);
+    await client.query(`UPDATE dashboard_widget_result_cache SET result='{"rows":[{"value":42}]}',
+      updated_at=now(),due_at=now()+interval '1 hour',requested_at=now() WHERE widget_id=$1`,[legacyId]);
+    const legacyBefore = (await client.query('SELECT result,updated_at,due_at FROM dashboard_widget_result_cache WHERE widget_id=$1',[legacyId])).rows[0];
+    await client.query(forward);
+    const receiptBeforeReplay = (await client.query('SELECT request_id FROM dashboard_widget_result_cache WHERE widget_id=$1',[legacyId])).rows[0].request_id;
+    assert.ok(receiptBeforeReplay);
+    await client.query(forward);
+    assert.deepEqual((await client.query('SELECT result,updated_at,due_at FROM dashboard_widget_result_cache WHERE widget_id=$1',[legacyId])).rows[0],legacyBefore);
+    assert.equal((await client.query('SELECT request_id FROM dashboard_widget_result_cache WHERE widget_id=$1',[legacyId])).rows[0].request_id,receiptBeforeReplay);
+    await client.query('DELETE FROM dashboard_widget WHERE id=$1',[legacyId]);
     const db = {
       async rpc(name, args = {}) {
         const keys = Object.keys(args);
@@ -72,11 +87,15 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     const warmMs = performance.now()-warmStart;
     assert.equal(calls,24);
     t.diagnostic(JSON.stringify({ widgets:24,coldAggregations:24,warmAggregations:0,coldMs,warmMs }));
+    await client.query(forward);
+    assert.equal((await row(widgets[0])).result.rows[0].value,7,'upgrade replay preserves warm payloads');
 
     const w = widgets[0];
     await client.query(`UPDATE dashboard_widget_result_cache SET updated_at=now()-interval '16 minutes',
       due_at=now()-interval '1 minute' WHERE widget_id=$1`,[w.id]);
-    assert.equal((await readWidgetCache(db,w,actor,{ run })).cache.status,'stale');
+    const overdue = await readWidgetCache(db,w,actor,{ run });
+    assert.equal(overdue.cache.status,'stale');
+    assert.equal(overdue.cache.pending,false);
     assert.equal(calls,24);
     const first = await claim(w);
     assert.ok(first);
@@ -84,6 +103,11 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     // Explicit claims while a lease is active coalesce; stale payload stays visible.
     const pending = await readWidgetCache(db,w,actor,{ refresh:true,run });
     assert.equal(pending.cache.pending,true);
+    assert.equal(pending.cache.refresh.outcome,'accepted');
+    assert.ok(pending.cache.refresh.requestId);
+    const queued = await readWidgetCache(db,w,actor,{ refresh:true,run });
+    assert.equal(queued.cache.refresh.outcome,'queued');
+    assert.equal(queued.cache.refresh.requestId,pending.cache.refresh.requestId);
     assert.equal(pending.data.rows[0].value,7);
     await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=now()-interval '1 second' WHERE widget_id=$1`,[w.id]);
     const second = await claim(w);
@@ -92,6 +116,9 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     assert.equal(await publish(second,null,'Failure'),true);
     const failed = await readWidgetCache(db,w,actor,{ run });
     assert.equal(failed.cache.status,'failed');
+    assert.equal(failed.cache.completedRequestId,pending.cache.refresh.requestId);
+    assert.equal(failed.cache.completedRequestOutcome,'failed');
+    assert.equal(failed.cache.pending,false);
     assert.equal(failed.data.rows[0].value,7);
     assert.equal(await claim(w),null); // backoff enforced
     await due(w);
@@ -125,8 +152,12 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
 
     const cooldown = widgets[2];
     let before = calls;
-    await readWidgetCache(db,cooldown,actor,{ refresh:true,run });
-    await readWidgetCache(db,cooldown,actor,{ refresh:true,run });
+    const refreshed = await readWidgetCache(db,cooldown,actor,{ refresh:true,run });
+    assert.equal(refreshed.cache.refresh.outcome,'success');
+    assert.equal(refreshed.cache.completedRequestId,refreshed.cache.refresh.requestId);
+    const suppressed = await readWidgetCache(db,cooldown,actor,{ refresh:true,run });
+    assert.equal(suppressed.cache.refresh.outcome,'cooldown');
+    assert.equal(suppressed.cache.refresh.requestId,null);
     assert.equal(calls,before+1);
     for (let i=0;i<20;i++) {
       try { await readWidgetCache(db,cooldown,actor,{ refresh:true,run }); } catch (error) { assert.match(error.message,/Refresh limit/); }
@@ -174,6 +205,82 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     await assert.rejects(client.query('SELECT dashboard_widget_cache_claim()'),/permission denied/);
     await client.query('RESET ROLE');
     assert.ok(a.id);
+
+    // A slow computation holds no database lock: warm readers keep last success.
+    await client.query('DELETE FROM dashboard_widget_refresh_limits');
+    await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=NULL,lease_token=NULL,
+      due_at=now()+interval '1 hour'`);
+    const slow = await insert();
+    await readWidgetCache(db,slow,actor,{run});
+    let release;
+    let started;
+    const hasStarted = new Promise(resolve => { started=resolve; });
+    const slowRun = () => { started(); return new Promise(resolve => { release=resolve; }); };
+    const refreshing = readWidgetCache(db,slow,actor,{refresh:true,run:slowRun});
+    await hasStarted;
+    const warmDuring = await readWidgetCache(db,slow,actor,{run:()=>assert.fail('warm aggregation')});
+    assert.equal(warmDuring.data.rows[0].value,7);
+    assert.equal(warmDuring.cache.pending,true);
+    assert.ok(warmDuring.cache.requestId);
+    release({rows:[{value:8}],categories:[]});
+    const completed = await refreshing;
+    assert.equal(completed.cache.refresh.outcome,'success');
+    assert.equal(completed.cache.completedRequestId,warmDuring.cache.requestId);
+    assert.equal(completed.data.rows[0].value,8);
+
+    // A request accepted AFTER an automatic claim is not completed by that
+    // older computation. It remains durable until a subsequent claimed job.
+    const late = await insert();
+    await readWidgetCache(db,late,actor,{run});
+    await due(late);
+    const automatic = await claim(late);
+    const lateReceipt = await readWidgetCache(db,late,actor,{refresh:true,run});
+    assert.equal(lateReceipt.cache.refresh.outcome,'accepted');
+    await executeClaim(db,automatic,{run});
+    const stillQueued = await readWidgetCache(db,late,actor,{run});
+    assert.equal(stillQueued.cache.requestId,lateReceipt.cache.refresh.requestId);
+    assert.equal(stillQueued.cache.completedRequestId,null);
+    assert.equal(stillQueued.cache.pending,true);
+    const next = await claim(late);
+    assert.ok(next);
+    await executeClaim(db,next,{run});
+    const durable = await readWidgetCache(db,late,actor,{run});
+    assert.equal(durable.cache.completedRequestId,lateReceipt.cache.refresh.requestId);
+    assert.equal(durable.cache.completedRequestOutcome,'success');
+    assert.equal(durable.cache.pending,false);
+
+    // Invalidating the identity discards receipts as well as cached data.
+    await client.query(`UPDATE dashboard_widget SET config='{"source":"member"}' WHERE id=$1`,[late.id]);
+    assert.equal((await row(late)).completed_request_id,null);
+    assert.equal(await publish(next,{rows:[{value:999}]}),false);
+
+    // Capacity-limited cold reads return pending without launching computation.
+    await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=NULL,lease_token=NULL,
+      due_at=now()+interval '1 hour'`);
+    const busy1 = await insert();
+    const busy2 = await insert();
+    assert.ok(await claim(busy1));
+    assert.ok(await claim(busy2));
+    const capacityCold = await insert();
+    const coldPending = await readWidgetCache(db,capacityCold,actor,{
+      run:()=>assert.fail('capacity-limited cold read must not compute'),
+    });
+    assert.equal(coldPending.data,null);
+    assert.equal(coldPending.cache.status,'pending');
+
+    // An expired worker may not publish result OR completion evidence.
+    await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=NULL,lease_token=NULL`);
+    const expiredReceipt = await rpc('touch',{p_widget:capacityCold,p_actor:actor.memberId,p_explicit:true});
+    const expired = await claim(capacityCold);
+    await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=now()-interval '1 second'
+      WHERE widget_id=$1`,[capacityCold.id]);
+    assert.equal(await publish(expired,{rows:[{value:999}]}),false);
+    assert.equal((await row(capacityCold)).completed_request_id,null);
+    const recovered = await claim(capacityCold);
+    await executeClaim(db,recovered,{run});
+    const recoveredRow = await row(capacityCold);
+    assert.equal(recoveredRow.completed_request_id,expiredReceipt.refresh.requestId);
+    assert.equal(recoveredRow.completed_request_outcome,'success');
   } finally {
     if (client) await client.end();
     try { command('pg_ctl',['-D',local.data,'-m','immediate','-w','stop']); } finally { await local.cleanup(); }

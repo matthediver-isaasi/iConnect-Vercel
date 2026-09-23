@@ -57,6 +57,9 @@ const {
   default: WidgetCard,
   WidgetCacheStatus,
   WidgetBody,
+  cachePollDelay,
+  completedRefreshOutcome,
+  mergeWidgetResponse,
   widgetDataQueryKey,
   widgetRequestUrl,
 } = await import("./WidgetCard.jsx");
@@ -217,6 +220,82 @@ test("Canvas data has an isolated, instance-scoped React Query identity", () => 
   ]);
 });
 
+test("cache polling is bounded, backs off, and ignores merely overdue cache rows", () => {
+  const state = { requestId: null, startedAt: 0, attempts: 0 };
+  assert.equal(cachePollDelay({
+    status: "stale",
+    pending: false,
+    retryAfterSeconds: 1,
+  }, state, 1000), false);
+  assert.equal(cachePollDelay({
+    status: "stale",
+    pending: true,
+    requestId: "background-request",
+    retryAfterSeconds: 1,
+  }, state, 1000), 1000);
+
+  const pending = {
+    status: "pending",
+    requestId: "request-a",
+    refresh: { outcome: "queued" },
+    retryAfterSeconds: 2,
+  };
+  assert.equal(cachePollDelay(pending, state, 1000), 2000);
+  assert.equal(cachePollDelay(pending, state, 2000), 4000);
+  assert.equal(cachePollDelay(pending, state, 3000), 8000);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    cachePollDelay(pending, state, 4000 + attempt);
+  }
+  assert.equal(cachePollDelay(pending, state, 9000), false);
+
+  assert.equal(cachePollDelay({
+    ...pending,
+    requestId: "request-b",
+    refresh: { outcome: "accepted" },
+  }, state, 10000), 2000);
+  assert.equal(state.attempts, 1);
+  assert.equal(cachePollDelay({
+    ...pending,
+    requestId: "request-b",
+    completedRequestId: "request-b",
+    completedRequestOutcome: "success",
+    refresh: { outcome: "accepted" },
+  }, state, 11000), false);
+  assert.equal(state.attempts, 0);
+});
+
+test("refresh metadata can update without hiding the last successful result", () => {
+  const oldPayload = { type: "group", rows: [{ key: "Existing", value: 7 }] };
+  const merged = mergeWidgetResponse(
+    { data: oldPayload, cache: { status: "current" } },
+    {
+      data: null,
+      cache: {
+        status: "pending",
+        requestId: "request-a",
+        refresh: { outcome: "queued" },
+      },
+    },
+  );
+  assert.equal(merged.data, oldPayload);
+  assert.equal(merged.cache.requestId, "request-a");
+});
+
+test("refresh completion is correlated for both success and failure", () => {
+  assert.equal(completedRefreshOutcome({
+    completedRequestId: "request-a",
+    completedRequestOutcome: "success",
+  }, "request-a"), "success");
+  assert.equal(completedRefreshOutcome({
+    completedRequestId: "request-a",
+    completedRequestOutcome: "failed",
+  }, "request-a"), "failed");
+  assert.equal(completedRefreshOutcome({
+    completedRequestId: "older-request",
+    completedRequestOutcome: "failed",
+  }, "request-a"), null);
+});
+
 test("pending cache metadata is announced while existing data refreshes", async () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -243,6 +322,99 @@ test("pending cache metadata is announced while existing data refreshes", async 
 });
 
 test(
+  "cold pending polling times out, enables retry, and resets for a new identity",
+  { concurrency: false },
+  async () => {
+    const previousFetch = globalThis.fetch;
+    let calls = 0;
+    let current = false;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        json: async () => current
+          ? {
+              data: { type: "group", rows: [{ key: "Ready", value: 9 }] },
+              cache: {
+                status: "current",
+                pending: false,
+                updatedAt: "2026-09-18T10:20:00.000Z",
+              },
+            }
+          : {
+              data: null,
+              cache: {
+                status: "pending",
+                pending: false,
+                retryAfterSeconds: 0.001,
+              },
+            },
+      };
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const root = createRoot(container);
+    const widget = {
+      id: "cold-pending",
+      title: "Cold pending",
+      widget_type: "list",
+      height: "short",
+      config: {},
+    };
+    try {
+      await act(async () => {
+        root.render(mountedWidgetElement({
+          queryClient,
+          widget,
+          queryScope: "identity-pending",
+        }));
+        await settleQuery();
+      });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 750));
+      });
+
+      const refresh = container.querySelector(
+        '[data-testid="button-refresh-widget-cold-pending"]',
+      );
+      assert.equal(refresh?.disabled, false);
+      assert.equal(refresh?.getAttribute("aria-busy"), null);
+      assert.match(container.textContent, /Refresh is taking longer than expected/);
+      assert.ok(container.querySelector('[data-testid="widget-pending-timeout-cold-pending"]'));
+      assert.equal(
+        container.querySelector('[data-testid="widget-cache-status-cold-pending"] .animate-spin'),
+        null,
+      );
+      assert.ok(calls > 1);
+      assert.ok(calls <= 9, `polling should be bounded, received ${calls} calls`);
+
+      current = true;
+      await act(async () => {
+        root.render(mountedWidgetElement({
+          queryClient,
+          widget,
+          queryScope: "identity-ready",
+        }));
+      });
+      await act(async () => {
+        await settleQuery();
+      });
+      assert.match(container.textContent, /Ready/);
+      assert.doesNotMatch(container.textContent, /taking longer than expected/);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+      globalThis.fetch = previousFetch;
+    }
+  },
+);
+
+test(
   "authorized Canvas viewers can refresh one stale widget without hiding its cached data",
   { concurrency: false },
   async () => {
@@ -261,6 +433,9 @@ test(
               updatedAt: "2026-09-18T10:16:00.000Z",
               pending: false,
               error: null,
+              refresh: { outcome: "success" },
+              completedRequestId: "request-1",
+              completedRequestOutcome: "success",
             },
           }),
         };
@@ -352,11 +527,18 @@ test(
     globalThis.fetch = async (url) => {
       if (String(url).includes("/refresh")) {
         return {
-          ok: false,
-          status: 429,
+          ok: true,
+          status: 200,
           json: async () => ({
-            error: "Refresh cooling down",
-            retryAfterSeconds: 12,
+            data: null,
+            cache: {
+              status: "current",
+              updatedAt: "2026-09-18T10:15:00.000Z",
+              retryAfterSeconds: 12,
+              refresh: {
+                outcome: "cooldown",
+              },
+            },
           }),
         };
       }
@@ -407,7 +589,8 @@ test(
 
       assert.match(container.textContent, /Keep me/);
       assert.match(container.textContent, /Refresh cooling down/);
-      assert.match(container.textContent, /Try again in 12 seconds/);
+      assert.match(container.textContent, /Updated/);
+      assert.doesNotMatch(container.textContent, /Widget refreshed/);
       assert.equal(
         container.querySelector('[data-testid="widget-cache-status-widget-refresh-failure"]')
           ?.getAttribute("role"),

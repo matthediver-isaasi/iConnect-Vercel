@@ -72,6 +72,27 @@ test('cron requires configured secret even when no environment secret exists',as
     assert.equal(res.headers['Cache-Control'],'private, no-store');
   }
 });
+test('data and refresh expose only coarse stage timings, including failures and denials',async()=>{
+  for (const factory of [dataHandler,refreshHandler]) {
+    for (const [overrides,expected,status] of [
+      [{},['access','widget','cache','total'],200],
+      [{getDashboardActor:async()=>null},['access','total'],401],
+      [{getDashboardActor:async()=>{throw Error('private access details');}},['access','total'],503],
+      [{readWidgetCache:async()=>{throw Error('private cache details');}},['access','widget','cache','total'],503],
+    ]) {
+      const res=response();
+      await factory(deps(overrides))({method:'POST',query:{id:'widget'}},res);
+      assert.equal(res.statusCode,status);
+      const entries=res.headers['Server-Timing'].split(', ');
+      assert.deepEqual(entries.map(value=>value.split(';')[0]),expected);
+      for (const entry of entries) assert.match(entry,/^(access|widget|cache|total);dur=\d+$/);
+      assert.equal(res.headers['Cache-Control'],'private, no-store');
+    }
+    const res=response();
+    await factory(deps())({method:'DELETE',query:{id:'widget'}},res);
+    assert.match(res.headers['Server-Timing'],/^total;dur=\d+$/);
+  }
+});
 test('status metadata never substitutes zero for missing success or hides a failed refresh',()=>{
   const now=Date.now();
   assert.equal(cacheResponse({due_at:new Date(now).toISOString()},now).data,null);

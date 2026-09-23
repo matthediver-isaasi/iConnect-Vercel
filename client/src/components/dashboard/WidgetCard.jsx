@@ -145,6 +145,61 @@ export function widgetDataQueryKey(widgetId, embedded = false, queryScope = null
   return [...key, "canvas", String(queryScope)];
 }
 
+const MAX_CACHE_POLL_ATTEMPTS = 8;
+const MAX_CACHE_POLL_MS = 2 * 60 * 1000;
+
+export function cachePollDelay(cache, pollState, now = Date.now()) {
+  const outcome = cache?.refresh?.outcome;
+  const requestId = cache?.requestId || "initial";
+  const pending = cache?.pending === true
+    || cache?.status === "pending"
+    || outcome === "accepted"
+    || outcome === "queued";
+  if (!pending || (requestId !== "initial" && cache?.completedRequestId === requestId)) {
+    pollState.requestId = null;
+    pollState.startedAt = 0;
+    pollState.attempts = 0;
+    pollState.exhausted = false;
+    pollState.notified = false;
+    return false;
+  }
+
+  if (pollState.requestId !== requestId) {
+    pollState.requestId = requestId;
+    pollState.startedAt = now;
+    pollState.attempts = 0;
+    pollState.exhausted = false;
+    pollState.notified = false;
+  }
+  if (pollState.attempts >= MAX_CACHE_POLL_ATTEMPTS
+      || now - pollState.startedAt >= MAX_CACHE_POLL_MS) {
+    pollState.exhausted = true;
+    return false;
+  }
+
+  const retryAfter = Number(cache?.retryAfterSeconds);
+  const baseMs = Number.isFinite(retryAfter) && retryAfter > 0
+    ? retryAfter * 1000
+    : 1000;
+  const remainingMs = Math.max(1, MAX_CACHE_POLL_MS - (now - pollState.startedAt));
+  const delay = Math.min(30000, remainingMs, baseMs * (2 ** pollState.attempts));
+  pollState.attempts += 1;
+  return delay;
+}
+
+export function mergeWidgetResponse(previous, next) {
+  if (!next || typeof next !== "object") return previous;
+  if (next.data != null || previous?.data == null) return next;
+  return { ...next, data: previous.data };
+}
+
+export function completedRefreshOutcome(cache, requestId) {
+  if (!requestId || cache?.completedRequestId !== requestId) return null;
+  return ["success", "failed"].includes(cache?.completedRequestOutcome)
+    ? cache.completedRequestOutcome
+    : null;
+}
+
 /**
  * Read the actual Canvas block box rather than using the dashboard's saved
  * height preset.  A zero-sized initial value is intentional: Responsive-
@@ -354,8 +409,17 @@ export default function WidgetCard({
   const queryClient = useQueryClient();
   const [drillingKey, setDrillingKey] = useState(null);
   const [refreshFeedback, setRefreshFeedback] = useState(null);
-  const [refreshAccepted, setRefreshAccepted] = useState(false);
+  const [activeRefreshRequestId, setActiveRefreshRequestId] = useState(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
   const refreshControllerRef = useRef(null);
+  const requestEpochRef = useRef(0);
+  const pollStateRef = useRef({
+    requestId: null,
+    startedAt: 0,
+    attempts: 0,
+    exhausted: false,
+    notified: false,
+  });
   const [contentRef, contentSize] = useElementSize(embedded);
   const dataQueryKey = useMemo(
     () => widgetDataQueryKey(widget.id, embedded, queryScope),
@@ -372,6 +436,7 @@ export default function WidgetCard({
       refetchOnMount: "always",
     }),
     queryFn: async ({ signal }) => {
+      const requestEpoch = requestEpochRef.current;
       const res = await fetch(
         widgetRequestUrl(`/api/dashboard/widgets/${widget.id}/data`, embedded),
         {
@@ -386,49 +451,106 @@ export default function WidgetCard({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Request failed (${res.status})`);
       }
-      return res.json();
+      const body = await res.json();
+      // A data request started before a manual refresh must never replace the
+      // refresh response, even when a test double or transport ignores abort.
+      if (requestEpoch !== requestEpochRef.current) {
+        return queryClient.getQueryData(dataQueryKey);
+      }
+      return mergeWidgetResponse(queryClient.getQueryData(dataQueryKey), body);
     },
     refetchInterval: query => {
       const cache = query.state.data?.cache;
-      if (!cache?.pending && cache?.status !== "pending") return false;
-      const retryAfter = Number(cache.retryAfterSeconds);
-      return Number.isFinite(retryAfter)
-        ? Math.max(1000, Math.min(retryAfter * 1000, 30000))
-        : 2000;
+      const delay = cachePollDelay(cache, pollStateRef.current);
+      if (delay === false
+          && pollStateRef.current.exhausted
+          && !pollStateRef.current.notified) {
+        pollStateRef.current.notified = true;
+        queueMicrotask(() => setPollTimedOut(true));
+      }
+      return delay;
     },
     refetchIntervalInBackground: false,
   });
 
   useEffect(() => {
-    if (!embedded && !queryScope) return undefined;
+    setRefreshFeedback(null);
+    setActiveRefreshRequestId(null);
+    setPollTimedOut(false);
+    pollStateRef.current = {
+      requestId: null,
+      startedAt: 0,
+      attempts: 0,
+      exhausted: false,
+      notified: false,
+    };
     return () => {
+      requestEpochRef.current += 1;
       refreshControllerRef.current?.abort();
       queryClient.cancelQueries({ queryKey: dataQueryKey, exact: true });
-      queryClient.removeQueries({ queryKey: dataQueryKey, exact: true });
+      if (embedded || queryScope) {
+        queryClient.removeQueries({ queryKey: dataQueryKey, exact: true });
+      }
     };
   }, [dataQueryKey, embedded, queryClient, queryScope]);
 
   const cache = data?.cache || null;
   const payload = data?.data || null;
-  const refreshPending = refreshFeedback?.kind === "pending"
+  const cachePending = refreshFeedback?.kind === "pending"
     || cache?.pending
     || cache?.status === "pending";
+  const refreshPending = cachePending && !pollTimedOut;
+  const displayedRefreshFeedback = pollTimedOut
+    ? {
+        kind: "error",
+        message: "Refresh is taking longer than expected. Try again.",
+      }
+    : refreshFeedback;
 
   useEffect(() => {
-    if (refreshFeedback?.kind !== "pending" || !refreshAccepted || !cache) return;
-    if (cache.status === "failed") {
+    if (!pollTimedOut) return;
+    setActiveRefreshRequestId(null);
+    setRefreshFeedback(null);
+  }, [pollTimedOut]);
+
+  useEffect(() => {
+    if (cachePending || !pollTimedOut) return;
+    setPollTimedOut(false);
+  }, [cachePending, pollTimedOut]);
+
+  const pendingRequestKey = cachePending ? (cache?.requestId || "initial") : null;
+  useEffect(() => {
+    if (!pendingRequestKey || pollTimedOut) return undefined;
+    const startedAt = pollStateRef.current.startedAt || Date.now();
+    const remainingMs = Math.max(0, MAX_CACHE_POLL_MS - (Date.now() - startedAt));
+    const timeout = window.setTimeout(() => setPollTimedOut(true), remainingMs);
+    return () => window.clearTimeout(timeout);
+  }, [pendingRequestKey, pollTimedOut]);
+
+  useEffect(() => {
+    if (refreshFeedback?.kind !== "pending" || !activeRefreshRequestId || !cache) return;
+    const refresh = cache.refresh;
+    const completedOutcome = completedRefreshOutcome(cache, activeRefreshRequestId);
+    if (!completedOutcome
+        && cache.requestId
+        && cache.requestId !== activeRefreshRequestId) return;
+    if (completedOutcome === "failed" || refresh?.outcome === "failed") {
       setRefreshFeedback({
         kind: "error",
         message: cache.error || "The refresh failed. Existing data is still shown.",
       });
-    } else if (!cache.pending && cache.status !== "pending") {
+      setActiveRefreshRequestId(null);
+    } else if (completedOutcome === "success" || refresh?.outcome === "success") {
       setRefreshFeedback({ kind: "success", message: "Widget refreshed." });
+      setActiveRefreshRequestId(null);
     }
   }, [
+    activeRefreshRequestId,
+    cache?.completedRequestId,
+    cache?.completedRequestOutcome,
     cache?.error,
-    cache?.pending,
-    cache?.status,
-    refreshAccepted,
+    cache?.refresh?.outcome,
+    cache?.requestId,
     refreshFeedback?.kind,
   ]);
 
@@ -443,7 +565,17 @@ export default function WidgetCard({
     refreshControllerRef.current?.abort();
     const controller = new AbortController();
     refreshControllerRef.current = controller;
-    setRefreshAccepted(false);
+    requestEpochRef.current += 1;
+    await queryClient.cancelQueries({ queryKey: dataQueryKey, exact: true });
+    pollStateRef.current = {
+      requestId: null,
+      startedAt: 0,
+      attempts: 0,
+      exhausted: false,
+      notified: false,
+    };
+    setPollTimedOut(false);
+    setActiveRefreshRequestId(null);
     setRefreshFeedback({ kind: "pending", message: "Refresh requested." });
     try {
       const res = await fetch(
@@ -464,15 +596,40 @@ export default function WidgetCard({
           : "";
         throw new Error(`${body.error || `Request failed (${res.status})`}${suffix}`);
       }
-      queryClient.setQueryData(dataQueryKey, body);
-      setRefreshAccepted(true);
-      if (body.cache?.status === "failed") {
+      const refresh = body.cache?.refresh;
+      const outcome = refresh?.outcome;
+      const requestId = body.cache?.requestId || null;
+      // Also fence any poll which began after the initial cancellation but
+      // before the refresh request completed.
+      requestEpochRef.current += 1;
+      queryClient.setQueryData(
+        dataQueryKey,
+        previous => mergeWidgetResponse(previous, body),
+      );
+      if (outcome === "cooldown") {
+        setRefreshFeedback({
+          kind: "error",
+          message: "Refresh cooling down. Existing data is still shown.",
+        });
+      } else if (outcome === "failed"
+          || body.cache?.status === "failed") {
         setRefreshFeedback({
           kind: "error",
           message: body.cache.error || "The refresh failed. Existing data is still shown.",
         });
-      } else if (!body.cache?.pending && body.cache?.status !== "pending") {
+      } else if (outcome === "success"
+          || (requestId
+            && body.cache?.completedRequestId === requestId
+            && body.cache?.completedRequestOutcome === "success")) {
         setRefreshFeedback({ kind: "success", message: "Widget refreshed." });
+      } else if ((outcome === "accepted" || outcome === "queued") && requestId) {
+        setActiveRefreshRequestId(requestId);
+        setRefreshFeedback({ kind: "pending", message: "Refresh requested." });
+      } else {
+        setRefreshFeedback({
+          kind: "error",
+          message: "The refresh response could not be confirmed. Existing data is still shown.",
+        });
       }
     } catch (refreshError) {
       if (refreshError?.name !== "AbortError") {
@@ -740,7 +897,8 @@ export default function WidgetCard({
           cache={cache}
           isFetching={isFetching}
           networkError={isError && payload ? error : null}
-          refreshFeedback={refreshFeedback}
+          refreshFeedback={displayedRefreshFeedback}
+          pendingOverride={refreshPending}
           widgetId={widget.id}
         />
         {drillEnabled && cache?.updatedAt && (
@@ -794,6 +952,14 @@ export default function WidgetCard({
             Preparing widget data…
           </div>
         )}
+        {!cardLoading && !payload && !isError && pollTimedOut && (
+          <div
+            className="flex flex-1 items-center justify-center py-8 text-sm text-muted-foreground"
+            data-testid={`widget-pending-timeout-${widget.id}`}
+          >
+            Current data is taking longer than expected. Use refresh to try again.
+          </div>
+        )}
         {!cardLoading && payload && (
           <WidgetBody
             widget={widget}
@@ -824,11 +990,12 @@ export function WidgetCacheStatus({
   isFetching = false,
   networkError = null,
   refreshFeedback = null,
+  pendingOverride,
   widgetId,
 }) {
   const updatedAt = formatCacheUpdatedAt(cache?.updatedAt);
   const status = cache?.status;
-  const pending = cache?.pending || status === "pending";
+  const pending = pendingOverride ?? (cache?.pending || status === "pending");
   let message = updatedAt ? `Updated ${updatedAt}` : null;
   let tone = "text-muted-foreground";
   let Icon = CheckCircle2;
@@ -860,6 +1027,15 @@ export function WidgetCacheStatus({
   }
 
   const feedbackMessage = refreshFeedback?.message;
+  if (refreshFeedback?.kind === "error") {
+    tone = "text-destructive";
+    Icon = AlertTriangle;
+  } else if (refreshFeedback?.kind === "success") {
+    Icon = CheckCircle2;
+  }
+  const displayedMessage = feedbackMessage && message
+    ? `${feedbackMessage} · ${message}`
+    : (feedbackMessage || message || "Checking for updated data…");
   if (!message && !feedbackMessage && !isFetching) return null;
 
   return (
@@ -872,12 +1048,15 @@ export function WidgetCacheStatus({
     >
       {(message || isFetching) && (
         <Icon
-          className={cn("h-3 w-3 shrink-0", (pending || (isFetching && !message)) && "animate-spin")}
+          className={cn(
+            "h-3 w-3 shrink-0",
+            (pending || (isFetching && !message && !feedbackMessage)) && "animate-spin",
+          )}
           aria-hidden="true"
         />
       )}
       <span>
-        {feedbackMessage || message || "Checking for updated data…"}
+        {displayedMessage}
         {status === "failed" && cache?.error ? `: ${cache.error}` : ""}
       </span>
     </div>

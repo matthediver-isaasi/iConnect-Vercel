@@ -65,6 +65,8 @@ aggregation and can legitimately differ from the cached card.
 | `client/src/components/canvas/blocks/dynamicBlocks.jsx` | Supplies a Canvas instance/auth-scoped card identity. |
 | `migrations/dashboard_widget_result_cache.sql` | Service-only tables, trigger, fenced lease RPCs, and diagnostics. |
 | `scripts/apply-dashboard-widget-result-cache.mjs` | Hash-reviewed, destination-pinned migration runner. |
+| `migrations/dashboard_widget_refresh_receipts.sql` | Task 4727 additive forward upgrade for durable refresh receipts. |
+| `scripts/apply-dashboard-widget-refresh-receipts.mjs` | Destination-pinned receipt upgrade runner with atomic payload-preservation verification. |
 | `vercel.json` | Registers the every-minute refresh schedule. |
 | `guides/better-stack-cron-heartbeats.md` | Records cron cadence and current monitoring coverage. |
 
@@ -190,6 +192,26 @@ Two abuse controls apply:
   than enqueueing another calculation.
 - **Per-actor limit:** at most 20 explicit requests per tenant/member actor in
   a one-minute window. Exceeding it returns HTTP 429 with `Retry-After: 60`.
+
+#### Correlated refresh protocol (task 4727)
+
+Explicit responses include `cache.refresh = { outcome, requestId }`:
+`accepted` records a new request, `queued` coalesces an existing request,
+and `cooldown` declines new work with a null request ID. `success` or `failed`
+is returned only when that same request has a fenced completion.
+`cache.requestId` identifies outstanding explicit work. Every read exposes
+`cache.completedRequestId` and `cache.completedRequestOutcome` so polling can
+prove completion rather than treating a fresh timestamp or unrelated worker
+as success. The row retains the most recent explicit completion, not an
+unbounded receipt history.
+
+`cache.pending` means an active lease or outstanding explicit request;
+being overdue alone does not imply pending. A cold result still has status
+`pending` when no successful data exists. Cooldown responses do not compute
+warm results. Claims capture their request ID, so a request arriving after
+an automatic claim remains queued for a later computation. Publication is
+fenced by widget identity, lease token and unexpired lease. Edits invalidate
+both results and receipt state; a failed refresh preserves last-known-good data.
 
 ### Failure and Backoff
 
@@ -489,6 +511,10 @@ One durable result and refresh-coordination row per saved widget.
 | `last_viewed_at` | `timestamptz` nullable | Last authorized card read. |
 | `due_at` | `timestamptz` | Next eligible attempt time. |
 | `requested_at` | `timestamptz` nullable | Durable explicit-request priority marker. |
+| `request_id` | `uuid` nullable | Outstanding explicit refresh receipt. |
+| `lease_request_id` | `uuid` nullable | Receipt captured by the active claim; newer requests cannot be acknowledged by older computations. |
+| `completed_request_id` | `uuid` nullable | Latest fenced explicit completion receipt. |
+| `completed_request_outcome` | `text` nullable | `success` or `failed` for that completed receipt. |
 | `last_explicit_at` | `timestamptz` nullable | Per-widget cooldown timestamp. |
 | `lease_token` | `uuid` nullable | Random publication fence for the current worker. |
 | `lease_until` | `timestamptz` nullable | Lease expiry/recovery boundary. |
@@ -581,6 +607,21 @@ Worker holds identity A and lease token A
    healthy.
 
 ### Safe Runner Commands
+
+For existing installations, task 4727 uses the narrow forward migration,
+not a replay or edit of task 610's historical migration:
+
+```bash
+node scripts/apply-dashboard-widget-refresh-receipts.mjs
+node scripts/apply-dashboard-widget-refresh-receipts.mjs \
+  --apply --review-sha256=<reviewed-sha256>
+```
+
+The forward runner uses the same DEST-only pins and verified provider CA.
+Within one transaction it verifies four columns and four restricted
+security-definer functions, and compares existing cache payloads, identities,
+timestamps, failures and leases before/after the upgrade. Apply this database
+upgrade before releasing the new refresh API protocol.
 
 Offline review performs no database connection or write:
 
@@ -694,8 +735,126 @@ WHERE due_at < now() OR failures > 0 OR lease_until > now()
 ORDER BY due_at, widget_id
 LIMIT 200;
 
-SELECT public.dashboard_widget_cache_stats();
+SELECT count(*) AS eligible,
+       count(*) FILTER (WHERE due_at < now()) AS overdue,
+       count(*) FILTER (WHERE failures > 0) AS failed,
+       count(*) FILTER (WHERE lease_until > now()) AS leased,
+       max(updated_at) AS latest_success
+FROM public.dashboard_widget_result_cache
+WHERE scope = 'shared' OR last_viewed_at > now() - interval '7 days';
 ```
 
 These queries describe durable database state. They do not prove Vercel cron
 delivery or deployment health; correlate them with scheduled invocation logs.
+Do not call `dashboard_widget_cache_stats()` during a read-only investigation:
+it deletes expired rate-limit and unused tenant records.
+
+### Task 4727: Destination Evidence and Verification Limits
+
+Read-only destination checks at **2026-09-23 19:20:07–19:20:29 UTC** used the
+existing `destinationTarget()` validation, `DEST_DATABASE_URL` and
+`DEST_SUPABASE_URL`, and the verified Supabase provider CA with hostname
+verification enabled. The pinned project was **lvmzliemqnieeoruhkik**; the
+database reported `transaction_read_only = on`. Every connection used
+`BEGIN READ ONLY`, a ten-second statement timeout, and `ROLLBACK`. No cache
+RPC, computation, scheduler invocation, refresh, or migration was run.
+
+Observed database evidence:
+
+- All **56 saved widgets** had cache rows, with **zero missing rows or identity
+  mismatches**. The cache sync trigger was enabled.
+- **51 shared widgets** were eligible: **50 had successful persisted results**,
+  **zero were overdue**, and **one had failed without a previous success**.
+- The failed shared widget had nine recorded failures, last attempted at
+  18:35:41 UTC and due again at 19:35:41 UTC. Its error was the generic
+  client-safe refresh failure. This proves an individual computation problem,
+  not its cause.
+- The five personal widgets had never been viewed/published and were not
+  scheduler eligible. Their overdue timestamps are not an eligible backlog.
+- Successful updates ranged from 19:09:35 to **19:19:47 UTC**. The latest
+  recorded view was **19:13:21 UTC**. Publication after the latest view is
+  consistent with background processing, but does not identify which host or
+  invocation performed it.
+- No active leases were present. The largest persisted JSON result was
+  **3,174 bytes**.
+- All three cache-related tables had RLS enabled and no `SELECT` privilege
+  for `anon` or `authenticated`. The six expected functions existed; worker
+  functions used security-definer execution and `search_path=public`.
+- Small aggregate/metadata SELECTs took approximately **149–152 ms each**
+  from this workspace over an established SQL connection. These are not
+  browser/API timings and do not measure authorization or cold-start time.
+
+These observations **disprove a blanket claim that the destination cache is
+missing or never publishes**. They do not establish the cause of slow repeat
+loads for a particular authenticated viewer.
+
+Access and rollout limits:
+
+- The deployment skill returned no Replit deployment. This does not establish
+  the state of the external Vercel deployment.
+- The added Vercel connector rejected a project-list read with HTTP 403,
+  `invalidToken: true`. Its authorization type is API key, so the existing
+  credential must be repaired rather than using OAuth reauthorization.
+  Production URL, deployed commit, production environment variables and cron
+  delivery were not verified.
+- Supabase MCP callbacks were unavailable in the investigator runtime; this
+  did **not** prevent the documented direct, pinned destination SQL checks.
+- Workspace `SUPABASE_URL` points to the separate
+  `zkvgzcruhniduuswbfyh` project. Its missing REST cache table and empty widget
+  probe are **not destination evidence** and must not drive a production
+  migration decision.
+- At the read-only inspection time, destination functions still showed the
+  prior implementation. The subsequent forward upgrade is recorded below;
+  it does not establish that application code has been deployed.
+
+**Task 4727 database upgrade:** At approximately **2026-09-23 19:25 UTC**,
+after the local PostgreSQL lifecycle tests passed, the reviewed forward
+migration `dashboard_widget_refresh_receipts.sql` was applied and committed
+to pinned verified-TLS DEST project **lvmzliemqnieeoruhkik**, using SHA-256
+`f780c8ba3e28e6aa34e3a7146aef2ad94f10589b14e73f772204e582a76734fb`.
+The runner verified four receipt columns, four restricted functions, and
+preservation of existing cache data/lease state. SOURCE was untouched.
+The historical task 610 SQL and runner remain unchanged. This confirms only
+the database protocol rollout, not Vercel application deployment, authenticated
+refresh UX, cron delivery, or production latency improvement.
+
+The data and refresh endpoints now emit coarse `Server-Timing` stages:
+`access`, `widget`, `cache`, and `total`, with rounded milliseconds and no
+identifiers or secrets. Capture those headers on authorized repeat loads
+after deployment to separate access resolution, widget lookup and cache work.
+No authenticated production timing or before/after performance improvement
+was measured in this investigation.
+
+The separately configured `VERCEL_API_TOKEN` was also tried through read-only
+project and team discovery. Both requests returned HTTP 403 with
+`invalidToken: true`. No authenticated affected Dashboard/Canvas session was
+available. The reported slow-repeat-load cause therefore remains unresolved;
+this work is not evidence that the public regression has been fixed.
+
+### Local Regression Verification
+
+- Disposable PostgreSQL lifecycle tests passed, including forward-migration
+  replay with preservation of existing successful data, independent warm reads,
+  lease fencing, capacity contention, semantic edits, failure retention,
+  cooldown, and request-correlated publication.
+- A local 24-widget benchmark made 24 cold aggregation calls and **zero warm
+  aggregation calls** (approximately 384 ms cold / 68 ms warm with synthetic
+  3 ms aggregations). These are not production timings.
+- API cache/access/embed tests passed, including coarse timing headers.
+- WidgetCard unit/mounted tests: **16 passed**.
+- Isolated browser fixtures: **2 passed**, covering 18 dashboard cards and
+  Canvas cards. These use controlled API responses, not production records.
+- Pending feedback is bounded by attempt and two-minute wall-clock limits;
+  exhaustion retains saved data, stops the spinner and enables retry. Identity
+  changes reset that state.
+
+**Remaining release verification:** restore Vercel read access, identify the
+actual deployed revision and scheduled invocation, then trace authorized cold,
+warm, refresh and independent reload requests on the affected Dashboard and
+Canvas page. Use the timing headers and bounded database metadata together;
+neither database installation nor passing fixture tests proves that flow.
+The forward database migration is applied to DEST; no new migration remains
+pending. Application rollout and the measured production diagnosis remain
+pending. The implementation is submitted for merge so deployment can precede
+that live verification; this does not establish resolution of the reported
+production slowdown.

@@ -1,4 +1,5 @@
 import { supabase } from '../../../_lib/database.js';
+import { performance } from 'node:perf_hooks';
 import {
   getDashboardActor,
   isCanvasDashboardEmbed,
@@ -23,65 +24,82 @@ export function createHandler(overrides = {}) {
     ...overrides,
   };
   return async function dashboardWidgetDataHandler(req, res) {
+    const started = performance.now();
+    const timings = [];
+    const measure = async (name, operation) => {
+      const start = performance.now();
+      try {
+        return await operation();
+      } finally {
+        timings.push(`${name};dur=${Math.round(performance.now() - start)}`);
+      }
+    };
+    const reply = (status, body) => {
+      res.setHeader('Server-Timing', [
+        ...timings,
+        `total;dur=${Math.round(performance.now() - started)}`,
+      ].join(', '));
+      return res.status(status).json(body);
+    };
     setCanvasDashboardNoStore(req, res);
     const refresh = overrides.refresh === true;
     if ((refresh && req.method !== 'POST') || (req.method !== 'POST' && req.method !== 'GET')) {
       res.setHeader('Allow', refresh ? 'POST' : 'GET, POST');
-      return res.status(405).json({ error: 'Method not allowed' });
+      return reply(405, { error: 'Method not allowed' });
     }
 
     let actor;
     try {
-      actor = await deps.getDashboardActor(req);
+      actor = await measure('access', () => deps.getDashboardActor(req));
     } catch {
-      return res.status(503).json({ error: 'Unable to verify dashboard access' });
+      return reply(503, { error: 'Unable to verify dashboard access' });
     }
     if (!actor) {
-      return res.status(401).json({ error: 'Authentication required' });
+      return reply(401, { error: 'Authentication required' });
     }
     if (!actor.permissions.view) {
-      return res.status(403).json({ error: 'Dashboard not available for this role' });
+      return reply(403, { error: 'Dashboard not available for this role' });
     }
     if (!deps.supabase) {
-      return res.status(500).json({ error: 'Database not configured' });
+      return reply(500, { error: 'Database not configured' });
     }
 
     const { id } = req.query || {};
-    if (!id) return res.status(400).json({ error: 'Widget id is required' });
+    if (!id) return reply(400, { error: 'Widget id is required' });
 
     let query = deps.supabase.from('dashboard_widget').select('*').eq('id', id);
     query = tenantFilter(query, actor.tenantId);
-    const { data: widget, error } = await query.single();
+    const { data: widget, error } = await measure('widget', () => query.single());
     if (error || !widget) {
-      return res.status(404).json({ error: 'Widget not found' });
+      return reply(404, { error: 'Widget not found' });
     }
     if ((widget.tenant_id ?? null) !== (actor.tenantId ?? null)
         || !['personal', 'shared'].includes(widget.scope)) {
-      return res.status(404).json({ error: 'Widget not found' });
+      return reply(404, { error: 'Widget not found' });
     }
     if (widget.scope === 'personal' && widget.owner_member_id !== actor.memberId) {
-      return res.status(404).json({ error: 'Widget not found' });
+      return reply(404, { error: 'Widget not found' });
     }
     if (isCanvasDashboardEmbed(req) && !isSharedTenantWidget(widget, actor)) {
-      return res.status(404).json({ error: 'Widget not found' });
+      return reply(404, { error: 'Widget not found' });
     }
 
     try {
       validateMemberGroupWidgetType(widget.config, widget.widget_type);
-      const result = await deps.readWidgetCache(deps.supabase, widget, actor, {
+      const result = await measure('cache', () => deps.readWidgetCache(deps.supabase, widget, actor, {
         refresh, run: deps.runWidgetConfig,
-      });
-      return res.status(200).json({ widget, ...result });
+      }));
+      return reply(200, { widget, ...result });
     } catch (err) {
       console.error('[Dashboard Widgets] Data failed:', err);
       if (err.message?.includes('Refresh limit')) {
         res.setHeader('Retry-After', '60');
-        return res.status(429).json({ error: 'Refresh limit reached; try again in one minute' });
+        return reply(429, { error: 'Refresh limit reached; try again in one minute' });
       }
       if (err.message?.includes('Widget changed')) {
-        return res.status(409).json({ error: 'Widget changed; reload and try again' });
+        return reply(409, { error: 'Widget changed; reload and try again' });
       }
-      return res.status(503).json({ error: 'Widget cache unavailable. Please try again later.' });
+      return reply(503, { error: 'Widget cache unavailable. Please try again later.' });
     }
   };
 }

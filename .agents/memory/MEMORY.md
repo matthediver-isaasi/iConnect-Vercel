@@ -1,5 +1,4 @@
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
-- [Financial exception evidence](financial-exception-evidence.md) — retain immutable full reviewed responses; a digest mismatch alone does not prove a financial change.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
@@ -93,7 +92,6 @@
 - [GoCardless form origin](gocardless-form-origin.md) — pin original provider context; unknown origins require review, while lookup failures never prove payment failure.
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
-- [Rolling membership consent](rolling-membership-consent.md) — agreed commencement survives delayed payment callbacks; pending activation is separate, and legacy anniversaries require original evidence.
 - [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
@@ -140,12 +138,8 @@
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
 - [Renewal reminder quotes](renewal-reminder-payment-links.md) — browser completion and webhook reconciliation must honor the same successor quote; preparation must not send a second email.
-- [Membership card evidence](membership-card-evidence.md) — joining provenance, historical payments, mandate readiness and future collections must remain distinct.
 - [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
-- [Payment report evidence](payment-report-evidence.md) — legacy pending payment mirrors may lack trustworthy mode/date evidence; retain strict checks and verify provider schedules instead.
-- [Resource import audit evidence](resource-import-audit-evidence.md) — terminal execution IDs supersede proposal holds and URL-only matching; absence and execution failure are separate findings.
-- [Event credit policy transitions](event-credit-policy-transitions.md) — paid recovery preserves original credits for verified compensation; visibility tests alone miss overcharges.
 - [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.
 - [Storage object absence](storage-object-absence.md) — SDK info errors may drop NoSuchKey; distinguish object absence from provider failure and public cache behavior.
 - [Consent report verification](consent-report-verification.md) — assert individual matrix cells; row-wide text can hide lost stored consent in unavailable categories.
@@ -157,4 +151,4 @@
 - [Form applicant authority](form-applicant-authority.md) — bare-ID application links need scoped server-issued authority; drafts and submitted emails never imply ownership.
 - [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Member Outlook recipient policy](member-outlook-recipient-boundary.md) — intentional CC is supported; login-disabled contacts are not deleted, and logging failure is not send failure.
-- [Financial dry-run boundaries](financial-dry-run-boundaries.md) — shared orchestration, no fabricated claim success, and transitive capability isolation are required for financial previews.
+- [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged numeric results require durable request-correlated publication evidence, and old success/pending flags are not evidence.
