@@ -293,8 +293,12 @@ function PlanDetail({ planId, onBack }) {
         <CardContent className="pt-6 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-sm">
           <span className="text-muted-foreground">Monthly amount</span>
           <span data-testid="text-plan-amount">{money(plan.amount_minor, plan.currency)}</span>
-          <span className="text-muted-foreground">Next collection</span>
-          <span data-testid="text-plan-next">{fmtDate(plan.next_charge_date)}</span>
+          <span className="text-muted-foreground">{plan.nextDates?.dynamic ? "Next due date (planned)" : "Next collection"}</span>
+          <span data-testid="text-plan-next">{fmtDate(plan.nextDates?.nextDueDate ?? (plan.metadata?.collection_mode === "dynamic" ? null : plan.next_charge_date))}</span>
+          {plan.nextDates?.dynamic && <>
+            <span className="text-muted-foreground">Bank debit</span>
+            <span data-testid="text-plan-bank-date">{plan.nextDates.bankScheduledDate ? fmtDate(plan.nextDates.bankScheduledDate) : plan.nextDates.status === "inactive" ? "Not scheduled" : "Not yet scheduled"}</span>
+          </>}
           <span className="text-muted-foreground">Grace expires</span>
           <span data-testid="text-plan-grace">{fmtDate(plan.grace_expires_at, true)}</span>
           <span className="text-muted-foreground">Retry count</span>
@@ -1087,7 +1091,8 @@ export default function DirectDebitAdmin() {
                             {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {money(p.amount_minor, p.currency)}/mo · next {fmtDate(p.next_charge_date)}
+                            {money(p.amount_minor, p.currency)}/mo · {p.nextDates?.dynamic ? "Next due date (planned)" : "next"} {fmtDate(p.nextDates?.nextDueDate ?? (p.metadata?.collection_mode === "dynamic" ? null : p.next_charge_date))}
+                            {p.nextDates?.dynamic && ` · Bank debit: ${p.nextDates.bankScheduledDate ? fmtDate(p.nextDates.bankScheduledDate) : p.nextDates.status === "inactive" ? "Not scheduled" : "Not yet scheduled"}`}
                             {p.grace_expires_at && ` · grace expires ${fmtDate(p.grace_expires_at, true)}`}
                             {p.retry_count ? ` · ${p.retry_count} retries` : ""}
                             {p.payer_email ? ` · ${p.payer_email}` : ""}

@@ -20,6 +20,7 @@
 // double-confirmed client-side.
 
 import { supabase } from '../_lib/database.js';
+import { loadDirectDebitNextDates } from '../_lib/directDebitNextDates.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { directDebitCollectionPresentation, loadDirectDebitMembershipPresentations } from '../_lib/directDebitMembershipPresentation.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -335,10 +336,12 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
   paginateConsolePlans([], query); // Reject invalid paging before database work.
   const { rows, originals } = await selectFilteredPlans(tenantId, query, db);
   const result = paginateConsolePlans(rows, query);
+  const dates = await loadDirectDebitNextDates(db, tenantId, result.plans);
   // Evidence is presentation only; fetch it after eligibility/search/paging.
   for (let offset = 0; offset < result.plans.length; offset += 10) {
     const batch = await Promise.all(result.plans.slice(offset, offset + 10).map(async row => ({
       ...row,
+      nextDates: dates.get(row.id),
       mandatePresentation: migratedMandatePresentation(await loadMigratedMandatePresentation(db, originals.get(row.id))),
     })));
     result.plans.splice(offset, batch.length, ...batch);
@@ -354,6 +357,7 @@ const planCsvStatus = status => status == null ? ''
 
 export async function exportPlansCsv(res, tenantId, query = {}, db = supabase) {
   const { rows } = await selectFilteredPlans(tenantId, query, db);
+  const dates = await loadDirectDebitNextDates(db, tenantId, rows);
   const columns = [
     ['Plan ID', p => p.id],
     ['Payer name', p => p.payer_name],
@@ -363,11 +367,14 @@ export async function exportPlansCsv(res, tenantId, query = {}, db = supabase) {
     // GoCardless plan amounts use hundredths for all supported currencies.
     ['Amount (major currency units)', p => p.amount_minor == null ? null : (p.amount_minor / 100).toFixed(2)],
     ['Currency', p => p.currency],
-    ['Next charge date', p => p.next_charge_date],
+    ['Next charge date', p => dates.get(p.id).nextChargeDate],
     ['Subscription ID', p => p.gocardless_subscription_id],
     ['Collections held', p => p.collectionPresentation.held ? 'Yes' : 'No'],
     ['Grace expiry', p => p.grace_expires_at],
     ['Retry count', p => p.retry_count],
+    ['Next due date', p => dates.get(p.id).nextDueDate],
+    ['Bank scheduled date', p => dates.get(p.id).bankScheduledDate],
+    ['Schedule status', p => dates.get(p.id).status],
   ];
   const lines = [columns.map(([title]) => escapeCsvCell(title)).join(',')];
   for (const row of rows) lines.push(columns.map(([, value]) => escapeCsvCell(value(row))).join(','));
@@ -414,6 +421,7 @@ export async function planDetail(tenantId, planId, res, { db: supabase = console
   }
   const payments = await filterDirectDebitRows(supabase, tenantId, paymentsRes.data || []);
   const cancellationRequests = await filterDirectDebitRows(supabase, tenantId, cancellationsRes.data || []);
+  const dates = await loadDirectDebitNextDates(supabase, tenantId, [plan]);
   const paymentIds = payments.map((p) => p.gocardless_payment_id).filter(Boolean);
   let refunds = [];
   if (paymentIds.length) {
@@ -425,6 +433,7 @@ export async function planDetail(tenantId, planId, res, { db: supabase = console
   return {
     plan: {
       ...plan,
+      nextDates: dates.get(plan.id),
       membershipPresentation: presentations.get(plan.id),
       collectionPresentation: directDebitCollectionPresentation(plan),
       mandatePresentation: migratedMandatePresentation(await loadMigratedMandatePresentation(supabase, {

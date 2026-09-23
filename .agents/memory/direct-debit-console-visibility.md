@@ -20,3 +20,9 @@ Membership-display totals partition eligible plans, not people; operational exce
 **Why:** One member may own several plans, activation flags can overlap other display statuses, and accounting/cancellation counts represent different entities. Combining these counts misleadingly suggests missing plans.
 
 **How to apply:** Keep exact display-status drill-downs distinct from legacy financial/activation filters, and clear search and pagination when selecting a global count.
+
+Planned membership due dates and provider-scheduled bank debit dates are separate facts.
+
+**Why:** Releasing a dynamic plan permits later submission; it does not schedule a bank debit. Showing a planned date as confirmed misrepresents the provider's notice and submission requirements.
+
+**How to apply:** Label planned cadence dates explicitly in list, details and exports. Require matching provider-payment evidence for bank dates; a reservation or active mandate alone is insufficient.

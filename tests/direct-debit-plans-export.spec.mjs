@@ -79,6 +79,9 @@ async function installFixture(page) {
             payer_email: "filtered@example.invalid",
             amount_minor: 1200,
             currency: "GBP",
+            metadata: { collection_mode: "dynamic" },
+            nextDates: { dynamic: true, nextDueDate: "2026-10-01", bankScheduledDate: null, status: "not_yet_scheduled" },
+            mandatePresentation: { awaitingFirstPayment: true, collectionHeld: false },
             membershipPresentation: { displayStatus: "current", current: true },
           }],
           total: 1,
@@ -117,6 +120,9 @@ test("downloads all plans with click-time filters and no pagination", async ({ p
   await expect(page.getByTestId("text-page-title")).toBeVisible();
   expect(state.pageErrors).toEqual([]);
   await expect(page.getByTestId("button-plans-export")).toBeVisible();
+  await expect(page.getByText(/Next due date \(planned\)/)).toBeVisible();
+  await expect(page.getByText(/Bank debit: Not yet scheduled/)).toBeVisible();
+  await page.screenshot({ path: "/tmp/dd-next-date.png", fullPage: true });
   await expect(page.getByTestId("text-plans-export-scope")).toContainText("all matching plans across every page");
 
   await page.getByTestId("select-plan-status").click();

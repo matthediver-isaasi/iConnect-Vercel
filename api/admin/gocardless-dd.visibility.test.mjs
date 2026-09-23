@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler, { listPlans, exportPlansCsv } from './gocardless-dd.js';
+import handler, { listPlans, exportPlansCsv, planDetail } from './gocardless-dd.js';
 
 function fixture() {
   const members = Array.from({ length: 1205 }, (_, n) => ({
@@ -36,6 +36,8 @@ function fixture() {
       eq(k, v) { filters.push(r => r[k] === v); return this; },
       in(k, values) { filters.push(r => values.includes(r[k])); return this; },
       order(k, opts = {}) { ordering.push([k, opts.ascending !== false]); return this; },
+      limit() { return this; },
+      async maybeSingle() { return { data: execute()[0] || null }; },
       async range(start, end) {
         calls.push({ table, start, end, ordering });
         return { data: execute().slice(start, end + 1) };
@@ -44,6 +46,32 @@ function fixture() {
     };
   } };
 }
+
+test('dynamic next dates agree across list, detail and CSV without changing legacy export columns', async () => {
+  const db = fixture();
+  const plan = db.tables.membership_payment_plans[1204];
+  Object.assign(plan, { metadata: { collection_mode: 'dynamic' }, status: 'active',
+    dynamic_next_collection_date: '2099-10-01', next_charge_date: '2020-01-01',
+    gocardless_mandate_id: 'MD1', environment: 'live' });
+  for (const scheduled of [false, true]) {
+    db.tables.gocardless_payments = scheduled ? [{ id: 'p1', tenant_id: 'tenant',
+      plan_id: plan.id, gocardless_payment_id: 'PM1', gocardless_mandate_id: 'MD1',
+      status: 'submitted', environment: 'live', charge_date: '2099-10-05' }] : [];
+    const list = await listPlans('tenant', { q: 'Find me' }, db);
+    const detail = await planDetail('tenant', plan.id, response(), { db });
+    assert.deepEqual(detail.plan.nextDates, list.plans[0].nextDates);
+    assert.equal(detail.plan.nextDates.nextDueDate, '2099-10-01');
+    assert.equal(detail.plan.nextDates.bankScheduledDate, scheduled ? '2099-10-05' : null);
+    const res = response();
+    await exportPlansCsv(res, 'tenant', { q: 'Find me' }, db);
+    const cells = res.body.trim().split('\r\n')[1].split(',');
+    assert.equal(cells[7], scheduled ? '2099-10-05' : '');
+    assert.equal(cells[12], '2099-10-01');
+    assert.equal(cells[13], scheduled ? '2099-10-05' : '');
+    assert.equal(cells[14], detail.plan.nextDates.status);
+    assert.ok(!res.body.includes('2020-01-01'));
+  }
+});
 
 const response = () => ({
   statusCode: 200, headers: {}, body: null,
@@ -84,12 +112,12 @@ test('CSV uses a minimal safe projection, readable statuses, blanks and decimal 
     metadata: { bnms_release_required: true, secret: 'DO NOT EXPORT' },
     gocardless_subscription_id: '+SUB' });
   await exportPlansCsv(res, 'tenant', { q: '@unsafe' }, db);
-  assert.ok(res.body.startsWith('\ufeffPlan ID,Payer name,Payer email,Membership display status,Financial plan status,Amount (major currency units),Currency,Next charge date,Subscription ID,Collections held,Grace expiry,Retry count\r\n'));
-  assert.match(res.body, /"'=Zoë, ""测试"" Next",'@unsafe,Awaiting first payment,Awaiting first payment,123\.45,GBP,,'\+SUB,Yes,,0\r\n$/);
+  assert.ok(res.body.startsWith('\ufeffPlan ID,Payer name,Payer email,Membership display status,Financial plan status,Amount (major currency units),Currency,Next charge date,Subscription ID,Collections held,Grace expiry,Retry count,Next due date,Bank scheduled date,Schedule status\r\n'));
+  assert.match(res.body, /"'=Zoë, ""测试"" Next",'@unsafe,Awaiting first payment,Awaiting first payment,123\.45,GBP,,'\+SUB,Yes,,0,,,legacy\r\n$/);
   assert.ok(!res.body.includes('DO NOT EXPORT'));
   plan.amount_minor = null; plan.retry_count = null;
   await exportPlansCsv(res, 'tenant', { q: '@unsafe' }, db);
-  assert.match(res.body, /Awaiting first payment,,GBP,,'\+SUB,Yes,,\r\n$/);
+  assert.match(res.body, /Awaiting first payment,,GBP,,'\+SUB,Yes,,,,,legacy\r\n$/);
   for (const [amount, expected] of [[0, '0.00'], [1, '0.01'], [1099, '10.99']]) {
     plan.amount_minor = amount; plan.currency = 'EUR';
     await exportPlansCsv(res, 'tenant', { q: '@unsafe' }, db);
