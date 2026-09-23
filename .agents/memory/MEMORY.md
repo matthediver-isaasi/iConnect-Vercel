@@ -153,3 +153,4 @@
 - [Direct Debit console visibility](direct-debit-console-visibility.md) — console hiding must not change historical billing processing or turn mandate discovery into collection authority.
 - [BNMS upfront membership evidence](bnms-upfront-membership-evidence.md) — operator-attested existing membership is not provider settlement proof or authority to create future commitments.
 - [Async query-builder returns](async-query-builder-return.md) — wrap Supabase builders in objects across async helpers or they execute before callers finish scoping and paging.
+- [Private uploads and checkpoints](private-upload-checkpoints.md) — automatic checkpoints can track uploads before ignore rules; verify the index and inherited shared history separately.

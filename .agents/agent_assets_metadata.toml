@@ -957,3 +957,17 @@ mtime_ms = 1790089816182
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/171023b2-642c-4d2f-835e-a56731e3336a/97320574-f162-4616-8c6f-cc4534a53795"
 storage_version_token = "1790089873216978"
 content_type = "text/html"
+
+[[outputs]]
+id = "cgYGvLaMCMwkLFbmsZxaZ"
+uri = "file://exports/bnms-final-validation/summary.html"
+type = "html"
+title = "BNMS final workbook — validation summary"
+description = "Read-only results and the complete 21-column mapping table. Personal row-level evidence remains in owner-only, git-ignored reports."
+logical_id = "17784305-b854-42ee-ac91-b871dcb4fb8f"
+content_hash = "sha256:ba2cbaecc897915f2c6f27333fc6753760edc50ef5c5ddf0263221534858c48e"
+size = 12172
+mtime_ms = 1790150611314
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17784305-b854-42ee-ac91-b871dcb4fb8f/5c90995b-fac7-49fe-b073-26dd911620cc"
+storage_version_token = "1790150653100505"
+content_type = "text/html"
