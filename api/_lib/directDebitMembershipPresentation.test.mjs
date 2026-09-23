@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { directDebitMembershipPresentation, loadDirectDebitMembershipPresentations } from './directDebitMembershipPresentation.js';
 import { ALPHA_RECOGNITION_TENANT as tenant } from './alphaMembershipRecognition.js';
-import { listPlans, planDetail, buildSummary } from '../admin/gocardless-dd.js';
+import { listPlans, planDetail, buildSummary, exportPlansCsv } from '../admin/gocardless-dd.js';
 
 const today = '2026-09-21';
 const history = (patch = {}) => ({
@@ -96,6 +96,28 @@ function tables() {
     member_membership_history: [history({ term_start_date: now, term_end_date: `${Number(now.slice(0, 4)) + 1}-12-31` })],
   };
 }
+
+test('CSV matches current and unverified historical membership display filters without altering financial status', async () => {
+  const data = tables(), db = database(data);
+  const res = { setHeader() {}, status() { return this; }, send(body) { this.body = body; return this; } };
+  await exportPlansCsv(res, tenant, { displayStatus: 'current' }, db);
+  assert.match(res.body, /,Current,Awaiting first payment,/);
+  data.bnms_dd_alpha_adoption = [{
+    id: 'adoption', tenant_id: tenant, member_id: 'member', agreement_id: 'agreement',
+    plan_id: 'plan', history_id: 'history',
+  }];
+  data.member_membership_history[0].status = 'pending_payment_setup';
+  for (const query of [
+    { displayStatus: 'membership_unverified' },
+    { status: 'first_payment_pending', displayStatus: 'membership_unverified' },
+  ]) {
+    assert.equal((await listPlans(tenant, query, db)).total, 1);
+    await exportPlansCsv(res, tenant, query, db);
+    assert.match(res.body, /,Membership status unverified,Awaiting first payment,/);
+  }
+  await exportPlansCsv(res, tenant, { displayStatus: 'first_payment_pending' }, db);
+  assert.equal(res.body.split('\r\n').length, 2);
+});
 
 test('Beta and unheld pilot use supplemental recognition without changing collection or pending contracts', async () => {
   for (const cohort of ['beta', 'pilot']) {

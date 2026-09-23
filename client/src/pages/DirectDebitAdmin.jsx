@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import {
-  Landmark, AlertCircle, RefreshCw, Search, ArrowLeft, Loader2,
+  Landmark, AlertCircle, RefreshCw, Search, ArrowLeft, Loader2, Download,
 } from "lucide-react";
 
 const FEATURE_ID = "page_DirectDebitAdmin";
@@ -842,6 +842,9 @@ export default function DirectDebitAdmin() {
   const [page, setPage] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [tab, setTab] = useState("plans");
+  const [plansExporting, setPlansExporting] = useState(false);
+  const [plansExportError, setPlansExportError] = useState("");
+  const plansExportInFlight = useRef(false);
   const showPlans = (status) => {
     setStatusFilter(status);
     setSearch("");
@@ -872,6 +875,57 @@ export default function DirectDebitAdmin() {
     queryClient.invalidateQueries({ queryKey: ["/api/admin/gocardless-dd"] });
     queryClient.invalidateQueries({ queryKey: ["/api/admin/dd-cancellation-requests"] });
   }, [queryClient]);
+
+  const downloadPlansCsv = async () => {
+    if (plansExportInFlight.current) return;
+    plansExportInFlight.current = true;
+    setPlansExporting(true);
+    setPlansExportError("");
+
+    let objectUrl;
+    let anchor;
+    try {
+      const exportParams = new URLSearchParams({
+        view: "plans_export",
+        displayStatus: statusFilter === "all" ? "" : statusFilter,
+        q: search,
+      });
+      const response = await fetch(`/api/admin/gocardless-dd?${exportParams.toString()}`, {
+        credentials: "include",
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${response.status})`);
+      }
+      if (!contentType.toLowerCase().includes("csv")) {
+        throw new Error("The server did not return a CSV file.");
+      }
+
+      const blob = await response.blob();
+      if (!blob.size) throw new Error("The server returned an empty CSV file.");
+
+      const disposition = response.headers.get("content-disposition") || "";
+      const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const quotedName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+      const filename = (encodedName ? decodeURIComponent(encodedName) : quotedName) || "direct-debit-plans.csv";
+
+      objectUrl = URL.createObjectURL(blob);
+      anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+    } catch (error) {
+      setPlansExportError(error?.message || "The CSV could not be downloaded.");
+    } finally {
+      anchor?.remove();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      plansExportInFlight.current = false;
+      setPlansExporting(false);
+    }
+  };
 
   if (isAccessReady && blocked) {
     return (
@@ -987,7 +1041,21 @@ export default function DirectDebitAdmin() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button variant="outline" onClick={downloadPlansCsv} disabled={plansExporting}
+                  data-testid="button-plans-export">
+                  {plansExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {plansExporting ? "Downloading…" : "Download CSV"}
+                </Button>
               </div>
+              <p className="text-xs text-muted-foreground" data-testid="text-plans-export-scope">
+                Downloads all matching plans across every page using the current status and search filters.
+              </p>
+              {plansExportError && (
+                <Alert variant="destructive" data-testid="alert-plans-export-error">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>CSV download failed. {plansExportError}</AlertDescription>
+                </Alert>
+              )}
               <p className="text-xs text-muted-foreground" data-testid="text-plan-scope">
                 This list contains adopted Direct Debit plans linked to membership billing. Mandates found by discovery alone remain in GoCardless integration discovery and are not plans until they are adopted.
               </p>

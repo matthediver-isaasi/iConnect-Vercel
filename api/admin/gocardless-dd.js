@@ -2,6 +2,7 @@
 //
 // GET  ?view=summary                — dashboard counts + attention queue
 // GET  ?view=plans&status=&q=       — filterable plan list
+// GET  ?view=plans_export&...       — all matching eligible plans as CSV
 // GET  ?view=plan&planId=           — plan detail: payments, provider events,
 //                                     emails sent, admin actions, refunds
 // GET  ?view=reconciliation&bucket= — finance reconciliation buckets
@@ -47,32 +48,36 @@ import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 import { changeGoCardlessCollectionDay } from '../_lib/gocardlessCollectionScheduleChange.js';
 import { filterConsoleRows, filterDirectDebitRows, readConsoleRows, paginateConsolePlans, lookupConsoleRows } from '../_lib/directDebitConsoleEligibility.js';
+import { escapeCsvCell, CSV_BOM, CSV_ROW_SEPARATOR } from '../_lib/csvCell.js';
 const consoleDatabase = supabase;
 
-export default async function handler(req, res) {
+export default async function handler(req, res, {
+  db = supabase, getContext = getTenantContext, adminAccess = hasAdminAccess,
+  featureAccess = hasFeatureAccess,
+} = {}) {
   if (req.method === 'POST' && ['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
     return handleCollectionDayAction(req, res);
   }
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
   let context;
   try {
-    context = await getTenantContext(req);
+    context = await getContext(req);
   } catch {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  if (!context?.tenantId || !(await hasAdminAccess(context))) {
+  if (!context?.tenantId || !(await adminAccess(context))) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   // Feature-level RBAC (server-side, not just client gating): member-role
   // admins must hold the Direct Debit Console feature key.
-  if (context.roleId && !(await hasFeatureAccess(context.roleId, 'commerce.gocardless-dd'))) {
+  if (context.roleId && !(await featureAccess(context.roleId, 'commerce.gocardless-dd'))) {
     return res.status(403).json({ error: 'Access denied' });
   }
   const tenantId = context.tenantId;
   const actorEmail = context.member?.email || context.email || null;
 
   try {
-    if (req.method === 'GET') return await handleGet(req, res, tenantId);
+    if (req.method === 'GET') return await handleGet(req, res, tenantId, db);
     if (req.method === 'POST') {
       // Refunds move money — restrict to finance-authorized admins.
       if (req.body?.action === 'refund' && context.roleId
@@ -131,10 +136,11 @@ export async function handleCollectionDayAction(req, res, {
 // ---------------------------------------------------------------------------
 // GET views
 
-async function handleGet(req, res, tenantId) {
+async function handleGet(req, res, tenantId, db = supabase) {
   const view = req.query.view || 'summary';
   if (view === 'summary') return res.json(await buildSummary(tenantId));
-  if (view === 'plans') return res.json(await listPlans(tenantId, req.query));
+  if (view === 'plans') return res.json(await listPlans(tenantId, req.query, db));
+  if (view === 'plans_export') return exportPlansCsv(res, tenantId, req.query, db);
   if (view === 'plan') return res.json(await planDetail(tenantId, req.query.planId, res));
   if (view === 'reconciliation') return res.json(await reconciliationView(tenantId, req.query));
   if (view === 'export') return exportReconciliationCsv(res, tenantId, req.query);
@@ -255,8 +261,9 @@ export async function buildSummary(tenantId, { db: supabase = consoleDatabase } 
   };
 }
 
-export async function listPlans(tenantId, query = {}, db = supabase) {
-  paginateConsolePlans([], query); // Reject invalid paging before database work.
+// Shared complete selection: UI pagination and evidence enrichment happen only
+// after this boundary. CSV never needs per-plan mandate evidence.
+export async function selectFilteredPlans(tenantId, query = {}, db = supabase) {
   const rawPlans = await readConsoleRows(() => {
     let q = db
     .from('membership_payment_plans')
@@ -321,8 +328,13 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
       (r.payer_email || '').toLowerCase().includes(qText) ||
       (r.gocardless_subscription_id || '').toLowerCase().includes(qText));
   }
+  return { rows, originals: new Map(plans.map(p => [p.id, p])) };
+}
+
+export async function listPlans(tenantId, query = {}, db = supabase) {
+  paginateConsolePlans([], query); // Reject invalid paging before database work.
+  const { rows, originals } = await selectFilteredPlans(tenantId, query, db);
   const result = paginateConsolePlans(rows, query);
-  const originals = new Map(plans.map(p => [p.id, p]));
   // Evidence is presentation only; fetch it after eligibility/search/paging.
   for (let offset = 0; offset < result.plans.length; offset += 10) {
     const batch = await Promise.all(result.plans.slice(offset, offset + 10).map(async row => ({
@@ -332,6 +344,39 @@ export async function listPlans(tenantId, query = {}, db = supabase) {
     result.plans.splice(offset, batch.length, ...batch);
   }
   return result;
+}
+
+const planCsvStatus = status => status == null ? ''
+  : status === 'current' ? 'Current'
+  : status === 'membership_unverified' ? 'Membership status unverified'
+  : status === 'first_payment_pending' ? 'Awaiting first payment'
+  : String(status).replace(/_/g, ' ');
+
+export async function exportPlansCsv(res, tenantId, query = {}, db = supabase) {
+  const { rows } = await selectFilteredPlans(tenantId, query, db);
+  const columns = [
+    ['Plan ID', p => p.id],
+    ['Payer name', p => p.payer_name],
+    ['Payer email', p => p.payer_email],
+    ['Membership display status', p => planCsvStatus(p.membershipPresentation?.displayStatus)],
+    ['Financial plan status', p => planCsvStatus(p.status)],
+    // GoCardless plan amounts use hundredths for all supported currencies.
+    ['Amount (major currency units)', p => p.amount_minor == null ? null : (p.amount_minor / 100).toFixed(2)],
+    ['Currency', p => p.currency],
+    ['Next charge date', p => p.next_charge_date],
+    ['Subscription ID', p => p.gocardless_subscription_id],
+    ['Collections held', p => p.collectionPresentation.held ? 'Yes' : 'No'],
+    ['Grace expiry', p => p.grace_expires_at],
+    ['Retry count', p => p.retry_count],
+  ];
+  const lines = [columns.map(([title]) => escapeCsvCell(title)).join(',')];
+  for (const row of rows) lines.push(columns.map(([, value]) => escapeCsvCell(value(row))).join(','));
+  // Build the entire file before setting attachment headers: read failures must
+  // return JSON errors, never a successful-looking partial download.
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="dd-plans-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.status(200).send(CSV_BOM + lines.join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR);
 }
 
 export async function planDetail(tenantId, planId, res, { db: supabase = consoleDatabase } = {}) {

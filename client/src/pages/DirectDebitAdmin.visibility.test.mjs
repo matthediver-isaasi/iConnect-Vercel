@@ -52,3 +52,16 @@ test('Direct Debit views render errors instead of false empty states or zero cou
   assert.match(source, /isLoading[\s\S]*isError[\s\S]*text-no-renewals/);
   assert.match(source, /plansLoading[\s\S]*plansError[\s\S]*text-no-plans/);
 });
+
+test('plan CSV export captures current filters without list pagination and validates the response', () => {
+  assert.match(source, /view: "plans_export"/);
+  assert.match(source, /displayStatus: statusFilter === "all" \? "" : statusFilter/);
+  assert.match(source, /q: search/);
+  assert.match(source, /contentType\.toLowerCase\(\)\.includes\("csv"\)/);
+  assert.match(source, /if \(!blob\.size\)/);
+  assert.match(source, /plansExportInFlight\.current/);
+  assert.match(source, /anchor\?\.remove\(\)/);
+  assert.match(source, /URL\.revokeObjectURL\(objectUrl\)/);
+  assert.match(source, /all matching plans across every page/);
+  assert.match(source, /view=export&bucket=\$\{bucket\}/);
+});
