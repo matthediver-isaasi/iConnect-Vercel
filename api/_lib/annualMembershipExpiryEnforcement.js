@@ -1,5 +1,4 @@
 import { normalizeAnnualRenewalConfig, resolveAnnualRenewal, isAnnualNonRecurring } from './annualRenewalPolicy.js';
-import { invalidateMemberSessions } from './session.js';
 import { isRollingCommitment } from '../../shared/rollingMembershipTerm.js';
 
 async function isTenantAdmin(client, tenantId, member) {
@@ -66,12 +65,38 @@ const PAGE_SIZE = 100;
 const MEMBER_FIELDS = 'id, tenant_id, identity_id, login_enabled, role_id, organization_id, membership_paused';
 const TABLES = { member: 'member_membership_history', organisation: 'organisation_membership_history' };
 
+// Live capability is constructed by the cron with its injected DB/session
+// dispatcher. The preview passes only a recording effect capability.
+export function annualExpiryEffects(client, invalidateSessions) {
+  return { async perform(operation) {
+    const p = operation.payload;
+    if (operation.type === 'owner.expiry_sessions') {
+      if (!invalidateSessions) throw new Error('Expiry session capability is not configured');
+      return invalidateSessions(p.memberId);
+    }
+    if (!['owner.expiry_insert', 'owner.expiry_update'].includes(operation.type)) throw new Error(`Unknown expiry operation: ${operation.type}`);
+    let query = client.from(p.table);
+    query = operation.type === 'owner.expiry_insert' ? query.insert(p.values) : query.update(p.values);
+    for (const [method, key, value] of p.filters || []) query = query[method](key, value);
+    return query;
+  } };
+}
+
 /**
  * The caller owns an exclusive lease. A cursor only passes fully handled rows;
  * an interrupted effect is repaired from the immutable, pre-mutation journal.
  * The budget is cooperative: no Promise.race leaves writes running in background.
  */
 export async function processTenantAnnualExpirySweep(client, tenantId, results = null, now = new Date(), options = {}) {
+  const effects = options.effects || annualExpiryEffects(client, options.invalidateSessions);
+  const trace = options.trace || (() => {});
+  const skip = reason => trace({ stage: 'annual-expiry', status: 'skipped', reason });
+  async function mutate(type, description, payload) {
+    const result = await effects.perform({ type, stage: 'annual-expiry', description, payload,
+      conditional: 'Later expiry/access work depends on the durable journal and compare-and-set results; no result is assumed.' });
+    if (result?.error) throw new Error(`Could not ${description.charAt(0).toLowerCase() + description.slice(1)}: ${result.error.message}`);
+    return result;
+  }
   let cursor = { historyType: 'member', afterId: null, ...options.cursor };
   let enforced = 0;
   let examined = 0;
@@ -129,11 +154,13 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     }
   }
   async function markHistory(history, state) {
-    await read(() => client.from(TABLES[cursor.historyType]).update({
+    guard();
+    await mutate('owner.expiry_update', 'Complete expiry history', {
+      table: TABLES[cursor.historyType], values: {
       expiry_enforced_at: now.toISOString(), annual_renewal_state: state,
       expiry_enforcement_key: `annual-expiry:${history.id}:${history.term_end_date}`,
-    }).eq('tenant_id', tenantId).eq('id', history.id).is('expiry_enforced_at', null),
-    'Could not complete expiry history');
+      }, filters: [['eq', 'tenant_id', tenantId], ['eq', 'id', history.id], ['is', 'expiry_enforced_at', null]],
+    });
   }
   async function renewed(history, term) {
     const column = cursor.historyType === 'member' ? 'member_id' : 'organization_id';
@@ -173,7 +200,8 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     if (!action) {
       const policy = normalizeAnnualRenewalConfig(config);
       // Insert, never upsert: retries must never replace the original values.
-      await read(() => client.from('membership_expiry_action').insert({
+      guard();
+      await mutate('owner.expiry_insert', 'Prepare expiry journal', { table: 'membership_expiry_action', values: {
         tenant_id: tenantId, history_type: cursor.historyType, history_id: history.id,
         member_id: member.id, config_id: history.config_id,
         previous_login_enabled: member.login_enabled, previous_role_id: member.role_id,
@@ -181,7 +209,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
         assigned_role_id: policy.changeRole ? policy.fallbackRoleId : null,
         applied_at: now.toISOString(), action_state: 'pending',
         details: { source: 'annual_membership_expiry_sweep' },
-      }), 'Could not prepare expiry journal');
+      } });
       action = await read(identity, 'Could not reload expiry journal');
       if (!action) throw new Error('Prepared expiry journal was not found');
     }
@@ -193,38 +221,41 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     if (action.assigned_role_id) changes.push(['role_id', action.previous_role_id, action.assigned_role_id]);
     for (const [field, previous, target] of changes) {
       if (member[field] === target) continue;
-      await read(() => {
-        let query = client.from('member').update({ [field]: target })
-          .eq('tenant_id', tenantId).eq('id', member.id);
-        return previous == null ? query.is(field, null) : query.eq(field, previous);
-      }, 'Could not enforce member expiry');
+      guard();
+      await mutate('owner.expiry_update', 'Enforce member expiry', {
+        table: 'member', values: { [field]: target },
+        filters: [['eq', 'tenant_id', tenantId], ['eq', 'id', member.id], [previous == null ? 'is' : 'eq', field, previous ?? null]],
+      });
     }
     if (action.login_disabled) {
       guard();
-      const outcome = await (options.invalidateSessions || invalidateMemberSessions)(member.id);
+      const outcome = await effects.perform({ type: 'owner.expiry_sessions', stage: 'annual-expiry',
+        description: 'Invalidate sessions for the expired member.', payload: { memberId: member.id } });
       if (!outcome?.success) throw new Error(`Could not invalidate sessions for expired member ${member.id}`);
     }
-    await read(() => client.from('membership_expiry_action')
-      .update({ action_state: 'completed', completed_at: now.toISOString() })
-      .eq('tenant_id', tenantId).eq('id', action.id).eq('action_state', 'pending'),
-    'Could not complete expiry journal');
+    guard();
+    await mutate('owner.expiry_update', 'Complete expiry journal', {
+      table: 'membership_expiry_action', values: { action_state: 'completed', completed_at: now.toISOString() },
+      filters: [['eq', 'tenant_id', tenantId], ['eq', 'id', action.id], ['eq', 'action_state', 'pending']],
+    });
     enforced++;
     if (results) results.processed = (results.processed || 0) + 1;
     return true;
   }
   async function processHistory(history) {
-    if (!candidate(history)) return;
+    if (!candidate(history)) { skip(`History ${history.id} is not an expired annual non-recurring candidate.`); return; }
     const config = history.commitment_snapshot?.config || configs.get(history.config_id);
     if (!config) throw new Error(`Expiry policy missing for history ${history.id}`);
     if (config.start_mode === 'immediate' && !history.commitment_snapshot) {
+      trace({ stage: 'annual-expiry', status: 'blocked', reason: 'Legacy rolling term has no trusted commitment; expiry was not guessed.' });
       results?.details?.push({ tenantId, historyId: history.id, status: 'review_required',
         reason: 'Legacy rolling term has no trusted commitment; expiry was not guessed.' });
       return;
     }
     const policy = normalizeAnnualRenewalConfig(config);
-    if (!policy.disableLogin && !policy.changeRole) return;
+    if (!policy.disableLogin && !policy.changeRole) { skip('Expiry policy does not disable login or change roles.'); return; }
     const lifecycle = await resolveAnnualRenewal(client, { tenantId, history, config, now });
-    if (!lifecycle.applicable || lifecycle.state !== 'expired') return;
+    if (!lifecycle.applicable || lifecycle.state !== 'expired') { skip(`Annual lifecycle is ${lifecycle.state || 'not applicable'}.`); return; }
     if (await renewed(history, lifecycle.term)) {
       await markHistory(history, 'renewed');
       return;
@@ -232,7 +263,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     if (cursor.historyType === 'member') {
       const member = await read(() => client.from('member').select(MEMBER_FIELDS)
         .eq('tenant_id', tenantId).eq('id', history.member_id).maybeSingle(), 'Could not load member');
-      if (!member || await protectedMember(member, history)) return;
+      if (!member || await protectedMember(member, history)) { skip('Member missing or protected by pause, administrator role or current inherited membership.'); return; }
       await enforce(member, history, config, true);
       await markHistory(history, 'expired');
       return;
@@ -261,6 +292,11 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
       const rows = await read(() => {
         let query = client.from(TABLES[cursor.historyType]).select('*').eq('tenant_id', tenantId)
           .is('expiry_enforced_at', null).order('id', { ascending: true }).limit(PAGE_SIZE);
+        if (options.owner) {
+          const column = cursor.historyType === 'member' ? 'member_id' : 'organization_id';
+          if (!options.owner[column]) return Promise.resolve({ data: [] });
+          query = query.eq(column, options.owner[column]);
+        }
         if (cursor.afterId) query = query.gt('id', cursor.afterId);
         return query;
       }, 'Could not load expiry candidates');

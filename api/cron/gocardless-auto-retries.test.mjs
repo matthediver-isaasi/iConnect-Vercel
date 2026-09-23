@@ -10,7 +10,8 @@ test('automatic retry sweep is fail-closed, bounded, deterministic, and auditabl
   assert.match(source, /\.order\('auto_retry_next_at', \{ ascending: true \}\)/);
   assert.match(source, /\.order\('id', \{ ascending: true \}\)/);
   assert.match(source, /\.limit\(MAX_ROWS\)/);
-  assert.match(source, /retryPaymentSafely/);
+  assert.match(source, /runRetries\(\{ db: supabase, plan, now, getGc, effects \}\)/);
+  assert.match(source, /selectDueRetries\(supabase/);
   assert.match(source, /task_name: 'gocardless_auto_retries'/);
   assert.match(source, /scheduled_task_log/);
 });

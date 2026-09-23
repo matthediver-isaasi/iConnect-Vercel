@@ -9,6 +9,8 @@ import { readFile } from 'node:fs/promises';
 import { canTransition, applyStatusTransition, STATUS } from './gocardlessState.js';
 import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction, dynamicPaymentEmailContext } from './gocardlessWebhookProcessor.js';
 import { buildIdempotencyKey } from './gocardless.js';
+import { reconcileAgreement, reconcilePayment } from './directDebitReconciliationPipeline.js';
+import { liveReconciliationEffects } from '../cron/reconcile-gocardless.js';
 
 test('confirmed GC catch-up amount mismatch rejects before period allocation or intent completion', () => {
   const periods = [{ id: 'period-1', settled_at: null }];
@@ -97,10 +99,48 @@ for (const action of ['failed', 'cancelled', 'charged_back', 'late_failure_settl
 
 test('GoCardless reconciliation replays fulfilled and payment lifecycle processors', async () => {
   const source = await readFile(new URL('../cron/reconcile-gocardless.js', import.meta.url), 'utf8');
-  assert.match(source, /if\s*\(\s*\['active',\s*'reinstated'\]\.includes\(mandate\?\.status\)\s*\)/);
-  assert.match(source, /processGocardlessEvent\s*\(\s*\{\s*[\s\S]*resource_type:\s*'billing_requests'/);
-  assert.match(source, /processGocardlessEvent\s*\(\s*\{\s*[\s\S]*resource_type:\s*'payments'/);
-  assert.match(source, /reconcile:payment:/);
+  assert.match(source, /processEvent = processGocardlessEvent/);
+  assert.match(source, /stage\.run\(ctx, row\)/);
+  const now = new Date('2026-10-01T00:00:00Z');
+  const calls = [];
+  const db = makeFakeDb({ gocardless_payments: [{
+    id: 'local-payment', tenant_id: 'tenant', status: 'submitted', updated_at: '2026-09-01',
+  }] });
+  let mandateStatus = 'active';
+  const gc = {
+    getBillingRequest: async () => ({ status: 'fulfilled', links: { mandate_request_mandate: 'MD1' } }),
+    getMandate: async () => ({ status: mandateStatus }),
+    getPayment: async () => ({ status: 'confirmed', links: { mandate: 'MD1' } }),
+  };
+  const getGc = async tenant => { assert.equal(tenant, 'tenant'); return gc; };
+  const effects = liveReconciliationEffects({
+    db, getGc, processEvent: async (event, dependencies) => {
+      assert.equal(dependencies.db, db);
+      assert.equal(dependencies.gc, gc);
+      calls.push(event);
+      return { handled: true };
+    },
+  });
+  const ctx = { db, getGc, effects, now };
+  const agreement = { id: 'agreement', tenant_id: 'tenant', status: 'mandate_pending',
+    gocardless_billing_request_id: 'BR1', gocardless_mandate_id: 'MD1' };
+  for (const status of ['active', 'reinstated']) {
+    mandateStatus = status;
+    await reconcileAgreement(ctx, agreement);
+    assert.equal(calls.at(-1).resource_type, 'billing_requests');
+    assert.equal(calls.at(-1).action, 'fulfilled');
+    assert.equal(calls.at(-1).links.billing_request, 'BR1');
+  }
+  mandateStatus = 'pending_submission';
+  await reconcileAgreement(ctx, agreement);
+  assert.equal(calls.length, 2, 'pending mandates must not replay activation');
+  await reconcilePayment(ctx, { id: 'local-payment', tenant_id: 'tenant',
+    gocardless_payment_id: 'PM1', status: 'submitted', updated_at: '2026-09-01' });
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].resource_type, 'payments');
+  assert.equal(calls[2].action, 'confirmed');
+  assert.equal(calls[2].id, 'reconcile:payment:PM1:confirmed');
+  assert.equal(calls[2].links.payment, 'PM1');
 });
 
 // ---------------------------------------------------------------------------

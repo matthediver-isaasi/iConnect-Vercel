@@ -1,6 +1,7 @@
 // Provider-neutral monthly post-grace debt contract.  Access/escalation is
 // intentionally not considered here: dd_arrears_policy remains authoritative.
 import { randomUUID } from 'node:crypto';
+import { monthlyAccrualOperation } from './gocardlessArrearsPipeline.js';
 export const MONTHLY_POST_GRACE_COLLECTION_POLICIES = Object.freeze([
   'stop_collecting', 'continue_catch_up',
 ]);
@@ -172,15 +173,12 @@ export async function failMonthlyCollectionIntent({
 }
 
 export async function accrueFailedMonthlyPeriod({ tenantId, plan, duePeriod, paymentReference = null, db }) {
-  if (!tenantId || !plan?.id || !duePeriod) throw new Error('tenantId, plan and duePeriod are required');
+  const operation = monthlyAccrualOperation({ tenantId, plan, duePeriod, paymentReference });
   // Existing deployments and lightweight webhook fakes may predate the
   // ledger. Do not break a payment webhook there; production RPC failures
   // remain hard failures.
   if (typeof db?.rpc !== 'function') return { created: false, skipped: 'ledger-unavailable' };
-  const { data, error } = await db.rpc('accrue_membership_monthly_arrears_period', {
-    p_tenant_id: tenantId, p_plan_id: plan.id, p_due_period: duePeriod,
-    p_amount_minor: plan.amount_minor, p_currency: plan.currency, p_payment_reference: paymentReference,
-  });
+  const { data, error } = await db.rpc(operation.payload.name, operation.payload.args);
   if (error?.code === '42883' || error?.code === '42P01') return { created: false, skipped: 'ledger-unavailable' };
   if (error) throw new Error(`accrue monthly arrears period failed: ${error.message}`);
   return Array.isArray(data) ? data[0] : data;

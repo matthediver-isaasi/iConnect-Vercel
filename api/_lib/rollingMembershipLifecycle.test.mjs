@@ -23,7 +23,7 @@ before(async () => {
   await mkdir(path.join(temporaryRoot, 'shared'));
   await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'));
-  for (const file of ['membershipSimulation.js', 'membershipConfigResolver.js', 'membershipYear.js', 'membershipReminders.js', 'membershipRenewalBudget.js', 'annualRenewalPolicy.js', 'annualMembershipExpiryEnforcement.js']) {
+  for (const file of ['membershipSimulation.js', 'membershipSimulationCore.js', 'membershipConfigResolverCore.js', 'discountHelperCore.js', 'vatOverrideHelperCore.js', 'selectionMatcher.js', 'membershipConfigResolver.js', 'membershipYear.js', 'membershipReminders.js', 'membershipRenewalBudget.js', 'annualRenewalPolicy.js', 'annualMembershipExpiryEnforcement.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   const stubs = {
@@ -44,7 +44,17 @@ before(async () => {
   };
   for (const [file, content] of Object.entries(stubs)) await writeFile(path.join(lib, file), content);
   ({ resolveRollingSimulationContext } = await import(pathToFileURL(path.join(lib, 'membershipSimulation.js'))));
-  ({ rollingReminderCandidates, claimRollingReminder, rollingReminderSendDate } = await import(pathToFileURL(path.join(lib, 'membershipReminders.js'))));
+  const reminders = await import(pathToFileURL(path.join(lib, 'membershipReminders.js')));
+  ({ rollingReminderCandidates, rollingReminderSendDate } = reminders);
+  claimRollingReminder = (client, record, now) => reminders.createMembershipReminders({
+    effects: { async perform(operation) {
+      assert.equal(operation.type, 'reminder.claim');
+      const p = operation.payload;
+      if (!p.prior) return client.from('membership_tier_reminder_send').insert({ ...p.identity, status: 'processing', sent_at: p.sentAt }).select('id, sent_at').maybeSingle();
+      return client.from('membership_tier_reminder_send').update({ status: 'processing', sent_at: p.sentAt, error: null })
+        .eq('id', p.prior.id).eq('tenant_id', p.identity.tenant_id).eq('status', p.prior.status).eq('sent_at', p.prior.sent_at).select('id, sent_at').maybeSingle();
+    } },
+  }).claimRollingReminder(client, record, now);
   ({ isCurrentMembershipProtection, hasSuccessfulNextTerm } = await import(pathToFileURL(path.join(lib, 'annualMembershipExpiryEnforcement.js'))));
 });
 after(async () => { await rm(temporaryRoot, { recursive: true, force: true }); });

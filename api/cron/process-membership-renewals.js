@@ -5,7 +5,7 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
-import { processTenantReminders } from '../_lib/membershipReminders.js';
+import { processTenantReminders } from '../_lib/membershipRemindersLive.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
@@ -22,10 +22,13 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { processTenantAnnualExpirySweep } from '../_lib/annualMembershipExpiryEnforcement.js';
+import { invalidateMemberSessions } from '../_lib/session.js';
 import { annualRecordSchedule, resolveEntityAnnualRenewalEligibility } from '../_lib/annualRenewalPolicy.js';
 import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
 import { runMembershipRenewals } from '../_lib/membershipRenewalRunner.js';
 import { renewalRows } from '../_lib/membershipRenewalBudget.js';
+import { selectScheduledActivations, runScheduledActivation } from '../_lib/directDebitOwnerPipeline.js';
+import { selectAnnualOwnerSettings, runAnnualOwnerRow } from '../_lib/annualOwnerRenewalPipeline.js';
 
 export function buildCronRollingFields(simResult, eligibility, addonTotals = { subtotal: 0, vat: 0, total: 0 }) {
   if (simResult.config?.start_mode !== 'immediate') return {};
@@ -66,7 +69,9 @@ export default async function handler(req, res) {
   const results = await runMembershipRenewals({
     db: supabase,
     pause: processPauseAutoRestarts,
-    expiry: processTenantAnnualExpirySweep,
+    expiry: (db, tenantId, results, now, options) => processTenantAnnualExpirySweep(db, tenantId, results, now, {
+      ...options, invalidateSessions: invalidateMemberSessions,
+    }),
     stages: [
       ['organisation-activation', activateScheduledRecords],
       ['member-activation', activateScheduledMemberRecords],
@@ -88,125 +93,46 @@ export default async function handler(req, res) {
 // start date. These rows were created with status='scheduled' and an invoice
 // already attached, so activation must NOT generate another invoice or email.
 async function activateScheduledRecords(tenantId, results) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
-
-  const rows = renewalRows(() => supabase
-    .from('organisation_membership_history')
-    .select('id, organization_id, membership_year, scheduled_activation_date, xero_invoice_id, accounting_invoice_id, payment_status, paid_at, final_cost, total_with_vat')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'scheduled')
-    .lte('scheduled_activation_date', todayStr),
+  const now = new Date();
+  const rows = renewalRows(() => selectScheduledActivations(supabase, tenantId, 'organisation', now),
   { control: results.__renewalControl, results, missingSchema: true });
-
   for await (const row of rows) {
-    const invoiceLessZeroDue = !row.xero_invoice_id
-      && !row.accounting_invoice_id
-      && canActivateScheduledMembershipWithoutInvoice(row);
-
-    // Advance zero-due rows have no accounting invoice by design. Their
-    // durable delivery may have failed after the original insert, so retry it
-    // before activation; a failure bubbles to the cron retry path.
-    if (invoiceLessZeroDue) {
-      await fireNewZeroDueMembershipPaidWorkflow({
-        table: 'organisation_membership_history',
-        row,
-        paidAt: row.paid_at,
-        source: 'cron_org_membership_zero_due',
-      });
-    }
-
-    // Defense in depth: an advance-invoiced row must have a linked invoice
-    // before we activate it. Activating a 'scheduled' row with no invoice would
-    // create a membership year that is active but never billed. The advance
-    // handler is strict (it rolls back when no invoice is produced), so this
-    // should not normally happen — but never silently activate an unbilled row.
-    if (!row.xero_invoice_id && !row.accounting_invoice_id && !invoiceLessZeroDue) {
-      results.skipped++;
-      results.details.push({
-        tenantId,
-        orgId: row.organization_id,
-        status: 'skipped',
-        reason: `Scheduled membership for ${row.membership_year} has no linked invoice — not activated (needs attention)`,
-      });
-      continue;
-    }
-
-    const { data: updated, error: upErr } = await supabase
-      .from('organisation_membership_history')
-      .update({ status: 'active', updated_at: new Date().toISOString() })
-      .eq('id', row.id)
-      .eq('status', 'scheduled')
-      .select('id');
-
-    if (upErr) {
-      results.errors++;
-      results.details.push({
-        tenantId,
-        orgId: row.organization_id,
-        status: 'error',
-        reason: `Failed to activate advance-invoiced record for ${row.membership_year}: ${upErr.message}`,
-      });
-      continue;
-    }
-
-    // Another run may have already flipped it (guarded by status='scheduled').
-    if (!updated || updated.length === 0) continue;
-
-    results.processed++;
-    results.details.push({
-      tenantId,
-      orgId: row.organization_id,
-      status: 'processed',
-      reason: `Activated advance-invoiced membership for ${row.membership_year} (no new invoice generated)`,
-    });
-
+    let outcome;
     try {
-      await supabase.from('organization_note').insert({
-        organization_id: row.organization_id,
-        member_id: null,
-        content: `[Membership Renewal - Scheduled Activation] Advance-invoiced membership for ${row.membership_year} activated on its start date. No new invoice was generated.`,
-        attachments: [],
-      });
-    } catch (noteErr) {
-      console.error('[cron/process-membership-renewals] Failed to create activation note (non-fatal):', noteErr.message);
+      outcome = await runScheduledActivation({ row, tenantId, scope: 'organisation', now,
+        effects: scheduledActivationEffects(supabase) });
+    } catch (error) {
+      if (error.code === 'RENEWAL_BUDGET_EXHAUSTED') throw error;
+      results.errors++;
+      results.details.push({ tenantId, orgId: row.organization_id, status: 'error',
+        reason: `Failed to activate advance-invoiced record for ${row.membership_year}: ${error.message}` });
+      continue;
     }
+    if (outcome.skipped) {
+      results.skipped++;
+      results.details.push({ tenantId, orgId: row.organization_id, status: 'skipped', reason: outcome.reason });
+      continue;
+    }
+    if (!outcome.activated) continue;
+    results.processed++;
+    results.details.push({ tenantId, orgId: row.organization_id, status: 'processed',
+      reason: `Activated advance-invoiced membership for ${row.membership_year} (no new invoice generated)` });
   }
 }
 
 async function activateScheduledMemberRecords(tenantId, results) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const rows = renewalRows(() => supabase
-    .from('member_membership_history')
-    .select('id, member_id, membership_year, payment_status, paid_at, final_cost, total_with_vat')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'scheduled')
-    .lte('scheduled_activation_date', todayStr),
+  const now = new Date();
+  const rows = renewalRows(() => selectScheduledActivations(supabase, tenantId, 'member', now),
   { control: results.__renewalControl, results, missingSchema: true });
   for await (const row of rows) {
-    const isPaid = row.payment_status === 'paid'
-      || !!row.paid_at
-      || Number(row.total_with_vat ?? row.final_cost ?? 0) <= 0;
-    if (!isPaid) {
+    const outcome = await runScheduledActivation({ row, tenantId, scope: 'member', now,
+      effects: scheduledActivationEffects(supabase) });
+    if (outcome.skipped) {
       results.skipped++;
-      results.details.push({
-        tenantId,
-        memberId: row.member_id,
-        status: 'skipped',
-        reason: `Scheduled membership for ${row.membership_year} is not paid — not activated`,
-      });
+      results.details.push({ tenantId, memberId: row.member_id, status: 'skipped', reason: outcome.reason });
       continue;
     }
-    const { data: updated, error: updateError } = await supabase
-      .from('member_membership_history')
-      .update({ status: 'active', annual_renewal_state: 'renewed', updated_at: new Date().toISOString() })
-      .eq('id', row.id)
-      .eq('tenant_id', tenantId)
-      .eq('status', 'scheduled')
-      .select('id');
-    if (updateError) throw updateError;
-    if (updated?.length) {
+    if (outcome.activated) {
       results.processed++;
       results.details.push({
         tenantId,
@@ -217,112 +143,81 @@ async function activateScheduledMemberRecords(tenantId, results) {
     }
   }
 }
+
+export function scheduledActivationEffects(db) {
+  return { async perform(operation) {
+    const payload = operation.payload;
+    if (operation.type === 'owner.zero_due_workflow') return fireNewZeroDueMembershipPaidWorkflow({ ...payload, client: db });
+    if (operation.type === 'owner.activate_scheduled') return db.from(payload.table).update(payload.values)
+      .eq('id', payload.id).eq('tenant_id', payload.tenantId).eq('status', 'scheduled').select('id');
+    if (operation.type === 'owner.activation_note') {
+      try { return await db.from('organization_note').insert(payload); }
+      catch (error) { console.error('[cron/process-membership-renewals] Failed to create activation note (non-fatal):', error.message); return null; }
+    }
+    throw new Error(`Unknown scheduled activation effect: ${operation.type}`);
+  } };
+}
 async function processTenantRenewals(tenantId, results) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  return processAnnualOwnerRows(tenantId, 'organisation', results);
+}
 
-  const invoicingRows = renewalRows(() => supabase
-    .from('organisation_membership_invoicing')
-    .select('organization_id, invoicing_mode, membership_year, invoice_date')
-    .eq('tenant_id', tenantId)
-    .in('invoicing_mode', ['automatic', 'scheduled']),
-  { key: 'organization_id', control: results.__renewalControl, results, missingSchema: true });
-
-  for await (const invoicingSetting of invoicingRows) {
-    const orgId = invoicingSetting.organization_id;
-    const mode = invoicingSetting.invoicing_mode;
-    const targetYear = invoicingSetting.membership_year || null;
-
+async function processAnnualOwnerRows(tenantId, scope, results) {
+  const now = new Date();
+  const column = scope === 'member' ? 'member_id' : 'organization_id';
+  const rows = renewalRows(() => selectAnnualOwnerSettings(supabase, tenantId, scope),
+    { key: column, control: results.__renewalControl, results, missingSchema: true });
+  for await (const setting of rows) {
     try {
-      const simResult = await simulateMembershipForOrg(tenantId, orgId, {
-        source: 'cron',
-        mode,
-        targetYear,
+      await runAnnualOwnerRow({ db: supabase, tenantId, scope, setting, now,
+        effects: annualOwnerEffects(results),
+        trace: stage => {
+          if (stage.status === 'skipped') results.skipped++;
+          results.details.push({ tenantId, [scope === 'member' ? 'memberId' : 'orgId']: setting[column], ...stage });
+        },
       });
-
-      if (!simResult.success) {
-        results.skipped++;
-        results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: simResult.error || 'Simulation failed' });
-        continue;
-      }
-
-      if (!simResult.goLiveDate) {
-        results.skipped++;
-        results.details.push({
-          tenantId,
-          orgId,
-          orgName: simResult.org?.name || orgId,
-          mode,
-          status: 'skipped',
-          reason: 'No Go Live date set - organisation cannot be auto-renewed without a go-live date',
-        });
-        console.log(`[cron/process-membership-renewals] Skipped org ${simResult.org?.name || orgId}: no Go Live date`);
-        continue;
-      }
-
-      const membershipYear = simResult.membershipYear;
-      const yearStart = new Date(membershipYear.start);
-      yearStart.setHours(0, 0, 0, 0);
-      const renewalDue = today >= yearStart;
-
-      const approvalCheck = await checkCronApproval(tenantId, orgId, membershipYear.label);
-      if (approvalCheck.required && !approvalCheck.approved) {
-        results.skipped++;
-        results.details.push({ tenantId, orgId, orgName: simResult.org?.name || orgId, mode, status: 'skipped', reason: 'Fees not yet approved' });
-        continue;
-      }
-
-      if (mode === 'automatic') {
-        if (!renewalDue) {
-          results.skipped++;
-          continue;
-        }
-        if (simResult.existingRecord) {
-          results.skipped++;
-          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${membershipYear.label} already exists` });
-          continue;
-        }
-        await processOrgRenewal(tenantId, orgId, simResult, mode, true, results);
-      } else if (mode === 'scheduled') {
-        if (!renewalDue && !simResult.existingRecord) {
-          results.skipped++;
-          continue;
-        }
-
-        if (!simResult.existingRecord && renewalDue) {
-          const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await processOrgRenewal(tenantId, orgId, simResult, mode, invoiceDue, results);
-        } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id && !simResult.existingRecord.accounting_invoice_id) {
-          const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await invoiceExistingRecord(tenantId, orgId, simResult, results, invoiceDue);
-        } else {
-          results.skipped++;
-          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${membershipYear.label} already exists with invoice` });
-        }
-      }
-    } catch (orgErr) {
-      console.error(`[cron/process-membership-renewals] Error processing org ${orgId}:`, orgErr);
+    } catch (error) {
+      if (error.code === 'RENEWAL_BUDGET_EXHAUSTED') throw error;
       results.errors++;
-      results.details.push({ tenantId, orgId, mode, status: 'error', reason: orgErr.message });
+      results.details.push({ tenantId, [scope === 'member' ? 'memberId' : 'orgId']: setting[column], status: 'error', reason: error.message });
     }
   }
 }
 
-function isInvoiceDateReached(invoicingSetting, today) {
-  if (!invoicingSetting.invoice_date) return false;
-  const scheduledDate = new Date(invoicingSetting.invoice_date);
-  scheduledDate.setHours(0, 0, 0, 0);
-  return today >= scheduledDate;
+export function annualOwnerEffects(results, db = supabase) {
+  return { async perform(operation) {
+    const p = operation.payload;
+    if (operation.type === 'owner.annual_zero_workflow') {
+      const result = await fireNewZeroDueMembershipPaidWorkflow({ ...p, client: db });
+      results.processed++;
+      return result;
+    }
+    if (operation.type === 'owner.annual_history_insert') {
+      const inserted = await db.from(p.table).insert(p.values).select().single();
+      if (inserted.error?.code === '23505') { results.skipped++; return { duplicate: true }; }
+      if (inserted.error) throw new Error(`Failed to create history record: ${inserted.error.message}`);
+      const continuation = p.scope === 'member' ? processMemberRenewal : processOrgRenewal;
+      await continuation(p.values.tenant_id, p.ownerId, p.sim, p.mode, p.invoiceDue, results, inserted.data, p);
+      return inserted;
+    }
+    if (operation.type === 'owner.annual_invoice') {
+      const provider = await getAccountingProvider(p.tenantId);
+      const invoice = await provider.createMembershipInvoice(p.invoice);
+      const continuation = p.scope === 'member' ? invoiceExistingMemberRecord : invoiceExistingRecord;
+      await continuation(p.tenantId, p.ownerId, p.sim, results, p.invoiceDue, { invoice, provider, record: p.record });
+      return invoice;
+    }
+    throw new Error(`Unknown annual owner effect: ${operation.type}`);
+  } };
 }
 
-async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoiceDue = true) {
+async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoiceDue = true, prepared = null) {
   const existingRecord = simResult.existingRecord;
   if (!existingRecord) return;
 
   const org = simResult.org;
   if (!org) return;
 
-  const { data: record } = await supabase
+  const { data: record } = prepared?.record ? { data: prepared.record } : await supabase
     .from('organisation_membership_history')
     .select('*')
     .eq('id', existingRecord.id)
@@ -331,7 +226,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
   if (!record) return;
 
   const existingAddonLines = await loadAddonLines(tenantId, orgId, record.membership_year);
-  if (record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
+  if (!prepared && record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
     && isZeroDueExistingMembership(record)) {
     await fireNewZeroDueMembershipPaidWorkflow({
       table: 'organisation_membership_history',
@@ -351,7 +246,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
   // Task #3633: a row linked to a per-instalment monthly plan is invoiced
   // one small invoice per collection — never raise an annual invoice for it.
   try {
-    if (await shouldSuppressAnnualInvoice(record)) {
+    if (!prepared && await shouldSuppressAnnualInvoice(record)) {
       results.skipped++;
       results.details.push({ tenantId, orgId, status: 'skipped', reason: `Membership ${record.membership_year} is on a per-instalment monthly plan — annual invoice suppressed` });
       return;
@@ -405,7 +300,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
     : Math.round(parseFloat(record.final_cost) * 100) / 100;
 
   let xeroInvoice = null;
-  const provider = await getAccountingProvider(tenantId);
+  const provider = prepared?.provider || await getAccountingProvider(tenantId);
   const providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
@@ -414,7 +309,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
     const resolvedAddr = await resolveMembershipInvoiceAddress({
       db: supabase, row: record, config: simResult.config, entityId: orgId, entityType: 'organization',
     });
-    xeroInvoice = await provider.createMembershipInvoice({
+    xeroInvoice = prepared ? prepared.invoice : await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
       invoicingEmail: org.invoicing_email || null,
@@ -569,7 +464,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
   console.log(`[cron/process-membership-renewals] Scheduled invoice: ${org.name} for ${record.membership_year}, cost: ${parseFloat(record.final_cost).toFixed(2)}, invoice: ${xeroInvoice?.invoice_number || 'none'}`);
 }
 
-async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice, results) {
+async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice, results, preparedRecord = null, preparedContext = null) {
   const org = simResult.org;
   if (!org) {
     results.skipped++;
@@ -611,14 +506,14 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
 
   // Add-ons and VAT are part of the amount due. Decide before touching PO or
   // any other invoice-only data.
-  const addonLines = await loadAddonLines(tenantId, orgId, membershipYear.label);
-  const addonTotals = computeAddonTotals(addonLines);
-  const zeroDue = isZeroDueMembership(simResult, addonTotals);
-  const paidAt = zeroDue ? new Date().toISOString() : null;
+  const addonLines = preparedContext?.addonLines || await loadAddonLines(tenantId, orgId, membershipYear.label);
+  const addonTotals = preparedContext?.addons || computeAddonTotals(addonLines);
+  const zeroDue = preparedContext?.zeroDue ?? isZeroDueMembership(simResult, addonTotals);
+  const paidAt = preparedRecord?.paid_at || (zeroDue ? new Date().toISOString() : null);
 
-  let poNumber = null;
+  let poNumber = preparedRecord?.purchase_order_number || null;
   try {
-    if (!zeroDue) {
+    if (!zeroDue && !preparedRecord) {
       const { data: invoicingSetting } = await supabase
         .from('organisation_membership_invoicing')
         .select('purchase_order_number')
@@ -637,7 +532,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   // mode) — because invoiceExistingRecord later derives the membership fee
   // line by subtracting the addon subtotal from record.final_cost. If the
   // record were stored without add-ons, that subtraction would underbill.
-  const { data: record, error: insertError } = await supabase
+  const { data: record, error: insertError } = preparedRecord ? { data: preparedRecord } : await supabase
     .from('organisation_membership_history')
     .insert({
       tenant_id: tenantId,
@@ -915,90 +810,7 @@ async function checkCronApproval(tenantId, orgId, membershipYearLabel) {
 }
 
 async function processTenantMemberRenewals(tenantId, results) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const invoicingRows = renewalRows(() => supabase
-    .from('member_membership_invoicing')
-    .select('member_id, invoicing_mode, membership_year, invoice_date')
-    .eq('tenant_id', tenantId)
-    .in('invoicing_mode', ['automatic', 'scheduled']),
-  { key: 'member_id', control: results.__renewalControl, results, missingSchema: true });
-
-  // Task #3586: paused members are excluded from renewal invoicing entirely.
-  const pausedMemberIds = await getPausedMemberIdSet(tenantId);
-
-  for await (const invoicingSetting of invoicingRows) {
-    const memberId = invoicingSetting.member_id;
-    if (pausedMemberIds.has(memberId)) {
-      results.skipped++;
-      results.details.push({ tenantId, memberId, type: 'member', status: 'skipped', reason: 'Membership paused' });
-      continue;
-    }
-    const mode = invoicingSetting.invoicing_mode;
-    const targetYear = invoicingSetting.membership_year || null;
-
-    try {
-      const simResult = await simulateMembershipForMember(tenantId, memberId, {
-        source: 'cron',
-        mode,
-        targetYear,
-      });
-
-      if (!simResult.success) {
-        results.skipped++;
-        results.details.push({ tenantId, memberId, mode, type: 'member', status: 'skipped', reason: simResult.error || 'Simulation failed' });
-        continue;
-      }
-
-      const memberName = simResult.member?.name || `${simResult.member?.first_name || ''} ${simResult.member?.last_name || ''}`.trim() || 'Unknown Member';
-
-      const membershipYear = simResult.membershipYear;
-      const yearStart = new Date(membershipYear.start);
-      yearStart.setHours(0, 0, 0, 0);
-      const renewalDue = today >= yearStart;
-
-      const approvalCheck = await checkMemberCronApproval(tenantId, memberId, membershipYear.label);
-      if (approvalCheck.required && !approvalCheck.approved) {
-        results.skipped++;
-        results.details.push({ tenantId, memberId, memberName, mode, type: 'member', status: 'skipped', reason: 'Fees not yet approved' });
-        continue;
-      }
-
-      if (mode === 'automatic') {
-        if (!renewalDue) {
-          results.skipped++;
-          continue;
-        }
-        if (simResult.existingRecord) {
-          results.skipped++;
-          results.details.push({ tenantId, memberId, mode, type: 'member', status: 'skipped', reason: `Record for ${membershipYear.label} already exists` });
-          continue;
-        }
-        await processMemberRenewal(tenantId, memberId, simResult, mode, true, results);
-      } else if (mode === 'scheduled') {
-        if (!renewalDue && !simResult.existingRecord) {
-          results.skipped++;
-          continue;
-        }
-
-        if (!simResult.existingRecord && renewalDue) {
-          const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await processMemberRenewal(tenantId, memberId, simResult, mode, invoiceDue, results);
-        } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id) {
-          const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await invoiceExistingMemberRecord(tenantId, memberId, simResult, results, invoiceDue);
-        } else {
-          results.skipped++;
-          results.details.push({ tenantId, memberId, mode, type: 'member', status: 'skipped', reason: `Record for ${membershipYear.label} already exists with invoice` });
-        }
-      }
-    } catch (memberErr) {
-      console.error(`[cron/process-membership-renewals] Error processing member ${memberId}:`, memberErr);
-      results.errors++;
-      results.details.push({ tenantId, memberId, mode, type: 'member', status: 'error', reason: memberErr.message });
-    }
-  }
+  return processAnnualOwnerRows(tenantId, 'member', results);
 }
 
 async function checkMemberCronApproval(tenantId, memberId, membershipYearLabel) {
@@ -1035,7 +847,7 @@ async function checkMemberCronApproval(tenantId, memberId, membershipYearLabel) 
   }
 }
 
-async function processMemberRenewal(tenantId, memberId, simResult, mode, createInvoice, results) {
+async function processMemberRenewal(tenantId, memberId, simResult, mode, createInvoice, results, preparedRecord = null, preparedContext = null) {
   const member = simResult.member;
   if (!member) {
     results.skipped++;
@@ -1079,12 +891,12 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
   const customDiscountTotal = simResult.customDiscountTotal || 0;
   const customDiscountDetails = simResult.customDiscountDetails || [];
 
-  const zeroDue = isZeroDueMembership(simResult);
-  const paidAt = zeroDue ? new Date().toISOString() : null;
+  const zeroDue = preparedContext?.zeroDue ?? isZeroDueMembership(simResult);
+  const paidAt = preparedRecord?.paid_at || (zeroDue ? new Date().toISOString() : null);
 
-  let poNumber = null;
+  let poNumber = preparedRecord?.purchase_order_number || null;
   try {
-    if (!zeroDue) {
+    if (!zeroDue && !preparedRecord) {
       const { data: invoicingSetting } = await supabase
         .from('member_membership_invoicing')
         .select('purchase_order_number')
@@ -1098,7 +910,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
     console.log(`[cron/process-membership-renewals] Could not fetch PO for member ${memberId} (non-fatal):`, poErr.message);
   }
 
-  const { data: record, error: insertError } = await supabase
+  const { data: record, error: insertError } = preparedRecord ? { data: preparedRecord } : await supabase
     .from('member_membership_history')
     .insert({
       tenant_id: tenantId,
@@ -1286,7 +1098,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
   console.log(`[cron/process-membership-renewals] Renewed member: ${memberName} for ${membershipYear.label} (year ${yearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
 }
 
-async function invoiceExistingMemberRecord(tenantId, memberId, simResult, results, invoiceDue = true) {
+async function invoiceExistingMemberRecord(tenantId, memberId, simResult, results, invoiceDue = true, prepared = null) {
   const existingRecord = simResult.existingRecord;
   if (!existingRecord) return;
 
@@ -1295,7 +1107,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
 
   const memberName = member.name || `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Member';
 
-  const { data: record } = await supabase
+  const { data: record } = prepared?.record ? { data: prepared.record } : await supabase
     .from('member_membership_history')
     .select('*')
     .eq('id', existingRecord.id)
@@ -1303,7 +1115,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
 
   if (!record) return;
 
-  if (record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
+  if (!prepared && record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
     && isZeroDueExistingMembership(record)) {
     await fireNewZeroDueMembershipPaidWorkflow({
       table: 'member_membership_history',
@@ -1322,7 +1134,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
 
   // Task #3633: per-instalment monthly plan rows never get an annual invoice.
   try {
-    if (await shouldSuppressAnnualInvoice(record)) {
+    if (!prepared && await shouldSuppressAnnualInvoice(record)) {
       results.skipped++;
       results.details.push({ tenantId, memberId, type: 'member', status: 'skipped', reason: `Membership ${record.membership_year} is on a per-instalment monthly plan — annual invoice suppressed` });
       return;
@@ -1361,7 +1173,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
   }
 
   let xeroInvoice = null;
-  const memberProvider2 = await getAccountingProvider(tenantId);
+  const memberProvider2 = prepared?.provider || await getAccountingProvider(tenantId);
   const memberProviderLabel2 = memberProvider2?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
@@ -1370,7 +1182,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     const resolvedMemberAddr2 = await resolveMembershipInvoiceAddress({
       db: supabase, row: record, config: simResult.config, entityId: memberId, entityType: 'member',
     });
-    xeroInvoice = await memberProvider2.createMembershipInvoice({
+    xeroInvoice = prepared ? prepared.invoice : await memberProvider2.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,

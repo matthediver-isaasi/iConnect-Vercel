@@ -9,8 +9,8 @@
 // Guarded by CRON_SECRET; logs a scheduled_task_log row per run.
 
 import { supabase } from '../_lib/database.js';
-import { applyArrearsPolicy } from '../_lib/gocardlessArrears.js';
-import { STATUS } from '../_lib/gocardlessState.js';
+import { liveArrearsEffects } from '../_lib/gocardlessArrears.js';
+import { runArrearsAccess, runArrearsMonthly, selectArrearsAccess, selectArrearsMonthly } from '../_lib/gocardlessArrearsPipeline.js';
 import {
   accrueFailedMonthlyPeriod,
   executePostGraceCollection,
@@ -29,10 +29,7 @@ export async function runMonthlyCollectionSweep({
   execute = executePostGraceCollection,
 } = {}) {
   const counters = { scanned: 0, created: 0, stopped: 0, errors: 0, details: [] };
-  const { data: plans, error } = await db.from('membership_payment_plans').select('*')
-    .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
-    .neq('provider', 'stripe').eq('interval_unit', 'monthly')
-    .not('grace_expires_at', 'is', null).lte('grace_expires_at', nowIso)
+  const { data: plans, error } = await selectArrearsMonthly(db.from('membership_payment_plans').select('*'), nowIso)
     .order('grace_expires_at', { ascending: true }).order('id', { ascending: true })
     .limit(maxRows);
   if (error) throw new Error(`load monthly collection sweep failed: ${error.message}`);
@@ -43,13 +40,23 @@ export async function runMonthlyCollectionSweep({
         .from('membership_billing_agreements').select('*')
         .eq('id', plan.billing_agreement_id).eq('tenant_id', plan.tenant_id).maybeSingle();
       if (agreementError || !agreement) throw new Error(agreementError?.message || 'billing agreement not found');
-      await accrue({
-        tenantId: plan.tenant_id, plan,
-        duePeriod: String(plan.failed_due_period || plan.grace_expires_at).slice(0, 10),
-        paymentReference: plan.last_payment_id || null, db,
+      const outcome = await runArrearsMonthly({
+        db, plan, agreement, now: new Date(nowIso), getGc,
+        effects: {
+          async perform(operation) {
+            if (operation.type === 'arrears_accrual') {
+              const args = operation.payload.args;
+              return accrue({ tenantId: args.p_tenant_id, plan, duePeriod: args.p_due_period,
+                paymentReference: args.p_payment_reference, db });
+            }
+            if (operation.type === 'arrears_collection_continuation') {
+              const gc = await getGc(plan.tenant_id, { db });
+              return execute({ plan: operation.payload.plan, agreement: operation.payload.agreement, db, gc });
+            }
+            throw new Error(`Unsupported monthly sweep effect: ${operation.type}`);
+          },
+        },
       });
-      const gc = await getGc(plan.tenant_id, { db });
-      const outcome = await execute({ plan, agreement, db, gc });
       if (outcome.created) counters.created++;
       if (outcome.stopped) counters.stopped++;
       counters.details.push({ planId: plan.id, ...outcome });
@@ -79,13 +86,9 @@ export default async function handler(req, res) {
   const nowIso = new Date().toISOString();
 
   try {
-    const { data: plans, error } = await supabase
+    const { data: plans, error } = await selectArrearsAccess(supabase
       .from('membership_payment_plans')
-      .select('*')
-      .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
-      .or('arrears_policy_applied.is.null,arrears_policy_applied.eq.restrict')
-      .not('grace_expires_at', 'is', null)
-      .lte('grace_expires_at', nowIso)
+      .select('*'), nowIso)
       .order('grace_expires_at', { ascending: true })
       .limit(MAX_ROWS);
     if (error) throw new Error(`load expired-grace plans failed: ${error.message}`);
@@ -94,30 +97,18 @@ export default async function handler(req, res) {
       try {
         let agreement = null;
         if (plan.billing_agreement_id) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('membership_billing_agreements')
             .select('*')
             .eq('id', plan.billing_agreement_id)
+            .eq('tenant_id', plan.tenant_id)
             .maybeSingle();
+          if (error) throw new Error(`load arrears agreement failed: ${error.message}`);
           agreement = data;
         }
 
-        // Live tier config (policy is operational, unlike snapshot grace).
-        let tierConfig = null;
-        const configId = agreement?.metadata?.dd?.config_id
-          || agreement?.metadata?.card?.config_id
-          || null;
-        if (configId) {
-          const { data } = await supabase
-            .from('membership_tier_config')
-            .select('id, tenant_id, dd_arrears_policy, dd_arrears_fallback_role_id')
-            .eq('id', configId)
-            .eq('tenant_id', plan.tenant_id)
-            .maybeSingle();
-          tierConfig = data;
-        }
-
-        const outcome = await applyArrearsPolicy({ plan, agreement, tierConfig, source: 'system' });
+        const outcome = await runArrearsAccess({ db: supabase, plan, agreement,
+          now: new Date(nowIso), effects: liveArrearsEffects(supabase) });
         const restrictionRoleAssigned = outcome.policy === 'restrict'
           && (outcome.roleAssignment?.assigned || 0) > 0;
         if (outcome.applied || restrictionRoleAssigned) {

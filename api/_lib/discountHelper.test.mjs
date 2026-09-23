@@ -1,21 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
-import { matchesSelections } from './selectionMatcher.js';
-
-// Load the real helper with only its runtime dependencies replaced.  Keeping
-// matchesSelections as an injected dependency lets this test exercise the
-// helper before/after the shared matcher import is introduced.
-const source = readFileSync(new URL('./discountHelper.js', import.meta.url), 'utf8');
-function loadHelper(db) {
-  return new Function('supabase', 'matchesSelections', source
-    .replace("import { supabase } from './database.js';", '')
-    .replace("import { matchesSelections } from './selectionMatcher.js';", '')
-    .replaceAll('export async function', 'async function')
-    .replaceAll('export function', 'function')
-    + '\nreturn { evaluateDiscountsForOrg, evaluateDiscountsForEntity, applyDiscountsToAnnualCost };'
-  )(db, matchesSelections);
-}
+import { createDiscountHelper as loadHelper } from './discountHelperCore.js';
 
 const CONFIG_ID = 'config-4380';
 const TENANT_ID = 'tenant-4380';

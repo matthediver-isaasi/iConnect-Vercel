@@ -10,7 +10,12 @@ before(async () => {
   temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'renewal-stage-budgets-'));
   root = path.join(temporaryRoot, 'api', '_lib');
   await mkdir(root, { recursive: true });
+  // Copy the refactored source graph before overlaying the same fail-closed
+  // effect mocks. Pure orchestration now has several capability-only modules.
+  await cp(new URL('./', import.meta.url), root, { recursive: true });
+  await cp(new URL('./monthlyRenewalTerms.js', import.meta.url), path.join(root, 'monthlyRenewalTerms.fixture.js'));
   await mkdir(path.join(temporaryRoot, 'shared'));
+  await cp(new URL('../../shared/', import.meta.url), path.join(temporaryRoot, 'shared'), { recursive: true });
   await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
   await cp(new URL('../../shared/gocardlessCollectionPolicy.js', import.meta.url), path.join(temporaryRoot, 'shared', 'gocardlessCollectionPolicy.js'));
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
@@ -30,7 +35,6 @@ before(async () => {
     'reminderPaymentQuote.js': `export const requestsReminderPaymentLink = () => false; ${exports(['resolveReminderPaymentQuote'])}`,
     'membershipFeeTokenEmail.js': exports(['prepareMembershipFeeToken']),
     'membershipAddons.js': exports(['loadAddonLines', 'computeAddonTotals', 'buildAddonDisplayLines']),
-    'annualRenewalPolicy.js': exports(['deriveAnnualTerm']),
     'emailService.js': exports(['replacePlaceholders']),
     'transactionalInbox.js': exports(['buildInboxDelivery', 'recordTransactionalInboxMessage', 'resolveCommunicationCategoryIdForLabel']),
     'gocardlessDirectDebit.js': exports(['resolveDdOffer', 'buildAgreementSnapshot', 'findReusableMandate', 'ensureSubscriptionForAgreement', 'activateMembershipForAgreement']),
@@ -41,14 +45,16 @@ before(async () => {
     'rollingMonthlyRenewal.js': `export const monthlySnapshotCommitment = () => null;
       let failure; export function setTermError(error) { failure = error; }
       export const assertTrustedMonthlyTerm = async () => { if (failure) throw failure; };
-      ${exports(['monthlyRenewalIdentity', 'simulateMonthlySuccessor', 'reserveRollingMonthlyRenewal', 'completeRollingMonthlySetup', 'sendRollingMonthlyNotice', 'assertMonthlyCollectionsWithinTerm'])}`,
+      ${exports(['monthlyRenewalIdentity', 'monthlyCommitmentFields', 'monthlyInstalmentCount', 'simulateMonthlySuccessor', 'reserveRollingMonthlyRenewal', 'completeRollingMonthlySetup', 'sendRollingMonthlyNotice', 'assertMonthlyCollectionsWithinTerm'])}`,
+    'monthlyRenewalTerms.js': `export { monthlySnapshotCommitment, monthlyRenewalIdentity, getPausedMemberIdSet } from './monthlyRenewalTerms.fixture.js';
+      export { assertTrustedMonthlyTerm } from './rollingMonthlyRenewal.js';`,
   };
   for (const [name, content] of Object.entries(stubs)) await writeFile(path.join(root, name), content);
   ({ setDatabase } = await import(pathToFileURL(path.join(root, 'database.js'))));
   ({ setSimulationError } = await import(pathToFileURL(path.join(root, 'membershipSimulation.js'))));
   ({ setTermError } = await import(pathToFileURL(path.join(root, 'rollingMonthlyRenewal.js'))));
   pause = await import(pathToFileURL(path.join(root, 'memberPause.js')));
-  reminders = await import(pathToFileURL(path.join(root, 'membershipReminders.js')));
+  reminders = await import(pathToFileURL(path.join(root, 'membershipRemindersLive.js')));
   dd = await import(pathToFileURL(path.join(root, 'gocardlessDdRenewals.js')));
   card = await import(pathToFileURL(path.join(root, 'stripeCardRenewals.js')));
 });

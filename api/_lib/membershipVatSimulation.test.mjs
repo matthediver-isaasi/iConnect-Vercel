@@ -190,6 +190,10 @@ before(async () => {
   await cp(new URL('./membershipSimulation.js', import.meta.url), path.join(libRoot, 'membershipSimulation.js'), { recursive: true });
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'), { recursive: true });
   for (const file of [
+    'membershipSimulationCore.js',
+    'membershipConfigResolverCore.js',
+    'discountHelperCore.js',
+    'vatOverrideHelperCore.js',
     'discountHelper.js',
     'selectionMatcher.js',
     'vatOverrideHelper.js',

@@ -1,17 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { matchesSelections } from './selectionMatcher.js';
-
-// Load the real helper with only the database dependency replaced.
-const source = readFileSync(new URL('./vatOverrideHelper.js', import.meta.url), 'utf8');
-function loadHelper(db) {
-  return new Function('supabase', 'matchesSelections', source
-    .replace("import { supabase } from './database.js';", '')
-    .replace("import { matchesSelections } from './selectionMatcher.js';", '')
-    .replaceAll('export async function', 'async function')
-    + '\nreturn { evaluateVatOverrideForOrg, evaluateVatOverrideForMember };')(db, matchesSelections);
-}
+import { createVatOverrideHelper as loadHelper } from './vatOverrideHelperCore.js';
 
 const ROI = 'Republic of Ireland';
 const rule = {

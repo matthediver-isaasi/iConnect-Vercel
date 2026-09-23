@@ -50,11 +50,13 @@ import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 import { changeGoCardlessCollectionDay } from '../_lib/gocardlessCollectionScheduleChange.js';
 import { filterConsoleRows, filterDirectDebitRows, readConsoleRows, paginateConsolePlans, lookupConsoleRows } from '../_lib/directDebitConsoleEligibility.js';
 import { escapeCsvCell, CSV_BOM, CSV_ROW_SEPARATOR } from '../_lib/csvCell.js';
+import { readonlyTenantDatabase } from '../_lib/directDebitDryRunRuntime.js';
+import { readStripeCredentials } from '../_lib/stripeCredentialReadCore.js';
 const consoleDatabase = supabase;
 
 export default async function handler(req, res, {
   db = supabase, getContext = getTenantContext, adminAccess = hasAdminAccess,
-  featureAccess = hasFeatureAccess,
+  featureAccess = hasFeatureAccess, dryRunProvider = gocardlessForTenant,
 } = {}) {
   if (req.method === 'POST' && ['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
     return handleCollectionDayAction(req, res);
@@ -80,6 +82,12 @@ export default async function handler(req, res, {
   try {
     if (req.method === 'GET') return await handleGet(req, res, tenantId, db);
     if (req.method === 'POST') {
+      if (req.body?.action === 'dry_run') {
+        if (context.roleId && !(await featureAccess(context.roleId, 'commerce.monthly-finance-report'))) {
+          return res.status(403).json({ error: 'This action requires finance permission' });
+        }
+        return await handleDryRun(req, res, tenantId, { db, getProvider: dryRunProvider });
+      }
       // Refunds move money — restrict to finance-authorized admins.
       if (req.body?.action === 'refund' && context.roleId
           && !(await hasFeatureAccess(context.roleId, 'commerce.monthly-finance-report'))) {
@@ -92,6 +100,45 @@ export default async function handler(req, res, {
     console.error('[admin/gocardless-dd] error:', err);
     return res.status(err.statusCode === 400 ? 400 : 500).json({ error: err.message || 'Internal server error' });
   }
+}
+
+export async function handleDryRun(req, res, tenantId, {
+  db = supabase, getProvider = gocardlessForTenant,
+} = {}) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (typeof req.body?.planId !== 'string' || !req.body.planId.trim()) {
+    return res.status(400).json({ error: 'planId required' });
+  }
+  // Install the capability guard BEFORE the first plan/owner read. Neither
+  // resolution nor any downstream preview stage ever receives the live DB.
+  const reads = readonlyTenantDatabase(db, tenantId);
+  const { data: plan, error } = await reads.from('membership_payment_plans').select('*')
+    .eq('id', req.body.planId).maybeSingle();
+  if (error) throw new Error(`Plan lookup failed: ${error.message}`);
+  if (!plan || !(await filterDirectDebitRows(reads, tenantId, [plan], { plans: true })).length) {
+    return res.status(404).json({ error: 'Plan not found' });
+  }
+  const agreement = (await lookupConsoleRows(reads, tenantId, 'membership_billing_agreements', [plan.billing_agreement_id])).get(plan.billing_agreement_id);
+  const memberId = agreement?.member_id || plan.member_id;
+  const organizationId = agreement?.organization_id || plan.organization_id;
+  const member = memberId ? (await lookupConsoleRows(reads, tenantId, 'member', [memberId])).get(memberId) : null;
+  const organization = organizationId ? (await lookupConsoleRows(reads, tenantId, 'organization', [organizationId])).get(organizationId) : null;
+  const ownerLabel = organization?.name || [member?.first_name, member?.last_name].filter(Boolean).join(' ') || member?.email || 'Plan owner';
+  const scopedReads = readonlyTenantDatabase(db, tenantId, {
+    memberId: member?.id || null, organizationId: organization?.id || null,
+  });
+  const { runDirectDebitDryRun } = await import('../_lib/directDebitDryRun.js');
+  const result = await runDirectDebitDryRun({
+    db: scopedReads, plan, agreement, ownerLabel, now: new Date(),
+    getGc: tenant => getProvider(tenant, { db: scopedReads }),
+    getStripeCredentials: (tenant, feature) => {
+      if (tenant !== tenantId) throw new Error('Dry run credential tenant mismatch');
+      return readStripeCredentials(scopedReads, tenant, feature, {
+        encryptionKey: process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET,
+      });
+    },
+  });
+  return res.json(result);
 }
 
 // This is the actual route used by collection-day requests. Dependencies are

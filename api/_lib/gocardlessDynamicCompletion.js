@@ -3,6 +3,11 @@
 import { supabase } from './database.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import {
+  processDynamicCompletion, processDynamicNotification,
+  runDynamicCompletion, runDynamicNotification,
+  selectDynamicCompletions, selectDynamicNotifications,
+} from './directDebitDynamicPipeline.js';
 
 const checked = (result, context) => {
   if (result.error) throw new Error(`${context}: ${result.error.message}`);
@@ -11,6 +16,14 @@ const checked = (result, context) => {
 const COMPLETIONS = 'gocardless_dynamic_term_completions';
 
 export async function notifyDynamicTermCompletion(completion, {
+  db = supabase, sendEmail = sendTenantEmail, emailLifecycle = sendDdLifecycleEmail,
+  now = () => new Date(),
+} = {}) {
+  return processDynamicNotification({ completion,
+    effects: createLiveDynamicCompletionEffects({ db, sendEmail, emailLifecycle, now }) });
+}
+
+async function executeDynamicCompletionNotice(completion, {
   db = supabase, sendEmail = sendTenantEmail, emailLifecycle = sendDdLifecycleEmail,
   now = () => new Date(),
 } = {}) {
@@ -88,15 +101,21 @@ export async function notifyDynamicTermCompletion(completion, {
 }
 
 export async function completeDynamicTerm(plan, deps = {}) {
-  if (plan?.metadata?.collection_mode !== 'dynamic') return { completed: false };
   const db = deps.db || supabase;
-  const result = checked(await db.rpc('complete_gocardless_dynamic_term', {
-    p_tenant_id: plan.tenant_id, p_plan_id: plan.id,
-  }), 'Complete dynamic membership term');
-  if (result.completed) {
-    result.notification = await notifyDynamicTermCompletion(result.completion, { ...deps, db });
-  }
-  return result;
+  return processDynamicCompletion({ plan, effects: createLiveDynamicCompletionEffects({ ...deps, db }) });
+}
+
+export function createLiveDynamicCompletionEffects(deps) {
+  const db = deps.db || supabase;
+  return { async perform(operation) {
+    if (operation.type === 'dynamic.completion_notice') {
+      return executeDynamicCompletionNotice(operation.payload.completion, { ...deps, db });
+    }
+    if (operation.type !== 'dynamic.complete_term') throw new Error(`Unknown completion effect: ${operation.type}`);
+    const result = checked(await db.rpc('complete_gocardless_dynamic_term', operation.payload), 'Complete dynamic membership term');
+    if (result.completed) result.notification = await notifyDynamicTermCompletion(result.completion, { ...deps, db });
+    return result;
+  } };
 }
 
 export async function reconcileDynamicTermCompletions({
@@ -107,13 +126,12 @@ export async function reconcileDynamicTermCompletions({
   if (budgetMs <= 0) return result;
   // Give the committed outbox a share before scanning uncompleted terms:
   // long-lived active plans must not starve recovery of an already-expired one.
-  const pending = checked(await db.from(COMPLETIONS).select('*')
-    .eq('notification_status', 'pending').lte('notification_next_check_at', now().toISOString())
-    .order('notification_next_check_at', { ascending: true }).limit(Math.min(limit, 100)), 'Load completion notification outbox');
+  const pending = checked(await selectDynamicNotifications(db, now(), limit), 'Load completion notification outbox');
   for (const completion of pending || []) {
     if (clock() - started >= budgetMs / 2) break;
     try {
-      if ((await notifyDynamicTermCompletion(completion, { ...deps, db, now })).sent) result.notified++;
+      if ((await runDynamicNotification({ db, plan: { id: completion.plan_id, tenant_id: completion.tenant_id },
+        now: now(), effects: createLiveDynamicCompletionEffects({ ...deps, db, now }) })).sent) result.notified++;
     } catch (cause) {
       result.errors++;
       checked(await db.from(COMPLETIONS).update({
@@ -123,17 +141,13 @@ export async function reconcileDynamicTermCompletions({
     }
   }
   if (clock() - started >= budgetMs) return result;
-  const plans = checked(await db.from('membership_payment_plans').select('*')
-    .eq('provider', 'gocardless').eq('metadata->>collection_mode', 'dynamic')
-    .is('completed_at', null).neq('status', 'payment_plan_cancelled')
-    .or(`dynamic_completion_next_check_at.is.null,dynamic_completion_next_check_at.lte.${now().toISOString()}`)
-    .order('dynamic_completion_next_check_at', { ascending: true, nullsFirst: true })
-    .limit(Math.min(limit, 100)), 'Load dynamic terms for completion recovery');
+  const plans = checked(await selectDynamicCompletions(db, now(), limit), 'Load dynamic terms for completion recovery');
   for (const plan of plans || []) {
     if (clock() - started >= budgetMs) break;
     let error = null;
     try {
-      const settled = await completeDynamicTerm(plan, { ...deps, db, now });
+      const settled = await runDynamicCompletion({ db, plan, now: now(),
+        effects: createLiveDynamicCompletionEffects({ ...deps, db, now }) });
       if (settled.completed) result.completed++;
     } catch (cause) {
       error = cause.message;

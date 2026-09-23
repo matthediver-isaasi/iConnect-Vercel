@@ -17,13 +17,15 @@ test('retry migration keeps automatic accounting separate and tenant-auditable',
 });
 
 test('all retry entry points use the shared safe service', async () => {
-  const [admin, member, webhook, cron, integrationApi, adminUi] = await Promise.all([
+  const [admin, member, webhook, cron, integrationApi, adminUi, retryService, retryPipeline] = await Promise.all([
     readFile(new URL('../admin/gocardless-dd.js', import.meta.url), 'utf8'),
     readFile(new URL('../membership/dd-self-service.js', import.meta.url), 'utf8'),
     readFile(new URL('./gocardlessWebhookProcessor.js', import.meta.url), 'utf8'),
     readFile(new URL('../cron/gocardless-auto-retries.js', import.meta.url), 'utf8'),
     readFile(new URL('../admin/integrations.js', import.meta.url), 'utf8'),
     readFile(new URL('../../client/src/pages/DirectDebitAdmin.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('./gocardlessAutoRetry.js', import.meta.url), 'utf8'),
+    readFile(new URL('./directDebitRetryPipeline.js', import.meta.url), 'utf8'),
   ]);
   assert.match(admin, /retryPaymentSafely/);
   assert.match(admin, /claimPlanForCancellation/);
@@ -31,7 +33,12 @@ test('all retry entry points use the shared safe service', async () => {
   assert.match(webhook, /scheduleAutomaticRetry/);
   assert.match(webhook, /clearAutomaticRetryForPlan/);
   assert.match(webhook, /closeAutomaticRetrySchedule/);
-  assert.match(cron, /retryPaymentSafely/);
+  assert.match(cron, /import \{ runRetries, selectDueRetries \} from '\.\.\/_lib\/directDebitRetryPipeline\.js'/);
+  assert.match(cron, /selectDueRetries\(supabase/);
+  assert.match(cron, /const effects = createLiveRetryEffects\(\{ db: supabase, getGc \}\)/);
+  assert.match(cron, /await runRetries\(\{ db: supabase, plan, now, getGc, effects \}\)/);
+  assert.match(retryService, /export async function retryPaymentSafely[\s\S]*?return runRetry\(\{[\s\S]*?effects: createLiveRetryEffects\(\{ db, gc \}\)/);
+  assert.match(retryPipeline, /export async function runRetries[\s\S]*?await runRetry\(\{ db, plan, agreement, now, gc, effects \}\)/);
   assert.match(integrationApi, /\(credentials \|\| autoRetryPolicy\)[\s\S]*updateData\.credentials = encryptedCreds/);
   assert.match(integrationApi, /autoRetryPolicy \|\| is_enabled === false/);
   assert.doesNotMatch(integrationApi, /retryStateUpdate = \{[\s\S]{0,300}auto_retry_claimed_at/);

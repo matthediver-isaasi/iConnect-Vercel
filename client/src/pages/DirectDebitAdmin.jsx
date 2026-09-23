@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import DirectDebitDryRun from "@/components/direct-debit/DirectDebitDryRun";
 import {
   Landmark, AlertCircle, RefreshCw, Search, ArrowLeft, Loader2, Download,
 } from "lucide-react";
@@ -1098,6 +1099,7 @@ export default function DirectDebitAdmin() {
                             {p.payer_email ? ` · ${p.payer_email}` : ""}
                           </p>
                         </div>
+                        <DirectDebitDryRun plan={p} />
                       </CardContent>
                     </Card>
                   ))}

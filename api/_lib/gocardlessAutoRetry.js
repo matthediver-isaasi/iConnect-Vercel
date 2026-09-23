@@ -10,6 +10,7 @@ import { supabase } from './database.js';
 import { buildIdempotencyKey } from './gocardless.js';
 import { assertRetryablePayment, isGraceExpired } from './gocardlessArrears.js';
 import { STATUS } from './gocardlessState.js';
+import { runRetry, readRetryPolicy } from './directDebitRetryPipeline.js';
 
 export const DEFAULT_AUTO_RETRY_POLICY = Object.freeze({
   enabled: false,
@@ -75,23 +76,7 @@ export function automaticRetryDueAt(failedAt, intervalDays, graceExpiresAt = nul
 }
 
 async function loadPolicy(db, tenantId) {
-  const { data, error } = await db
-    .from('tenant_integrations')
-    .select('credentials, is_enabled')
-    .eq('tenant_id', tenantId)
-    .eq('integration_type', 'gocardless')
-    .maybeSingle();
-  if (error) throw new Error(`load GoCardless retry policy failed: ${error.message}`);
-  const credentials = data?.credentials || {};
-  const policy = normalizeAutoRetryPolicy(credentials);
-  // Automatic collection is never enabled by a setting on a disconnected or
-  // disabled integration. This also prevents platform fallback credentials
-  // from accidentally collecting for a tenant with no local connection.
-  return {
-    ...policy,
-    enabled: policy.enabled && data?.is_enabled === true && !!credentials.access_token,
-    configured: !!data,
-  };
+  return readRetryPolicy(db, tenantId);
 }
 
 function result(reason, extra = {}) {
@@ -211,47 +196,6 @@ export async function clearAutomaticRetryForPlan(plan, { db: dbArg, outcome = 'r
   }
 }
 
-async function loadOrCreatePayment(db, tenantId, plan, paymentId) {
-  const { data: existing, error } = await db
-    .from('gocardless_payments')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('gocardless_payment_id', paymentId)
-    .maybeSingle();
-  if (error) throw new Error(`load GoCardless payment failed: ${error.message}`);
-  if (existing && existing.plan_id && existing.plan_id !== plan.id) {
-    return { error: result('payment_belongs_to_another_plan') };
-  }
-  if (existing) return { payment: existing };
-  if (plan.last_payment_id !== paymentId && plan.auto_retry_payment_id !== paymentId) {
-    return { error: result('payment_not_linked_to_plan') };
-  }
-  const { data, error: insertError } = await db
-    .from('gocardless_payments')
-    .insert({
-      tenant_id: tenantId,
-      plan_id: plan.id,
-      gocardless_payment_id: paymentId,
-      gocardless_subscription_id: plan.gocardless_subscription_id || null,
-      gocardless_mandate_id: plan.gocardless_mandate_id || null,
-      status: 'failed',
-    })
-    .select('*');
-  if (insertError) {
-    // A concurrent webhook may have created the mirror. Reload it rather
-    // than treating a harmless unique race as a retry failure.
-    const { data: raced } = await db
-      .from('gocardless_payments')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('gocardless_payment_id', paymentId)
-      .maybeSingle();
-    if (raced) return { payment: raced };
-    throw new Error(`create GoCardless payment mirror failed: ${insertError.message}`);
-  }
-  return { payment: Array.isArray(data) ? data[0] : data };
-}
-
 /**
  * Shared retry entry point for automatic, member, and admin actions.
  * It verifies tenant ownership, mandate usability, grace/limit policy for
@@ -262,94 +206,47 @@ export async function retryPaymentSafely({
   db: dbArg, gc, now = new Date(),
 } = {}) {
   const db = dbArg || supabase;
-  if (!tenantId || !plan?.id || !paymentId || !gc) return result('missing-linkage');
-  if (plan.tenant_id && plan.tenant_id !== tenantId) return result('tenant_mismatch');
-  const policy = mode === 'automatic' ? await loadPolicy(db, tenantId) : null;
-  const freshPlanResult = await db.from('membership_payment_plans').select('*')
-    .eq('id', plan.id).eq('tenant_id', tenantId).maybeSingle();
-  if (freshPlanResult.error) throw new Error(`load retry plan failed: ${freshPlanResult.error.message}`);
-  const currentPlan = freshPlanResult.data || plan;
-  if ([STATUS.PAYMENT_PLAN_CANCELLED, STATUS.EXPIRED, STATUS.MANDATE_PENDING].includes(currentPlan.status)) {
-    return result('plan_not_retryable');
-  }
-  if (mode === 'automatic') {
-    if (!policy.enabled) return result('disabled_policy', { policy });
-    if (currentPlan.status !== STATUS.PAYMENT_GRACE_PERIOD || isGraceExpired(currentPlan, now)) {
-      await closePlanRetry(db, currentPlan, 'grace_expired');
-      return result('grace_expired', { policy });
-    }
-    const count = Number.isInteger(currentPlan.auto_retry_attempts) ? currentPlan.auto_retry_attempts : 0;
-    if (count >= policy.maxAttempts) {
-      await closePlanRetry(db, currentPlan, 'attempt_limit_exhausted');
-      return result('attempt_limit_exhausted', { policy, attempts: count });
-    }
-    if (currentPlan.auto_retry_payment_id !== paymentId
-        || !currentPlan.auto_retry_next_at
-        || new Date(currentPlan.auto_retry_next_at).getTime() > now.getTime()) {
-      return result('not_due', { policy });
-    }
-  }
+  return runRetry({ db, tenantId, plan, agreement, paymentId, mode, actor, gc, now,
+    effects: createLiveRetryEffects({ db, gc }) });
+}
 
-  const linked = await loadOrCreatePayment(db, tenantId, currentPlan, paymentId);
-  if (linked.error) return linked.error;
-  const payment = linked.payment;
-  const mandateId = currentPlan.gocardless_mandate_id || agreement?.gocardless_mandate_id;
-  if (mandateId) {
-    let mandate;
-    try { mandate = await gc.getMandate(mandateId); } catch { mandate = null; }
-    if (!['pending_submission', 'submitted', 'active'].includes(mandate?.status)) {
-      return result('mandate_unusable', { mandateStatus: mandate?.status || null });
+export function createLiveRetryEffects({ db = supabase, gc, getGc } = {}) {
+  return { async perform(operation) {
+    const p = operation.payload;
+    if (operation.type === 'retry.close_schedule') return closePlanRetry(db, p.plan, p.reason);
+    if (operation.type === 'retry.create_payment_mirror') {
+      const { data, error } = await db.from('gocardless_payments').insert(p.insert).select('*');
+      if (!error) return Array.isArray(data) ? data[0] : data;
+      const raced = await db.from('gocardless_payments').select('*')
+        .eq('tenant_id', p.tenantId).eq('gocardless_payment_id', p.paymentId).maybeSingle();
+      if (raced.data) return raced.data;
+      throw new Error(`create GoCardless payment mirror failed: ${error.message}`);
     }
-  }
-
-  let attemptNumber;
-  if (mode === 'automatic') {
-    attemptNumber = (Number.isInteger(currentPlan.auto_retry_attempts) ? currentPlan.auto_retry_attempts : 0) + 1;
-  } else {
-    const { data: latestManual, error: latestManualError } = await db
-      .from('gocardless_payment_retry_attempts')
-      .select('attempt_number')
-      .eq('tenant_id', tenantId)
-      .eq('plan_id', currentPlan.id)
-      .eq('gocardless_payment_id', paymentId)
-      .eq('mode', 'manual')
-      .order('attempt_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (latestManualError) throw new Error(`load prior manual retries failed: ${latestManualError.message}`);
-    attemptNumber = Number.isInteger(latestManual?.attempt_number) ? latestManual.attempt_number + 1 : 1;
-  }
-  const idempotencyKey = mode === 'automatic'
-    ? buildIdempotencyKey('dd-auto-retry', tenantId, currentPlan.id, paymentId, String(attemptNumber))
-    : buildIdempotencyKey('dd-manual-retry', tenantId, currentPlan.id, paymentId, String(attemptNumber));
-  const claimToken = buildIdempotencyKey('dd-retry-claim', tenantId, currentPlan.id, paymentId, mode, String(attemptNumber));
-
-  if (currentPlan.auto_retry_claimed_at) {
-    if (String(currentPlan.auto_retry_claim_token || '').startsWith('cancel:')) {
-      return result('cancellation_in_progress');
+    if (operation.type === 'retry.release_stale_claim') {
+      const { error } = await db.from('membership_payment_plans').update(p.update)
+        .eq('id', p.planId).eq('tenant_id', p.tenantId).eq('auto_retry_claim_token', p.claimToken);
+      if (error) throw new Error(`release stale GoCardless retry claim failed: ${error.message}`);
+      return;
     }
-    const claimedAt = new Date(currentPlan.auto_retry_claimed_at).getTime();
-    const stale = Number.isFinite(claimedAt) && claimedAt <= now.getTime() - 30 * 60_000;
-    if (!stale) return result('retry_in_progress');
-    const { error: staleError } = await db
-      .from('membership_payment_plans')
-      .update({ auto_retry_claimed_at: null, auto_retry_claim_token: null, updated_at: now.toISOString() })
-      .eq('id', currentPlan.id)
-      .eq('tenant_id', tenantId)
-      .eq('auto_retry_claim_token', currentPlan.auto_retry_claim_token);
-    if (staleError) throw new Error(`release stale GoCardless retry claim failed: ${staleError.message}`);
-  }
+    if (operation.type === 'retry.claim') {
+      return executeRetryClaim({ ...p, db, now: new Date(p.now), gc: gc || await getGc(p.tenantId) });
+    }
+    throw new Error(`Unknown retry effect: ${operation.type}`);
+  } };
+}
+
+// Live-only continuation. Recording stops before the claim and can never enter
+// this adapter, reserve an attempt, or reach any catch/finally cleanup writes.
+async function executeRetryClaim({
+  db, gc, tenantId, currentPlan, paymentId, mode, actor, policy, mandateId,
+  attemptNumber, idempotencyKey, claimToken, now, update,
+}) {
 
   // The plan claim is shared by manual and automatic modes. One successful
   // guarded update means cron/member/admin callers cannot overlap.
   const { data: claimed, error: claimError } = await db
     .from('membership_payment_plans')
-    .update({
-      auto_retry_claimed_at: now.toISOString(),
-      auto_retry_claim_token: claimToken,
-      auto_retry_last_outcome: 'claimed',
-      updated_at: now.toISOString(),
-    })
+    .update(update)
     .eq('id', currentPlan.id)
     .eq('tenant_id', tenantId)
     .is('auto_retry_claimed_at', null)

@@ -1,26 +1,36 @@
-import { supabase } from './database.js';
-import { simulateMembershipForOrg, simulateMembershipForMember } from './membershipSimulation.js';
-import { sendTenantEmail } from './tenantEmailService.js';
-import { replacePlaceholders } from './emailService.js';
-import { buildInboxDelivery, recordTransactionalInboxMessage, resolveCommunicationCategoryIdForLabel } from './transactionalInbox.js';
-import { getPausedMemberIdSet } from './memberPause.js';
 import { assertRenewalBudget, renewalRows } from './membershipRenewalBudget.js';
 import { requestsReminderPaymentLink, resolveReminderPaymentQuote } from './reminderPaymentQuote.js';
-import { prepareMembershipFeeToken } from './membershipFeeTokenEmail.js';
 import { deriveAnnualTerm } from './annualRenewalPolicy.js';
-import { loadAddonLines, computeAddonTotals, buildAddonDisplayLines } from './membershipAddons.js';
-import { getStripeCredentials } from './stripeCredentials.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+export function createMembershipReminders({
+  db: supabase, simulateMembershipForOrg, simulateMembershipForMember,
+  replacePlaceholders, getPausedMemberIdSet, loadAddonLines, computeAddonTotals,
+  buildAddonDisplayLines, getStripeCredentials, effects, owner = null,
+  now = new Date(), trace = () => {},
+} = {}) {
+const perform = (type, payload, description) => effects.perform({
+  type, stage: 'owner-reminders', description, payload,
+  conditional: 'Later delivery, inbox and status changes depend on this unperformed operation succeeding.',
+});
+const sendTenantEmail = payload => perform('reminder.email', payload, 'Send membership reminder email.');
+const buildInboxDelivery = payload => perform('reminder.inbox_delivery', payload, 'Prepare membership reminder inbox delivery.');
+const recordTransactionalInboxMessage = payload => perform('reminder.inbox_record', payload, 'Record delivered membership reminder in the inbox.');
+const resolveCommunicationCategoryIdForLabel = (tenantId, label) => perform('reminder.category', { tenantId, label }, 'Resolve reminder communication category.');
+const prepareMembershipFeeToken = ({ client, ...payload }) => perform('reminder.prepare_token', payload, 'Prepare a membership payment-link token for the resolved renewal quote.');
+const ownerQuery = (query, memberScope) => !owner ? query : query.eq(memberScope ? 'member_id' : 'organization_id', owner[memberScope ? 'member_id' : 'organization_id'] || '00000000-0000-0000-0000-000000000000');
+const rethrowBoundary = error => { if (error?.code === 'DD_DRY_RUN_EFFECT_BOUNDARY') throw error; };
+const skipped = reason => trace({ stage: 'owner-reminders', status: 'skipped', reason });
 
 async function processPaymentLinkReminders(tenantId, results, today) {
   for (const scope of ['member', 'organization']) {
     const memberScope = scope === 'member';
     const column = memberScope ? 'member_id' : 'organization_id';
     const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
-    for await (const history of reminderRows(() => supabase.from(table).select('*').eq('tenant_id', tenantId),
+    for await (const history of reminderRows(() => ownerQuery(supabase.from(table).select('*').eq('tenant_id', tenantId), memberScope),
       results, `payment-links:${scope}`)) {
-      if (['cancelled', 'void', 'expired_checkout'].includes(history.status)) continue;
+      if (['cancelled', 'void', 'expired_checkout'].includes(history.status)) { skipped(`Membership history ${history.id} is ${history.status}.`); continue; }
       const { data: histories, error } = await supabase.from(table).select('*').eq('tenant_id', tenantId).eq(column, history[column]);
       if (error) throw new Error(`Could not load reminder owner terms: ${error.message}`);
       let config = history.commitment_snapshot?.config;
@@ -29,18 +39,19 @@ async function processPaymentLinkReminders(tenantId, results, today) {
         if (loaded.error) throw new Error(loaded.error.message);
         config = loaded.data;
       }
-      if (!config) continue;
+      if (!config) { skipped(`Membership history ${history.id} has no reminder configuration.`); continue; }
       let term;
       try { term = deriveAnnualTerm(history, config, today); } catch (error) {
         (results?.details || []).push({ tenantId, historyId: history.id, status: 'blocked', reason: error.message });
         continue;
       }
-      if (term.start > today) continue;
+      if (term.start > today) { skipped(`Membership history ${history.id} has not started.`); continue; }
       const reminders = await loadActiveReminders(tenantId, history.config_id);
       for (const reminder of reminders) {
         assertRenewalBudget(results?.__renewalControl);
         const template = await loadTemplate(tenantId, reminder.email_template_id);
-        if (!requestsReminderPaymentLink(template) || computeSendDate(term.nextStart, reminder) > today) continue;
+        if (!requestsReminderPaymentLink(template)) { skipped(`Reminder ${reminder.id} is not a payment-link template.`); continue; }
+        if (computeSendDate(term.nextStart, reminder) > today) { skipped(`Reminder ${reminder.id} send date has not arrived.`); continue; }
         const identity = { tenant_id: tenantId, reminder_id: reminder.id,
           membership_year: history.term_key || `renewal:${history.membership_year}`,
           scope_type: scope, member_id: memberScope ? history.member_id : null,
@@ -53,7 +64,7 @@ async function processPaymentLinkReminders(tenantId, results, today) {
           : await resolveOrgRecipients(tenantId, owner.id, reminder.recipient_role_ids);
         const paused = await getPausedMemberIdSet(tenantId, supabase, recipients.map(row => row.id));
         recipients = recipients.filter(row => !paused.has(row.id));
-        if (!recipients.length) continue;
+        if (!recipients.length) { skipped(`Reminder ${reminder.id} has no unpaused recipient matching its role and email rules.`); continue; }
         let prepared;
         try {
           prepared = await resolveReminderPaymentQuote({ client: supabase, tenantId, history, histories, now: today,
@@ -65,6 +76,7 @@ async function processPaymentLinkReminders(tenantId, results, today) {
               return { ...computeAddonTotals(lines), lines: buildAddonDisplayLines(lines) };
             } });
         } catch (error) {
+          rethrowBoundary(error);
           if (error.code === 'RENEWAL_BUDGET_EXHAUSTED') throw error;
           prepared = { success: false, code: 'quote_error', message: error.message };
         }
@@ -76,7 +88,7 @@ async function processPaymentLinkReminders(tenantId, results, today) {
           }
           continue;
         }
-        const claim = await claimRollingReminder(supabase, identity);
+        const claim = await claimRollingReminder(supabase, identity, now);
         if (!claim) continue;
         let status = 'sent', sendError = null;
         try {
@@ -98,10 +110,11 @@ async function processPaymentLinkReminders(tenantId, results, today) {
             tenantId, memberId: recipient.id, to: recipient.email, subject, html, fromAddress: null,
             communicationCategoryId: await resolveCommunicationCategoryIdForLabel(tenantId, 'membership'), labelKey: 'membership',
           });
-        } catch (error) { status = 'error'; sendError = error.message; }
-        const { error: finishError } = await supabase.from('membership_tier_reminder_send')
-          .update({ status, error: sendError, recipient_email: recipients.map(row => row.email).join(', ') })
-          .eq('id', claim.id).eq('tenant_id', tenantId).eq('status', 'processing').eq('sent_at', claim.sent_at);
+        } catch (error) { rethrowBoundary(error); status = 'error'; sendError = error.message; }
+        const { error: finishError } = await perform('reminder.finish', {
+          values: { status, error: sendError, recipient_email: recipients.map(row => row.email).join(', ') },
+          id: claim.id, tenantId, sentAt: claim.sent_at,
+        }, 'Complete payment-link reminder delivery claim.');
         if (finishError) throw new Error(finishError.message);
         if (results) {
           results[status === 'sent' ? 'processed' : 'errors'] = (results[status === 'sent' ? 'processed' : 'errors'] || 0) + 1;
@@ -139,7 +152,7 @@ async function* reminderRows(queryFactory, results, stream) {
   await save(true);
 }
 
-export function rollingReminderSendDate(renewalDate, reminder) {
+function rollingReminderSendDate(renewalDate, reminder) {
   const date = new Date(`${String(renewalDate).slice(0, 10)}T00:00:00.000Z`);
   if (!Number.isFinite(date.getTime())) throw new Error('Rolling reminder has no valid saved renewal date.');
   date.setUTCDate(date.getUTCDate() + offsetInDays(reminder) * (reminder.direction === 'after' ? 1 : -1));
@@ -148,33 +161,32 @@ export function rollingReminderSendDate(renewalDate, reminder) {
 
 // Term-keyed, recoverable delivery claim. A crashed send can be retried after
 // the lease; delivery is at-least-once across the external email crash window.
-export async function claimRollingReminder(client, record, now = new Date()) {
+async function claimRollingReminder(client, record, now = new Date()) {
   const sentAt = now.toISOString();
   const identity = {
     tenant_id: record.tenant_id, reminder_id: record.reminder_id,
     membership_year: record.membership_year, scope_type: record.scope_type,
     organization_id: record.organization_id || null, member_id: record.member_id || null,
   };
-  const { data, error } = await client.from('membership_tier_reminder_send')
-    .insert({ ...identity, status: 'processing', sent_at: sentAt }).select('id, sent_at').maybeSingle();
-  if (!error) return data;
-  if (error.code !== '23505') throw new Error(`Could not claim rolling reminder: ${error.message}`);
   let lookup = client.from('membership_tier_reminder_send').select('id, status, sent_at')
     .eq('tenant_id', identity.tenant_id).eq('reminder_id', identity.reminder_id).eq('membership_year', identity.membership_year);
   lookup = identity.member_id ? lookup.eq('member_id', identity.member_id) : lookup.eq('organization_id', identity.organization_id);
   const { data: prior, error: readError } = await lookup.maybeSingle();
   if (readError) throw new Error(`Could not inspect rolling reminder claim: ${readError.message}`);
-  if (!prior || prior.status === 'sent'
-    || (prior.status === 'processing' && now - new Date(prior.sent_at) < 15 * 60 * 1000)) return null;
-  const { data: claimed, error: claimError } = await client.from('membership_tier_reminder_send')
-    .update({ status: 'processing', sent_at: sentAt, error: null })
-    .eq('id', prior.id).eq('tenant_id', identity.tenant_id).eq('status', prior.status).eq('sent_at', prior.sent_at)
-    .select('id, sent_at').maybeSingle();
+  if (prior && (prior.status === 'sent'
+    || (prior.status === 'processing' && now - new Date(prior.sent_at) < 15 * 60 * 1000))) {
+    trace({ stage: 'owner-reminders', status: 'skipped', reason: 'Reminder was already sent or has a recent in-flight delivery claim.' });
+    return null;
+  }
+  const { data: claimed, error: claimError } = await perform('reminder.claim', {
+    identity, sentAt, prior,
+  }, prior ? 'Reclaim stale or failed membership reminder delivery.' : 'Reserve membership reminder delivery.');
+  if (claimError?.code === '23505') return null;
   if (claimError) throw new Error(`Could not reclaim rolling reminder: ${claimError.message}`);
   return claimed;
 }
 
-export function rollingReminderCandidates(histories, today) {
+function rollingReminderCandidates(histories, today) {
   const date = new Date(today).toISOString().slice(0, 10);
   return (histories || []).filter(row =>
     row.term_key && row.commitment_snapshot?.config && row.membership_renewal_date
@@ -193,10 +205,10 @@ async function processRollingReminders(tenantId, results, today) {
   for (const scope of ['member', 'organization']) {
     const memberScope = scope === 'member';
     const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
-    const histories = reminderRows(() => supabase.from(table).select('*')
-      .eq('tenant_id', tenantId).not('term_key', 'is', null), results, `rolling:${scope}`);
+    const histories = reminderRows(() => ownerQuery(supabase.from(table).select('*')
+      .eq('tenant_id', tenantId).not('term_key', 'is', null), memberScope), results, `rolling:${scope}`);
     for await (const history of histories) {
-      if (!rollingReminderCandidates([history], today).length) continue;
+      if (!rollingReminderCandidates([history], today).length) { skipped(`History ${history.id} is not a current trusted rolling reminder candidate.`); continue; }
       if (memberScope && (paused || await getPausedMemberIdSet(tenantId, supabase, [history.member_id])).has(history.member_id)) continue;
       // Successors may be beyond this page. A tenant/owner-scoped existence
       // query preserves suppression without loading all purchased histories.
@@ -207,7 +219,7 @@ async function processRollingReminders(tenantId, results, today) {
         .not('status', 'in', '(cancelled,void)')
         .or('payment_status.eq.paid,paid_at.not.is.null').limit(1);
       if (renewedError) throw new Error(`Could not check renewed reminder term: ${renewedError.message}`);
-      if (renewed?.length) continue;
+      if (renewed?.length) { skipped(`History ${history.id} already has a paid successor.`); continue; }
       const { data: owner, error: ownerError } = await supabase.from(memberScope ? 'member' : 'organization')
         .select(memberScope ? 'id, email, first_name, last_name, name, role_id' : 'id, name')
         .eq('tenant_id', tenantId).eq('id', memberScope ? history.member_id : history.organization_id).maybeSingle();
@@ -217,7 +229,7 @@ async function processRollingReminders(tenantId, results, today) {
       const renewalDate = new Date(`${history.membership_renewal_date}T00:00:00.000Z`);
       for (const reminder of reminders) {
         assertRenewalBudget(results?.__renewalControl);
-        if (rollingReminderSendDate(history.membership_renewal_date, reminder) > today) continue;
+        if (rollingReminderSendDate(history.membership_renewal_date, reminder) > today) { skipped(`Reminder ${reminder.id} send date has not arrived.`); continue; }
         const roles = reminder.recipient_role_ids || [];
         let recipients = memberScope
           ? (owner.email && (!roles.length || roles.includes(owner.role_id)) ? [owner] : [])
@@ -233,7 +245,7 @@ async function processRollingReminders(tenantId, results, today) {
         const claim = await claimRollingReminder(supabase, {
           tenant_id: tenantId, reminder_id: reminder.id, membership_year: history.term_key, scope_type: scope,
           member_id: memberScope ? owner.id : null, organization_id: memberScope ? null : owner.id,
-        });
+        }, now);
         if (!claim) continue;
         const first = recipients[0];
         const memberName = first.name || [first.first_name, first.last_name].filter(Boolean).join(' ');
@@ -258,12 +270,14 @@ async function processRollingReminders(tenantId, results, today) {
           }
         } catch (error) {
           if (error.code === 'RENEWAL_BUDGET_EXHAUSTED') throw error;
+          rethrowBoundary(error);
           status = 'error';
           sendError = error.message;
         }
-        const { error: finishError } = await supabase.from('membership_tier_reminder_send')
-          .update({ status, error: sendError, recipient_email: recipients.map(member => member.email).join(', ') })
-          .eq('id', claim.id).eq('tenant_id', tenantId).eq('status', 'processing').eq('sent_at', claim.sent_at);
+        const { error: finishError } = await perform('reminder.finish', {
+          values: { status, error: sendError, recipient_email: recipients.map(member => member.email).join(', ') },
+          id: claim.id, tenantId, sentAt: claim.sent_at,
+        }, 'Complete rolling reminder delivery claim.');
         if (finishError) throw new Error(`Could not complete rolling reminder delivery: ${finishError.message}`);
         if (results) {
           results[status === 'sent' ? 'processed' : 'errors'] = (results[status === 'sent' ? 'processed' : 'errors'] || 0) + 1;
@@ -391,9 +405,7 @@ async function alreadySent({ reminderId, membershipYear, organizationId = null, 
 
 async function logSend({ tenantId, reminderId, membershipYear, scopeType, organizationId = null, memberId = null, recipientEmail, status, error = null }) {
   try {
-    const { error: insertError } = await supabase
-      .from('membership_tier_reminder_send')
-      .insert({
+    const { error: insertError } = await perform('reminder.log', {
         tenant_id: tenantId,
         reminder_id: reminderId,
         membership_year: membershipYear,
@@ -403,7 +415,7 @@ async function logSend({ tenantId, reminderId, membershipYear, scopeType, organi
         recipient_email: recipientEmail,
         status,
         error,
-      });
+      }, 'Record membership reminder delivery or skip.');
     if (insertError) throw new Error(insertError.message);
   } catch (err) {
     console.error('[membershipReminders] Failed to log send:', err.message);
@@ -418,11 +430,15 @@ async function logSend({ tenantId, reminderId, membershipYear, scopeType, organi
  * computed send date is today (or earlier and not yet sent), once per
  * membership year.
  */
-export async function processTenantReminders(tenantId, results) {
-  const today = toMidnight(new Date());
+async function processTenantReminders(tenantId, results) {
+  const today = toMidnight(now);
   await processPaymentLinkReminders(tenantId, results, today);
-  await processRollingReminders(tenantId, results, new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`));
+  await processRollingReminders(tenantId, results, new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`));
+  return processFixedReminders(tenantId, results);
+}
 
+async function processFixedReminders(tenantId, results) {
+  const today = toMidnight(now);
   const configs = reminderRows(() => supabase
     .from('membership_tier_config')
     .select('id, structure_scope_type, name, start_mode')
@@ -453,10 +469,14 @@ export async function processTenantReminders(tenantId, results) {
 }
 
 async function processOrgConfigReminders(tenantId, config, reminders, today, results) {
-  const orgs = reminderRows(() => supabase
+  const orgs = reminderRows(() => {
+    let query = supabase
     .from('organization')
     .select('id, name')
-    .eq('tenant_id', tenantId), results, `fixed:${config.id}`);
+    .eq('tenant_id', tenantId);
+    if (owner) query = query.eq('id', owner.organization_id || '00000000-0000-0000-0000-000000000000');
+    return query;
+  }, results, `fixed:${config.id}`);
 
   for await (const org of orgs) {
     let simResult;
@@ -479,7 +499,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
     for (const reminder of reminders) {
       assertRenewalBudget(results?.__renewalControl);
       const sendDate = computeSendDate(renewalDate, reminder);
-      if (sendDate > today) continue;
+      if (sendDate > today) { skipped(`Reminder ${reminder.id} send date has not arrived.`); continue; }
 
       const yearLabel = membershipYear.label;
       const already = await alreadySent({
@@ -487,7 +507,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
         membershipYear: yearLabel,
         organizationId: org.id,
       });
-      if (already) continue;
+      if (already) { skipped(`Reminder ${reminder.id} already has a delivery record for ${yearLabel}.`); continue; }
 
       if (reminder.direction === 'after' && simResult.existingRecord) {
         // Renewal completed — skip post-renewal reminders for this cycle.
@@ -572,6 +592,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
         }
         console.log(`[membershipReminders] Sent reminder ${reminder.id} to ${toAddresses.length} recipients for org ${org.name} (${yearLabel})`);
       } catch (err) {
+        rethrowBoundary(err);
         if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
         await logSend({
           tenantId,
@@ -601,11 +622,15 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
 }
 
 async function processMemberConfigReminders(tenantId, config, reminders, today, results) {
-  const members = reminderRows(() => supabase
+  const members = reminderRows(() => {
+    let query = supabase
     .from('member')
     .select('id, email, first_name, last_name, name, role_id')
     .eq('tenant_id', tenantId)
-    .is('organization_id', null), results, `fixed:${config.id}`);
+    .is('organization_id', null);
+    if (owner) query = query.eq('id', owner.member_id || '00000000-0000-0000-0000-000000000000');
+    return query;
+  }, results, `fixed:${config.id}`);
 
   // Task #3586: paused members receive no payment reminders.
   const pausedMemberIds = results?.__renewalControl ? null : await getPausedMemberIdSet(tenantId);
@@ -714,6 +739,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
         }
         console.log(`[membershipReminders] Sent reminder ${reminder.id} to member ${memberName} (${yearLabel})`);
       } catch (err) {
+        rethrowBoundary(err);
         if (err.code === 'RENEWAL_BUDGET_EXHAUSTED') throw err;
         await logSend({
           tenantId,
@@ -733,7 +759,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
   }
 }
 
-export async function getRemindersForConfig(configId, tenantId) {
+async function getRemindersForConfig(configId, tenantId) {
   const { data, error } = await supabase
     .from('membership_tier_reminder')
     .select('*')
@@ -748,7 +774,7 @@ export async function getRemindersForConfig(configId, tenantId) {
   return data || [];
 }
 
-export async function saveRemindersForConfig(configId, tenantId, reminders) {
+async function saveRemindersForConfig(configId, tenantId, reminders) {
   try {
     await supabase
       .from('membership_tier_reminder')
@@ -781,3 +807,11 @@ export async function saveRemindersForConfig(configId, tenantId, reminders) {
     console.error('[membershipReminders] saveRemindersForConfig:', err.message);
   }
 }
+
+return { processTenantReminders, processFixedReminders, processPaymentLinkReminders, processRollingReminders,
+  processOrgConfigReminders, processMemberConfigReminders, getRemindersForConfig, saveRemindersForConfig,
+  rollingReminderSendDate, rollingReminderCandidates, claimRollingReminder };
+}
+
+export const rollingReminderSendDate = (...args) => createMembershipReminders().rollingReminderSendDate(...args);
+export const rollingReminderCandidates = (...args) => createMembershipReminders().rollingReminderCandidates(...args);

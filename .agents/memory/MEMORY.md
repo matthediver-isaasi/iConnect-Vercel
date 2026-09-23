@@ -157,3 +157,4 @@
 - [Form applicant authority](form-applicant-authority.md) — bare-ID application links need scoped server-issued authority; drafts and submitted emails never imply ownership.
 - [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Member Outlook recipient policy](member-outlook-recipient-boundary.md) — intentional CC is supported; login-disabled contacts are not deleted, and logging failure is not send failure.
+- [Financial dry-run boundaries](financial-dry-run-boundaries.md) — shared orchestration, no fabricated claim success, and transitive capability isolation are required for financial previews.

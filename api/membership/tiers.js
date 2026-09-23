@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
-import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
+import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipRemindersLive.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
 import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
 

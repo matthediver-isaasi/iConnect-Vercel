@@ -106,9 +106,12 @@ test('admin and cron existing-record retries classify the durable row', () => {
   assert.equal((workflows.match(/isZeroDueExistingMembership\(existingRow\)/g) || []).length >= 2, true);
   const cron = fs.readFileSync(new URL('../cron/process-membership-renewals.js', import.meta.url), 'utf8');
   assert.equal((cron.match(/isZeroDueExistingMembership\(record\)/g) || []).length >= 2, true);
-  assert.match(cron, /final_cost, total_with_vat/);
-  assert.match(cron, /canActivateScheduledMembershipWithoutInvoice\(row\)/);
-  assert.match(cron, /!invoiceLessZeroDue/);
+  const owner = fs.readFileSync(new URL('./directDebitOwnerPipeline.js', import.meta.url), 'utf8');
+  assert.match(cron, /selectScheduledActivations/);
+  assert.match(cron, /runScheduledActivation/);
+  assert.match(owner, /const total = row\.total_with_vat \?\? row\.final_cost/);
+  assert.match(owner, /row\.payment_status === 'paid' && zeroDue/);
+  assert.match(owner, /!invoiceLessZeroDue/);
 });
 
 test('invoicing zero-due callers use retryable durable delivery sources', () => {

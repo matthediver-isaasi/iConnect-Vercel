@@ -1,17 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { createMembershipReminders } from './membershipReminders.js';
 import { requestsReminderPaymentLink, resolveReminderPaymentQuote } from './reminderPaymentQuote.js';
 import { deriveAnnualTerm } from './annualRenewalPolicy.js';
 
-const source = readFileSync(new URL('./membershipReminders.js', import.meta.url), 'utf8')
-  .replace(/^import .*;\r?$/gm, '').replace(/export (async )?function /g, '$1function ');
-const load = new Function('supabase', 'requestsReminderPaymentLink', 'resolveReminderPaymentQuote',
-  'prepareMembershipFeeToken', 'deriveAnnualTerm', 'simulateMembershipForMember', 'simulateMembershipForOrg',
-  'getPausedMemberIdSet', 'sendTenantEmail', 'recordTransactionalInboxMessage', 'resolveCommunicationCategoryIdForLabel',
-  'replacePlaceholders', 'assertRenewalBudget', 'loadAddonLines', 'computeAddonTotals', 'buildAddonDisplayLines',
-  'getStripeCredentials',
-  `${source}\nreturn processPaymentLinkReminders;`);
+function load(db, requests, quote, prepare, derive, simulateMembershipForMember, simulateMembershipForOrg,
+  getPausedMemberIdSet, send, inbox, category, replacePlaceholders, budget, loadAddonLines, computeAddonTotals,
+  buildAddonDisplayLines, getStripeCredentials) {
+  return createMembershipReminders({ db, simulateMembershipForMember, simulateMembershipForOrg,
+    getPausedMemberIdSet, replacePlaceholders, loadAddonLines, computeAddonTotals, buildAddonDisplayLines, getStripeCredentials,
+    effects: { async perform(operation) {
+      const p = operation.payload;
+      if (operation.type === 'reminder.prepare_token') return prepare({ ...p, client: db });
+      if (operation.type === 'reminder.email') return send(p);
+      if (operation.type === 'reminder.inbox_record') return inbox(p);
+      if (operation.type === 'reminder.category') return category(p.tenantId, p.label);
+      if (operation.type === 'reminder.finish') return db.from('membership_tier_reminder_send').update(p.values)
+        .eq('id', p.id).eq('tenant_id', p.tenantId).eq('status', 'processing').eq('sent_at', p.sentAt);
+      if (operation.type === 'reminder.claim') {
+        if (!p.prior) return db.from('membership_tier_reminder_send').insert({ ...p.identity, status: 'processing', sent_at: p.sentAt }).select('id, sent_at').maybeSingle();
+        return db.from('membership_tier_reminder_send').update({ status: 'processing', sent_at: p.sentAt, error: null })
+          .eq('id', p.prior.id).eq('tenant_id', p.identity.tenant_id).eq('status', p.prior.status).eq('sent_at', p.prior.sent_at).select('id, sent_at').maybeSingle();
+      }
+      assert.fail(`Unexpected reminder effect ${operation.type}`);
+    } },
+  }).processPaymentLinkReminders;
+}
 
 function setup(member = true, rolling = false) {
   const config = { id: 'config', tenant_id: 'tenant', billing_period: 'annual', renewal_open_days: 30, online_card_payment: true,

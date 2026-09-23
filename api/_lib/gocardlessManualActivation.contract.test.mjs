@@ -7,7 +7,7 @@ test('manual activation route is tenant-scoped, terminal-safe, and audited', asy
     readFile(new URL('../admin/gocardless-dd.js', import.meta.url), 'utf8'),
     readFile(new URL('../../supabase/migrations/20260902_atomic_manual_dd_activation.sql', import.meta.url), 'utf8'),
   ]);
-  assert.match(source, /loadPlanForAction\(tenantId, planId, res\)/);
+  assert.match(source, /loadPlanForAction\(tenantId, planId, res, db\)/);
   assert.match(source, /\.eq\('id', planId\)[\s\S]{0,120}\.eq\('tenant_id', tenantId\)/);
   assert.match(source, /action === 'manual_activate'/);
   assert.match(source, /\.rpc\('approve_manual_dd_membership_activation'/);

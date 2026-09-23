@@ -15,6 +15,7 @@
 
 import { supabase } from './database.js';
 import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import { runArrearsPolicy } from './gocardlessArrearsPipeline.js';
 import {
   accrueFailedMonthlyPeriod,
 } from './monthlyArrearsCollection.js';
@@ -318,73 +319,37 @@ export async function handlePaymentFailure({ plan, agreement, event, action, db:
  */
 export async function applyArrearsPolicy({ plan, agreement, tierConfig, source = 'system', db: dbArg } = {}) {
   const db = dbArg || supabase;
-  const policy = resolveArrearsPolicy(tierConfig);
-  const nowIso = new Date().toISOString();
+  return runArrearsPolicy({ db, plan, agreement, tierConfig, source, now: new Date(),
+    effects: liveArrearsEffects(db) });
+}
 
-  if (plan.arrears_policy_applied) {
-    const roleAssignment = plan.arrears_policy_applied === 'restrict'
-      ? await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db })
-      : null;
-    return {
-      applied: false,
-      policy: plan.arrears_policy_applied,
-      roleAssignment,
-      fallbackRoleName: roleAssignment?.roleName || null,
-      result: { skippedReason: 'already-applied' },
-    };
-  }
-
-  const result = await applyStatusTransition({
-    entityType: 'payment_plan',
-    entityId: plan.id,
-    toStatus: STATUS.PAYMENT_OVERDUE,
-    reason: `grace expired — arrears policy '${policy}'`,
-    source,
-    extraUpdate: {
-      arrears_policy_applied: policy,
-      arrears_policy_applied_at: nowIso,
-    },
-  }, { db });
-
-  // If already overdue the transition no-ops; still record the policy once.
-  if (!result.applied) {
-    const { data: claimed, error } = await db
-      .from('membership_payment_plans')
-      .update({ arrears_policy_applied: policy, arrears_policy_applied_at: nowIso, updated_at: nowIso })
-      .eq('id', plan.id)
-      .is('arrears_policy_applied', null)
-      .select('id')
-      .maybeSingle();
-    if (error) console.error('[gocardlessArrears] record arrears policy failed:', error.message);
-    if (error || !claimed) {
-      return {
-        applied: false,
-        policy,
-        result: { ...result, skippedReason: error ? 'claim-failed' : 'already-applied' },
-      };
-    }
-  }
-
-  if (policy !== 'keep_active' && agreement) {
-    const metadata = { ...(agreement.metadata || {}) };
-    metadata.dd = { ...(metadata.dd || {}), arrears_state: policy, arrears_flagged_at: nowIso };
-    const { error } = await db
-      .from('membership_billing_agreements')
-      .update({ metadata, updated_at: nowIso })
-      .eq('id', agreement.id);
-    if (error) console.error('[gocardlessArrears] flag agreement arrears state failed:', error.message);
-  }
-
-  const roleAssignment = policy === 'restrict'
-    ? await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db })
-    : null;
-
+// Production-only capability dispatcher. Never imported by the pure pipeline.
+export function liveArrearsEffects(db = supabase) {
   return {
-    applied: true,
-    policy,
-    result,
-    roleAssignment,
-    fallbackRoleName: roleAssignment?.roleName || null,
+    async perform(operation) {
+      const { type, payload } = operation;
+      if (type === 'arrears_transition') return applyStatusTransition(payload, { db });
+      if (type === 'arrears_rpc') {
+        const { data, error } = await db.rpc(payload.name, payload.args);
+        if (error) throw new Error(`arrears role operation failed: ${error.message}`);
+        return data;
+      }
+      if (type === 'arrears_update') {
+        let query = db.from(payload.table).update(payload.values);
+        for (const [method, key, value] of payload.filters) query = query[method](key, value);
+        if (payload.returnOne) query = query.select('id').maybeSingle();
+        const { data, error } = await query;
+        if (error) {
+          if (payload.errorPolicy === 'claim_failed' || payload.errorPolicy === 'best_effort') {
+            console.error('[gocardlessArrears] arrears update failed:', error.message);
+            return payload.errorPolicy === 'claim_failed' ? { claimFailed: true } : null;
+          }
+          throw new Error(`arrears update failed: ${error.message}`);
+        }
+        return data;
+      }
+      throw new Error(`Unsupported arrears effect: ${type}`);
+    },
   };
 }
 

@@ -1,11 +1,11 @@
-import { resolveRollingSuccessorConfig } from './membershipConfigResolver.js';
+import { createMembershipConfigResolver } from './membershipConfigResolverCore.js';
+const { resolveRollingSuccessorConfig } = createMembershipConfigResolver(null);
 import { buildRollingTerm, billingPeriodMonths } from '../../shared/rollingMembershipTerm.js';
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 import { calculateMembershipYearWindow } from './membershipYear.js';
-
-export function monthlySnapshotCommitment(snapshot) {
-  return snapshot?.commitment?.term_key ? snapshot.commitment : null;
-}
+import { monthlySnapshotCommitment, monthlyRenewalIdentity, assertTrustedMonthlyTerm } from './monthlyRenewalTerms.js';
+import { isDryRunEffectBoundary } from './directDebitDryRunRuntime.js';
+export { monthlySnapshotCommitment, monthlyRenewalIdentity, assertTrustedMonthlyTerm } from './monthlyRenewalTerms.js';
 
 export function monthlyCommitmentFields({ offer, simResult, paymentMethod }) {
   const fixedDd = paymentMethod === 'direct_debit'
@@ -67,14 +67,6 @@ export function monthlyInstalmentCount(config) {
     : configured;
 }
 
-export function monthlyRenewalIdentity(snapshot) {
-  const commitment = monthlySnapshotCommitment(snapshot);
-  if (!commitment) return null;
-  return commitment.commitment_snapshot?.start_mode === 'fixed_date'
-    ? calculateMembershipYearWindow(commitment.commitment_snapshot.config, new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`)).label
-    : `rolling:${commitment.membership_renewal_date}`;
-}
-
 async function resolveFixedSuccessorConfig(db, { tenantId, previousTerm }) {
   const prior = previousTerm.commitment_snapshot?.config;
   if (!prior) throw new Error('Saved structure scope is missing; review renewal before collecting.');
@@ -90,18 +82,6 @@ async function resolveFixedSuccessorConfig(db, { tenantId, previousTerm }) {
     && equal(c.structure_match_value, prior.structure_match_value));
   if (matches.length !== 1) throw new Error(`Renewal on ${boundary} requires exactly one applicable structure.`);
   return matches[0];
-}
-
-export async function assertTrustedMonthlyTerm(db, tenantId, snapshot) {
-  if (monthlySnapshotCommitment(snapshot)) return;
-  let immediate = snapshot?.start_mode === 'immediate';
-  if (!snapshot?.start_mode && snapshot?.config_id) {
-    const { data, error } = await db.from('membership_tier_config')
-      .select('start_mode').eq('tenant_id', tenantId).eq('id', snapshot.config_id).maybeSingle();
-    if (error) throw new Error(`Cannot verify legacy membership term: ${error.message}`);
-    immediate = data?.start_mode === 'immediate';
-  }
-  if (immediate) throw new Error('Legacy rolling agreement has no reliable dated commitment; review is required before renewal or reminders.');
 }
 
 /** Never resolve a rolling successor from cron time or reuse the expired tier. */
@@ -350,32 +330,44 @@ export async function sendRollingMonthlyNotice({
     ...(agreement.organization_id ? { organization_id: agreement.organization_id } : { member_id: agreement.member_id }),
     previous_agreement_id: agreement.id, renewal_year: renewalYear,
   };
-  const { data: inserted, error: insertError } = await db.from('membership_dd_renewals').insert({
-    ...identity, mode, status: 'notice_processing', updated_at: claimedAt,
-  }).select().maybeSingle();
-  let claim = inserted;
-  if (insertError) {
-    if (insertError.code !== '23505') throw new Error(`Could not claim renewal notice: ${insertError.message}`);
+  const readPrior = async () => {
     const { data: prior, error } = await db.from('membership_dd_renewals').select('*')
       .eq('tenant_id', tenantId).eq('previous_agreement_id', agreement.id).eq('renewal_year', renewalYear).maybeSingle();
     if (error) throw new Error(`Could not inspect renewal notice: ${error.message}`);
+    return prior;
+  };
+  const reclaim = async prior => {
     if (!prior || !['notice_processing', 'notice_error'].includes(prior.status)
         || (prior.status === 'notice_processing' && now - new Date(prior.updated_at) < 15 * 60 * 1000)) {
-      return { sent: false, claimedElsewhere: true };
+      return null;
     }
     const { data, error: claimError } = await db.from('membership_dd_renewals')
       .update({ status: 'notice_processing', updated_at: claimedAt, failure_reason: null })
       .eq('id', prior.id).eq('tenant_id', tenantId).eq('status', prior.status).eq('updated_at', prior.updated_at)
       .select().maybeSingle();
     if (claimError) throw new Error(`Could not reclaim renewal notice: ${claimError.message}`);
-    claim = data;
-    if (!claim) return { sent: false, claimedElsewhere: true };
+    return data;
+  };
+  // Read existing duplicate/in-flight evidence without taking a reservation.
+  // The insert uniqueness and reclaim CAS still arbitrate races afterward.
+  const prior = await readPrior();
+  let claim;
+  if (prior) {
+    claim = await reclaim(prior);
+  } else {
+    const { data: inserted, error: insertError } = await db.from('membership_dd_renewals').insert({
+      ...identity, mode, status: 'notice_processing', updated_at: claimedAt,
+    }).select().maybeSingle();
+    if (insertError && insertError.code !== '23505') throw new Error(`Could not claim renewal notice: ${insertError.message}`);
+    claim = insertError ? await reclaim(await readPrior()) : inserted;
   }
+  if (!claim) return { sent: false, claimedElsewhere: true };
   let result;
   try {
     result = await sendEmail(eventKey, agreement, { db, extraContext });
     if (!result?.sent) throw new Error(result?.reason || 'Renewal notice was not delivered');
   } catch (error) {
+    if (isDryRunEffectBoundary(error)) throw error;
     const { error: persistError } = await db.from('membership_dd_renewals')
       .update({ status: 'notice_error', failure_reason: error.message, updated_at: claimedAt })
       .eq('id', claim.id).eq('tenant_id', tenantId).eq('status', 'notice_processing').eq('updated_at', claimedAt);

@@ -24,6 +24,8 @@ import { invalidateMemberSessions } from './session.js';
 import { gocardlessForTenant } from './gocardless.js';
 import { STATUS } from './gocardlessState.js';
 import { renewalRows } from './membershipRenewalBudget.js';
+import { prepareOwnerResume } from './directDebitOwnerPipeline.js';
+export { isRestartDue } from './directDebitOwnerPipeline.js';
 
 export const MEMBER_PAUSE_FIELDS = Object.freeze([
   'membership_paused',
@@ -56,15 +58,6 @@ export function isMemberPaused(member) {
  * Decide whether a paused member's scheduled restart has arrived.
  * Restart date is a plain date (tenant-day granularity); compare on UTC date.
  */
-export function isRestartDue(member, now = new Date()) {
-  if (!isMemberPaused(member)) return false;
-  const restart = member.membership_pause_restart_date;
-  if (!restart) return false;
-  const d = new Date(`${String(restart).slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return false;
-  return now.getTime() >= d.getTime();
-}
-
 function isMissingColumnError(error) {
   return error && (error.code === '42703' || error.code === '42P01');
 }
@@ -75,25 +68,9 @@ function isMissingColumnError(error) {
  * not exist (pre-migration environments).
  */
 export async function getPausedMemberIdSet(tenantId, db = defaultSupabase, memberIds = null) {
-  if (!db || !tenantId) return new Set();
-  const ids = new Set();
-  let afterId = null;
-  while (true) {
-    let query = db.from('member').select('id')
-      .eq('tenant_id', tenantId).eq('membership_paused', true)
-      .order('id', { ascending: true }).limit(100);
-    if (memberIds) query = query.in('id', memberIds);
-    if (afterId) query = query.gt('id', afterId);
-    const { data, error } = await query;
-    if (error) {
-      if (isMissingColumnError(error)) return new Set();
-      throw new Error(`Could not check paused memberships: ${error.message}`);
-    }
-    if (!data?.length) return ids;
-    for (const row of data) ids.add(row.id);
-    afterId = data[data.length - 1].id;
-  }
+  return readPausedMemberIds(tenantId, db, memberIds);
 }
+import { getPausedMemberIdSet as readPausedMemberIds } from './monthlyRenewalTerms.js';
 
 async function fetchMemberForPause(tenantId, memberId, db) {
   const { data, error } = await db
@@ -301,55 +278,18 @@ export async function resumeMember({
   auto = false,
   db = defaultSupabase,
   gcFactory = gocardlessForTenant,
+  now = new Date(),
 }) {
-  const member = await fetchMemberForPause(tenantId, memberId, db);
-  if (!member) return { ok: false, error: 'Member not found' };
-  if (!isMemberPaused(member)) {
-    return { ok: true, alreadyResumed: true, warnings: [] };
-  }
-
+  const prepared = await prepareOwnerResume({ db, tenantId, memberId, auto, now,
+    effects: { perform: async operation => {
+      if (operation.type !== 'owner.resume_claim') throw new Error(`Unknown resume operation: ${operation.type}`);
+      return db.from('member').update(operation.payload.values)
+        .eq('id', memberId).eq('tenant_id', tenantId).eq('membership_paused', true).select('id');
+    } },
+  });
+  if (!prepared.ok || prepared.alreadyResumed) return prepared;
   const warnings = [];
-  let gcSubscriptionIds = Array.isArray(member.membership_pause_gc_subscriptions)
-    ? member.membership_pause_gc_subscriptions
-    : [];
-  // Fallback when pause failed to record the ids: resume the member's
-  // active-ish plans' subscriptions (resuming a not-paused subscription is a
-  // tolerated no-op).
-  if (!gcSubscriptionIds.length) {
-    const { data: plans } = await db
-      .from('membership_payment_plans')
-      .select('gocardless_subscription_id')
-      .eq('tenant_id', tenantId)
-      .eq('member_id', memberId)
-      .not('gocardless_subscription_id', 'is', null)
-      .in('status', PAUSABLE_PLAN_STATUSES);
-    gcSubscriptionIds = (plans || []).map((p) => p.gocardless_subscription_id);
-  }
-
-  // 1) Clear pause state FIRST, guarded on still-paused so a concurrent
-  //    resume (admin + cron) records side effects once. If this fails we
-  //    stop before touching GoCardless, so payments can never restart while
-  //    the member remains access-blocked.
-  const { data: updated, error: updateError } = await db
-    .from('member')
-    .update({
-      membership_paused: false,
-      membership_paused_at: null,
-      membership_pause_restart_date: null,
-      membership_paused_by: null,
-      membership_pause_reason: null,
-      membership_pause_gc_subscriptions: [],
-    })
-    .eq('id', memberId)
-    .eq('tenant_id', tenantId)
-    .eq('membership_paused', true)
-    .select('id');
-  if (updateError) {
-    return { ok: false, error: `Failed to clear pause: ${updateError.message}` };
-  }
-  if (!updated?.length) {
-    return { ok: true, alreadyResumed: true, warnings };
-  }
+  const gcSubscriptionIds = prepared.subscriptionIds;
 
   // 2) Resume the subscriptions the pause stopped. Failures are surfaced as
   //    warnings AND recorded in the note so a still-paused subscription is
@@ -387,7 +327,7 @@ export async function processPauseAutoRestarts(results, { db = defaultSupabase, 
     .lte('membership_pause_restart_date', todayStr), { control, results, missingSchema: true });
   for await (const m of dueMembers) {
     try {
-      const outcome = await resumeMember({ tenantId: m.tenant_id, memberId: m.id, auto: true, db, gcFactory });
+      const outcome = await resumeMember({ tenantId: m.tenant_id, memberId: m.id, auto: true, db, gcFactory, now });
       if (!outcome.ok) throw new Error(outcome.error);
       if (outcome.warnings?.length) {
         // Access may be restored while a provider needs manual attention.
