@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,11 @@ import WidgetGrid from "@/components/dashboard/WidgetGrid";
 import WidgetBuilderModal from "@/components/dashboard/WidgetBuilderModal";
 import GroupingFieldSettingsModal from "@/components/dashboard/GroupingFieldSettingsModal";
 import { defaultDashboardWidgetPalette } from "@shared/dashboardWidgetPalette.js";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function DashboardWidgetBuilder() {
   const { toast } = useToast();
+  const { memberInfo } = useMemberAccess();
   const qc = useQueryClient();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingWidget, setEditingWidget] = useState(null);
@@ -37,10 +39,17 @@ export default function DashboardWidgetBuilder() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [fieldSettingsOpen, setFieldSettingsOpen] = useState(false);
 
+  const dashboardQueryScope = [
+    memberInfo?.tenant_id || "single-tenant",
+    memberInfo?.id || "unknown-member",
+    memberInfo?.role_id || "unknown-role",
+  ].join(":");
+  const widgetsQueryKey = ["/api/dashboard/widgets", "dashboard", dashboardQueryScope];
   const widgetsQuery = useQuery({
-    queryKey: ["/api/dashboard/widgets"],
-    queryFn: async () => {
-      const res = await fetch("/api/dashboard/widgets", { credentials: "include" });
+    queryKey: widgetsQueryKey,
+    gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/dashboard/widgets", { credentials: "include", signal });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = new Error(body.error || `Request failed (${res.status})`);
@@ -50,6 +59,11 @@ export default function DashboardWidgetBuilder() {
       return body;
     },
   });
+
+  useEffect(() => () => {
+    qc.cancelQueries({ queryKey: widgetsQueryKey, exact: true });
+    qc.removeQueries({ queryKey: widgetsQueryKey, exact: true });
+  }, [qc, dashboardQueryScope]);
 
   const permissions = widgetsQuery.data?.permissions || {
     view: true,
@@ -72,7 +86,7 @@ export default function DashboardWidgetBuilder() {
       return apiRequest("POST", "/api/dashboard/widgets", payload);
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
+      qc.invalidateQueries({ queryKey: widgetsQueryKey });
       if (!variables?.__resizeId) {
         setBuilderOpen(false);
         setEditingWidget(null);
@@ -82,7 +96,7 @@ export default function DashboardWidgetBuilder() {
     },
     onError: (err, variables) => {
       if (variables?.__resizeId) {
-        qc.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
+        qc.invalidateQueries({ queryKey: widgetsQueryKey });
       }
       toast({
         title: "Save failed",
@@ -95,7 +109,7 @@ export default function DashboardWidgetBuilder() {
   const deleteMutation = useMutation({
     mutationFn: async widgetId => apiRequest("DELETE", `/api/dashboard/widgets/${widgetId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
+      qc.invalidateQueries({ queryKey: widgetsQueryKey });
       setPendingDelete(null);
       toast({ title: "Widget deleted" });
     },
@@ -112,7 +126,7 @@ export default function DashboardWidgetBuilder() {
     mutationFn: async ({ scope, ids }) =>
       apiRequest("POST", "/api/dashboard/widgets/reorder", { scope, ids }),
     onError: err => {
-      qc.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
+      qc.invalidateQueries({ queryKey: widgetsQueryKey });
       toast({
         title: "Reorder failed",
         description: err?.message || "Unable to reorder widgets",
@@ -122,7 +136,7 @@ export default function DashboardWidgetBuilder() {
   });
 
   const handleResize = widget => nextWidth => {
-    qc.setQueryData(["/api/dashboard/widgets"], prev => {
+    qc.setQueryData(widgetsQueryKey, prev => {
       if (!prev) return prev;
       const key = widget.scope === "shared" ? "shared" : "personal";
       return {
@@ -134,7 +148,7 @@ export default function DashboardWidgetBuilder() {
   };
 
   const handleResizeHeight = widget => nextHeight => {
-    qc.setQueryData(["/api/dashboard/widgets"], prev => {
+    qc.setQueryData(widgetsQueryKey, prev => {
       if (!prev) return prev;
       const key = widget.scope === "shared" ? "shared" : "personal";
       return {
@@ -146,7 +160,7 @@ export default function DashboardWidgetBuilder() {
   };
 
   const handleReorder = (scope, nextOrder) => {
-    qc.setQueryData(["/api/dashboard/widgets"], prev =>
+    qc.setQueryData(widgetsQueryKey, prev =>
       prev
         ? {
             ...prev,
@@ -242,6 +256,7 @@ export default function DashboardWidgetBuilder() {
             widgets={sharedWidgets}
             palette={palette}
             canEdit={permissions.manageShared}
+            queryScope={dashboardQueryScope}
             emptyTitle="No shared widgets yet"
             emptyDescription={
               permissions.manageShared
@@ -282,6 +297,7 @@ export default function DashboardWidgetBuilder() {
             widgets={personalWidgets}
             palette={palette}
             canEdit={permissions.managePersonal}
+            queryScope={dashboardQueryScope}
             emptyTitle="No personal widgets yet"
             emptyDescription={
               permissions.managePersonal
@@ -451,6 +467,7 @@ function WidgetZone({
   widgets,
   palette,
   canEdit,
+  queryScope,
   emptyTitle,
   emptyDescription,
   onReorder,
@@ -490,6 +507,7 @@ function WidgetZone({
       widgets={widgets}
       palette={palette}
       canEdit={canEdit}
+      queryScope={queryScope}
       onReorder={onReorder}
       onEdit={onEdit}
       onDelete={onDelete}

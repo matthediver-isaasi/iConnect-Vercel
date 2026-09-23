@@ -18,16 +18,19 @@ export async function getDashboardActor(req) {
   }
 
   let excludedFeatures = [];
-  if (ctx.roleId && supabase) {
+  if (ctx.roleId) {
+    if (!supabase) throw new Error('Unable to verify dashboard role');
     try {
-      const { data: role } = await supabase
+      const { data: role, error } = await supabase
         .from('role')
         .select('excluded_features')
         .eq('id', ctx.roleId)
         .single();
-      excludedFeatures = role?.excluded_features || [];
+      if (error || !role) throw new Error('Unable to verify dashboard role');
+      excludedFeatures = role.excluded_features || [];
     } catch (err) {
       console.error('[Dashboard Permissions] Failed to load role:', err);
+      throw new Error('Unable to verify dashboard role');
     }
   }
 
@@ -91,7 +94,5 @@ export function isSharedTenantWidget(widget, actor) {
  * denied responses are not cached either.
  */
 export function setCanvasDashboardNoStore(req, res) {
-  if (isCanvasDashboardEmbed(req)) {
-    res.setHeader('Cache-Control', 'private, no-store');
-  }
+  res.setHeader('Cache-Control', 'private, no-store');
 }

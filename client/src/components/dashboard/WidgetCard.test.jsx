@@ -55,6 +55,7 @@ const { act } = await import("react");
 const {
   buildExportRows,
   default: WidgetCard,
+  WidgetCacheStatus,
   WidgetBody,
   widgetDataQueryKey,
   widgetRequestUrl,
@@ -66,6 +67,12 @@ const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } =
   await import("@tanstack/react-query");
+
+async function settleQuery() {
+  await new Promise((done) => setTimeout(done, 0));
+  await new Promise((done) => setTimeout(done, 0));
+  await new Promise((done) => setTimeout(done, 0));
+}
 
 test("Member Groups list renders missing history and provisional values without clickthrough or summed headcounts", async () => {
   const container = document.createElement("div");
@@ -201,8 +208,222 @@ test("Canvas data has an isolated, instance-scoped React Query identity", () => 
     "widget-1",
     "data",
   ]);
-  assert.deepEqual(widgetDataQueryKey("widget-1", false, "canvas-instance-a"), dashboardKey);
+  assert.deepEqual(widgetDataQueryKey("widget-1", false, "member-a"), [
+    "/api/dashboard/widgets",
+    "widget-1",
+    "data",
+    "dashboard",
+    "member-a",
+  ]);
 });
+
+test("pending cache metadata is announced while existing data refreshes", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <WidgetCacheStatus
+        widgetId="pending"
+        cache={{
+          status: "pending",
+          pending: true,
+          updatedAt: "2026-09-18T10:15:00.000Z",
+        }}
+      />,
+    ));
+    const status = container.querySelector('[data-testid="widget-cache-status-pending"]');
+    assert.equal(status?.getAttribute("role"), "status");
+    assert.match(status?.textContent || "", /Refreshing · Showing data updated/);
+    assert.ok(status?.querySelector(".animate-spin"));
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test(
+  "authorized Canvas viewers can refresh one stale widget without hiding its cached data",
+  { concurrency: false },
+  async () => {
+    const previousFetch = globalThis.fetch;
+    const requests = [];
+    const updatedAt = "2026-09-18T10:15:00.000Z";
+    globalThis.fetch = async (url) => {
+      requests.push(String(url));
+      if (String(url).includes("/refresh")) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: { type: "group", rows: [{ key: "Cached result", value: 7 }] },
+            cache: {
+              status: "current",
+              updatedAt: "2026-09-18T10:16:00.000Z",
+              pending: false,
+              error: null,
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: { type: "group", rows: [{ key: "Cached result", value: 7 }] },
+          cache: {
+            status: "stale",
+            updatedAt,
+            pending: false,
+            error: null,
+          },
+        }),
+      };
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const root = createRoot(container);
+    const widget = {
+      id: "widget-refresh",
+      title: "Refreshable totals",
+      widget_type: "list",
+      height: "short",
+      config: {},
+    };
+    queryClient.setQueryData(
+      widgetDataQueryKey(widget.id, true, "viewer-a"),
+      {
+        data: { type: "group", rows: [{ key: "Cached result", value: 7 }] },
+        cache: {
+          status: "stale",
+          updatedAt,
+          pending: false,
+          error: null,
+        },
+      },
+    );
+
+    try {
+      await act(async () => {
+        root.render(mountedWidgetElement({
+          queryClient,
+          widget,
+          queryScope: "viewer-a",
+        }));
+        await settleQuery();
+      });
+      assert.match(container.textContent, /Cached result/);
+      assert.match(container.textContent, /Stale · Last updated/);
+
+      const refresh = container.querySelector(
+        '[data-testid="button-refresh-widget-widget-refresh"]',
+      );
+      assert.ok(refresh);
+      assert.equal(refresh.disabled, false);
+      await act(async () => {
+        refresh.click();
+        await settleQuery();
+      });
+
+      assert.match(requests.at(-1), /\/refresh\?embed=canvas$/);
+      assert.match(container.textContent, /Cached result/);
+      assert.match(container.textContent, /Widget refreshed/);
+      assert.equal(
+        container.querySelector('[data-testid="widget-cache-status-widget-refresh"]')
+          ?.getAttribute("role"),
+        "status",
+      );
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+      globalThis.fetch = previousFetch;
+    }
+  },
+);
+
+test(
+  "a failed manual refresh reports an accessible error and preserves exportable data",
+  { concurrency: false },
+  async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/refresh")) {
+        return {
+          ok: false,
+          status: 429,
+          json: async () => ({
+            error: "Refresh cooling down",
+            retryAfterSeconds: 12,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: { type: "group", rows: [{ key: "Keep me", value: 4 }] },
+          cache: {
+            status: "current",
+            updatedAt: "2026-09-18T10:15:00.000Z",
+            pending: false,
+            error: null,
+          },
+        }),
+      };
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const root = createRoot(container);
+    const widget = {
+      id: "widget-refresh-failure",
+      title: "Failure-safe totals",
+      widget_type: "list",
+      height: "short",
+      config: {},
+    };
+
+    try {
+      await act(async () => {
+        root.render(mountedWidgetElement({
+          queryClient,
+          widget,
+          queryScope: "viewer-a",
+        }));
+        await settleQuery();
+      });
+      const refresh = container.querySelector(
+        '[data-testid="button-refresh-widget-widget-refresh-failure"]',
+      );
+      await act(async () => {
+        refresh.click();
+        await settleQuery();
+      });
+
+      assert.match(container.textContent, /Keep me/);
+      assert.match(container.textContent, /Refresh cooling down/);
+      assert.match(container.textContent, /Try again in 12 seconds/);
+      assert.equal(
+        container.querySelector('[data-testid="widget-cache-status-widget-refresh-failure"]')
+          ?.getAttribute("role"),
+        "alert",
+      );
+      assert.ok(
+        container.querySelector('[data-testid="button-widget-menu-widget-refresh-failure"]'),
+      );
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+      globalThis.fetch = previousFetch;
+    }
+  },
+);
 
 test("WidgetCard consumes the canonical palette as normalized slots and chart colours", () => {
   const palette = normalizeDashboardWidgetPalette([

@@ -148,43 +148,47 @@ safeguards, and the complete verification runbook.
 
 ## Complete production cron inventory
 
-The table below is the complete 30-schedule inventory in `vercel.json`.
+The table below is the complete 34-schedule inventory in `vercel.json`.
 “Covered” means that schedule has its own heartbeat from the ten-monitor
-registry. The other twenty continue to run normally but are not individually
+registry. The other twenty-four continue to run normally but are not individually
 monitored under the current plan.
 
 | # | Endpoint | Schedule (UTC) | Coverage |
 |---:|---|---|---|
-| 1 | `/api/cron/send-event-reminders` | `* * * * *` | Not individually monitored |
-| 2 | `/api/cron/process-membership-renewals` | `0 * * * *` | **Covered — membership renewals** |
-| 3 | `/api/email-campaigns/process-scheduled` | `* * * * *` | **Covered — scheduled campaigns** |
-| 4 | `/api/cron/sync-outlook-emails` | `*/5 * * * *` | Not individually monitored |
-| 5 | `/api/cron/zoho-crm-reconcile` | `*/15 * * * *` | Not individually monitored |
-| 6 | `/api/cron/zoho-crm-reconcile-outbound` | `*/5 * * * *` | Not individually monitored |
-| 7 | `/api/cron/sync-mailgun-campaign-events` | `0 */6 * * *` | Not individually monitored |
-| 8 | `/api/cron/reconcile-membership-invoice-payments` | `0 */3 * * *` | **Covered — membership invoice-payment reconciliation** |
-| 9 | `/api/cron/reconcile-training-fund-purchases` | `0 */3 * * *` | Not individually monitored |
-| 10 | `/api/cron/reconcile-job-posting-payments` | `30 * * * *` | Not individually monitored |
-| 11 | `/api/cron/sync-adzuna-job-feeds` | `10 * * * *` | Not individually monitored |
-| 12 | `/api/cron/reconcile-form-payments` | `* * * * *` | **Covered — form-payment reconciliation** |
-| 13 | `/api/cron/run-form-submission-export-jobs` | `* * * * *` | Not individually monitored |
-| 14 | `/api/cron/run-import-jobs` | `* * * * *` | Not individually monitored |
-| 15 | `/api/cron/recompute-tenant-storage` | `0 3 * * *` | Not individually monitored |
-| 16 | `/api/cron/send-group-event-reminders` | `*/30 * * * *` | Not individually monitored |
-| 17 | `/api/cron/send-po-reminders` | `0 8 * * *` | Not individually monitored |
-| 18 | `/api/cron/run-scheduled-workflows` | `0 * * * *` | **Covered — scheduled workflows** |
-| 19 | `/api/cron/reindex-member-content` | `0 */6 * * *` | Not individually monitored |
-| 20 | `/api/cron/reindex-help-articles` | `0 3 * * *` | Not individually monitored |
-| 21 | `/api/cron/backup-storage-to-r2` | `*/10 2-7 * * *` | **Covered — storage backup** |
-| 22 | `/api/cron/backup-database-to-r2` | `5-59/10 2-7 * * *` | **Covered — database backup** |
-| 23 | `/api/cron/process-voucher-expiries` | `30 1 * * *` | Not individually monitored |
-| 24 | `/api/cron/support-auto-close` | `0 4 * * *` | Not individually monitored |
-| 25 | `/api/cron/close-voucher-month` | `15 2 1-3 * *` | Not individually monitored |
-| 26 | `/api/cron/reconcile-gocardless` | `15 */6 * * *` | **Covered — GoCardless reconciliation** |
-| 27 | `/api/cron/gocardless-arrears` | `45 */6 * * *` | Not individually monitored |
-| 28 | `/api/cron/reconcile-stripe-card-plans` | `25 */6 * * *` | **Covered — Stripe card-plan reconciliation** |
-| 29 | `/api/cron/grant-speaker-awards` | `*/10 * * * *` | Not individually monitored |
-| 30 | `/api/cron/process-automatic-memberships` | `* * * * *` | **Covered — automatic membership processing** |
+| 1 | `/api/cron/refresh-dashboard-widgets` | `* * * * *` | Not individually monitored — see `guides/dashboard-widget-cache.md` for backlog diagnostics |
+| 2 | `/api/cron/send-event-reminders` | `* * * * *` | Not individually monitored |
+| 3 | `/api/cron/process-membership-renewals` | `0 * * * *` | **Covered — membership renewals** |
+| 4 | `/api/email-campaigns/process-scheduled` | `* * * * *` | **Covered — scheduled campaigns** |
+| 5 | `/api/cron/sync-outlook-emails` | `*/5 * * * *` | Not individually monitored |
+| 6 | `/api/teams/attendance-auto-sync` | `*/10 * * * *` | Not individually monitored |
+| 7 | `/api/cron/zoho-crm-reconcile` | `*/15 * * * *` | Not individually monitored |
+| 8 | `/api/cron/zoho-crm-reconcile-outbound` | `*/5 * * * *` | Not individually monitored |
+| 9 | `/api/cron/sync-mailgun-campaign-events` | `0 */6 * * *` | Not individually monitored |
+| 10 | `/api/cron/reconcile-membership-invoice-payments` | `0 */3 * * *` | **Covered — membership invoice-payment reconciliation** |
+| 11 | `/api/cron/reconcile-training-fund-purchases` | `0 */3 * * *` | Not individually monitored |
+| 12 | `/api/cron/reconcile-job-posting-payments` | `30 * * * *` | Not individually monitored |
+| 13 | `/api/cron/sync-adzuna-job-feeds` | `10 * * * *` | Not individually monitored |
+| 14 | `/api/cron/reconcile-form-payments` | `* * * * *` | **Covered — form-payment reconciliation** |
+| 15 | `/api/cron/run-form-submission-export-jobs` | `* * * * *` | Not individually monitored |
+| 16 | `/api/cron/run-import-jobs` | `* * * * *` | Not individually monitored |
+| 17 | `/api/cron/recompute-tenant-storage` | `0 3 * * *` | Not individually monitored |
+| 18 | `/api/cron/send-group-event-reminders` | `*/30 * * * *` | Not individually monitored |
+| 19 | `/api/cron/send-po-reminders` | `0 8 * * *` | Not individually monitored |
+| 20 | `/api/cron/run-scheduled-workflows` | `0 * * * *` | **Covered — scheduled workflows** |
+| 21 | `/api/cron/reindex-member-content` | `0 */6 * * *` | Not individually monitored |
+| 22 | `/api/cron/reindex-help-articles` | `0 3 * * *` | Not individually monitored |
+| 23 | `/api/cron/backup-storage-to-r2` | `*/10 2-7 * * *` | **Covered — storage backup** |
+| 24 | `/api/cron/backup-database-to-r2` | `5-59/10 2-7 * * *` | **Covered — database backup** |
+| 25 | `/api/cron/process-voucher-expiries` | `30 1 * * *` | Not individually monitored |
+| 26 | `/api/cron/support-auto-close` | `0 4 * * *` | Not individually monitored |
+| 27 | `/api/cron/close-voucher-month` | `15 2 1-3 * *` | Not individually monitored |
+| 28 | `/api/cron/reconcile-gocardless` | `15 */6 * * *` | **Covered — GoCardless reconciliation** |
+| 29 | `/api/cron/gocardless-arrears` | `45 */6 * * *` | Not individually monitored |
+| 30 | `/api/cron/gocardless-auto-retries` | `*/15 * * * *` | Not individually monitored |
+| 31 | `/api/cron/reconcile-stripe-card-plans` | `25 */6 * * *` | **Covered — Stripe card-plan reconciliation** |
+| 32 | `/api/cron/grant-speaker-awards` | `*/10 * * * *` | Not individually monitored |
+| 33 | `/api/cron/process-automatic-memberships` | `* * * * *` | **Covered — automatic membership processing** |
+| 34 | `/api/cron/process-attendance-transitions` | `* * * * *` | Not individually monitored |
 
 If monitor capacity increases, the next candidates should be selected based
 on current operational impact and incident history. Good candidates to review

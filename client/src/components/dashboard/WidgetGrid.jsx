@@ -27,7 +27,7 @@ const WIDTH_CLASS = {
   full: "md:col-span-12",
 };
 
-function SortableWidget({ widget, palette, canEdit, onEdit, onDelete, onDuplicate, onResize, onResizeHeight }) {
+function SortableWidget({ widget, palette, canEdit, queryScope, onEdit, onDelete, onDuplicate, onResize, onResizeHeight }) {
   const {
     attributes,
     listeners,
@@ -52,6 +52,7 @@ function SortableWidget({ widget, palette, canEdit, onEdit, onDelete, onDuplicat
         widget={widget}
         palette={palette}
         canEdit={canEdit}
+        queryScope={queryScope}
         dragHandleProps={canEdit ? { ...attributes, ...listeners } : null}
         onEdit={onEdit}
         onDelete={onDelete}
@@ -73,6 +74,7 @@ export default function WidgetGrid({
   widgets,
   palette,
   canEdit = false,
+  queryScope = null,
   onReorder,
   onEdit,
   onDelete,
@@ -124,6 +126,7 @@ export default function WidgetGrid({
               widget={widget}
               palette={palette}
               canEdit={canEdit}
+              queryScope={queryScope}
               onEdit={onEdit}
               onDelete={onDelete}
               onDuplicate={onDuplicate}
@@ -139,7 +142,12 @@ export default function WidgetGrid({
             className="pointer-events-none flex h-full w-full cursor-grabbing rounded-md shadow-lg ring-2 ring-primary/30"
             data-testid="widget-drag-overlay"
           >
-            <WidgetCard widget={activeWidget} palette={palette} canEdit={false} />
+            <WidgetCard
+              widget={activeWidget}
+              palette={palette}
+              canEdit={false}
+              queryScope={queryScope ? `${queryScope}:drag-overlay` : null}
+            />
           </div>
         ) : null}
       </DragOverlay>

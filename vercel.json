@@ -33,6 +33,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/refresh-dashboard-widgets",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/send-event-reminders",
       "schedule": "* * * * *"
     },

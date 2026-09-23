@@ -31,12 +31,11 @@ test('Member Group aggregate widgets preserve personal, tenant and embed boundar
     const handler = createDataHandler({
       supabase: database(rows),
       getDashboardActor: async () => actor(),
-      runWidgetConfig: async (actual, tenantId, options) => {
+      readWidgetCache: async (_db, saved, currentActor) => {
         calls++;
-        assert.deepEqual(actual, config);
-        assert.equal(tenantId, TENANT);
-        assert.equal(options.collectRowIds, undefined);
-        return { rows: [{ name: '2026-09', value: 2 }], categories: [] };
+        assert.deepEqual(saved.config, config);
+        assert.equal(currentActor.tenantId, TENANT);
+        return { data: { rows: [{ name: '2026-09', value: 2 }], categories: [] }, cache: { status: 'current' } };
       },
     });
     const res = response();
@@ -320,12 +319,12 @@ test('POST data denies private references and sets no-store before aggregation',
   const handler = createDataHandler({
     supabase: database(rows),
     getDashboardActor: async () => actor(),
-    runWidgetConfig: async (_config, tenantId, options) => {
+    readWidgetCache: async (_db, saved, currentActor) => {
       aggregationCalls += 1;
       aggregationCacheControl = res.headers['Cache-Control'];
-      assert.equal(tenantId, TENANT);
-      assert.equal(options.collectRowIds, undefined);
-      return { type: 'group', rows: [{ key: 'All', value: 1 }] };
+      assert.equal(currentActor.tenantId, TENANT);
+      assert.equal(saved.id, 'shared-ok');
+      return { data: { type: 'group', rows: [{ key: 'All', value: 1 }] }, cache: { status: 'current' } };
     },
   });
 

@@ -38,12 +38,14 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
+  CheckCircle2,
   Copy,
   Download,
   GripVertical,
   Info,
   MoreVertical,
   PencilLine,
+  RefreshCw,
   Trash2,
   Maximize2,
   ArrowUpDown,
@@ -129,7 +131,11 @@ export function widgetRequestUrl(path, embedded = false) {
 
 export function widgetDataQueryKey(widgetId, embedded = false, queryScope = null) {
   const key = ["/api/dashboard/widgets", widgetId, "data"];
-  if (!embedded) return key;
+  if (!embedded) {
+    return queryScope === null || queryScope === undefined || queryScope === ""
+      ? key
+      : [...key, "dashboard", String(queryScope)];
+  }
   // A Canvas page may render the same widget more than once. Scope is also
   // rotated by the Canvas host when its auth identity changes, so an old
   // user's response cannot be painted while the new request is in flight.
@@ -347,6 +353,9 @@ export default function WidgetCard({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [drillingKey, setDrillingKey] = useState(null);
+  const [refreshFeedback, setRefreshFeedback] = useState(null);
+  const [refreshAccepted, setRefreshAccepted] = useState(false);
+  const refreshControllerRef = useRef(null);
   const [contentRef, contentSize] = useElementSize(embedded);
   const dataQueryKey = useMemo(
     () => widgetDataQueryKey(widget.id, embedded, queryScope),
@@ -362,7 +371,7 @@ export default function WidgetCard({
       staleTime: 0,
       refetchOnMount: "always",
     }),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await fetch(
         widgetRequestUrl(`/api/dashboard/widgets/${widget.id}/data`, embedded),
         {
@@ -370,6 +379,7 @@ export default function WidgetCard({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: "{}",
+          signal,
         },
       );
       if (!res.ok) {
@@ -378,17 +388,105 @@ export default function WidgetCard({
       }
       return res.json();
     },
+    refetchInterval: query => {
+      const cache = query.state.data?.cache;
+      if (!cache?.pending && cache?.status !== "pending") return false;
+      const retryAfter = Number(cache.retryAfterSeconds);
+      return Number.isFinite(retryAfter)
+        ? Math.max(1000, Math.min(retryAfter * 1000, 30000))
+        : 2000;
+    },
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {
-    if (!embedded) return undefined;
+    if (!embedded && !queryScope) return undefined;
     return () => {
-      // Remove the exact scoped entry on scope changes and unmount. This is
-      // intentionally limited to Canvas cards; dashboard cache behaviour and
-      // its existing invalidation contract remain unchanged.
+      refreshControllerRef.current?.abort();
+      queryClient.cancelQueries({ queryKey: dataQueryKey, exact: true });
       queryClient.removeQueries({ queryKey: dataQueryKey, exact: true });
     };
-  }, [dataQueryKey, embedded, queryClient]);
+  }, [dataQueryKey, embedded, queryClient, queryScope]);
+
+  const cache = data?.cache || null;
+  const payload = data?.data || null;
+  const refreshPending = refreshFeedback?.kind === "pending"
+    || cache?.pending
+    || cache?.status === "pending";
+
+  useEffect(() => {
+    if (refreshFeedback?.kind !== "pending" || !refreshAccepted || !cache) return;
+    if (cache.status === "failed") {
+      setRefreshFeedback({
+        kind: "error",
+        message: cache.error || "The refresh failed. Existing data is still shown.",
+      });
+    } else if (!cache.pending && cache.status !== "pending") {
+      setRefreshFeedback({ kind: "success", message: "Widget refreshed." });
+    }
+  }, [
+    cache?.error,
+    cache?.pending,
+    cache?.status,
+    refreshAccepted,
+    refreshFeedback?.kind,
+  ]);
+
+  useEffect(() => {
+    if (refreshFeedback?.kind !== "success") return undefined;
+    const timeout = window.setTimeout(() => setRefreshFeedback(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [refreshFeedback?.kind]);
+
+  const handleRefresh = async () => {
+    if (refreshPending) return;
+    refreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    setRefreshAccepted(false);
+    setRefreshFeedback({ kind: "pending", message: "Refresh requested." });
+    try {
+      const res = await fetch(
+        widgetRequestUrl(`/api/dashboard/widgets/${widget.id}/refresh`, embedded),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          signal: controller.signal,
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const retry = Number(body.retryAfterSeconds);
+        const suffix = Number.isFinite(retry) && retry > 0
+          ? ` Try again in ${Math.ceil(retry)} seconds.`
+          : "";
+        throw new Error(`${body.error || `Request failed (${res.status})`}${suffix}`);
+      }
+      queryClient.setQueryData(dataQueryKey, body);
+      setRefreshAccepted(true);
+      if (body.cache?.status === "failed") {
+        setRefreshFeedback({
+          kind: "error",
+          message: body.cache.error || "The refresh failed. Existing data is still shown.",
+        });
+      } else if (!body.cache?.pending && body.cache?.status !== "pending") {
+        setRefreshFeedback({ kind: "success", message: "Widget refreshed." });
+      }
+    } catch (refreshError) {
+      if (refreshError?.name !== "AbortError") {
+        setRefreshFeedback({
+          kind: "error",
+          message: refreshError?.message || "Unable to refresh widget.",
+        });
+      }
+    } finally {
+      if (refreshControllerRef.current === controller) {
+        refreshControllerRef.current = null;
+      }
+    }
+  };
 
   // Click-through: enabled by the widget's clickThrough flag for
   // organisation / member sourced group-by widgets. Clicking a bar,
@@ -400,7 +498,7 @@ export default function WidgetCard({
     !!widget.config?.clickThrough &&
     !!drillRoute &&
     (!!widget.config?.groupBy || widget.config?.participation === true) &&
-    data?.data?.type === "group";
+    payload?.type === "group";
   const handleDrill = async (key) => {
     if (!drillEnabled || drillingKey) return;
     setDrillingKey(key);
@@ -443,11 +541,11 @@ export default function WidgetCard({
     }
   };
 
-  const cardLoading = isLoading || (embedded && isFetching && !!data);
-  const canExport = !cardLoading && !isError && !!data;
+  const cardLoading = isLoading && !payload;
+  const canExport = !!payload;
   const handleExportCsv = () => {
     if (!canExport) return;
-    const exportRows = buildExportRows(widget, data.data);
+    const exportRows = buildExportRows(widget, payload);
     const rows = exportRows.length > 0 ? exportRows : [["Label", "Value"]];
     const filename = `${slugifyFilename(widget.title, "widget")}.csv`;
     downloadCsv(rowsToCsv(rows), filename);
@@ -514,6 +612,26 @@ export default function WidgetCard({
             </Popover>
           )}
         </div>
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={refreshPending ? `Refreshing ${widget.title}` : `Refresh ${widget.title}`}
+                aria-busy={refreshPending ? "true" : undefined}
+                disabled={refreshPending}
+                onClick={handleRefresh}
+                data-testid={`button-refresh-widget-${widget.id}`}
+              >
+                <RefreshCw className={cn("h-4 w-4", refreshPending && "animate-spin")} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {refreshPending ? "Refreshing widget" : "Refresh widget data"}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {!embedded && canEdit && (onResize || onResizeHeight) && (
           <TooltipProvider delayDuration={200}>
             <div className="flex items-center">
@@ -575,7 +693,7 @@ export default function WidgetCard({
                 data-testid={`menuitem-export-csv-${widget.id}`}
               >
                 <Download className="mr-2 h-4 w-4" />
-                Export CSV
+                Export displayed data (CSV)
               </DropdownMenuItem>
               {!embedded && canEdit && (
                 <>
@@ -618,6 +736,21 @@ export default function WidgetCard({
           embedded && "min-h-0 overflow-hidden",
         )}
       >
+        <WidgetCacheStatus
+          cache={cache}
+          isFetching={isFetching}
+          networkError={isError && payload ? error : null}
+          refreshFeedback={refreshFeedback}
+          widgetId={widget.id}
+        />
+        {drillEnabled && cache?.updatedAt && (
+          <p
+            className="mb-2 text-xs text-muted-foreground"
+            data-testid={`widget-live-drilldown-note-${widget.id}`}
+          >
+            Click-through opens live records, which may differ from this cached result.
+          </p>
+        )}
         {cardLoading && (
           <div
             className={cn(
@@ -630,7 +763,7 @@ export default function WidgetCard({
             <Skeleton className={cn("h-32 w-full", embedded && "max-h-full")} />
           </div>
         )}
-        {isError && (
+        {isError && !payload && (
           <div
             className={cn(
               "flex flex-1 flex-col items-start justify-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive",
@@ -653,10 +786,18 @@ export default function WidgetCard({
             </Button>
           </div>
         )}
-        {!cardLoading && !isError && data && (
+        {!cardLoading && !payload && !isError && refreshPending && (
+          <div
+            className="flex flex-1 items-center justify-center py-8 text-sm text-muted-foreground"
+            data-testid={`widget-pending-${widget.id}`}
+          >
+            Preparing widget data…
+          </div>
+        )}
+        {!cardLoading && payload && (
           <WidgetBody
             widget={widget}
-            payload={data.data}
+            payload={payload}
             onDrill={drillEnabled ? handleDrill : null}
             palette={palette}
             embedded={embedded}
@@ -665,6 +806,81 @@ export default function WidgetCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function formatCacheUpdatedAt(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+export function WidgetCacheStatus({
+  cache,
+  isFetching = false,
+  networkError = null,
+  refreshFeedback = null,
+  widgetId,
+}) {
+  const updatedAt = formatCacheUpdatedAt(cache?.updatedAt);
+  const status = cache?.status;
+  const pending = cache?.pending || status === "pending";
+  let message = updatedAt ? `Updated ${updatedAt}` : null;
+  let tone = "text-muted-foreground";
+  let Icon = CheckCircle2;
+
+  if (pending) {
+    message = updatedAt
+      ? `Refreshing · Showing data updated ${updatedAt}`
+      : "Preparing current data";
+    tone = "text-blue-700";
+    Icon = RefreshCw;
+  } else if (status === "stale") {
+    message = updatedAt
+      ? `Stale · Last updated ${updatedAt}`
+      : "Stale data · Update time unavailable";
+    tone = "text-amber-700";
+    Icon = AlertTriangle;
+  } else if (status === "failed") {
+    message = updatedAt
+      ? `Refresh failed · Showing data updated ${updatedAt}`
+      : "Refresh failed";
+    tone = "text-destructive";
+    Icon = AlertTriangle;
+  }
+
+  if (networkError) {
+    message = `Update check failed · ${networkError.message || "Existing data is still shown"}`;
+    tone = "text-destructive";
+    Icon = AlertTriangle;
+  }
+
+  const feedbackMessage = refreshFeedback?.message;
+  if (!message && !feedbackMessage && !isFetching) return null;
+
+  return (
+    <div
+      className={cn("mb-2 flex min-h-4 items-center gap-1.5 text-xs", tone)}
+      data-testid={`widget-cache-status-${widgetId}`}
+      role={refreshFeedback?.kind === "error" || status === "failed" ? "alert" : "status"}
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {(message || isFetching) && (
+        <Icon
+          className={cn("h-3 w-3 shrink-0", (pending || (isFetching && !message)) && "animate-spin")}
+          aria-hidden="true"
+        />
+      )}
+      <span>
+        {feedbackMessage || message || "Checking for updated data…"}
+        {status === "failed" && cache?.error ? `: ${cache.error}` : ""}
+      </span>
+    </div>
   );
 }
 
