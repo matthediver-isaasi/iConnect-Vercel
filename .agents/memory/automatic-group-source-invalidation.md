@@ -18,3 +18,15 @@ prevent convergence.
 **How to apply:** Queue at the source-table boundary, aggregate affected tenants
 and rule fields per SQL statement, and keep insert/delete match-all behavior so
 rules involving empty or absent values still converge.
+
+Metadata-only imports require a separate automatic-membership side-effect check;
+disabling login does not establish that imported members cannot join groups.
+
+**Why:** Existing automatic regional rules can match an imported member through
+their organisation's preferences even when the source supplies no member region.
+Member insertion queues reconciliation of existing memberships too.
+
+**How to apply:** Inspect complete live rule dependencies, not capped REST reads,
+before promising no access or unrelated membership changes. If that conflicts
+with the authorized import boundary, stop for clarification rather than disabling
+triggers or treating queue writes as necessarily harmless.

@@ -971,3 +971,31 @@ mtime_ms = 1790150611314
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17784305-b854-42ee-ac91-b871dcb4fb8f/5c90995b-fac7-49fe-b073-26dd911620cc"
 storage_version_token = "1790150653100505"
 content_type = "text/html"
+
+[[outputs]]
+id = "ySBbbwnL0zVWULGzHR4sm"
+uri = "file://exports/bnms-final-import/BNMS-private-exceptions-awaiting-execution.xlsx"
+type = "table"
+title = "BNMS private exceptions — awaiting execution"
+description = "Confidential staff workbook: 30 original blocked rows, 2 exclusions, and all 47 approved rows currently on hold. No members imported yet."
+logical_id = "da484b2a-b1ef-4ec8-a75f-eab6bab4465d"
+content_hash = "sha256:4cca9418cb711d69c749e7f7722b330db0289501b254850ac41495605dac6712"
+size = 43773
+mtime_ms = 1790154376107
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/da484b2a-b1ef-4ec8-a75f-eab6bab4465d/5aab02b7-4d2a-46a8-8b75-3984a3540cb9"
+storage_version_token = "1790154392565509"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Y1yLCJz8YWDM2FKQS1cuj"
+uri = "file://exports/bnms-final-import/BNMS-private-exceptions.xlsx"
+type = "table"
+title = "BNMS private exceptions — completed import"
+description = "Final confidential staff workbook: 47 imported, 30 original exceptions, 2 exclusions; full row-level reconciliation and manual resolution columns."
+logical_id = "42b0e418-edf8-4784-8e59-f6fe0e813249"
+content_hash = "sha256:dc33a5d405c4fede171bae1ad4c10c0391370ddb7fba7d61a35ac7085a4b2f16"
+size = 40302
+mtime_ms = 1790154854459
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/42b0e418-edf8-4784-8e59-f6fe0e813249/8b1f37b2-e545-44f2-9324-573611a0fbc2"
+storage_version_token = "1790154914084105"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
