@@ -160,9 +160,7 @@ export function projectOrganisationDirectoryCsv({
           return entries.map((entry) => {
             if (entry.recordId && seen.has(String(entry.recordId))) return '';
             if (entry.recordId) seen.add(String(entry.recordId));
-            const value = String(entry?.value || '');
-            const label = String(entry?.label || '').trim();
-            return label && value ? `${label}: ${value}` : value;
+            return String(entry?.value || '');
           }).filter(Boolean).join('; ');
         }
         if (field.key === 'org_member_count') {

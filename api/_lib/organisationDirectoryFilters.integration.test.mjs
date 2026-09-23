@@ -538,7 +538,7 @@ test('Data Studio filtering reads over 500 active links/records and rejects stal
   assert.equal(JSON.stringify(result).includes('data'), false);
   const exported = await directory.csv();
   assert.match(exported.csv, /Department: value \(Departments\)/);
-  assert.match(exported.csv, /Record 504: value-504/);
+  assert.match(exported.csv, /,value-504(?:\r\n|$)/);
   assert.equal(exported.csv.includes('forged-target'), false);
   // All 505 relationship records must be present; this specifically exercises
   // the export projection path rather than the filter-only source inventory.
@@ -742,8 +742,8 @@ test('CSV related-record counts use distinct direct member edges in either direc
   assert.equal(exported.total, 1);
   assert.equal(exported.rowCount, 2);
   assert.match(exported.csv, /Organisation,Number of members,Department: value \(Departments\)/);
-  assert.match(exported.csv, /One,2,One: First/);
-  assert.match(exported.csv, /One,0,Two: Second/);
+  assert.match(exported.csv, /One,2,First/);
+  assert.match(exported.csv, /One,0,Second/);
   assert.doesNotMatch(exported.csv, /One Member|Two Member|Hidden Member|Foreign Member/);
 });
 
@@ -802,8 +802,8 @@ test('CSV keeps fields from one configured relationship source on shared record 
   assert.equal(exported.total, 1);
   assert.equal(exported.rowCount, 2);
   assert.match(exported.csv, /Department: title \(Departments\),Department: value \(Departments\)/);
-  assert.match(exported.csv, /Organisation,,One: One,One: First/);
-  assert.match(exported.csv, /Organisation,,Two: Two,Two: Second/);
+  assert.match(exported.csv, /Organisation,,One,First/);
+  assert.match(exported.csv, /Organisation,,Two,Second/);
 });
 
 test('file sources expose only presence semantics and configured choices reject arbitrary values/keys', async () => {
@@ -866,7 +866,7 @@ test('file sources expose only presence semantics and configured choices reject 
   assert.deepEqual(present.organizations.map(({ id }) => id), ['with-file']);
   assert.equal(JSON.stringify(present).includes('storage_path'), false);
   const exported = await directory.csv();
-  assert.match(exported.csv, /File: File/);
+  assert.match(exported.csv, /,File(?:\r\n|$)/);
   assert.doesNotMatch(exported.csv, /storage_path|private\.pdf|bearer-secret|file_url/);
   const absent = await directory.search(request({
     [objectKey]: { operator: 'absent', value: true },

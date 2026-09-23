@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   projectOrganisationDirectoryCsv, countOrganisationDirectoryCsvRows,
-  organisationDirectoryCsvSourceExpands,
+  organisationDirectoryCsvSourceExpands, formatOrganisationDirectoryCsvValue,
 } from './organisationDirectoryCsv.js';
 
 test('directory CSV projects renderer values and never serializes file descriptors', () => {
@@ -35,7 +35,7 @@ test('directory CSV projects renderer values and never serializes file descripto
     includeMembersList: true,
   });
   assert.match(csv, /^\ufeffOrganisation,Number of members,Membership type,Proof,Project: Status\r\n/);
-  assert.match(csv, /'=Formula Org,2,Associate,File,Project One: Live/);
+  assert.match(csv, /'=Formula Org,2,Associate,File,Live/);
   assert.doesNotMatch(csv, /Ada|Grace|contacts list/);
   assert.doesNotMatch(csv, /storage_path|private-uploads|secret\.pdf|signed_url/);
 });
@@ -112,7 +112,7 @@ test('additive rows align by record identity, dedupe edges, repeat single source
     key, label: key, _kind: 'object',
     _source: { relationship_id, direction: 'source', object_id: relationship_id, cardinality },
   });
-  const entry = (recordId, value, label = '') => ({ recordId, value, label });
+  const entry = (recordId, value, label = 'Identical record label') => ({ recordId, value, label });
   const input = {
     organizations: [{ id: 'org', name: 'One' }, { id: 'empty', name: 'Empty' }],
     fields: [field('Dept', 'a'), field('Code', 'a'), field('Office', 'b'),
@@ -152,8 +152,59 @@ test('one related entry and all-blank record fields still retain their row', () 
     fields: [{ key: 'blank', label: 'Blank', _kind: 'object',
       _source: { relationship_id: 'r', direction: 'target', object_id: 'obj', cardinality: 'many_to_one' } }],
     preferences: new Map(),
-    objectValues: new Map([['blank', new Map([['org', [{ recordId: 'record', value: '', label: '' }]]])]]),
+    objectValues: new Map([['blank', new Map([['org', [{ recordId: 'record', value: '', label: 'Nonempty label' }]]])]]),
     memberValues: { counts: new Map([['org', 8]]), recordCounts: new Map([['org:obj:record', 0]]) },
   };
   assert.equal(projectOrganisationDirectoryCsv(input), '\ufeffOrganisation,Blank,Number of members\r\nOne,,0');
+});
+
+test('department fields export formatted values only for multi- and single-valued sources', () => {
+  for (const cardinality of ['one_to_many', 'one_to_one']) {
+    const specs = [
+      ['Name', 'text', 'Radiology based Nuclear Medicine', 'Radiology based Nuclear Medicine'],
+      ['Address line 1', 'text', 'Pield Heath Road', 'Pield Heath Road'],
+      ['Notes', 'text', 'Hours: 09:00', 'Hours: 09:00'],
+      ['Blank', 'text', '', ''],
+      ['Option', 'dropdown', 'a', 'Associate'],
+      ['Active', 'boolean', true, 'Yes'],
+      ['Inactive', 'boolean', false, 'No'],
+      ['Country', 'country', 'GB', 'United Kingdom'],
+      ['Attachment', 'file', '{"storage_path":"private/secret.pdf"}', 'File'],
+    ];
+    const fields = specs.map(([name, field_type]) => ({
+      key: name, label: `Organisation department: ${name} (Departments)`,
+      field_type, options: [{ value: 'a', label: 'Associate' }], _kind: 'object',
+      _source: { relationship_id: 'r', direction: 'source', object_id: 'dept', cardinality },
+    }));
+    const csv = projectOrganisationDirectoryCsv({
+      organizations: [{ id: 'org', name: 'Synthetic Hospital' }],
+      fields, preferences: new Map(),
+      objectValues: new Map(fields.map((field, index) => [field.key, new Map([['org', [{
+        recordId: 'dept-1', label: 'Radiology based Nuclear Medicine',
+        value: formatOrganisationDirectoryCsvValue(specs[index][2], field),
+      }]]])])),
+      memberValues: { counts: new Map([['org', 2]]), recordCounts: new Map([['org:dept:dept-1', 2]]) },
+    });
+    assert.equal(csv, '\ufeffOrganisation,' + fields.map(f => f.label).join(',')
+      + ',Number of members\r\nSynthetic Hospital,' + specs.map(s => s[3]).join(',') + ',2');
+    assert.doesNotMatch(csv, /private|secret\.pdf/);
+  }
+});
+
+test('value-only object cells retain CSV formula protection, quotes and newline flattening', () => {
+  const cases = [
+    ['=1+1', "'=1+1"], ['+1', "'+1"], ['-1', "'-1"],
+    ['@SUM(A1)', "'@SUM(A1)"], ['\tformula', "'\tformula"],
+    ['Unit: "A", floor 2\r\nNext line\nLast', '"Unit: ""A"", floor 2 Next line Last"'],
+  ];
+  for (const [value, escaped] of cases) {
+    const csv = projectOrganisationDirectoryCsv({
+      organizations: [{ id: 'org', name: 'One' }],
+      fields: [{ key: 'object', label: 'Detail', _kind: 'object' }],
+      preferences: new Map(),
+      objectValues: new Map([['object', new Map([['org', [{ label: 'Record name', value }]]])]]),
+      memberValues: { counts: new Map() },
+    });
+    assert.equal(csv, `\ufeffOrganisation,Detail,Number of members\r\nOne,${escaped},0`);
+  }
 });

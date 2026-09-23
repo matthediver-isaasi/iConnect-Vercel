@@ -323,8 +323,13 @@ test("directory downloads a real full CSV without filter query parameters", asyn
   const rows = downloadedBytes.toString("utf8").replace(/^\ufeff/, "").split("\r\n");
   expect(rows[0]).toBe("Organisation,Number of members,Department,Office");
   expect(rows.slice(1)).toHaveLength(5);
-  expect(rows.slice(1).filter(row => row.includes("Department:"))).toHaveLength(2);
-  expect(rows.slice(1).filter(row => row.includes("Office:"))).toHaveLength(3);
+  expect(rows.slice(1)).toEqual([
+    "CSV Smoke Organisation,1,Design,",
+    "CSV Smoke Organisation,1,Engineering,",
+    "CSV Smoke Organisation,1,,Aarhus",
+    "CSV Smoke Organisation,1,,Copenhagen",
+    "CSV Smoke Organisation,0,,Odense",
+  ]);
   expect(rows.slice(1).map(row => row.split(",")[1])).toEqual(["1", "1", "1", "1", "0"]);
   const memberNameCell = new RegExp(`(?:^|,)${member.first_name} ${member.last_name}(?:,|$)`);
   expect(rows.slice(1).every(row => !memberNameCell.test(row))).toBe(true);
