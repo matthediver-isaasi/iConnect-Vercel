@@ -112,6 +112,7 @@ import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
+import { validateFormMutationAccessSave } from '../../../shared/formMutationContract.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
@@ -1304,6 +1305,29 @@ export default async function handler(req, res, dependencies = {}) {
       if (entityNormalized === 'form') {
         const formWidthError = validateFormWidthPayload(sanitizedBody);
         if (formWidthError) return res.status(422).json(formWidthError);
+        const { data: persistedMutationForm, error: persistedMutationFormError } = await supabase
+          .from('form')
+          .select('is_active, require_authentication, mutation_access_policy, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, structured_actions')
+          .eq('id', id)
+          .eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId)
+          .maybeSingle();
+        if (persistedMutationFormError || !persistedMutationForm) {
+          return res.status(404).json({ error: 'Form not found' });
+        }
+        const mutationAccessValidation = validateFormMutationAccessSave({
+          form: { ...persistedMutationForm, ...sanitizedBody },
+          previousForm: persistedMutationForm,
+        });
+        if (!mutationAccessValidation.ok) {
+          return res.status(422).json({
+            error: mutationAccessValidation.error,
+            code: mutationAccessValidation.code,
+            mutation_targets: mutationAccessValidation.mutationTargets,
+          });
+        }
+        if (Object.prototype.hasOwnProperty.call(sanitizedBody, 'mutation_access_policy')) {
+          sanitizedBody.mutation_access_policy = mutationAccessValidation.policy;
+        }
       }
 
       if (entityNormalized === 'form'

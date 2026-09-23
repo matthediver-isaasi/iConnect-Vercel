@@ -312,6 +312,8 @@ export default function FormPaymentSubmit({
           idempotency_key: idempotencyKey || undefined,
           prefill_organization_id: payload.prefill_organization_id || null,
           role_id: payload.role_id || null,
+           applicant_continuation_token: payload.applicant_continuation_token || null,
+           resume_token: payload.resume_token || null,
           return_path: paymentNavigation.returnPath,
         }),
       });
@@ -423,7 +425,8 @@ export default function FormPaymentSubmit({
       const res = await fetch('/api/public/form-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'create_monthly_card', form_id: payload.form_id, submission_data: payload.submission_data,
           idempotency_key: idempotencyKey || undefined, prefill_organization_id: payload.prefill_organization_id || null,
-          role_id: payload.role_id || null, return_path: paymentNavigation.returnPath }) });
+          role_id: payload.role_id || null, applicant_continuation_token: payload.applicant_continuation_token || null,
+          resume_token: payload.resume_token || null, return_path: paymentNavigation.returnPath }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
       if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');

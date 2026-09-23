@@ -11,12 +11,22 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { resolveMembershipMatch, membershipQuoteKey } from './formPaymentQuote';
 
-export function useMembershipFeeQuote({ form, formValues, prefillOrganizationId = null, enabled = true }) {
+export function useMembershipFeeQuote({
+  form,
+  formValues,
+  prefillOrganizationId = null,
+  applicantContinuationToken = null,
+  resumeToken = null,
+  credentialDiscriminator = 'none',
+  enabled = true,
+}) {
   const match = useMemo(() => resolveMembershipMatch(form, formValues), [form, formValues]);
   const key = useMemo(() => membershipQuoteKey(match, formValues, form), [match, formValues, form]);
 
   const query = useQuery({
-    queryKey: ['membership-fee-quote', form?.id, key, prefillOrganizationId || null],
+    // credentialDiscriminator is an opaque caller-generated scope. Raw bearer
+    // credentials must never enter query keys/devtools.
+    queryKey: ['membership-fee-quote', form?.id, key, prefillOrganizationId || null, credentialDiscriminator],
     queryFn: async () => {
       const res = await fetch('/api/public/form-payment', {
         method: 'POST',
@@ -27,6 +37,12 @@ export function useMembershipFeeQuote({ form, formValues, prefillOrganizationId 
           form_id: form.id,
           submission_data: formValues || {},
           prefill_organization_id: prefillOrganizationId || null,
+          ...(applicantContinuationToken && {
+            applicant_continuation_token: applicantContinuationToken,
+          }),
+          ...(!applicantContinuationToken && resumeToken && {
+            resume_token: resumeToken,
+          }),
         }),
       });
       const json = await res.json().catch(() => ({}));

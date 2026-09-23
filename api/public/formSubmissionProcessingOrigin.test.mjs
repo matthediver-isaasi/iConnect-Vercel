@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
 const payloadSource = await readFile(new URL('../_lib/publicFormProcessingPayload.js', import.meta.url), 'utf8');
+const processorSource = await readFile(new URL('../forms/process-application.js', import.meta.url), 'utf8');
 
 test('no-action submissions do not require an internal processing origin', () => {
   const actionGate = source.indexOf('if ((hasEntityPipelines || hasCurrentSetProcessing) && !surveyIsAnonymous)');
@@ -20,7 +21,12 @@ test('no-action submissions do not require an internal processing origin', () =>
 });
 
 test('public submission processing retains legacy action configurations', () => {
-  assert.match(source, /member_entity_action, organization_entity_action, additional_member_creations/);
+  assert.match(source, /from\('form'\)\s*\.select\('\*'\)/,
+    'the complete server-only form projection retains all legacy actions and the continuation digest');
+  for (const key of ['member_entity_action', 'organization_entity_action', 'additional_member_creations']) {
+    assert.ok(processorSource.includes(`persistedForm.${key}`),
+      `the processor reloads authoritative ${key} rather than trusting the handoff`);
+  }
   assert.match(source, /hasPersistedFormEntityActions\(form\)/);
 });
 

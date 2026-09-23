@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplicantContinuation, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
@@ -125,7 +126,7 @@ export default async function handler(req, res, dependencies = {}) {
   }
 
   const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id: requestedPrefillOrganizationId, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token } = req.body;
-  const prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId);
+  let prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId);
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {
@@ -164,7 +165,7 @@ export default async function handler(req, res, dependencies = {}) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
+      .select('*')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -198,6 +199,7 @@ export default async function handler(req, res, dependencies = {}) {
     let sessionMemberName = null;
     let sessionMemberEmail = null;
     let sessionMemberId = null;
+    let verifiedSessionMember = null;
     let hasTenantSession = false;
     let sessionHasAdminAccess = false;
     try {
@@ -209,6 +211,7 @@ export default async function handler(req, res, dependencies = {}) {
       const memberTenantId =
         sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
       if (sessionMember && memberTenantId === tenantData.id) {
+        verifiedSessionMember = sessionMember;
         hasTenantSession = true;
         sessionMemberId = sessionMember.id;
         const fullName = [sessionMember.first_name, sessionMember.last_name]
@@ -236,6 +239,14 @@ export default async function handler(req, res, dependencies = {}) {
       console.warn('[Public Form Submission] Session admin lookup failed (continuing without admin authority):', adminErr?.message);
       sessionHasAdminAccess = false;
     }
+
+    const admission = await authorizeApplicantAdmission({
+      db: supabase, form, token: req.body.applicant_continuation_token,
+      resumeToken: req.body.resume_token, requestedOrganizationId: prefill_organization_id,
+      verifiedMember: verifiedSessionMember, verifiedAdminAccess: sessionHasAdminAccess,
+    });
+    const applicantGrant = admission.applicantGrant;
+    prefill_organization_id = admission.organizationId;
 
     // Only the explicitly configured BNMS form can enter the current-set
     // lifecycle. The separate config table keeps privileged reconciliation
@@ -265,13 +276,15 @@ export default async function handler(req, res, dependencies = {}) {
     if (form.require_authentication) {
       const isAuthedSurvey = form.form_type === 'survey' && hasTenantSession;
       const isAuthedCurrentSet = hasCurrentSetProcessing && hasTenantSession;
+      const isAuthedApplicant = requiresApplicantContinuation(form)
+        && (sessionHasAdminAccess || !!verifiedSessionMember?.organization_id);
       if (hasCurrentSetProcessing && !hasTenantSession) {
         return res.status(401).json({
           error: 'A signed-in member is required to update current Department data',
           code: 'CURRENT_SET_AUTHENTICATION_REQUIRED',
         });
       }
-      if (!isAuthedSurvey && !isAuthedCurrentSet) {
+      if (!isAuthedSurvey && !isAuthedCurrentSet && !isAuthedApplicant) {
         return res.status(403).json({ error: 'This form requires authentication' });
       }
     }
@@ -728,6 +741,9 @@ export default async function handler(req, res, dependencies = {}) {
       : surveySettings;
     const surveyIdentityMode = isSurvey ? (snapshotSettings.response_identity || 'identified') : null;
     const surveyIsAnonymous = isSurvey && surveyIdentityMode !== 'identified';
+    // Duplicate recovery closures execute before the new-row path reaches
+    // submission construction, so derive this gate alongside survey identity.
+    const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     let surveyRespondentKey = null;
     if (isSurvey && !existingIdempotentSubmission) {
       const respondentIdentity = sessionMemberEmail || canonicalSubmitterEmail || null;
@@ -872,7 +888,7 @@ export default async function handler(req, res, dependencies = {}) {
       // operation before reporting success; the database RPC replays a
       // committed outcome instead of applying an older answer set again.
       let currentSetProcessingResult = null;
-      if (hasCurrentSetProcessing) {
+      if (hasCurrentSetProcessing || applicantGrant) {
         const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
         if (!internalApiBaseUrl) {
           return res.status(503).json({
@@ -920,7 +936,7 @@ export default async function handler(req, res, dependencies = {}) {
               retryable: processingResponse.status >= 500,
             });
           }
-          if (!hasCurrentSetCommit(result)) {
+          if (hasCurrentSetProcessing && !hasCurrentSetCommit(result)) {
             return res.status(503).json({
               error: 'Current Department data is still being completed. Please retry.',
               code: 'CURRENT_SET_PROCESSING_PENDING',
@@ -929,6 +945,70 @@ export default async function handler(req, res, dependencies = {}) {
             });
           }
           currentSetProcessingResult = result;
+          if (applicantGrant) {
+            if (form.due_diligence_required && !surveyIsAnonymous) {
+              const ddInitialization = await initializeFormDueDiligence({
+                db: supabase,
+                submissionId: row.id,
+                tenantId: tenantData.id,
+              });
+              if (!ddInitialization.ok) {
+                console.error('[Public Form Submission] Applicant retry due diligence initialization failed:',
+                  ddInitialization.error || ddInitialization.code);
+              }
+            }
+            if (usesSubmissionEmailLifecycle) {
+              const checkpoint = await markSubmissionEmailPostProcessingComplete(
+                supabase,
+                row.id,
+                emailRequestContext,
+              );
+              if (!checkpoint.completed) {
+                return res.status(503).json({
+                  error: 'Your form was saved, but record processing could not be completed. Please retry.',
+                  code: 'SUBMISSION_EMAIL_PENDING',
+                  submission_id: row.id,
+                  retryable: true,
+                });
+              }
+            }
+            const { data: completedRow, error: completedRowError } = await supabase
+              .from('form_submission')
+              .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes')
+              .eq('id', row.id)
+              .eq('tenant_id', tenantData.id)
+              .maybeSingle();
+            if (completedRowError || !completedRow) {
+              return res.status(503).json({
+                error: 'Your form was saved, but its completed record state could not be loaded. Please retry.',
+                code: 'SUBMISSION_PROCESSING_PENDING',
+                submission_id: row.id,
+                retryable: true,
+              });
+            }
+            row = completedRow;
+            let retrySnapshot = row.communication_finalization_state;
+            if (retrySnapshot?.status === 'awaiting_member') {
+              if (!row.created_member_id) {
+                return res.status(503).json({
+                  error: 'Your form is still being completed. Please retry.',
+                  code: 'COMMUNICATION_FINALIZATION_PENDING',
+                  submission_id: row.id,
+                  retryable: true,
+                });
+              }
+              retrySnapshot = await promoteCommunicationSnapshot(supabase, row, retrySnapshot);
+            }
+            if (retrySnapshot && retrySnapshot.status !== 'completed') {
+              await finalizeFormCommunicationSnapshot({
+                database: supabase,
+                tenantId: tenantData.id,
+                submissionId: row.id,
+                formId: form.id,
+                snapshot: retrySnapshot,
+              });
+            }
+          }
         } catch (error) {
           console.error('[Public Form Submission] Current-set retry processing failed:', error?.message);
           return res.status(503).json({
@@ -976,6 +1056,9 @@ export default async function handler(req, res, dependencies = {}) {
     };
 
     const resumeDuplicateFinalization = async (row) => {
+      if (applicantGrant) await bindApplicantContinuation({
+        db: supabase, form, grant: applicantGrant, submissionId: row.id,
+      });
       if (hasIncompleteStructuredActions(row)) {
         return res.status(422).json({
           success: false,
@@ -985,6 +1068,7 @@ export default async function handler(req, res, dependencies = {}) {
           processing_retryable: true,
         });
       }
+      if (applicantGrant) return finishDuplicate(row);
       let state = row.communication_finalization_state;
       if (!state || state.status === 'completed') return finishDuplicate(row);
       if (state.status === 'awaiting_member') {
@@ -1114,7 +1198,6 @@ export default async function handler(req, res, dependencies = {}) {
     // allowlist. Keep their existing null-claim path; this lifecycle guards
     // standard public/embed submissions, which are the paths with entity
     // pipelines and browser-backstop drift.
-    const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
     // The raw payload remains the persisted answer. Rule evaluation above is
     // complete, so subscription snapshots may safely consume the row-effective
@@ -1342,6 +1425,9 @@ export default async function handler(req, res, dependencies = {}) {
       return res.status(500).json({ error: 'Failed to save submission' });
     }
 
+    if (applicantGrant) await bindApplicantContinuation({
+      db: supabase, form, grant: applicantGrant, submissionId: submission.id,
+    });
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
     let emailPostProcessingCheckpointed = false;
     const ensureEmailPostProcessingCheckpoint = async () => {
@@ -1557,7 +1643,7 @@ export default async function handler(req, res, dependencies = {}) {
         // headers because this call carries an internal authentication proof.
         const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
         if (!internalApiBaseUrl) {
-          await supabase.from('form_submission').delete().eq('id', submission.id);
+          if (!applicantGrant) await supabase.from('form_submission').delete().eq('id', submission.id);
           return res.status(503).json({
             error: 'Form processing service is temporarily unavailable',
             code: 'PROCESSING_ORIGIN_UNAVAILABLE',
@@ -1601,7 +1687,7 @@ export default async function handler(req, res, dependencies = {}) {
           // operation, however: retain the row so a retry can safely re-run
           // its submission-id-bound reconciliation rather than losing audit
           // context or accidentally treating a later edit as the same save.
-          if (!hasCurrentSetProcessing) {
+          if (!hasCurrentSetProcessing && !applicantGrant) {
             console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
             await supabase.from('form_submission').delete().eq('id', submission.id);
           }
@@ -1747,7 +1833,7 @@ export default async function handler(req, res, dependencies = {}) {
         // Keep its durable idempotency row for an explicit replay rather than
         // deleting the only safe retry handle.
         console.error('[Public Form Submission] Entity pipeline error:', err);
-        if (!hasCurrentSetProcessing) {
+        if (!hasCurrentSetProcessing && !applicantGrant) {
           console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
           try {
             await supabase.from('form_submission').delete().eq('id', submission.id);
@@ -2092,6 +2178,9 @@ export default async function handler(req, res, dependencies = {}) {
       ...committedCurrentSetMarker(pipelineProcessingResult),
     });
   } catch (error) {
+    if (error instanceof FormApplicantContinuationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     console.error('[Public Form Submission] Error:', error);
     return res.status(500).json({ error: 'Failed to process submission' });
   }

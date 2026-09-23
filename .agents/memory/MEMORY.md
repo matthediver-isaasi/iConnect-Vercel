@@ -154,3 +154,5 @@
 - [BNMS upfront membership evidence](bnms-upfront-membership-evidence.md) — operator-attested existing membership is not provider settlement proof or authority to create future commitments.
 - [Async query-builder returns](async-query-builder-return.md) — wrap Supabase builders in objects across async helpers or they execute before callers finish scoping and paging.
 - [Private uploads and checkpoints](private-upload-checkpoints.md) — automatic checkpoints can track uploads before ignore rules; verify the index and inherited shared history separately.
+- [Form applicant authority](form-applicant-authority.md) — bare-ID application links need scoped server-issued authority; drafts and submitted emails never imply ownership.
+- [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.

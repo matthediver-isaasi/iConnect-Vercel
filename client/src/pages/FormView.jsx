@@ -58,8 +58,22 @@ import {
   useDepartmentCurrentSet,
 } from "@/lib/departmentCurrentSet";
 import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
+import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
+import { useLocation } from "react-router-dom";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
+
+// Opaque cache discriminator: never place a bearer credential itself in a
+// TanStack query key (query keys can be inspected by developer tooling).
+function continuationCredentialDiscriminator(value) {
+  if (!value) return 'none';
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${value.length}-${(hash >>> 0).toString(36)}`;
+}
 
 function reportFormViewError(context, error) {
   const rawMessage = typeof error?.message === 'string' ? error.message : 'Request failed';
@@ -118,7 +132,13 @@ function resolveRedirectTarget(form, formValues) {
 // event, access mode and open/close window from the token — the client never
 // supplies an event id.
 export default function FormViewPage({ slug: slugProp = null, assignmentToken = null }) {
-  const { memberInfo, organizationInfo, authResolved } = useMemberAccess();
+  const location = useLocation();
+  const {
+    memberInfo,
+    organizationInfo,
+    authResolved,
+    sessionValidated,
+  } = useMemberAccess();
   const { setForceBlankLayout } = useLayoutContext();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -192,12 +212,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     });
   }, []);
   const queryClient = useQueryClient();
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = new URLSearchParams(location.search);
   const formSlug = slugProp || urlParams.get('slug');
   const urlPrefillMemberId = urlParams.get('member_id');
   const urlPrefillOrgId = urlParams.get('organization_id');
   const prefillBookingId = urlParams.get('booking_id');
   const draftToken = urlParams.get('draft');
+  const applicantContinuationStorageKey = `form-applicant-continuation:${formSlug || ''}`;
+  const applicantContinuationTokenFromUrl = urlParams.get('applicant_continuation_token');
+  const hasApplicantContinuationMarker = urlParams.get('applicant_continuation') === '1';
+  const applicantContinuationToken = applicantContinuationTokenFromUrl || (
+    hasApplicantContinuationMarker
+      ? window.sessionStorage.getItem(applicantContinuationStorageKey)
+      : null
+  );
   const contractInstanceId = urlParams.get('contract_instance');
   const signerEmail = urlParams.get('signer_email');
   const briefId = urlParams.get('brief_id');
@@ -219,6 +247,22 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [schemaChanged, setSchemaChanged] = useState(false);
   const [schemaChangeMessage, setSchemaChangeMessage] = useState(null);
+  const [applicantContinuationGrantState, setApplicantContinuationGrantState] = useState({
+    identity: null,
+    grant: null,
+  });
+
+  // Capability URLs are intentionally short lived in the address bar. Keeping
+  // the token in component state allows this visit (and draft binding) to
+  // continue without leaking it through referrers, screenshots or analytics.
+  useEffect(() => {
+    if (!applicantContinuationToken) return;
+    window.sessionStorage.setItem(applicantContinuationStorageKey, applicantContinuationToken);
+    const next = new URL(window.location.href);
+    next.searchParams.delete('applicant_continuation_token');
+    next.searchParams.set('applicant_continuation', '1');
+    window.history.replaceState({}, '', `${next.pathname}${next.search}${next.hash}`);
+  }, [applicantContinuationStorageKey, applicantContinuationToken]);
 
   // Fetch full member record to get job_title (for logged-in user)
   const { data: memberRecord, isLoading: memberRecordLoading } = useQuery({
@@ -328,6 +372,57 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  const applicantCredentialIdentity = `${form?.id || 'loading'}:${
+    continuationCredentialDiscriminator(applicantContinuationToken)
+  }:${continuationCredentialDiscriminator(draftToken)}`;
+  const applicantContinuationGrant = applicantContinuationGrantState.identity === applicantCredentialIdentity
+    ? applicantContinuationGrantState.grant
+    : null;
+  const applicantVerification = useQuery({
+    queryKey: [
+      'form-applicant-continuation',
+      form?.id,
+      continuationCredentialDiscriminator(applicantContinuationToken),
+    ],
+    queryFn: () => publicClient.verifyFormApplicantContinuation({
+      formId: form.id,
+      applicantContinuationToken,
+    }),
+    enabled: !!form?.id && !!applicantContinuationToken && !formAccess.restricted,
+    retry: false,
+  });
+  const applicantVerificationActive = !!form?.id
+    && !!applicantContinuationToken
+    && !formAccess.restricted;
+  useEffect(() => {
+    if (applicantVerification.data) {
+      setApplicantContinuationGrantState({
+        identity: applicantCredentialIdentity,
+        grant: applicantVerification.data,
+      });
+    }
+  }, [applicantCredentialIdentity, applicantVerification.data]);
+  useEffect(() => {
+    setApplicantContinuationGrantState(previous => (
+      previous.identity === applicantCredentialIdentity
+        ? previous
+        : { identity: applicantCredentialIdentity, grant: null }
+    ));
+  }, [applicantCredentialIdentity]);
+  useEffect(() => {
+    if (!applicantVerificationActive || !applicantVerification.isError) return;
+    window.sessionStorage.removeItem(applicantContinuationStorageKey);
+  }, [applicantContinuationStorageKey, applicantVerification.isError, applicantVerificationActive]);
+
+  const mutationContract = useMemo(
+    () => form?.mutation_contract || classifyFormMutationContract(form || {}),
+    [form],
+  );
+  // A server-validated session may belong to an owner/admin identity that has
+  // no portal Member projection. Let that session request submission; the
+  // endpoint independently decides whether it has owner/admin authority.
+  const publicExistingOrganizationUpdate = !memberInfo && !sessionValidated
+    && mutationContract?.mutationTargets?.includes('organization');
   useEffect(() => {
     setRecordSelectionOptionStates({});
     setEmptyRepeatableFieldIds(new Set());
@@ -353,7 +448,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // prefill_source so forms without prefill behave exactly as before.
   const { prefillMemberId, prefillOrgId } = resolveEffectivePrefillIds({
     urlMemberId: urlPrefillMemberId,
-    urlOrgId: urlPrefillOrgId,
+    // Applicant authority is server-bound to one organisation. Once verified,
+    // use that trusted organisation for every prefill query as well as submit.
+    urlOrgId: applicantContinuationGrant?.organization_id || urlPrefillOrgId,
     prefillSource: form?.prefill_source,
     viewerMemberId: memberInfo?.id,
     viewerOrgId: memberInfo?.organization_id || organizationInfo?.id,
@@ -390,7 +487,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     enabled: !!draftToken && !draftLoaded && !!rawForm && !formAccess.restricted,
     retry: false
   });
-
+  useEffect(() => {
+    if (draftData?.applicant_continuation) {
+      setApplicantContinuationGrantState({
+        identity: applicantCredentialIdentity,
+        grant: draftData.applicant_continuation,
+      });
+    }
+  }, [applicantCredentialIdentity, draftData?.applicant_continuation]);
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
@@ -411,6 +515,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         current_page_index: currentPageIndex,
         contact_email: contactEmail,
         resume_token: resumeToken, // If we have one, update existing draft
+        ...(applicantContinuationToken && {
+          applicant_continuation_token: applicantContinuationToken,
+        }),
         form_updated_at: form?.updated_at
       };
       
@@ -435,6 +542,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const path = window.location.pathname;
     // Preserve existing query params (like slug, tenant, etc.) and add draft token
     const existingParams = new URLSearchParams(window.location.search);
+    existingParams.delete('applicant_continuation_token');
+    existingParams.delete('applicant_continuation');
     existingParams.set('draft', resumeToken);
     return `${baseUrl}${path}?${existingParams.toString()}`;
   };
@@ -688,13 +797,64 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // priority: prefill org, then org-pipeline dropdown, then standalone
   // org dropdown.
   const resolvedOrgIdForSubmission = useMemo(() => {
+    if (applicantContinuationGrant?.organization_id) {
+      return applicantContinuationGrant.organization_id;
+    }
     return resolveFormSubmissionOrganizationId({
       prefillOrganizationId: effectiveOrgIdForCapacity,
       pipelineSourceFieldId: orgCapacityConfig?.sourceFieldId,
       fields: form?.fields,
       submissionData: formValues,
     });
-  }, [effectiveOrgIdForCapacity, orgCapacityConfig?.sourceFieldId, formValues, form?.fields]);
+  }, [applicantContinuationGrant?.organization_id, effectiveOrgIdForCapacity, orgCapacityConfig?.sourceFieldId, formValues, form?.fields]);
+
+  // A verified capability is scoped to exactly one organisation. Pin any
+  // organisation selector used by either the legacy or pipeline path so the
+  // visible answer agrees with the server-authoritative submission scope.
+  useEffect(() => {
+    const organizationId = applicantContinuationGrant?.organization_id;
+    const fieldId = orgCapacityConfig?.sourceFieldId || orgDropdownField?.id;
+    if (!organizationId || !fieldId) return;
+    setFormValues(previous => (
+      previous[fieldId] === organizationId
+        ? previous
+        : { ...previous, [fieldId]: organizationId }
+    ));
+  }, [applicantContinuationGrant?.organization_id, formValues, orgCapacityConfig?.sourceFieldId, orgDropdownField?.id]);
+
+  const applicantContinuationError = useMemo(() => {
+    if (applicantVerificationActive && applicantVerification.isError) {
+      return 'This secure applicant link is invalid or has expired. Ask an administrator for a fresh secure applicant link.';
+    }
+    if (applicantContinuationGrant
+      && urlPrefillOrgId
+      && urlPrefillOrgId !== applicantContinuationGrant.organization_id) {
+      return 'This secure applicant link belongs to a different organisation. Use the original link, or ask an administrator for a fresh one.';
+    }
+    // Explicit continuation policy gates the complete form. Legacy forms are
+    // blocked dynamically only when this response actually targets an
+    // existing organisation; reference-only and Not-listed/new paths remain
+    // usable without an applicant capability.
+    const explicitlyGated = form?.mutation_access_policy?.mode === 'applicant_continuation';
+    if (publicExistingOrganizationUpdate
+      && (explicitlyGated || !!resolvedOrgIdForSubmission)
+      && !applicantContinuationGrant
+      && !(applicantVerificationActive && applicantVerification.isPending)
+      && !isDraftLoading) {
+      return 'Updating an existing organisation requires a fresh secure applicant link or an authorised login. You can still save this form as a draft.';
+    }
+    return null;
+  }, [
+    applicantContinuationGrant,
+    applicantVerification.isError,
+    applicantVerification.isPending,
+    applicantVerificationActive,
+    form?.mutation_access_policy?.mode,
+    isDraftLoading,
+    publicExistingOrganizationUpdate,
+    resolvedOrgIdForSubmission,
+    urlPrefillOrgId,
+  ]);
 
   // Get the selected org ID from form dropdown, URL prefill, or the
   // logged-in user's own organisation. The third path matters so that a
@@ -1641,6 +1801,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     form,
     formValues,
     prefillOrganizationId: resolvedOrgIdForSubmission,
+    applicantContinuationToken,
+    resumeToken: !applicantContinuationToken && applicantContinuationGrant ? resumeToken : null,
+    credentialDiscriminator: `${applicantCredentialIdentity}:${
+      applicantContinuationGrant ? 'verified' : 'unverified'
+    }`,
     enabled: !!visiblePaymentField,
   });
 
@@ -2338,6 +2503,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // normal submit path and the payment step. Returns the submission payload
   // or null (after toasting) when validation fails.
   const buildSubmissionPayload = async () => {
+    if (applicantVerificationActive && applicantVerification.isPending) {
+      setSubmissionError('Verifying your secure applicant link. Please wait a moment and try again.');
+      return null;
+    }
+    if (applicantContinuationError) {
+      setSubmissionError(applicantContinuationError);
+      return null;
+    }
     if (departmentCurrentSetBlocked) {
       setSubmissionError(departmentCurrentSetBlocked);
       toast.error(departmentCurrentSetBlocked);
@@ -2587,6 +2760,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       created_date: new Date().toISOString(),
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
+      ...(applicantContinuationToken && {
+        applicant_continuation_token: applicantContinuationToken,
+      }),
+      ...(!applicantContinuationToken && applicantContinuationGrant && resumeToken && {
+        resume_token: resumeToken,
+      }),
       ...(effectiveRoleId && { role_id: effectiveRoleId }),
       ...(briefId && { brief_id: briefId }),
       ...(vacancyId && { vacancy_id: vacancyId }),
@@ -2777,6 +2956,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   : 'Please complete the required field above to continue'}
               </p>
             )}
+            {applicantContinuationError && !submissionError && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md" role="alert" data-testid="applicant-continuation-error">
+                <p className="text-sm text-amber-800">{applicantContinuationError}</p>
+              </div>
+            )}
             {submissionError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
                 <p className="text-sm text-red-700">{submissionError}</p>
@@ -2819,7 +3003,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   formValues={formValues}
                   buildPayload={buildSubmissionPayload}
                   idempotencyKey={getIdempotencyKey()}
-                  disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
+                  disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending)}
                   disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                   busy={submitFormMutation.isPending}
                   onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
@@ -2879,7 +3063,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
+                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >
@@ -3258,6 +3442,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             )}
             
             {/* Submission error display */}
+            {applicantContinuationError && !submissionError && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md" role="alert" data-testid="applicant-continuation-error">
+                <p className="text-sm text-amber-800">{applicantContinuationError}</p>
+              </div>
+            )}
             {submissionError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
                 <p className="text-sm text-red-700">{submissionError}</p>
@@ -3303,7 +3492,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     formValues={formValues}
                     buildPayload={buildSubmissionPayload}
                     idempotencyKey={getIdempotencyKey()}
-                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
+                  disabled={submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending)}
                     disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
@@ -3394,7 +3583,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 ) : !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked || submitFormMutation.isPending}
+                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >

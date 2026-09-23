@@ -21,6 +21,8 @@
  * by api/cron/reconcile-form-payments.js.
  */
 import { createClient } from '@supabase/supabase-js';
+import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
+import { preflightApplicantTargets } from '../_lib/formApplicantPreflight.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
@@ -95,6 +97,7 @@ import {
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { effectiveRepeatableRowSubmissionData } from '../_lib/formRepeatableRowValidation.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { getSessionMember } from '../_lib/session.js';
 import { validateFormStripeAddressMappingConfig } from '../_lib/formStripeAddressMappingConfig.js';
@@ -129,7 +132,9 @@ function samePaymentIdempotencyAnswers(existingValues, requestedValues) {
   );
 }
 
-const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, due_diligence_required, survey_settings';
+// Full server-only row: keep the grant digest identical to issuance/processor,
+// without explicitly querying a new column before the migration is installed.
+const FORM_COLUMNS = '*';
 
 async function acceptedStripeAddressConfig(supabase, tenantId, form, paymentField) {
   const validation = await validateFormStripeAddressMappingConfig({
@@ -255,7 +260,7 @@ export default async function handler(req, res, dependencies = {}) {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if ((!supabaseUrl || !supabaseServiceKey) && !dependencies.supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
   const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
@@ -271,12 +276,15 @@ export default async function handler(req, res, dependencies = {}) {
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
 
     const { action } = req.body || {};
-    if (action === 'create') return await handleCreate(req, res, supabase, tenantData);
-    if (action === 'create_monthly_card') return await handleCreateMonthlyCard(req, res, supabase, tenantData);
+    if (action === 'create') return await handleCreate(req, res, supabase, tenantData, dependencies);
+    if (action === 'create_monthly_card') return await handleCreateMonthlyCard(req, res, supabase, tenantData, dependencies);
     if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData, dependencies);
-    if (action === 'quote') return await handleQuote(req, res, supabase, tenantData);
+    if (action === 'quote') return await handleQuote(req, res, supabase, tenantData, dependencies);
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
+    if (err instanceof FormApplicantContinuationError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     console.error('[form-payment] Error:', err);
     return res.status(500).json({ error: err.message || 'Payment request failed' });
   }
@@ -295,7 +303,7 @@ async function loadForm(supabase, formId, tenantId) {
   return form;
 }
 
-async function authorizePaymentStart(req, res, supabase, tenantData, form) {
+async function authorizePaymentStart(req, res, supabase, tenantData, form, dependencies = {}) {
   const access = await resolveFormAccess({
     supabase, req, tenantId: tenantData.id, policy: form.access_policy,
   });
@@ -304,24 +312,47 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
     return null;
   }
   let verifiedSubmitterMemberId = null;
+  let verifiedMember = null;
   let verifiedAdminAccess = false;
   try {
-    const member = await getSessionMember(req);
+    const member = await (dependencies.getSessionMember || getSessionMember)(req);
     const memberTenantId = member?.tenant_id || member?.organization?.tenant_id || null;
     if (member?.id && memberTenantId === tenantData.id) {
       verifiedSubmitterMemberId = member.id;
+      verifiedMember = member;
     }
   } catch {
     // Unrestricted forms remain available to anonymous submitters.
   }
   try {
-    const tenantContext = await getTenantContext(req);
+    const tenantContext = await (dependencies.getTenantContext || getTenantContext)(req);
     verifiedAdminAccess = tenantContext?.tenantId === tenantData.id
-      && await hasAdminAccess(tenantContext);
+      && await (dependencies.hasAdminAccess || hasAdminAccess)(tenantContext);
   } catch {
     verifiedAdminAccess = false;
   }
-  return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess };
+  const { applicantGrant, organizationId } = await authorizeApplicantAdmission({
+    db: supabase, form, token: req.body?.applicant_continuation_token,
+    resumeToken: form.mutation_access_policy?.mode === 'authenticated_owner' ? null : req.body?.resume_token,
+    requestedOrganizationId: req.body?.prefill_organization_id,
+    verifiedMember, verifiedAdminAccess,
+  });
+  if (applicantGrant && ['create', 'create_monthly_card'].includes(req.body?.action)) {
+    const answers = req.body.submission_data || {};
+    const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
+      ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
+    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase, tenantId: tenantData.id, form, formValues: answers, visibilityOptions,
+    });
+    const memberIds = await loadApplicantMemberScope({ db: supabase, form, grant: applicantGrant });
+    await preflightApplicantTargets({
+      db: supabase, form, grant: applicantGrant, hiddenFieldIds,
+      memberIds: [...memberIds, verifiedSubmitterMemberId].filter(Boolean),
+      primaryMemberId: verifiedSubmitterMemberId,
+      values: effectiveRepeatableRowSubmissionData(form, answers, { hiddenFieldIds }),
+    });
+  }
+  return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess, applicantGrant, organizationId };
 }
 
 export async function validatePaymentRelationships(
@@ -579,14 +610,15 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
  * amount due and to decide whether a payment step is required — the quoted
  * amount is never sent back or trusted at charge time.
  */
-async function handleQuote(req, res, supabase, tenantData) {
-  const { form_id, submission_data, prefill_organization_id } = req.body || {};
+async function handleQuote(req, res, supabase, tenantData, dependencies = {}) {
+  let { form_id, submission_data, prefill_organization_id } = req.body || {};
   if (!form_id) return res.status(400).json({ error: 'Form ID is required' });
 
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form) return res.status(404).json({ error: 'Form not found' });
-  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form, dependencies);
   if (!access) return;
+  prefill_organization_id = access.organizationId;
   if (form.form_type === 'survey') {
     return res.status(400).json({ error: 'Payment fields are not supported on surveys' });
   }
@@ -653,13 +685,14 @@ async function handleQuote(req, res, supabase, tenantData) {
   });
 }
 
-async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
-  const { form_id, submission_data, idempotency_key, prefill_organization_id, role_id, return_path } = req.body || {};
+async function handleCreateMonthlyCard(req, res, supabase, tenantData, dependencies = {}) {
+  let { form_id, submission_data, idempotency_key, prefill_organization_id, role_id, return_path } = req.body || {};
   if (!form_id) return res.status(400).json({ error: 'Form ID is required' });
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form || form.form_type === 'survey') return res.status(404).json({ error: 'Form not found' });
-  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form, dependencies);
   if (!access) return;
+  prefill_organization_id = access.organizationId;
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
   const addressConfigResult = await acceptedStripeAddressConfig(
@@ -794,10 +827,12 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       submission_data: snapshotFormNotListedLabels(form.fields || [], values),
       submitted_by_email: applicantEmail, created_date: new Date().toISOString(),
       payment_status: 'pending', payment_provider: 'stripe_monthly_card',
+      ...(access.applicantGrant ? { organization_id: access.applicantGrant.organization_id } : {}),
       payment_amount: offer.monthlyAmount, payment_currency: offer.currency,
       payment_meta: withFormPaymentAccessProof({ prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
         verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
         verified_admin_access: access.verifiedAdminAccess === true,
+        applicant_session_authorized: requiresApplicantContinuation(form) && !access.applicantGrant,
         membership: resolved.membershipMeta,
         ...(stripeAddressMappingConfig
           ? { stripe_address_mapping_config: stripeAddressMappingConfig }
@@ -825,6 +860,9 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       submission = data;
     }
   }
+  if (access.applicantGrant) await bindApplicantContinuation({
+    db: supabase, form, grant: access.applicantGrant, submissionId: submission.id,
+  });
   if (submission.payment_provider !== 'stripe_monthly_card') {
     return res.status(409).json({ error: 'This submission already has a different payment in progress' });
   }
@@ -1056,8 +1094,8 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   return res.json({ checkoutUrl: session.url, submissionId: submission.id });
 }
 
-async function handleCreate(req, res, supabase, tenantData) {
-  const {
+async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
+  let {
     form_id, provider, submission_data, idempotency_key,
     prefill_organization_id, role_id, return_path,
   } = req.body || {};
@@ -1069,8 +1107,9 @@ async function handleCreate(req, res, supabase, tenantData) {
 
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form) return res.status(404).json({ error: 'Form not found' });
-  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form, dependencies);
   if (!access) return;
+  prefill_organization_id = access.organizationId;
   if (form.form_type === 'survey') {
     return res.status(400).json({ error: 'Payment fields are not supported on surveys' });
   }
@@ -1210,6 +1249,9 @@ async function handleCreate(req, res, supabase, tenantData) {
       .eq('idempotency_key', idemKey)
       .maybeSingle()).data;
     if (existing) {
+      if (access.applicantGrant) await bindApplicantContinuation({
+        db: supabase, form, grant: access.applicantGrant, submissionId: existing.id,
+      });
       if (existing.payment_status === 'paid') {
         if (provider === 'stripe' && existing.payment_provider === 'stripe') {
           // A paid retry deliberately does not re-read Stripe: its persisted
@@ -1297,6 +1339,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             role_id: role_id || null,
             verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
             verified_admin_access: access.verifiedAdminAccess === true,
+            applicant_session_authorized: requiresApplicantContinuation(form) && !access.applicantGrant,
             membership: membershipMeta,
             stripe_feature: stripeFeature,
             ...(stripeAddressMappingConfig
@@ -1337,6 +1380,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       payment_currency: currency,
       ...(resolved.organizationId && !monthlyDirectDebitOffer
         ? { organization_id: resolved.organizationId } : {}),
+      ...(access.applicantGrant ? { organization_id: access.applicantGrant.organization_id } : {}),
       payment_meta: withFormPaymentAccessProof({
         ...(creationGc ? { gc_provider_context: creationGc.providerContext } : {}),
         price_field_id: paymentField.price_field_id || null,
@@ -1344,6 +1388,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         role_id: role_id || null,
         verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
         verified_admin_access: access.verifiedAdminAccess === true,
+        applicant_session_authorized: requiresApplicantContinuation(form) && !access.applicantGrant,
         membership: membershipMeta,
         stripe_feature: stripeFeature,
         ...(stripeAddressMappingConfig
@@ -1387,6 +1432,9 @@ async function handleCreate(req, res, supabase, tenantData) {
     }
   }
 
+  if (access.applicantGrant) await bindApplicantContinuation({
+    db: supabase, form, grant: access.applicantGrant, submissionId: submissionRow.id,
+  });
   const description = (paymentField.payment_label || paymentField.label || form.name || 'Form payment').slice(0, 100);
 
   if (provider === 'stripe') {
@@ -1991,6 +2039,17 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
   }
 
   const form = await loadFormForFinalize(supabase, row.form_id, tenantData.id);
+  if (form) {
+    const grant = await loadSubmissionApplicantContinuation({ db: supabase, form, submissionId: row.id });
+    if (requiresApplicantContinuation(form) && !grant
+      && !(row.payment_meta?.access_authorized_at && row.payment_meta?.applicant_session_authorized === true)) {
+      const access = await authorizePaymentStart({
+        ...req, body: { ...req.body, prefill_organization_id: row.organization_id
+          || row.payment_meta?.prefill_organization_id || null },
+      }, res, supabase, tenantData, form, dependencies);
+      if (!access) return;
+    }
+  }
   const baseUrl = getTenantTrustedBaseUrl(req, tenantData);
 
   // A pending payment carries a server-written proof that access was granted
@@ -1999,7 +2058,7 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
   // checked against the live policy and fail closed.
   if (!row.payment_meta?.access_authorized_at) {
     if (!form) return res.status(404).json({ error: 'Form not found' });
-    const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+    const access = await authorizePaymentStart(req, res, supabase, tenantData, form, dependencies);
     if (!access) return;
     const paymentMeta = withFormPaymentAccessProof({
       ...(row.payment_meta || {}),

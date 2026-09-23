@@ -7,6 +7,10 @@ import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPo
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
 import { DEPARTMENT_CURRENT_SET_FORM_ID } from '../../_lib/departmentCurrentSet.js';
+import {
+  classifyFormMutationContract,
+  supportsApplicantContinuationIssuance,
+} from '../../../shared/formMutationContract.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
@@ -20,6 +24,7 @@ const PUBLIC_FORM_FIELDS = [
   'require_authentication', 'updated_at',
   'allow_submitter_email_copy',
   'allow_save_continue_later',
+  'mutation_access_policy',
   // Survey forms (Task #3330): the public renderer needs the type flag and
   // the presentation subset of survey settings (intro text, progress, etc.).
   'form_type', 'survey_settings'
@@ -229,6 +234,18 @@ export default async function handler(req, res) {
     publicForm.form_width = getPublicFormWidth(form);
     publicForm.access_policy_required = access.restricted;
     publicForm.access = access;
+    // Public clients need only the safe classification, not privileged mapping
+    // details, to explain why an applicant link/login is required before an
+    // existing record can be changed.
+    const mutationContract = classifyFormMutationContract(form);
+    publicForm.mutation_contract = {
+      mutationTargets: mutationContract.mutationTargets,
+      hasExistingRecordMutation: mutationContract.hasExistingRecordMutation,
+      canIssueApplicantContinuation: supportsApplicantContinuationIssuance(form),
+      targets: Object.fromEntries(Object.entries(mutationContract.targets).map(
+        ([entity, target]) => [entity, { classification: target.classification }],
+      )),
+    };
 
     // Department current-set editing is opt-in through a separately persisted
     // server contract. Project only an innocuous enablement flag and the two

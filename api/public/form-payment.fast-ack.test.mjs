@@ -164,7 +164,7 @@ test('handler fast-ack acknowledges GoCardless submitted consent without process
   assert.equal(response.body.status, 'finalizing');
   assert.equal(processorCalls, 0);
   assert.deepEqual([...new Set(db.calls.map((call) => call.table))], [
-    'form_submission', 'form', 'membership_billing_agreements',
+    'form_submission', 'form', 'form_applicant_continuation', 'membership_billing_agreements',
   ]);
 });
 

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import RepeatableRowOptionsEditor from "@/components/forms/RepeatableRowOptionsEditor";
 import RepeatableRowVisibilityEditor from "@/components/forms/RepeatableRowVisibilityEditor";
 import ProtectedFormActionDialog from "@/components/forms/ProtectedFormActionDialog";
+import ApplicantContinuationLinkGenerator from "@/components/forms/ApplicantContinuationLinkGenerator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -157,6 +158,12 @@ import {
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
 import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
+import {
+  assessFormMutationAccess,
+  FORM_MUTATION_ACCESS_MODES,
+  supportsApplicantContinuationIssuance,
+  validateFormMutationAccessSave,
+} from "../../../shared/formMutationContract.js";
 import {
   areFormTransitionFieldsCompatible,
   isFormTransitionField,
@@ -10658,6 +10665,7 @@ export default function FormBuilderPage() {
     success_message: "Thank you for your submission!",
     redirect_url: "",
     require_authentication: false,
+    mutation_access_policy: null,
     access_policy: null,
     is_active: true,
     deactivate_at: null,
@@ -11310,6 +11318,7 @@ export default function FormBuilderPage() {
         success_message: existingForm.success_message || "Thank you for your submission!",
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
+        mutation_access_policy: existingForm.mutation_access_policy || null,
         access_policy: (
           existingForm.access_policy?.group_rules?.length ||
           existingForm.access_policy?.rbac_role_ids?.length
@@ -11820,6 +11829,15 @@ export default function FormBuilderPage() {
       toast.error('Failed to duplicate survey');
     }
   });
+
+  const mutationAccessAssessment = useMemo(
+    () => assessFormMutationAccess(formData),
+    [formData],
+  );
+  const canIssueApplicantContinuation = useMemo(
+    () => supportsApplicantContinuationIssuance(formData),
+    [formData],
+  );
 
   const handleSubmit = () => {
     console.log('[FormBuilder] handleSubmit called');
@@ -12450,6 +12468,19 @@ export default function FormBuilderPage() {
       );
       return cleaned.length === f.options.length ? f : { ...f, options: cleaned };
     });
+
+    const mutationAccessSave = validateFormMutationAccessSave({
+      form: dataToSave,
+      previousForm: existingForm || null,
+      isCreate: !formId,
+    });
+    if (!mutationAccessSave.ok) {
+      setActiveTab('submission');
+      toast.error('Existing-record access needs attention', {
+        description: mutationAccessSave.error,
+      });
+      return;
+    }
     
     if (formId) {
       console.log('[FormBuilder] Updating form:', formId);
@@ -13526,6 +13557,100 @@ export default function FormBuilderPage() {
                 </p>
               </CardHeader>
               <CardContent className="space-y-6">
+                {mutationAccessAssessment.hasExistingRecordMutation && (
+                  <div
+                    className={`rounded-md border p-4 space-y-3 ${
+                      mutationAccessAssessment.ok
+                        ? 'border-blue-200 bg-blue-50'
+                        : 'border-amber-300 bg-amber-50'
+                    }`}
+                    data-testid="form-mutation-access-warning"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className={`w-4 h-4 mt-0.5 ${
+                        mutationAccessAssessment.ok ? 'text-blue-700' : 'text-amber-700'
+                      }`} />
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-slate-900">
+                          Existing records may be updated
+                        </p>
+                        <p className="text-xs text-slate-700">
+                          {mutationAccessAssessment.mutationTargets.includes('organization')
+                            ? 'Organisation mappings can change a record that already exists. '
+                            : ''}
+                          {mutationAccessAssessment.mutationTargets.includes('member')
+                            ? 'Member mappings can change a record that already exists. '
+                            : ''}
+                          Choose how the server will verify the respondent. Selecting a record by itself never grants update access.
+                        </p>
+                        {!mutationAccessAssessment.ok && (
+                          <p className="text-xs font-medium text-amber-800">
+                            {mutationAccessAssessment.error}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="max-w-md space-y-1">
+                      <Label htmlFor="mutation_access_policy" className="text-xs">
+                        Verified update access
+                      </Label>
+                      <Select
+                        value={formData.mutation_access_policy?.mode || 'none'}
+                        onValueChange={(mode) => setFormData(prev => ({
+                          ...prev,
+                          mutation_access_policy: mode === 'none'
+                            ? null
+                            : { version: 1, mode },
+                        }))}
+                      >
+                        <SelectTrigger id="mutation_access_policy" data-testid="select-mutation-access-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Choose verified access…</SelectItem>
+                          <SelectItem
+                            value={FORM_MUTATION_ACCESS_MODES.APPLICANT_CONTINUATION}
+                            disabled={
+                              !mutationAccessAssessment.mutationTargets.includes('organization')
+                            }
+                          >
+                            Server-issued applicant continuation link
+                          </SelectItem>
+                          <SelectItem
+                            value={FORM_MUTATION_ACCESS_MODES.AUTHENTICATED_OWNER}
+                            disabled={!formData.require_authentication}
+                          >
+                            Logged-in record owner
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-600">
+                        Applicant continuation links are server-issued and bound to one tenant, form and organisation.
+                        Member updates in that flow are limited to the organisation-owned member IDs captured when the link is issued and revalidated before writing.
+                        Logged-in owner access still verifies the actual member or their organisation; requiring login alone is not enough.
+                      </p>
+                      {mutationAccessAssessment.mutationTargets.length === 1
+                        && mutationAccessAssessment.mutationTargets[0] === 'member'
+                        && !formData.require_authentication && (
+                        <p className="text-xs font-medium text-amber-900">
+                          Modern member pipelines match identities such as email as upserts, even when used for signup.
+                          A public create-only collision contract is not currently supported. Require login and use authenticated-owner access;
+                          existing-member updates will not be silently discarded.
+                        </p>
+                      )}
+                      {!formData.is_active && !mutationAccessAssessment.ok && (
+                        <p className="text-xs text-slate-600">
+                          You can save this inactive draft now, but it cannot be activated until verified update access is configured.
+                        </p>
+                      )}
+                    </div>
+                    {formId && formData.is_active && canIssueApplicantContinuation && (
+                      <ApplicantContinuationLinkGenerator
+                        form={{ ...formData, id: formId }}
+                      />
+                    )}
+                  </div>
+                )}
                 <StructuredRecordActionsEditor
                   value={formData.structured_actions}
                   onChange={(structured_actions) => setFormData(prev => ({ ...prev, structured_actions }))}

@@ -628,6 +628,35 @@ class PublicClient {
     });
   }
 
+  async verifyFormApplicantContinuation({ formId, applicantContinuationToken = null, resumeToken = null }) {
+    if (!formId || (!applicantContinuationToken && !resumeToken)) {
+      throw new Error('A form and secure applicant link are required');
+    }
+    return this._fetch('/api/public/form-applicant-continuation', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({
+        form_id: formId,
+        ...(applicantContinuationToken
+          ? { applicant_continuation_token: applicantContinuationToken }
+          : { resume_token: resumeToken }),
+      }),
+    });
+  }
+
+  async issueFormApplicantContinuation({ formId, organizationId }) {
+    if (!formId || !organizationId) {
+      throw new Error('A form and organisation are required');
+    }
+    // Authenticated admin endpoint: do not append the public client's cached
+    // tenant slug. The session and active-tenant header own this scope.
+    return publicFetch('/api/forms/applicant-continuation', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ form_id: formId, organization_id: organizationId }),
+    }, null);
+  }
+
   async resolveFormTransition(data) {
     return this._fetch('/api/public/form-transition', {
       method: 'POST',

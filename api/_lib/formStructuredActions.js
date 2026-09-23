@@ -259,6 +259,10 @@ export function assertStructuredMutationAuthorized({ action, recordId, authoriza
     );
   }
   if (!recordId) return true;
+  // Populated only from the service-only applicant grant's issuance snapshot,
+  // intersected with current tenant/organization membership by the processor.
+  if (entity === 'member' && Array.isArray(authorization.verifiedApplicantMemberIds)
+    && authorization.verifiedApplicantMemberIds.includes(String(recordId))) return true;
   const allowedId = entity === 'member'
     ? authorization.verifiedMemberId
     : entity === 'organization'

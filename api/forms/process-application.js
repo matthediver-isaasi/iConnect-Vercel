@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
+import { preflightApplicantTargets } from '../_lib/formApplicantPreflight.js';
 import { randomUUID } from 'node:crypto';
 import {
   FORM_NOT_LISTED_VALUE,
@@ -918,7 +920,7 @@ export default async function handler(req, res, {
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
       supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
-      supabase.from('form').select('id, name, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, structured_actions, default_member_role_id')
+      supabase.from('form').select('*')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
     ]);
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
@@ -1263,6 +1265,16 @@ export default async function handler(req, res, {
       answers: authoritativeAnswers,
       conditionOptions: submitControlOptions,
     });
+    const applicantGrant = await loadSubmissionApplicantContinuation({
+        db: supabase, form: persistedForm, submissionId: persistedSubmission.id,
+      });
+    const applicantMemberIds = applicantGrant
+      ? await loadApplicantMemberScope({ db: supabase, form: persistedForm, grant: applicantGrant })
+      : [];
+    if (requiresApplicantContinuation(persistedForm) && !applicantGrant
+      && !authorizedAdmin && !authenticatedSubmitterMember?.organization_id) {
+      throw new FormApplicantContinuationError();
+    }
     const prefillTargets = resolveFormProcessingPrefillTargets({
       isAdmin: authorizedAdmin,
       submitterMember: authenticatedSubmitterMember,
@@ -1270,11 +1282,12 @@ export default async function handler(req, res, {
       requestedOrganizationId: prefill_organization_id,
     });
     prefill_member_id = prefillTargets.memberId || null;
-    prefill_organization_id = prefillTargets.organizationId || null;
+    prefill_organization_id = applicantGrant?.organization_id || prefillTargets.organizationId || null;
     const processingAuthorization = {
       isAdmin: authorizedAdmin,
       verifiedMemberId: authenticatedSubmitterMember?.id || null,
-      verifiedOrganizationId: authenticatedSubmitterMember?.organization_id || null,
+      verifiedApplicantMemberIds: applicantMemberIds,
+      verifiedOrganizationId: applicantGrant?.organization_id || authenticatedSubmitterMember?.organization_id || null,
       // The form configuration is persisted by an administrator and reloaded
       // server-side. A signed submission flow may therefore create/upsert an
       // Organisation Group without granting the respondent general group
@@ -1605,8 +1618,15 @@ export default async function handler(req, res, {
       member: new Set(),
       organization: new Set(),
     };
-    const assertLegacyExistingRecordAuthorized = (entity, recordId) => {
+    const assertLegacyExistingRecordAuthorized = async (entity, recordId) => {
       if (legacyCreatedRecordIds[entity]?.has(String(recordId))) return true;
+      if (applicantGrant && entity === 'member' && applicantMemberIds.includes(String(recordId))) {
+        const { data, error } = await supabase.from('member').select('id')
+          .eq('id', recordId).eq('tenant_id', effectiveEntityTenantId)
+          .eq('organization_id', applicantGrant.organization_id).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new FormApplicantContinuationError('The contact is no longer associated with this applicant organization.');
+      }
       return assertStructuredMutationAuthorized({
         action: { target: { kind: entity } },
         recordId,
@@ -1665,6 +1685,13 @@ export default async function handler(req, res, {
     // Versioned structured actions are an authoritative persisted contract.
     // The executor reloads both the form configuration and answers; request
     // copies are deliberately ignored. Legacy processing below remains intact.
+    if (applicantGrant) await preflightApplicantTargets({
+      db: supabase, form: persistedForm, grant: applicantGrant, values: form_values,
+      hiddenFieldIds: hiddenSubmissionFieldIds,
+      memberIds: [...applicantMemberIds, authenticatedSubmitterMember?.id].filter(Boolean),
+      primaryMemberId: singlePersistedCreationId(persistedEntityCreations, 'member') || prefill_member_id,
+      createdMemberIds: persistedEntityCreations.member, applyTransformation,
+    });
     let structuredActionResult = null;
     let structuredActionsWaitingForPrimary = false;
     const completedPrimaryKinds = new Set();
@@ -3196,7 +3223,7 @@ export default async function handler(req, res, {
             // only once this path is actually going to alter the existing row.
             // A pipeline checkpoint identifies a target; it grants no right
             // to modify it. This guard only exempts actual creation provenance.
-            assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
+            await assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
             console.log('[AppProcessor] Org update data:', orgUpdateData);
             // Write-time tenant guard (defence in depth): the UPDATE itself is
             // hard-filtered to the effective tenant (or tenant_id IS NULL for
@@ -3410,7 +3437,7 @@ export default async function handler(req, res, {
             cf => !authoritativeByField.has(cf.field_id) || authoritativeByField.get(cf.field_id) !== cf.value,
           );
           if (customFieldsToWrite.length > 0) {
-            assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+            await assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
           }
         }
         for (const cf of customFieldsToWrite) {
@@ -3451,7 +3478,7 @@ export default async function handler(req, res, {
           const existingFieldIds = new Set((existingCustomRows || []).map(row => row.field_id));
           customFieldsToActuallyClear = customFieldsToActuallyClear.filter(fieldId => existingFieldIds.has(fieldId));
           if (customFieldsToActuallyClear.length > 0) {
-            assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+            await assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
           }
         }
         for (const fieldId of customFieldsToActuallyClear) {
@@ -3539,7 +3566,7 @@ export default async function handler(req, res, {
       if (existingMember) {
         const primaryMemberPipeline = memberPipelines.find(item => item.isPrimary || item.is_primary);
         if (String(persistedPipelineTargetId('member', primaryMemberPipeline) || '') !== String(existingMember.id)) {
-          assertLegacyExistingRecordAuthorized('member', existingMember.id);
+          await assertLegacyExistingRecordAuthorized('member', existingMember.id);
         }
         // Member exists
         if (memberAction === 'create') {
@@ -4598,7 +4625,7 @@ export default async function handler(req, res, {
         if (existingMemberId) {
           const checkpointMemberId = persistedPipelineTargetId('member', memberConfig);
           if (String(checkpointMemberId || '') !== String(existingMemberId)) {
-            assertLegacyExistingRecordAuthorized('member', existingMemberId);
+            await assertLegacyExistingRecordAuthorized('member', existingMemberId);
           }
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
 
@@ -5321,6 +5348,9 @@ export default async function handler(req, res, {
   } catch (error) {
     await releaseStripeProcessingLease();
     console.error('[AppProcessor] Error:', error);
+    if (error instanceof FormApplicantContinuationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     if (error?.code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING') {
       return res.status(400).json({
         error: error.message,

@@ -19,6 +19,7 @@ import {
 } from './zeroDueMembership.js';
 import { validateWorkflowOrganizationMembershipSimulation } from './workflowMembershipSimulation.js';
 import { workflowRollingCommitment, hasRollingMonthlyArrangement } from './rollingFeeCommitment.js';
+import { issueWorkflowApplicantContinuationLinks } from './workflowApplicantContinuation.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -1384,6 +1385,22 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId });
       subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
       body = applyDdOwnerPlaceholders(body, ddOwnerVals);
+
+      // A trusted organisation workflow may contain an administrator-authored
+      // applicant link. Upgrade only a same-tenant, same-organisation form link
+      // whose persisted mutation contract requires applicant continuation.
+      // Tokens are inserted after diagnostic body logging and are never logged.
+      if (useTemplateMode) {
+        body = await issueWorkflowApplicantContinuationLinks({
+          html: body,
+          tenantId,
+          entityType,
+          organizationId: entityId,
+          db: supabase,
+          issueContinuation: context?.issueApplicantContinuation,
+          issuedBy: `trusted_workflow:${workflow.id}`,
+        });
+      }
 
       // Task #3253 — final safety net: a raw set_password_url token must
       // never reach a recipient.
@@ -2764,6 +2781,21 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       // Apply pre-resolved dd_owner values (resolved once before the loop).
       memberSubject = applyDdOwnerPlaceholders(memberSubject, ddOwnerVals);
       memberBody = applyDdOwnerPlaceholders(memberBody, ddOwnerVals);
+
+      // Role-addressed workflow templates use the same trusted organisation
+      // provenance rules. Mint after all body diagnostics so bearer tokens are
+      // never included in workflow logs.
+      if (useTemplateMode) {
+        memberBody = await issueWorkflowApplicantContinuationLinks({
+          html: memberBody,
+          tenantId,
+          entityType,
+          organizationId,
+          db: supabase,
+          issueContinuation: context?.issueApplicantContinuation,
+          issuedBy: `trusted_workflow:${workflow.id}`,
+        });
+      }
 
       console.log(`[Workflows] Role-based email: sending to ${member.email}`);
       

@@ -24,7 +24,9 @@
     "test:sales-hardening": "node scripts/test-sales-hardening.mjs",
     "test:directory-object-fields": "node --test api/_lib/customObjectDirectory*.test.mjs api/_lib/organisationDirectoryFilters*.test.mjs api/organisation-directory/filters.test.mjs shared/organisationDirectoryFilters.test.mjs api/_lib/customObjectDomain.test.mjs api/_lib/customObjectService.test.mjs api/_lib/directoryConfig.test.mjs api/public/dynamic-directory.test.mjs api/storage/custom-object-upload-url.test.mjs client/src/pages/customObjects/organisationDirectoryPresentation.test.mjs client/src/utils/directoryBackOrder.test.mjs && tsx --test client/src/components/directory/DirectoryObjectSourceField.test.jsx client/src/components/directory/OrganisationDirectoryFilters.test.jsx client/src/hooks/useOrganisationDirectoryFilterSettings.test.jsx client/src/components/CustomFieldFileUpload.test.jsx",
     "test:directory-object-fields:browser": "playwright test",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test:form-submission-compatibility": "node scripts/run-regression-suite.mjs form-submission-compatibility",
+    "test:form-applicant-continuation-postgres": "node scripts/run-regression-suite.mjs form-applicant-continuation-postgres"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.10",

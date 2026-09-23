@@ -397,8 +397,8 @@ test('Department current-set submissions are authenticated, preflighted, and pro
 
 test('current-set retries retain the durable submission and replay processing before success', async () => {
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(hasCurrentSetProcessing\) \{[\s\S]*?Current-set retry processing failed/);
-  assert.match(source, /if \(!hasCurrentSetProcessing\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
+  assert.match(source, /if \(hasCurrentSetProcessing \|\| applicantGrant\) \{[\s\S]*?retry processing failed/);
+  assert.match(source, /if \(!hasCurrentSetProcessing && !applicantGrant\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
   assert.match(source, /!hasCurrentSetProcessing && form\.prevent_duplicate_email_submission/);
 });
 
@@ -1195,7 +1195,7 @@ test('anonymous survey retries after republish use the original redaction snapsh
 test('public submissions normalize not-listed organisation targets before UUID-backed use', async () => {
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
   const normalization = source.indexOf(
-    'const prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId)',
+    'let prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId)',
   );
   const duplicateLookup = source.indexOf("organization_id.eq.${prefill_organization_id}");
   const submissionInsert = source.indexOf('...(prefill_organization_id && { organization_id: prefill_organization_id })');

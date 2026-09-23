@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { verifyApplicantContinuation, bindApplicantDraft, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
@@ -119,7 +120,7 @@ export default async function handler(req, res, dependencies = {}) {
       // Get form to verify it exists
       let formQuery = supabase
         .from('form')
-        .select('id, tenant_id, access_policy, deactivate_at, fields')
+        .select('*')
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true);
 
@@ -171,6 +172,13 @@ export default async function handler(req, res, dependencies = {}) {
         throw error;
       }
 
+      // Only a real bearer capability may be attached to a draft. Answers and
+      // draft IDs never establish mutation authority.
+      const applicantGrant = req.body.applicant_continuation_token
+        ? await verifyApplicantContinuation({ db: supabase, form,
+          token: req.body.applicant_continuation_token })
+        : null;
+
       // Calculate expiry date (always use default since settings column doesn't exist)
       const expiryDays = DEFAULT_EXPIRY_DAYS;
       const expiresAt = new Date();
@@ -198,10 +206,12 @@ export default async function handler(req, res, dependencies = {}) {
           });
         }
 
+        if (applicantGrant) await bindApplicantDraft({ db: supabase, grant: applicantGrant, resumeToken: resume_token });
         // Update existing draft
         const { error: updateError } = await supabase
           .from('form_draft_submission')
           .update({
+            ...(applicantGrant ? { applicant_continuation_id: applicantGrant.id } : {}),
             draft_data: safeDraftData,
             current_page_index: current_page_index || 0,
             contact_email: contact_email || null,
@@ -227,10 +237,12 @@ export default async function handler(req, res, dependencies = {}) {
       // Create new draft with new token
       const newToken = generateResumeToken();
       const tokenHash = hashToken(newToken);
+      if (applicantGrant) await bindApplicantDraft({ db: supabase, grant: applicantGrant, resumeToken: newToken });
 
       const { error: insertError } = await supabase
         .from('form_draft_submission')
         .insert({
+          ...(applicantGrant ? { applicant_continuation_id: applicantGrant.id } : {}),
           tenant_id: tenantData.id,
           form_id: form.id,
           resume_token_hash: tokenHash,
@@ -296,7 +308,7 @@ export default async function handler(req, res, dependencies = {}) {
       // Must include tenant_id filter for Supabase RLS policies
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('id, slug, name, access_policy, deactivate_at, fields')
+        .select('*')
         .eq('id', draft.form_id)
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
@@ -328,9 +340,17 @@ export default async function handler(req, res, dependencies = {}) {
 
       // Schema drift detection is not currently supported (form table lacks updated_at column)
       const schemaChanged = false;
+      const applicantGrant = draft.applicant_continuation_id
+        ? await verifyApplicantContinuation({ db: supabase, form, resumeToken: token })
+        : null;
 
       return res.status(200).json({
         success: true,
+        ...(applicantGrant ? { applicant_continuation: {
+          form_id: applicantGrant.form_id,
+          organization_id: applicantGrant.organization_id,
+          expires_at: applicantGrant.expires_at,
+        } } : {}),
         draft: {
           draft_data: stripFormNoRelationshipValues(draft.draft_data, form.fields),
           current_page_index: draft.current_page_index,
@@ -421,6 +441,9 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(405).json({ error: 'Method not allowed' });
 
   } catch (error) {
+    if (error instanceof FormApplicantContinuationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     console.error('[Form Draft] Unexpected error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

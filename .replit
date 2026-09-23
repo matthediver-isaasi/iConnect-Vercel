@@ -131,6 +131,28 @@ args = "node scripts/run-regression-suite.mjs direct-debit-admin"
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "form-submission-compatibility"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/run-regression-suite.mjs form-submission-compatibility"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "form-applicant-continuation-postgres"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/run-regression-suite.mjs form-applicant-continuation-postgres"
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [userenv]
 
 [userenv.shared]

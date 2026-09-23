@@ -69,6 +69,8 @@ function makeSupabase({
   relationshipEdges = [],
   idempotencyLookupError = null,
   provenanceRows = [],
+  applicantContinuationGrant = null,
+  roles = [],
   rpcResult = { data: null, error: null },
 }) {
   const inserts = [];
@@ -94,6 +96,7 @@ function makeSupabase({
     or(value) { this.filters.push(['or', value]); return this; }
     order() { return this; }
     limit() { return this; }
+    range() { return this; }
     insert(payload) {
       this.insertPayload = payload;
       inserts.push({ table: this.table, payload });
@@ -126,6 +129,18 @@ function makeSupabase({
         if (this.selected === 'organization_id') return { data: { organization_id: submission.organization_id || null }, error: null };
         return { data: submission, error: null };
       }
+      if (this.table === 'form_applicant_continuation') {
+        const submissionId = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'submission_id',
+        )?.[2];
+        return {
+          data: applicantContinuationGrant
+            && (!submissionId || applicantContinuationGrant.submission_id === submissionId)
+            ? applicantContinuationGrant
+            : null,
+          error: null,
+        };
+      }
       if (this.table === 'organization') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         const name = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'name')?.[2];
@@ -141,6 +156,16 @@ function makeSupabase({
           String(candidate.id) === String(id)
           && (!tenantId || String(candidate.tenant_id) === String(tenantId)));
         return { data: group || null, error: null };
+      }
+      if (this.table === 'role') {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const tenantId = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'tenant_id',
+        )?.[2];
+        return {
+          data: roles.find(role => role.id === id && (!tenantId || role.tenant_id === tenantId)) || null,
+          error: null,
+        };
       }
       if (this.table === 'form_stripe_address_mapping_ledger') {
         return { data: completedStripeAddressMapping, error: null };
@@ -239,8 +264,14 @@ function makeSupabase({
       if (this.table === 'member' && !this.updatePayload) {
         const candidate = existingMember || submitterMember;
         const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
+        const organizationId = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'organization_id',
+        )?.[2];
         if (candidate && email
           && candidate.email?.toLowerCase() === String(email).toLowerCase()) {
+          data = [candidate];
+        }
+        if (candidate && organizationId && candidate.organization_id === organizationId) {
           data = [candidate];
         }
       }
@@ -343,6 +374,8 @@ export async function invokeProcessor(payload, {
   requestBodyOverrides = {},
   submissionOverrides = {},
   provenanceRows = [],
+  applicantContinuationGrant = null,
+  roles = [],
   rpcResult = { data: null, error: null },
   triggerWorkflows = async () => {},
   notifyGuestSignup = async () => {},
@@ -401,6 +434,8 @@ export async function invokeProcessor(payload, {
     relationshipEdges,
     idempotencyLookupError,
     provenanceRows,
+    applicantContinuationGrant,
+    roles,
     rpcResult,
   });
   const ids = {

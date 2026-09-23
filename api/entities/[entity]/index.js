@@ -105,6 +105,7 @@ import {
 import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
+import { validateFormMutationAccessSave } from '../../../shared/formMutationContract.js';
 import {
   applyGuestWriterListQuery,
   parseGuestWriterListQuery,
@@ -1626,6 +1627,23 @@ export default async function handler(req, res) {
       if (entityNorm === 'form') {
         const formWidthError = validateFormWidthPayload(sanitizedBody);
         if (formWidthError) return res.status(422).json(formWidthError);
+        const mutationAccessValidation = validateFormMutationAccessSave({
+          form: {
+            ...sanitizedBody,
+            is_active: sanitizedBody.is_active !== false,
+          },
+          isCreate: true,
+        });
+        if (!mutationAccessValidation.ok) {
+          return res.status(422).json({
+            error: mutationAccessValidation.error,
+            code: mutationAccessValidation.code,
+            mutation_targets: mutationAccessValidation.mutationTargets,
+          });
+        }
+        if (Object.prototype.hasOwnProperty.call(sanitizedBody, 'mutation_access_policy')) {
+          sanitizedBody.mutation_access_policy = mutationAccessValidation.policy;
+        }
       }
 
       if (entityNorm === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'structured_actions')) {
