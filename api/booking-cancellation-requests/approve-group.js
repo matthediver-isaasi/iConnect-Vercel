@@ -11,6 +11,7 @@ import {
 } from '../_lib/cancellationEmail.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
+import { captureCancellationCredits, prepareCancellationCredits } from '../_lib/bookingCreditEvidence.js';
 import {
   isComplexSource,
   normalizeComplexBooking,
@@ -244,6 +245,10 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
     const organizationId = firstBooking.organization_id;
     const groupRef = firstBooking.booking_group_reference || firstBooking.booking_reference;
     const groupRequestIds = requests.map(r => r.id).sort().join('-');
+    await prepareCancellationCredits({
+      db: supabase, tenantId, source: bookingTable,
+      operationKey: `cancel-group:${groupRequestIds}`, bookings,
+    });
 
     // Pre-compute pro-rated training-fund allocation per booking. The shared
     // engine accepts a per-booking trainingFundAmount cap; we apportion the
@@ -557,6 +562,8 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             reversalResults.stripeRefund = {
               success: true,
               amount: actualRefundAmount,
+              currency: refund.currency,
+              amountMinor: refund.amount,
               refundId: refund.id,
               status: refund.status,
               paymentIntentId: stripePaymentIntentId,
@@ -629,6 +636,9 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             reversalResults.xeroCreditNote = {
               success: true,
               amount: result.amount,
+              currency: result.currency,
+              status: result.status,
+              provider: result.provider,
               creditNoteId: result.creditNoteId,
               creditNoteNumber: result.creditNoteNumber,
               allocated: result.allocated,
@@ -644,9 +654,10 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
                 const { error: cnUpdateError } = await supabase
                   .from(bookingTable)
                   .update(buildCreditNoteColumnUpdate(result))
-                  .eq('id', booking.id);
+                  .eq('id', booking.id).eq('tenant_id', tenantId);
 
                 if (cnUpdateError) {
+                  reversalResults.creditEvidenceError = cnUpdateError.message;
                   console.warn(`[GroupApproval] Failed to store credit note on booking ${booking.id}: ${cnUpdateError.message}`);
                 }
               }
@@ -683,6 +694,14 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
+    try {
+      await captureCancellationCredits({
+        db: supabase, tenantId, source: bookingTable,
+        operationKey: `cancel-group:${groupRequestIds}`, bookings, results: reversalResults,
+      });
+    } catch (error) {
+      reversalResults.creditEvidenceError = error.message;
+    }
     return { success: true, reversalResults };
   } catch (err) {
     console.error('[GroupApproval] Error processing group cancellation:', err);

@@ -1398,7 +1398,8 @@ export async function createQuickBooksCreditNote({
       return {
         creditNoteId: existing.Id,
         creditNoteNumber: existing.DocNumber || existing.Id,
-        amount: Number(existing.TotalAmt),
+        amount: existing.TotalAmt == null ? null : Number(existing.TotalAmt),
+        currency: await resolveQuickBooksCreditCurrency(existing, { accessToken, realmId, environment }),
         status: 'AUTHORISED',
         allocated: false,
         invoiceId,
@@ -1529,12 +1530,38 @@ export async function createQuickBooksCreditNote({
   return {
     creditNoteId: cm.Id,
     creditNoteNumber: cm.DocNumber || cm.Id,
-    amount: effectiveAmount,
+    amount: cm.TotalAmt == null ? null : Number(cm.TotalAmt),
+    currency: await resolveQuickBooksCreditCurrency(cm, { accessToken, realmId, environment }),
     status: 'AUTHORISED',
     allocated,
     invoiceId,
     invoiceNumber: invoice.DocNumber,
   };
+}
+
+export async function readQuickBooksCreditNoteEvidence(appTenantId, creditNoteId) {
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  if (!/^\d+$/.test(String(creditNoteId))) throw new Error('Invalid QuickBooks credit note identity');
+  const response = await qboQuery(accessToken, realmId, environment, `SELECT * FROM CreditMemo WHERE Id = '${creditNoteId}'`);
+  const note = response?.QueryResponse?.CreditMemo?.[0];
+  if (!note || String(note.Id) !== String(creditNoteId)) throw new Error('Credit note identity mismatch');
+  return { providerId: String(note.Id), amount: note.TotalAmt == null ? null : Number(note.TotalAmt),
+    currency: await resolveQuickBooksCreditCurrency(note, { accessToken, realmId, environment }),
+    status: note.Voided ? 'VOIDED' : 'AUTHORISED' };
+}
+
+export async function resolveQuickBooksCreditCurrency(note, { accessToken, realmId, environment }) {
+  const currency = note.CurrencyRef?.value;
+  if (/^[A-Za-z]{3}$/.test(currency || '')) return currency.toUpperCase();
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const response = await qboFetch('preferences-retrieve', accessToken, 'GET',
+    `${companyBase(apiBaseUrl, realmId)}/preferences?minorversion=${MINOR_VERSION}`);
+  const preferences = response?.Preferences?.CurrencyPrefs;
+  const homeCurrency = preferences?.HomeCurrency?.value;
+  if (preferences?.MultiCurrencyEnabled !== false || !/^[A-Za-z]{3}$/.test(homeCurrency || '')) {
+    throw new Error('QuickBooks credit currency unavailable: missing note currency or verified single-currency preferences');
+  }
+  return homeCurrency.toUpperCase();
 }
 
 // ---------------------------------------------------------------------------

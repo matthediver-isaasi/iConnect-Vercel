@@ -1842,7 +1842,8 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
       return {
         creditNoteId: matchingCN.CreditNoteID,
         creditNoteNumber: matchingCN.CreditNoteNumber,
-        amount: Number(matchingCN.Total),
+        amount: matchingCN.Total == null ? null : Number(matchingCN.Total),
+        currency: matchingCN.CurrencyCode,
         status: matchingCN.Status,
         allocated: (Number(matchingCN.Total) - Number(matchingCN.RemainingCredit || 0)) > 0,
         invoiceId,
@@ -1941,10 +1942,23 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   return {
     creditNoteId: creditNote.CreditNoteID,
     creditNoteNumber: creditNote.CreditNoteNumber,
-    amount: effectiveAmount,
+    amount: creditNote.Total == null ? null : Number(creditNote.Total),
+    currency: creditNote.CurrencyCode,
     status: creditNote.Status,
     allocated,
     invoiceId,
     invoiceNumber: invoice.InvoiceNumber,
   };
+}
+
+export async function readXeroCreditNoteEvidence(appTenantId, creditNoteId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${encodeURIComponent(creditNoteId)}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Credit note lookup failed (${response.status})`);
+  const note = (await response.json()).CreditNotes?.[0];
+  if (!note || note.CreditNoteID !== creditNoteId) throw new Error('Credit note identity mismatch');
+  return { providerId: note.CreditNoteID, amount: note.Total == null ? null : Number(note.Total), currency: note.CurrencyCode, status: note.Status };
 }

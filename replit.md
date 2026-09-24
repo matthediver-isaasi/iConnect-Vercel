@@ -31,6 +31,8 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Rolling membership verification:** `npm run test:rolling-memberships` uses mocked providers and a disposable local PostgreSQL cluster; `npm run test:rolling-memberships:browser` uses isolated Member Detail route fixtures against the running development app. Neither command makes real charges or sends reminders.
 
 ## Database connection (read this before any DB work from this workspace)
+Post-booking Credits reporting uses `migrations/20260720_booking_reversal_evidence.sql`, applied to verified DEST only on 2026-09-24. The source workspace database was not migrated. Deploy the matching code and cron configuration before relying on capture. Historical evidence recovery is admin/report-authorized: POST `/api/reports/reconcile-booking-credits` with `{source: "booking" | "complex_event_booking", bookingIds: [up to 25 UUIDs], cursor?}`; repeat the returned `nextCursor` until null and inspect `unresolved`. This reads providers and writes reporting evidence only—it never issues refunds or credit notes. Missing or ambiguous historical evidence remains unavailable. The scheduled pending-evidence reconciler runs every five minutes after deployment.
+
 There are two Supabase projects this codebase talks to:
 
 | Role | What it is | URL secret | Postgres URL secret | Service-role key secret |

@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
 import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
+import { attachReportCredits } from './_credits.js';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -655,7 +656,7 @@ export default async function handler(req, res) {
 
       const groupMap = new Map();
       for (const b of allBookings) {
-        const groupKey = b.booking_group_reference || `single_${b.id}`;
+        const groupKey = `${b._report_booking_source}:${b.event_id}:${b.booking_group_reference || `single_${b.id}`}`;
         if (!groupMap.has(groupKey)) {
           groupMap.set(groupKey, []);
         }
@@ -663,7 +664,7 @@ export default async function handler(req, res) {
       }
 
       const groupBookerInfo = new Map();
-      const realGroupRefs = [...groupMap.keys()].filter(k => !k.startsWith('single_'));
+      const realGroupRefs = [...new Set(allBookings.filter(b => b._report_booking_source === 'standard').map(b => b.booking_group_reference).filter(Boolean))];
 
       if (realGroupRefs.length > 0) {
         const { data: egbRows } = await supabase
@@ -675,12 +676,16 @@ export default async function handler(req, res) {
         if (egbRows) {
           for (const row of egbRows) {
             if (row.booking_reference && row.booker_email) {
-              groupBookerInfo.set(row.booking_reference, {
-                email: row.booker_email,
-                first_name: row.booker_first_name || null,
-                last_name: row.booker_last_name || null,
-                source: 'event_group_booking',
-              });
+              for (const [key, members] of groupMap) {
+                if (members[0]._report_booking_source === 'standard' && members[0].booking_group_reference === row.booking_reference) {
+                  groupBookerInfo.set(key, {
+                    email: row.booker_email,
+                    first_name: row.booker_first_name || null,
+                    last_name: row.booker_last_name || null,
+                    source: 'event_group_booking',
+                  });
+                }
+              }
             }
           }
         }
@@ -748,8 +753,9 @@ export default async function handler(req, res) {
       const countByMethod = {};
       const countByStatus = {};
 
-      for (const [groupRef, members] of groupMap) {
-        const bookerInfo = groupBookerInfo.get(groupRef) || null;
+      for (const [groupKey, members] of groupMap) {
+        const groupRef = members[0].booking_group_reference || `single_${members[0].id}`;
+        const bookerInfo = groupBookerInfo.get(groupKey) || null;
         const bookerEmailNorm = bookerInfo?.email ? bookerInfo.email.toLowerCase().trim() : null;
 
         let bookerInAttendees = false;
@@ -807,6 +813,7 @@ export default async function handler(req, res) {
         const eventInfo = eventMap[first.event_id] || {};
 
         bookingGroups.push({
+          bookingSource: first._report_booking_source === 'complex' ? 'complex_event_booking' : 'booking',
           isPublicInvoicePo: members.some(isPublicInvoicePo),
           publicInvoicePurchaser: publicInvoicePurchaser(members.find(isPublicInvoicePo)?.purchaser_context),
           groupRef: groupRef.startsWith('single_') ? null : groupRef,
@@ -975,6 +982,8 @@ export default async function handler(req, res) {
           }),
         });
       }
+
+      await attachReportCredits({ db: supabase, tenantId, bookings: allBookings, groups: bookingGroups });
 
       summary = {
         totalRevenue,

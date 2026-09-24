@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
 
 /*
  * Task 4733 browser coverage is fixture-only. Every API/Supabase request is
@@ -98,7 +99,13 @@ function bookingGroup(row, overrides = {}) {
     hasZoom: false,
     hasTeams: false,
     hasAttendance: false,
-    booker: null,
+    booker: overrides.booker ?? null,
+    credits: overrides.credits ?? {
+      amount: 0,
+      currency: null,
+      status: "confirmed",
+      breakdown: [],
+    },
     groupPayment: {
       ticketTotal: payment.ticketTotal ?? row.ticket_price,
       totalCost: payment.totalCost ?? row.price_paid ?? row.ticket_price,
@@ -274,8 +281,146 @@ function paginationFixtureGroups() {
     });
     return bookingGroup(row, {
       groupPayment: { ticketTotal: 10, totalCost: 10, totalAfterDiscount: 10 },
+      credits: {
+        amount: 1,
+        currency: "GBP",
+        status: "confirmed",
+        breakdown: [{
+          type: "refund",
+          provider: "stripe",
+          providerId: `re_page_${number}`,
+          amount: 1,
+          currency: "GBP",
+          status: "confirmed",
+          operationKey: `pagination-${number}`,
+        }],
+      },
     });
   });
+}
+
+function creditFixtureGroups() {
+  const makeAttendee = (id, firstName, options = {}) => attendee({
+    id,
+    firstName,
+    lastName: options.lastName || "Credit",
+    email: `${id}@example.invalid`,
+    ticketPrice: options.ticketPrice || 50,
+    pricePaid: options.pricePaid ?? 50,
+    pricePaidStatus: "net",
+    ticketClassName: options.ticketClassName || "Credit fixture",
+  });
+  const evidence = (type, provider, providerId, amount, currency, operationKey) => ({
+    type,
+    provider,
+    providerId,
+    amount,
+    currency,
+    status: "confirmed",
+    operationKey,
+  });
+
+  const singleton = makeAttendee("credit-single", "Single");
+  const standardA = makeAttendee("credit-standard-a", "Standard Alpha");
+  const standardB = makeAttendee("credit-standard-b", "Standard Beta");
+  const complexA = makeAttendee("credit-complex-a", "Complex Alpha");
+  const complexB = makeAttendee("credit-complex-b", "Complex Beta");
+  const pending = makeAttendee("credit-pending", "Pending");
+
+  return [
+    bookingGroup(singleton, {
+      credits: {
+        amount: 12,
+        currency: "GBP",
+        status: "confirmed",
+        breakdown: [evidence("refund", "stripe", "re_single", 12, "GBP", "single-refund")],
+      },
+    }),
+    bookingGroup(standardA, {
+      groupRef: "STANDARD-CREDIT",
+      isGroup: true,
+      attendeeCount: 2,
+      attendees: [standardA, standardB],
+      credits: {
+        amount: 20,
+        currency: "GBP",
+        status: "confirmed",
+        breakdown: [
+          evidence("refund", "stripe", "re_group", 20, "GBP", "group-reversal"),
+          evidence("credit_note", "xero", "cn_group", 20, "GBP", "group-reversal"),
+        ],
+      },
+    }),
+    bookingGroup(complexA, {
+      groupRef: "COMPLEX-CREDIT",
+      isGroup: true,
+      isComplexEvent: true,
+      attendeeCount: 2,
+      attendees: [complexA, complexB],
+      booker: {
+        first_name: "External",
+        last_name: "Booker",
+        email: "external-booker@example.invalid",
+      },
+      credits: {
+        amount: 7.5,
+        currency: "USD",
+        status: "confirmed",
+        breakdown: [evidence("credit_note", "xero", "cn_complex", 7.5, "USD", "complex-credit")],
+      },
+    }),
+    bookingGroup(pending, {
+      credits: {
+        amount: null,
+        currency: "GBP",
+        status: "pending",
+        breakdown: [{
+          type: "refund",
+          provider: "stripe",
+          providerId: "re_pending",
+          amount: null,
+          currency: "GBP",
+          status: "pending",
+          operationKey: "pending-refund",
+        }],
+      },
+    }),
+  ];
+}
+
+function currencyCreditFixtureGroups() {
+  const make = (id, firstName, amount, currency) => {
+    const row = attendee({
+      id,
+      firstName,
+      lastName: "Currency",
+      email: `${id}@example.invalid`,
+      ticketPrice: 20,
+      pricePaid: 20,
+      pricePaidStatus: "net",
+    });
+    return bookingGroup(row, {
+      credits: {
+        amount,
+        currency,
+        status: "confirmed",
+        breakdown: [{
+          type: "refund",
+          provider: "stripe",
+          providerId: `re_${id}`,
+          amount,
+          currency,
+          status: "confirmed",
+          operationKey: `${id}-refund`,
+        }],
+      },
+    });
+  };
+  return [
+    make("credit-jpy", "Yen", 1200, "JPY"),
+    make("credit-kwd", "Dinar", 1.234, "KWD"),
+    make("credit-no-currency", "Unknown", 9, null),
+  ];
 }
 
 function publicInvoiceOfferGroups() {
@@ -880,6 +1025,137 @@ test("filtered totals and CSV cover every booking beyond the 25-group page", asy
     return sum + Number(amount);
   }, 0);
   expect(csvPricePaidTotal).toBe(270);
+
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("Credits align once across singleton, grouped and external-booker layouts", async ({ page }) => {
+  const state = await openGeneratedReport(page, {
+    bookingGroups: creditFixtureGroups(),
+    readyId: "credit-single",
+  });
+
+  const creditsHeader = page.getByRole("columnheader", { name: "Credits", exact: true });
+  await expect(creditsHeader).toBeVisible();
+  await expect(page.getByTestId("text-credits-credit-single")).toHaveText("£12.00");
+  await expect(page.getByTestId("text-credits-credit-standard-a")).toHaveText("£20.00");
+  await expect(page.locator('[data-testid^="text-credits-credit-standard-"]')).toHaveCount(1);
+  await expect(page.getByTestId("row-booker-header-COMPLEX-CREDIT")).toBeVisible();
+  await expect(page.getByTestId("text-credits-COMPLEX-CREDIT")).toHaveText("US$7.50");
+  await expect(page.locator('[data-testid="text-credits-COMPLEX-CREDIT"]')).toHaveCount(1);
+  await expect(page.getByTestId("text-credits-credit-pending")).toHaveText("Pending");
+
+  const headerBox = await creditsHeader.boundingBox();
+  const singletonBox = await page.getByTestId("text-credits-credit-single").boundingBox();
+  const groupedBox = await page.getByTestId("text-credits-credit-standard-a").boundingBox();
+  const bookerBox = await page.getByTestId("text-credits-COMPLEX-CREDIT").boundingBox();
+  expect(headerBox).not.toBeNull();
+  for (const box of [singletonBox, groupedBox, bookerBox]) {
+    expect(box).not.toBeNull();
+    expect(Math.abs(box.x - headerBox.x)).toBeLessThan(2);
+    expect(Math.abs(box.width - headerBox.width)).toBeLessThan(2);
+  }
+
+  await expect(page.getByTestId("text-total-credits"))
+    .toHaveText("£32.00 · US$7.50 · Pending: 1");
+  await expect(page.getByTestId("text-price-paid-explanation"))
+    .toContainText("issued after booking");
+  await expect(page.getByTestId("text-price-paid-explanation"))
+    .toContainText("do not include vouchers, training funds or account allocations");
+
+  await page.getByTestId("button-export-csv").click();
+  await expect(page.getByTestId("checkbox-column-std:credits"))
+    .toHaveAttribute("data-state", "checked");
+  await page.getByTestId("button-cancel-export").click();
+
+  const acceptCookies = page.getByRole("button", { name: "Accept", exact: true });
+  if (await acceptCookies.isVisible().catch(() => false)) await acceptCookies.click();
+  await page.locator(".overflow-x-auto").evaluate((element) => {
+    element.scrollLeft = 720;
+  });
+  mkdirSync("screenshots", { recursive: true });
+  await page.screenshot({
+    path: "screenshots/task-4759-event-registration-credits.png",
+    fullPage: true,
+  });
+
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("Credits filter and CSV use whole groups once with evidence details", async ({ page }) => {
+  const state = await openGeneratedReport(page, {
+    bookingGroups: creditFixtureGroups(),
+    readyId: "credit-single",
+  });
+
+  await page.getByTestId("input-search").fill("Standard Alpha");
+  await expect(page.getByTestId("row-booking-credit-standard-a")).toBeVisible();
+  await expect(page.getByTestId("row-booking-credit-standard-b")).toBeVisible();
+  await expect(page.getByTestId("row-booking-credit-single")).toHaveCount(0);
+  await expect(page.getByTestId("text-total-credits")).toHaveText("£20.00");
+
+  await selectOnlyColumns(page, ["std:name", "std:credits"]);
+  const csv = await exportSelectedColumns(page);
+  expect(csv.split("\n")).toHaveLength(3);
+  expect(csv).toContain(
+    '"Standard Alpha Credit","£20.00 — Refund (stripe) #re_group: £20.00; Credit note (xero) #cn_group: £20.00"',
+  );
+  expect(csv).toContain('"Standard Beta Credit",""');
+
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("Credits totals and CSV include filtered bookings beyond the first page", async ({ page }) => {
+  const state = await openGeneratedReport(page, {
+    bookingGroups: paginationFixtureGroups(),
+    readyId: "page-01",
+  });
+
+  await page.getByTestId("input-search").fill("Pagination");
+  await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("text-total-credits")).toHaveText("£27.00");
+  await page.getByTestId("button-next-page").click();
+  await expect(page.getByTestId("row-booking-page-27")).toBeVisible();
+  await expect(page.getByTestId("text-total-credits")).toHaveText("£27.00");
+
+  await selectOnlyColumns(page, ["std:name", "std:credits"]);
+  const csv = await exportSelectedColumns(page);
+  const lines = csv.split("\n");
+  expect(lines).toHaveLength(28);
+  expect(lines[0]).toBe('"Name","Credits"');
+  expect(csv).toContain('"Pagination Person 01","£1.00 — Refund (stripe) #re_page_01: £1.00"');
+  expect(csv).toContain('"Pagination Person 27","£1.00 — Refund (stripe) #re_page_27: £1.00"');
+
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("Credits table, CSV and footer preserve JPY/KWD digits and reject missing currency", async ({ page }) => {
+  const state = await openGeneratedReport(page, {
+    bookingGroups: currencyCreditFixtureGroups(),
+    readyId: "credit-jpy",
+  });
+
+  await expect(page.getByTestId("text-credits-credit-jpy")).toHaveText("JP¥1,200");
+  await expect(page.getByTestId("text-credits-credit-kwd")).toHaveText(/KWD\s1\.234/);
+  await expect(page.getByTestId("text-credits-credit-no-currency")).toHaveText("Unavailable");
+  await expect(page.getByTestId("text-total-credits"))
+    .toHaveText(/JP¥1,200 · KWD\s1\.234 · Unavailable: 1/);
+
+  await selectOnlyColumns(page, ["std:name", "std:credits"]);
+  const csv = await exportSelectedColumns(page);
+  expect(csv).toContain(
+    '"Yen Currency","JP¥1,200 — Refund (stripe) #re_credit-jpy: JP¥1,200"',
+  );
+  expect(csv).toMatch(
+    /"Dinar Currency","KWD\s1\.234 — Refund \(stripe\) #re_credit-kwd: KWD\s1\.234"/,
+  );
+  expect(csv).toContain(
+    '"Unknown Currency","Unavailable — Refund (stripe) #re_credit-no-currency: Amount unavailable"',
+  );
 
   expect(state.writes).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);

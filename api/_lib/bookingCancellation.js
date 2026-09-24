@@ -30,6 +30,7 @@ import {
 } from './cancellationEmail.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from './zoomClient.js';
 import Stripe from 'stripe';
+import { captureCancellationCredits, prepareCancellationCredits } from './bookingCreditEvidence.js';
 import {
   BOOKING_SOURCE_COMPLEX,
   isComplexSource,
@@ -129,6 +130,16 @@ export async function cancelBooking({
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return { success: false, error: 'custom_refund_amount must be a positive number' };
     }
+  }
+
+  try {
+    await prepareCancellationCredits({
+      db: supabase, tenantId, source: bookingTable,
+      operationKey: `cancel:${cancellationRequestId || reason}:${booking.id}`,
+      bookings: [booking], skipStripeRefund, skipXeroCreditNote,
+    });
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 
   // 1. Commit the status and any commercial allocation movement together under
@@ -453,6 +464,8 @@ export async function cancelBooking({
             reversalResults.stripeRefund = {
               success: true,
               amount: actualPence / 100,
+              currency: refund.currency,
+              amountMinor: refund.amount,
               refundId: refund.id,
               status: refund.status,
               paymentIntentId: booking.stripe_payment_intent_id,
@@ -524,6 +537,9 @@ export async function cancelBooking({
           reversalResults.xeroCreditNote = {
             success: true,
             amount: result.amount,
+            currency: result.currency,
+            status: result.status,
+            provider: result.provider,
             creditNoteId: result.creditNoteId,
             creditNoteNumber: result.creditNoteNumber,
             allocated: result.allocated,
@@ -532,10 +548,14 @@ export async function cancelBooking({
           };
           console.log(`${LP} Xero credit note ${result.creditNoteNumber} created for £${result.amount}`);
           if (result.creditNoteId) {
-            await supabase
+            const { error: creditLinkError } = await supabase
               .from(bookingTable)
               .update(buildCreditNoteColumnUpdate(result))
-              .eq('id', booking.id);
+              .eq('id', booking.id).eq('tenant_id', tenantId);
+            if (creditLinkError) {
+              requiresManualAction = true;
+              reversalResults.xeroCreditNote.persistenceError = creditLinkError.message;
+            }
 
             if (creditNoteEmail) {
               try {
@@ -572,6 +592,18 @@ export async function cancelBooking({
     }
   }
 
+  try {
+    await captureCancellationCredits({
+      db: supabase, tenantId, source: bookingTable,
+      operationKey: `cancel:${cancellationRequestId || reason}:${booking.id}`,
+      bookings: [booking], results: reversalResults,
+    });
+  } catch (error) {
+    // Financial operations have already happened. Never retry cancellation just
+    // to repair report storage; the read-only reconciliation endpoint repairs it.
+    requiresManualAction = true;
+    reversalResults.creditEvidenceError = error.message;
+  }
   return { success: true, requiresManualAction, reversalResults };
 }
 

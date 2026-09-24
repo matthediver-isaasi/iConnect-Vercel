@@ -3,6 +3,12 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/cron/reconcile-booking-credits.js": {
+      "maxDuration": 60
+    },
+    "api/reports/reconcile-booking-credits.js": {
+      "maxDuration": 60
+    },
     "api/cron/backup-storage-to-r2.js": {
       "maxDuration": 300
     },
@@ -75,6 +81,10 @@
     {
       "path": "/api/cron/reconcile-training-fund-purchases",
       "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-booking-credits",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/reconcile-job-posting-payments",

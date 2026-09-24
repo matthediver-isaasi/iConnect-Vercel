@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
+import { attachReportCredits, projectCredits } from './_credits.js';
+import { currencyFactor } from '../_lib/bookingCreditEvidence.js';
 
 test('classification remains public after member linkage and excludes legacy invoice methods', () => {
   const booking = { payment_method: 'public_invoice_po', member_id: 'later-linked-member', purchaser_context: { classification: 'public_non_member' } };
@@ -32,6 +34,9 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const isPublicInvoicePo = ${isPublicInvoicePo.toString()};
     const publicInvoicePurchaser = ${publicInvoicePurchaser.toString()};
     const buildEventCheckinFlagMap = async () => new Map();
+    const currencyFactor = ${currencyFactor.toString()};
+    const projectCredits = ${projectCredits.toString()};
+    const attachReportCredits = ${attachReportCredits.toString()};
     const normalizeGroupPricePaid = ${normalizeGroupPricePaid.toString()};
     const moneyToCents = ${((value) => {
       if (value === null || value === undefined || value === '') return 0;
@@ -69,6 +74,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
         select() { return q; },
         eq(key, value) { filters.push(row => row[key] === value); return q; },
         in(key, values) { filters.push(row => values.includes(row[key])); return q; },
+        overlaps(key, values) { filters.push(row => values.some(value => row[key]?.includes(value))); return q; },
         gte(key, value) { filters.push(row => row[key] >= value); return q; },
         lt(key, value) { filters.push(row => row[key] < value); return q; },
         order() { return q; },

@@ -2,6 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { findHandler } from "./vercel-api-adapter";
 
+test("booking credit reconciliation endpoints are discoverable as distinct exact routes", async () => {
+  const admin = await findHandler("/api/reports/reconcile-booking-credits");
+  const cron = await findHandler("/api/cron/reconcile-booking-credits");
+  assert.equal(typeof admin?.handler, "function");
+  assert.equal(typeof cron?.handler, "function");
+  assert.deepEqual(admin?.params, {});
+  assert.deepEqual(cron?.params, {});
+  assert.notEqual(admin?.handler, cron?.handler);
+});
+
 test("role settings replacement is registered separately from duplication", async () => {
   const copy = await findHandler("/api/admin/roles/copy-settings");
   const duplicate = await findHandler("/api/admin/roles/duplicate");

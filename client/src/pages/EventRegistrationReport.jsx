@@ -28,6 +28,13 @@ import {
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
+import {
+  formatRegistrationCreditBreakdown,
+  formatRegistrationCredits,
+  formatRegistrationCreditsExport,
+  formatRegistrationCreditSummary,
+  summarizeRegistrationCredits,
+} from "@/lib/eventRegistrationCredits";
 
 function formatDietarySelections(value) {
   if (!Array.isArray(value)) return '';
@@ -1057,6 +1064,7 @@ export default function EventRegistrationReport() {
     { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '') },
     { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '') },
     { key: 'std:pricePaid', label: 'Price Paid', get: ({ a }) => formatRegistrationPricePaid(a) },
+    { key: 'std:credits', label: 'Credits', get: ({ group, isFirstInGroup }) => (isFirstInGroup ? formatRegistrationCreditsExport(group.credits) : '') },
     { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
     { key: 'std:accountAmount', label: 'Account Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '') },
     { key: 'std:paymentMethod', label: 'Payment Method', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.paymentMethod || '') : '') },
@@ -1148,6 +1156,7 @@ export default function EventRegistrationReport() {
     let totalFooterDiscount = 0;
     let totalAfterDiscount = 0;
     let totalPricePaid = 0;
+    const creditsSummary = summarizeRegistrationCredits(filteredGroups);
     let hasUnavailableTicketTotal = false;
     let hasUnavailableDiscount = false;
     let totalStripePayments = 0;
@@ -1191,6 +1200,7 @@ export default function EventRegistrationReport() {
       totalFooterDiscount,
       totalAfterDiscount,
       totalPricePaid,
+      creditsSummary,
       hasUnavailableTicketTotal,
       hasUnavailableDiscount,
       totalStripePayments,
@@ -1859,8 +1869,9 @@ export default function EventRegistrationReport() {
               ) : (
                 <>
                   <p className="mb-3 text-xs text-muted-foreground" data-testid="text-price-paid-explanation">
-                    Price Paid is the net ticket price after discounts and credits. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
+                    Price Paid is the net ticket price after discounts and credits applied at checkout, including vouchers and training funds. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
                     {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
+                    {' '}Credits are refunds or accounting credit notes issued after booking; they do not include vouchers, training funds or account allocations used at checkout. Pending, failed and unavailable evidence is not treated as zero.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1894,6 +1905,12 @@ export default function EventRegistrationReport() {
                             </Tooltip>
                           </th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price Paid</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Credits</span></TooltipTrigger>
+                              <TooltipContent>Post-booking refunds or credit notes. Checkout vouchers, funds and account allocations are excluded.</TooltipContent>
+                            </Tooltip>
+                          </th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">PO Number</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Invoice</th>
@@ -1974,6 +1991,12 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
                                   {formatRegistrationPricePaid(attendee)}
+                                </td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-credits-${attendee.id}`}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild><span className="cursor-help">{formatRegistrationCredits(group.credits)}</span></TooltipTrigger>
+                                    <TooltipContent>{formatRegistrationCreditBreakdown(group.credits) || 'No post-booking reversals recorded.'}</TooltipContent>
+                                  </Tooltip>
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
@@ -2101,6 +2124,15 @@ export default function EventRegistrationReport() {
                             </>
                           );
 
+                          const renderGroupCreditsCell = (keyAttendeeId) => (
+                            <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount} data-testid={`text-credits-${keyAttendeeId}`}>
+                              <Tooltip>
+                                <TooltipTrigger asChild><span className="cursor-help">{formatRegistrationCredits(group.credits)}</span></TooltipTrigger>
+                                <TooltipContent>{formatRegistrationCreditBreakdown(group.credits) || 'No post-booking reversals recorded.'}</TooltipContent>
+                              </Tooltip>
+                            </td>
+                          );
+
                           if (showBookerHeader) {
                             const bookerName = `${group.booker.first_name || ''} ${group.booker.last_name || ''}`.trim();
                             const headerKey = group.groupRef || group.attendees[0].id;
@@ -2138,6 +2170,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
                                 {renderGroupFinancialCells(headerKey)}
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
+                                {renderGroupCreditsCell(headerKey)}
                                 {renderPaymentDetailCells(headerKey)}
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
@@ -2204,6 +2237,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
                                   {formatRegistrationPricePaid(attendee)}
                                 </td>
+                                {renderGroupSpannedCells ? renderGroupCreditsCell(attendee.id) : null}
                                 {renderGroupSpannedCells ? renderPaymentDetailCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
@@ -2272,6 +2306,9 @@ export default function EventRegistrationReport() {
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {formatCurrency(filteredSummary.totalPricePaid)}
+                            </td>
+                            <td className="pt-3 pr-3 text-right whitespace-nowrap" data-testid="text-total-credits">
+                              {formatRegistrationCreditSummary(filteredSummary.creditsSummary)}
                             </td>
                             <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 10 : 9}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
