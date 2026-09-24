@@ -1,9 +1,7 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
 import {
   getCampaign,
-  generateTrackingToken,
   rewriteLinksForTracking,
-  getTenantBaseUrl,
   validateCampaignSenderEmail,
 } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
@@ -11,6 +9,7 @@ import { supabase } from '../_lib/database.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
+import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 25;
@@ -35,20 +34,6 @@ function normalizeRecipients(input) {
   return { valid, invalid };
 }
 
-function checkForUnsubscribe(blocks) {
-  if (!Array.isArray(blocks)) return false;
-  for (const block of blocks) {
-    if (block.type === 'unsubscribe') return true;
-    if (block.children && checkForUnsubscribe(block.children)) return true;
-    if (block.columns) {
-      for (const col of block.columns) {
-        if (checkForUnsubscribe(col.blocks)) return true;
-      }
-    }
-  }
-  return false;
-}
-
 async function sendTestToRecipient(emailToUse, ctx) {
   const {
     campaign,
@@ -58,71 +43,15 @@ async function sendTestToRecipient(emailToUse, ctx) {
     member,
     requestHost,
     campaignSkipFooter,
-    designHasUnsubscribeBlock,
     campaignContentWidth,
     recipientIndex,
   } = ctx;
 
-  let recipientId;
-  let recipientMember = null;
-
-  const { data: memberResults, error: memberError } = await supabase
-    .from('member')
-    .select('id, first_name, last_name, email')
-    .eq('tenant_id', tenantId)
-    .eq('email', emailToUse)
-    .limit(1);
-
-  if (memberError) {
-    console.error('[Test Send] Member lookup error:', memberError);
-    return { success: false, email: emailToUse, error: 'Failed to verify recipient' };
-  }
-
-  const existingMember = memberResults && memberResults.length > 0 ? memberResults[0] : null;
-
-  if (existingMember) {
-    recipientMember = existingMember;
-
-    const { data: existingRecipients, error: recipientLookupError } = await supabase
-      .from('email_campaign_recipient')
-      .select('id')
-      .eq('campaign_id', campaignId)
-      .eq('member_id', existingMember.id)
-      .limit(1);
-
-    if (recipientLookupError) {
-      console.error('[Test Send] Recipient lookup error:', recipientLookupError);
-      return { success: false, email: emailToUse, error: 'Failed to check recipient status' };
-    }
-
-    if (existingRecipients && existingRecipients.length > 0) {
-      recipientId = existingRecipients[0].id;
-    } else {
-      const { data: newRecipient, error: insertError } = await supabase
-        .from('email_campaign_recipient')
-        .insert({
-          campaign_id: campaignId,
-          member_id: existingMember.id,
-          email: emailToUse,
-          first_name: existingMember.first_name,
-          last_name: existingMember.last_name,
-          status: 'test',
-        })
-        .select('id')
-        .single();
-
-      if (insertError) {
-        console.error('[Test Send] Failed to create recipient record:', insertError);
-        return { success: false, email: emailToUse, error: 'Failed to create test recipient record' };
-      }
-      recipientId = newRecipient.id;
-    }
-  } else {
-    recipientId = `test-${Date.now()}-${recipientIndex}`;
-  }
-
-  const firstName = recipientMember?.first_name || member?.first_name || 'Test';
-  const lastName = recipientMember?.last_name || member?.last_name || 'User';
+  // Test sends are deliberately hermetic: never create or reuse a campaign
+  // recipient row merely to mint actionable preference credentials.
+  const recipientId = `test-${Date.now()}-${recipientIndex}`;
+  const firstName = member?.first_name || 'Test';
+  const lastName = member?.last_name || 'User';
 
   let html = campaign.html_content || '';
   const subject = `[TEST] ${campaign.subject || 'No Subject'}`;
@@ -133,25 +62,6 @@ async function sendTestToRecipient(emailToUse, ctx) {
 
   html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost);
 
-  const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-  const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
-  const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-
-  const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-
-  html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
-  html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-
-  const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-  html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
-  html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-
-  if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
-    html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
-        <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
-      </p>`;
-  }
-
   const result = await sendEmail({
     to: emailToUse,
     subject,
@@ -160,6 +70,11 @@ async function sendTestToRecipient(emailToUse, ctx) {
     tenantId,
     skipFooter: campaignSkipFooter,
     contentWidth: campaignContentWidth,
+    campaignPreferences: {
+      // Keep the final footer/body shape visible without exposing a link backed
+      // by the synthetic, unpersisted test recipient id.
+      preferencesUrl: '#',
+    },
     resolveTransactionalPreferences: false,
   });
 
@@ -243,23 +158,9 @@ export default async function handler(req, res) {
     const tenantSlug = tenant?.slug || '';
     const requestHost = getHostFromRequest(req);
 
-    let campaignSkipFooter = false;
-    let designHasUnsubscribeBlock = false;
-    let campaignContentWidth = null;
-    if (campaign.design_json) {
-      campaignSkipFooter = true;
-      try {
-        const designData = typeof campaign.design_json === 'string'
-          ? JSON.parse(campaign.design_json)
-          : campaign.design_json;
-        if (designData?.globalStyles?.contentWidth) {
-          campaignContentWidth = designData.globalStyles.contentWidth;
-        }
-        if (designData?.blocks) {
-          designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
-        }
-      } catch (e) {}
-    }
+    const composition = getCampaignEmailComposition(campaign);
+    const campaignSkipFooter = composition.skipFooter;
+    const campaignContentWidth = composition.contentWidth;
 
     const ctxBase = {
       campaign,
@@ -269,7 +170,6 @@ export default async function handler(req, res) {
       member,
       requestHost,
       campaignSkipFooter,
-      designHasUnsubscribeBlock,
       campaignContentWidth,
     };
 

@@ -32,6 +32,12 @@ resolverSource = resolverSource
     export const generateMemberPreferencesToken = (tenant, member) => 'signed-' + tenant + '-' + member;
   `)));
 const resolverUrl = moduleUrl(resolverSource);
+const footerLayoutUrl = moduleUrl(
+  await readFile(new URL('./emailFooterLayout.js', import.meta.url), 'utf8'),
+);
+const campaignCompositionUrl = moduleUrl(
+  await readFile(new URL('./campaignEmailComposition.js', import.meta.url), 'utf8'),
+);
 let serviceSource = await readFile(new URL('./emailService.js', import.meta.url), 'utf8');
 serviceSource = serviceSource
   .replace("'mailgun.js'", JSON.stringify(moduleUrl(`
@@ -44,6 +50,8 @@ serviceSource = serviceSource
   .replace("'./database.js'", JSON.stringify(dbUrl))
   .replace("'./transactionalPreferences.js'", JSON.stringify(resolverUrl))
   .replace("'./transactionalInbox.js'", JSON.stringify(moduleUrl('export async function recordTransactionalInboxMessage() {}')))
+  .replace("'./emailFooterLayout.js'", JSON.stringify(footerLayoutUrl))
+  .replace("'./campaignEmailComposition.js'", JSON.stringify(campaignCompositionUrl))
   .replace('const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;', "const MAILGUN_API_KEY = 'fixture-only';");
 const serviceUrl = moduleUrl(serviceSource);
 const { sendEmail, replacePlaceholders } = await import(serviceUrl);

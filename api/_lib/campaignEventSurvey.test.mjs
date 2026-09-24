@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
+import { isStandaloneCampaignPreferencePlaceholder } from './campaignEmailComposition.js';
 
 function fixture() {
   const rows = {
@@ -129,6 +130,7 @@ test('actual per-recipient send resolves subject, body and tracked button; retri
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer,
     supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
+    isStandaloneCampaignPreferencePlaceholder,
     replacePlaceholders: text => text,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },
     console: { error: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')), log() {} },

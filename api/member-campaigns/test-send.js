@@ -1,9 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getCallerEmsAccess, requireGroupAccess, validateStoredMemberCampaign } from '../_lib/memberGroupEmsAccess.js';
 import {
-  generateTrackingToken,
   rewriteLinksForTracking,
-  getTenantBaseUrl,
   applyDynamicSlotValues,
   stripHiddenDynamicRegions,
   validateCampaignSenderEmail,
@@ -12,6 +10,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
+import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 5; // tighter cap than the tenant test-send (25)
@@ -34,20 +33,6 @@ function normalizeRecipients(input) {
     });
   });
   return { valid, invalid };
-}
-
-function checkForUnsubscribe(blocks) {
-  if (!Array.isArray(blocks)) return false;
-  for (const block of blocks) {
-    if (block.type === 'unsubscribe') return true;
-    if (block.children && checkForUnsubscribe(block.children)) return true;
-    if (block.columns) {
-      for (const col of block.columns) {
-        if (checkForUnsubscribe(col.blocks)) return true;
-      }
-    }
-  }
-  return false;
 }
 
 export default async function handler(req, res) {
@@ -115,32 +100,14 @@ export default async function handler(req, res) {
     const tenantSlug = tenant?.slug || '';
     const requestHost = getHostFromRequest(req);
 
-    let campaignSkipFooter = false;
-    let designHasUnsubscribeBlock = false;
-    let campaignContentWidth = null;
-    let campaignSlotValues = null;
-    let campaignHiddenSlots = null;
-    let campaignRichSlots = null;
-    if (campaign.design_json) {
-      campaignSkipFooter = true;
-      try {
-        const designData = typeof campaign.design_json === 'string'
-          ? JSON.parse(campaign.design_json)
-          : campaign.design_json;
-        if (designData?.globalStyles?.contentWidth) campaignContentWidth = designData.globalStyles.contentWidth;
-        if (designData?.blocks) designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
-        if (designData?.slotValues && typeof designData.slotValues === 'object') campaignSlotValues = designData.slotValues;
-        if (Array.isArray(designData?.hiddenSlots) && designData.hiddenSlots.length > 0) {
-          campaignHiddenSlots = designData.hiddenSlots.filter((t) => typeof t === 'string');
-        }
-        if (Array.isArray(designData?.richSlots) && designData.richSlots.length > 0) {
-          campaignRichSlots = designData.richSlots.filter((t) => typeof t === 'string');
-        }
-      } catch (_e) {}
-    }
+    const composition = getCampaignEmailComposition(campaign);
+    const campaignSkipFooter = composition.skipFooter;
+    const campaignContentWidth = composition.contentWidth;
+    const campaignSlotValues = composition.slotValues;
+    const campaignHiddenSlots = composition.hiddenSlots;
+    const campaignRichSlots = composition.richSlots;
 
     const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantContext.tenantId);
-    const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
     const results = [];
 
     for (let i = 0; i < valid.length; i++) {
@@ -165,20 +132,6 @@ export default async function handler(req, res) {
       html = html.replace(/\{\{email\}\}/gi, emailToUse);
       html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost);
 
-      const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
-      const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-      const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-      html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
-      html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-      const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-      html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
-      html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-      if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
-        html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
-          <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
-        </p>`;
-      }
-
       const sendResult = await sendEmail({
         to: emailToUse,
         subject,
@@ -187,6 +140,11 @@ export default async function handler(req, res) {
         tenantId: tenantContext.tenantId,
         skipFooter: campaignSkipFooter,
         contentWidth: campaignContentWidth,
+        campaignPreferences: {
+          // Member test recipients are synthetic and intentionally have no
+          // actionable preference or one-click-unsubscribe credentials.
+          preferencesUrl: '#',
+        },
         resolveTransactionalPreferences: false,
       });
 

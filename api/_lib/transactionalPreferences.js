@@ -17,9 +17,14 @@ function standaloneTextToken(source, offset, match) {
     (offset + match.length === source.length || ASCII_SPACE.test(source[offset + match.length]));
 }
 
-function renderPlainText(text, url) {
-  return text.replace(tokens(), (match, name, offset) =>
-    url && standaloneTextToken(text, offset, match) ? url : FALLBACK);
+function renderPlainText(text, url, state = null) {
+  return text.replace(tokens(), (match, name, offset) => {
+    if (url && standaloneTextToken(text, offset, match)) {
+      if (state) state.hasUsableDestination = true;
+      return url;
+    }
+    return FALLBACK;
+  });
 }
 
 function singleMailbox(to) {
@@ -31,7 +36,7 @@ function singleMailbox(to) {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null;
 }
 
-function renderHtml(html, url) {
+function renderHtml(html, url, state = null) {
   if (!hasToken(html)) return html;
   const tree = /<!doctype|<html[\s>]/i.test(html) ? parse(html) : parseFragment(html);
   function visit(node, inAnchor = false, unsafeAncestor = false) {
@@ -51,6 +56,7 @@ function renderHtml(html, url) {
         if (!unsafe && attr.name === 'href' && node.tagName === 'a' && url &&
             new RegExp(`^${TOKEN_SOURCE}$`, 'i').test(attr.value.trim())) {
           attr.value = url;
+          if (state) state.hasUsableDestination = true;
           return true;
         }
         return false;
@@ -78,9 +84,13 @@ function renderHtml(html, url) {
           const escapedText = escapeHtml(child.value);
           const markup = escapedText.replace(tokens(), (match, name, offset) => {
             if (!url || !standaloneTextToken(escapedText, offset, match)) return FALLBACK;
-            if (name.toLowerCase().endsWith('_url')) return safeUrlText ? escapeHtml(url) : FALLBACK;
+            if (name.toLowerCase().endsWith('_url')) {
+              if (safeUrlText && state) state.hasUsableDestination = true;
+              return safeUrlText ? escapeHtml(url) : FALLBACK;
+            }
             const label = name.toLowerCase().startsWith('unsubscribe') ? 'Unsubscribe' : 'Manage communication preferences';
             if (inAnchor || node.tagName === 'a') return label;
+            if (state) state.hasUsableDestination = true;
             return `<a href="${escapeHtml(url)}" style="color: #666;">${label}</a>`;
           });
           children.push(...parseFragment(markup).childNodes);
@@ -97,6 +107,26 @@ function renderHtml(html, url) {
   visit(tree);
   // Also remove tokens in comments and unusual raw-text HTML contexts.
   return serialize(tree).replace(tokens(), FALLBACK);
+}
+
+// Shared final-envelope renderer for callers that already own a trusted,
+// recipient-specific preference URL (campaigns use their tracking identity;
+// transactional sends derive one above). The metadata records only destinations
+// emitted in parser-approved contexts, never mere token presence.
+export function resolveTrustedPreferenceHtml(html, url) {
+  const state = { hasUsableDestination: false };
+  return {
+    value: renderHtml(html, url, state),
+    hasUsableDestination: state.hasUsableDestination,
+  };
+}
+
+export function resolveTrustedPreferenceText(text, url) {
+  const state = { hasUsableDestination: false };
+  return {
+    value: renderPlainText(text, url, state),
+    hasUsableDestination: state.hasUsableDestination,
+  };
 }
 
 /**

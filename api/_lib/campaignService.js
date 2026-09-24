@@ -9,6 +9,10 @@ import { resolveCampaignEventSurvey, replaceEventSurvey } from './campaignEventS
 import { resolveEventEmailContext } from './eventEmailContext.js';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 import {
+  getCampaignEmailComposition,
+  isStandaloneCampaignPreferencePlaceholder,
+} from './campaignEmailComposition.js';
+import {
   filterExplicitCategorySubscribers,
   isActiveCommunicationMember,
   mergeExternalCategorySubscribers,
@@ -997,6 +1001,14 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
     /<a\s+([^>]*href=["'])([^"']+)(["'][^>]*)>/gi,
     (match, prefix, url, suffix) => {
       if (url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:')) {
+        return match;
+      }
+
+      // Campaign preference aliases are intentionally resolved only after the
+      // final tenant footer has been composed. A placeholder that is the whole
+      // href must therefore remain reserved here rather than being encoded
+      // inside a click-tracking redirect as a literal {{...}} destination.
+      if (isStandaloneCampaignPreferencePlaceholder(url)) {
         return match;
       }
 
@@ -3129,54 +3141,6 @@ export function applyDynamicSlotValues(html, slotValues, options = {}) {
   return out;
 }
 
-function parseCampaignDesign(campaign) {
-  let skipFooter = false;
-  let hasUnsubscribeBlock = false;
-  let contentWidth = null;
-  let slotValues = null;
-  let hiddenSlots = null;
-  let richSlots = null;
-  if (campaign.design_json) {
-    try {
-      const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
-      if (designData?.globalStyles?.contentWidth) {
-        contentWidth = designData.globalStyles.contentWidth;
-      }
-      if (designData?.slotValues && typeof designData.slotValues === 'object') {
-        slotValues = designData.slotValues;
-      }
-      if (Array.isArray(designData?.hiddenSlots) && designData.hiddenSlots.length > 0) {
-        hiddenSlots = designData.hiddenSlots.filter((t) => typeof t === 'string');
-      }
-      if (Array.isArray(designData?.richSlots) && designData.richSlots.length > 0) {
-        richSlots = designData.richSlots.filter((t) => typeof t === 'string');
-      }
-      const checkForUnsubscribe = (blocks) => {
-        if (!Array.isArray(blocks)) return false;
-        for (const block of blocks) {
-          if (block.type === 'unsubscribe') return true;
-          if (block.children && checkForUnsubscribe(block.children)) return true;
-          if (block.columns) {
-            for (const col of block.columns) {
-              if (checkForUnsubscribe(col.blocks)) return true;
-            }
-          }
-        }
-        return false;
-      };
-      if (designData?.blocks) {
-        hasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
-      }
-    } catch (e) {}
-    // Skip the tenant footer only when the design already contains its own
-    // unsubscribe/footer block — not just because design_json is present.
-    // This ensures Visual Builder campaigns (including member-group campaigns,
-    // which are required to use the builder) receive the tenant footer.
-    skipFooter = hasUnsubscribeBlock;
-  }
-  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues, hiddenSlots, richSlots };
-}
-
 const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT_QR_BLOCK:END\s*-->/gi;
 
 // Matches a single DYN_BLOCK region for a specific token, including the markers.
@@ -3495,26 +3459,13 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       }
     }
 
-    // Build the campaign-specific tracking token + preference/unsubscribe
-    // links FIRST and substitute them BEFORE the generic placeholder helper
-    // runs. The generic helper would otherwise resolve
-    // {{communication_preferences_*}} via the per-member preference URL
-    // (which lacks campaign tracking), losing the per-send tracking token.
+    // Build recipient-specific campaign preference destinations here, but
+    // reserve their aliases until sendEmail has composed any runtime footer.
+    // replacePlaceholders also deliberately preserves these reserved aliases.
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
     const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
     const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
     const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
-    const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-
-    const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-
-    html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
-    html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-
-    const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-    html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
-    html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-
     // Resolve [[member.*]] / [[organization.*]] tokens for this recipient.
     // {{set_password_url}} is intentionally not minted in bulk campaigns
     // (see docs/email-placeholder-audit.md caveats).
@@ -3571,12 +3522,6 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
 
     html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
 
-    if (!hasUnsubscribePlaceholder && !designInfo.hasUnsubscribeBlock) {
-      html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
-            <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
-          </p>`;
-    }
-
     const result = await sendEmail({
       to: recipient.email,
       subject: subject,
@@ -3587,6 +3532,9 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       contentWidth: designInfo.contentWidth,
       enableTracking: true,
       unsubscribeUrl: oneClickUnsubscribeUrl,
+      campaignPreferences: {
+        preferencesUrl,
+      },
       resolveTransactionalPreferences: false,
       testMode: !!campaign.is_test_mode
     });
@@ -3858,7 +3806,7 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
     };
   }
 
-  const designInfo = parseCampaignDesign(campaign);
+  const designInfo = getCampaignEmailComposition(campaign);
   let sentCount = 0;
   let failedCount = 0;
 

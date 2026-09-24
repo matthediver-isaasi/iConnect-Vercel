@@ -1,9 +1,18 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
-import { isPreferencePlaceholder, resolveTransactionalPreferenceTokens } from './transactionalPreferences.js';
+import {
+  isPreferencePlaceholder,
+  resolveTransactionalPreferenceTokens,
+  resolveTrustedPreferenceHtml,
+  resolveTrustedPreferenceText,
+} from './transactionalPreferences.js';
 import { recordTransactionalInboxMessage } from './transactionalInbox.js';
 import { wrapEmailFooter } from './emailFooterLayout.js';
+import {
+  campaignPreferenceFallback,
+  resolveCampaignPreferenceTokens,
+} from './campaignEmailComposition.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -264,7 +273,7 @@ export function mailgunSuccessMetadata(
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
@@ -330,6 +339,49 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
         const wrappedFooter = wrapEmailFooter(constrainedFooter, contentWidth);
         finalHtml = finalHtml + wrappedFooter;
         console.log(`[Email Service] Email footer appended for tenant: ${tenantId || 'global'}`);
+      }
+    }
+
+    // Campaign preference aliases are recipient-specific. Resolve them only
+    // after the complete message (including a runtime tenant footer) exists so
+    // aliases in either embedded or appended footers receive the same campaign
+    // token as the body. Transactional preference resolution remains a
+    // separate, unchanged path below.
+    if (campaignPreferences?.preferencesUrl) {
+      const htmlResolution = resolveCampaignPreferenceTokens(
+        finalHtml,
+        campaignPreferences.preferencesUrl,
+        { renderer: resolveTrustedPreferenceHtml },
+      );
+      finalHtml = htmlResolution.value;
+
+      // Branding markers and design metadata only decide whether another
+      // tenant footer should be composed. They do not prove that this final
+      // MIME alternative contains a parser-approved preference destination.
+      if (!htmlResolution.hasUsableDestination) {
+        finalHtml += campaignPreferenceFallback(campaignPreferences.preferencesUrl);
+      }
+
+      if (typeof text === 'string') {
+        const textResolution = resolveCampaignPreferenceTokens(
+          text,
+          campaignPreferences.preferencesUrl,
+          { renderer: resolveTrustedPreferenceText },
+        );
+        text = textResolution.value;
+        if (!textResolution.hasUsableDestination) {
+          text += `\n\nManage email preferences: ${campaignPreferences.preferencesUrl}`;
+        }
+      } else {
+        // Preserve the destination of parser-approved generated anchors when
+        // deriving the plain-text MIME alternative.
+        const escapedUrl = campaignPreferences.preferencesUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = finalHtml
+          .replace(
+            new RegExp(`<a\\b[^>]*href=["'](${escapedUrl})["'][^>]*>([\\s\\S]*?)<\\/a>`, 'gi'),
+            (_match, href, label) => `${label} (${href})`,
+          )
+          .replace(/<[^>]*>/g, ' ');
       }
     }
 
