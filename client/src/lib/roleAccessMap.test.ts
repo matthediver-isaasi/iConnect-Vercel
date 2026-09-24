@@ -50,6 +50,8 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_PhotoGalleries: "content.gallery",
   page_GalleryDirectory: "content.gallery.directory",
   page_EventCheckIn: "events.event-checkin",
+  page_OrganisationEngagementReport: "reports.org-engagement",
+  page_admin_OrganisationEngagementReport: "reports.org-engagement",
   page_user_CPDCertificateTemplates: "cpd.certificate-templates",
   page_admin_CPDCertificateTemplates: "cpd.certificate-templates",
   // element_* family
@@ -211,6 +213,42 @@ test("individual membership payment report is a dedicated Commerce capability", 
   );
   assert.equal(
     isResourceExcluded(["commerce"], "commerce.membership-payment-report"),
+    true,
+  );
+});
+
+test("organisation engagement report is a dedicated Reports capability", () => {
+  const reports = ROLE_ACCESS_MAP.find((module) => module.id === "reports");
+  assert.deepEqual(reports, {
+    id: "reports",
+    label: "Reports",
+    icon: "BarChart3",
+    pages: [
+      {
+        id: "reports.org-engagement",
+        label: "Organisation Engagement Report",
+      },
+    ],
+  });
+  assert.equal(
+    migrateLegacyFeatureId("page_OrganisationEngagementReport"),
+    "reports.org-engagement",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_OrganisationEngagementReport"),
+    "reports.org-engagement",
+  );
+  assert.equal(isResourceExcluded(["reports"], "reports.org-engagement"), true);
+  assert.equal(
+    isResourceExcluded(["reports.org-engagement"], "reports.org-engagement"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["page_OrganisationEngagementReport"], "reports.org-engagement"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["reports.org-engagement"], "page_admin_OrganisationEngagementReport"),
     true,
   );
 });

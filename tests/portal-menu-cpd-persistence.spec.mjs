@@ -195,3 +195,29 @@ test("selecting My CPD Points defaults its role and persists its lowercase route
   await expect(page.getByTestId("button-role-access-select")).toContainText("cpd.member_cpd");
   await page.screenshot({ path: CAPTURE_PATH, fullPage: true });
 });
+
+test("selecting Organisation Engagement Report replaces a stale permission and saves the canonical grant", async ({ page }) => {
+  await mount(page);
+
+  await page.getByRole("button", { name: "Edit Professional development" }).click();
+  await expect(page.getByTestId("button-role-access-select"))
+    .toContainText("events.existing-permission");
+
+  await page.getByTestId("button-portal-page-select").click();
+  await page.getByRole("option", { name: /Organisation Engagement Report/ }).click();
+
+  await expect(page.getByTestId("button-portal-page-select"))
+    .toContainText("Organisation Engagement Report");
+  await expect(page.getByTestId("button-role-access-select"))
+    .toContainText("reports.org-engagement");
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+
+  await expect.poll(() => page.evaluate(() => window.__portalMenuHarness.writes)).toEqual([{
+    kind: "update",
+    id: "existing-menu-item",
+    data: expect.objectContaining({
+      url: "OrganisationEngagementReport",
+      feature_id: "reports.org-engagement",
+    }),
+  }]);
+});

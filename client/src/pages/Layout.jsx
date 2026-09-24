@@ -461,7 +461,7 @@ const adminNavigationItems = [
     title: "Engagement Report",
     url: createPageUrl("OrganisationEngagementReport"),
     icon: Activity,
-    featureId: "page_OrganisationEngagementReport"
+    featureId: "reports.org-engagement"
   },
   {
     title: "Membership Tiers",
@@ -1546,7 +1546,7 @@ useEffect(() => {
   // without a login redirect, while authenticated members retain portal chrome.
   const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "DirectDebitReturn", "MonthlyCardReturn", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = [];
@@ -1677,7 +1677,7 @@ useEffect(() => {
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
     'EventBudgetReport': 'page_admin_EventBudgetReport',
     'SurveyReports': 'page_admin_SurveyReports',
-    'OrganisationEngagementReport': 'page_admin_OrganisationEngagementReport',
+    'OrganisationEngagementReport': 'reports.org-engagement',
     'AIReports': 'page_admin_AIReports',
     'AccessibilityAudits': 'page_admin_AccessibilityAudits',
     'CanvasLinksManager': 'page_admin_CanvasLinksManager',
@@ -2308,6 +2308,12 @@ useEffect(() => {
       const normalizedUrl = String(item.url || '').replace(/^\/+|\/+$/g, '').toLowerCase();
       if (item.link_type !== 'external' && normalizedUrl === 'cpdpoints') {
         return 'cpd.member_cpd';
+      }
+      // This report contains tenant-wide member activity. Its destination
+      // permission is mandatory even when a customised menu record carries a
+      // stale or unrelated feature_id.
+      if (item.link_type !== 'external' && normalizedUrl === 'organisationengagementreport') {
+        return 'reports.org-engagement';
       }
       // If feature_id is already set, use it
       if (item.feature_id) {

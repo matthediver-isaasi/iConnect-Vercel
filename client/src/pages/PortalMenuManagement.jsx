@@ -64,6 +64,7 @@ const availableIcons = {
 // Pages whose Role Access ID should default to a specific RBAC key when selected.
 const PAGE_DEFAULT_FEATURES = {
   EventBudgetReport: "events.event-budget-report",
+  OrganisationEngagementReport: "reports.org-engagement",
   OrganisationGroups: "crm.organisation-groups",
   CPDCertificateTemplates: "cpd.certificate-templates",
   CpdPoints: "cpd.member_cpd",
@@ -169,6 +170,7 @@ const builtInPages = [
   { value: "NewsView", label: "News View" },
   { value: "OrganisationDirectory", label: "Organisation Directory" },
   { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
+  { value: "OrganisationEngagementReport", label: "Organisation Engagement Report" },
   { value: "OrganisationGroups", label: "Organisation Groups" },
   { value: "OrganisationPreferences", label: "Organisation Field Permissions" },
   { value: "MemberPreferences", label: "Member Field Permissions" },
@@ -791,7 +793,12 @@ export default function PortalMenuManagementPage() {
                           next.feature_id = selectedDestination.featureId;
                         }
                         // Pre-associate the matching RBAC permission when the page has one.
-                        else if ((value === "CpdPoints" || !editingItem.feature_id) && PAGE_DEFAULT_FEATURES[value]) {
+                        else if (
+                          (value === "CpdPoints"
+                            || value === "OrganisationEngagementReport"
+                            || !editingItem.feature_id)
+                          && PAGE_DEFAULT_FEATURES[value]
+                        ) {
                           next.feature_id = PAGE_DEFAULT_FEATURES[value];
                         }
                         setEditingItem(next);

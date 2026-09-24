@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import {
   startOfWeek, endOfWeek, subWeeks,
   startOfDay, endOfDay,
@@ -7,19 +8,67 @@ import {
   subDays,
 } from 'date-fns';
 
-export default async function handler(req, res) {
+export const ENGAGEMENT_REPORT_FEATURE = 'reports.org-engagement';
+
+export async function authorizeEngagementReport(context, db = supabase) {
+  if (context?.tenantMismatch) {
+    return { allowed: false, status: 409, error: 'Tenant context mismatch' };
+  }
+  if (!context?.isAuthenticated || !context.tenantId) {
+    return { allowed: false, status: 401, error: 'Authentication required' };
+  }
+
+  // Tenant dashboard users are the established explicit admin bypass. Portal
+  // members are authorized independently by the report-specific capability.
+  if (context.tenantUserId) return { allowed: true };
+  if (!context.roleId || !db) {
+    return { allowed: false, status: 403, error: 'Engagement Report permission required' };
+  }
+
+  try {
+    const { data: role, error } = await db
+      .from('role')
+      .select('excluded_features')
+      .eq('tenant_id', context.tenantId)
+      .eq('id', context.roleId)
+      .maybeSingle();
+    if (error || !role) {
+      return { allowed: false, status: 403, error: 'Engagement Report permission required' };
+    }
+
+    const exclusions = [
+      ...(Array.isArray(role.excluded_features) ? role.excluded_features : []),
+      ...(Array.isArray(context.memberExcludedFeatures) ? context.memberExcludedFeatures : []),
+    ];
+    const canViewReport = !isResourceExcluded(exclusions, ENGAGEMENT_REPORT_FEATURE);
+    if (!canViewReport) {
+      return { allowed: false, status: 403, error: 'Engagement Report permission required' };
+    }
+    return { allowed: true };
+  } catch (error) {
+    console.error('[Engagement Report] Failed to verify access:', error);
+    return { allowed: false, status: 403, error: 'Engagement Report permission required' };
+  }
+}
+
+export function createEngagementReportHandler(deps = {}) {
+  const db = deps.db === undefined ? supabase : deps.db;
+  const getContext = deps.getTenantContext || getTenantContext;
+
+  return async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(500).json({ error: 'Database not configured' });
   }
 
   try {
-    const tenantContext = await getTenantContext(req);
-    if (!tenantContext?.tenantId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const tenantContext = await getContext(req);
+    const access = await authorizeEngagementReport(tenantContext, db);
+    if (!access.allowed) {
+      return res.status(access.status).json({ error: access.error });
     }
 
     const { tenantId } = tenantContext;
@@ -68,7 +117,7 @@ export default async function handler(req, res) {
     const memberBatchSize = 1000;
     let memberFrom = 0;
     while (true) {
-      const { data: memberBatch, error: membersError } = await supabase
+      const { data: memberBatch, error: membersError } = await db
         .from('member')
         .select('id, first_name, last_name, email, organization_id, last_activity, login_enabled, profile_photo_url')
         .eq('tenant_id', tenantId)
@@ -95,9 +144,10 @@ export default async function handler(req, res) {
       const batchSize = 100;
       for (let i = 0; i < orgIds.length; i += batchSize) {
         const batch = orgIds.slice(i, i + batchSize);
-        const { data: orgs, error: orgsError } = await supabase
+        const { data: orgs, error: orgsError } = await db
           .from('organization')
           .select('id, name')
+          .eq('tenant_id', tenantId)
           .in('id', batch);
 
         if (!orgsError && orgs) {
@@ -228,4 +278,7 @@ export default async function handler(req, res) {
     console.error('[Engagement Report] Error:', error);
     return res.status(500).json({ error: 'Failed to fetch engagement report' });
   }
+  };
 }
+
+export default createEngagementReportHandler();

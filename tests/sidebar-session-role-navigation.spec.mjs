@@ -29,7 +29,11 @@ function member(id = "member-sidebar-a", roleId = "role-sidebar-a") {
 
 const MEMBER_A = member();
 const MEMBER_B = member("member-sidebar-b", "role-sidebar-b");
-const EXCLUDED = ["fixture.user.hidden", "fixture.admin.hidden"];
+const EXCLUDED = [
+  "fixture.user.hidden",
+  "fixture.admin.hidden",
+  "reports.org-engagement",
+];
 
 function roleFor(currentMember, excludedFeatures = EXCLUDED) {
   return {
@@ -153,6 +157,18 @@ const PORTAL_MENU = [
     display_order: 2,
     is_active: true,
   },
+  {
+    id: "menu-admin-engagement",
+    title: "Organisation engagement fixture",
+    url: "OrganisationEngagementReport",
+    // The destination itself must enforce the canonical report grant rather
+    // than trusting this customised menu permission.
+    feature_id: "fixture.admin.ready",
+    section: "admin",
+    icon: "Activity",
+    display_order: 3,
+    is_active: true,
+  },
 ];
 
 async function installFixture(page, {
@@ -251,6 +267,17 @@ async function installFixture(page, {
       return json(route, [roleFor(MEMBER_A), roleFor(MEMBER_B)]);
     }
     if (url.pathname === "/api/entities/PortalMenu") return json(route, PORTAL_MENU);
+    if (url.pathname === "/api/reports/engagement-report") {
+      return json(route, {
+        organizations: [],
+        summary: {},
+        period: {
+          start: url.searchParams.get("startDate"),
+          end: url.searchParams.get("endDate"),
+          label: "Fixture period",
+        },
+      });
+    }
     if (url.pathname === "/api/entities/Member") {
       return json(route, state.memberLookup ? [MEMBER_A, MEMBER_B] : []);
     }
@@ -314,12 +341,17 @@ const permittedUser = (page) => page.getByRole("link", { name: "Permitted worksp
 const permittedAdmin = (page) => page.getByRole("link", { name: "Permitted administration", exact: true });
 const hiddenUser = (page) => page.getByText("Hidden user reports", { exact: true });
 const hiddenAdmin = (page) => page.getByText("Hidden role controls", { exact: true });
+const engagementReport = (page) => page.getByRole("link", {
+  name: "Organisation engagement fixture",
+  exact: true,
+});
 
 async function expectNoPrivilegedNavigation(page) {
   await expect(permittedUser(page)).toHaveCount(0);
   await expect(permittedAdmin(page)).toHaveCount(0);
   await expect(hiddenUser(page)).toHaveCount(0);
   await expect(hiddenAdmin(page)).toHaveCount(0);
+  await expect(engagementReport(page)).toHaveCount(0);
 }
 
 async function expectReadyNavigation(page) {
@@ -352,6 +384,27 @@ test("trusted ready session snapshot renders permitted desktop and mobile naviga
   await expect(mobileSheet.getByText("Hidden user reports", { exact: true })).toHaveCount(0);
   await expect(mobileSheet.getByText("Hidden role controls", { exact: true })).toHaveCount(0);
   expect(state.roleReads).toBe(0);
+  expectReadOnlyClean(state);
+});
+
+test("a permitted non-admin can navigate through a customised report menu permission", async ({ page }) => {
+  const state = await installFixture(page, {
+    authBody: sessionBody("ready", MEMBER_A, [
+      "admin.role-management",
+      "fixture.user.hidden",
+      "fixture.admin.hidden",
+    ]),
+  });
+  await page.goto("/sidebar-session-role");
+
+  await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+  await expect(engagementReport(page)).toBeVisible();
+  await engagementReport(page).click();
+  await expect(page.getByTestId("text-page-title"))
+    .toHaveText("Organisation Engagement Report");
+  await expect.poll(() => state.requests.some(
+    entry => entry.startsWith("GET /api/reports/engagement-report?"),
+  )).toBe(true);
   expectReadOnlyClean(state);
 });
 

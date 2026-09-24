@@ -23,6 +23,7 @@ export const MODULE_IDS = [
   "projects",
   "crm",
   "sales",
+  "reports",
   "system"
 ];
 
@@ -167,6 +168,7 @@ export const PAGE_IDS = [
   "sales.tasks",
   "sales.reports",
   "sales.settings",
+  "reports.org-engagement",
   "system.admin-setup",
   "system.role-access-config",
   "system.portal-navigation",
@@ -563,6 +565,7 @@ export const RESOURCE_TO_MODULE = {
   "sales.reports.view": "sales",
   "sales.settings": "sales",
   "sales.settings.manage": "sales",
+  "reports.org-engagement": "reports",
   "system.admin-setup": "system",
   "system.role-access-config": "system",
   "system.portal-navigation": "system",
@@ -664,6 +667,8 @@ export const LEGACY_TO_NEW_MAPPING = {
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_EventBudgetReport": "events.event-budget-report",
   "page_admin_EventBudgetReport": "events.event-budget-report",
+  "page_OrganisationEngagementReport": "reports.org-engagement",
+  "page_admin_OrganisationEngagementReport": "reports.org-engagement",
   "page_CpdPoints": "cpd.member_cpd",
   "page_user_CpdPoints": "cpd.member_cpd",
   "page_admin_CpdPoints": "cpd.member_cpd",

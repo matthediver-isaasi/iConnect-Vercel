@@ -915,6 +915,17 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "reports",
+    label: "Reports",
+    icon: "BarChart3",
+    pages: [
+      {
+        id: "reports.org-engagement",
+        label: "Organisation Engagement Report"
+      }
+    ]
+  },
+  {
     id: "system",
     label: "System Settings",
     icon: "Settings",
@@ -1210,6 +1221,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_EventBudgetReport": "events.event-budget-report",
   "page_admin_EventBudgetReport": "events.event-budget-report",
+  "page_OrganisationEngagementReport": "reports.org-engagement",
+  "page_admin_OrganisationEngagementReport": "reports.org-engagement",
   "page_CpdPoints": "cpd.member_cpd",
   "page_user_CpdPoints": "cpd.member_cpd",
   "page_admin_CpdPoints": "cpd.member_cpd",

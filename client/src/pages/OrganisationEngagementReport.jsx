@@ -23,6 +23,8 @@ import {
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const FEATURE_ID = "reports.org-engagement";
+
 const PRESET_OPTIONS = [
   { value: 'week', label: 'This week' },
   { value: 'month', label: 'This month' },
@@ -83,8 +85,11 @@ function shiftRange(preset, currentStart, direction) {
 }
 
 export default function OrganisationEngagementReport() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
-  const [accessChecked, setAccessChecked] = useState(false);
+  const {
+    isFeatureExcluded,
+    isAccessReady,
+    sessionValidated,
+  } = useMemberAccess();
   const [preset, setPreset] = useState('week');
   const initialWeek = getCurrentRangeForPreset('week');
   const [rangeStart, setRangeStart] = useState(initialWeek.start);
@@ -94,15 +99,15 @@ export default function OrganisationEngagementReport() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedOrg, setExpandedOrg] = useState(null);
 
+  const hasReportAccess = isAccessReady
+    && sessionValidated
+    && !isFeatureExcluded(FEATURE_ID);
+
   useEffect(() => {
-    if (isAccessReady) {
-      if (isFeatureExcluded('page_OrganisationEngagementReport')) {
-        window.location.href = createPageUrl('Events');
-      } else {
-        setAccessChecked(true);
-      }
+    if (isAccessReady && !hasReportAccess) {
+      window.location.href = createPageUrl('Events');
     }
-  }, [isFeatureExcluded, isAccessReady]);
+  }, [hasReportAccess, isAccessReady]);
 
   const supportsArrows = preset === 'week' || preset === 'month' || preset === 'quarter';
 
@@ -128,7 +133,7 @@ export default function OrganisationEngagementReport() {
       }
       return response.json();
     },
-    enabled: queryEnabled && accessChecked,
+    enabled: queryEnabled && hasReportAccess,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -233,7 +238,7 @@ export default function OrganisationEngagementReport() {
     setExpandedOrg(expandedOrg === orgId ? null : orgId);
   };
 
-  if (!accessChecked) {
+  if (!hasReportAccess) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="loading-access">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />

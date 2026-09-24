@@ -103,7 +103,11 @@ test('handler keeps live config separate while the recorded legacy price wins an
           return { data: { membership_paused: false }, error: null };
         }
         if (table === 'member_membership_history') return { data: [row], error: null };
-        if (['bnms_dd_alpha_membership_recognition', 'bnms_membership_recognition_beta_pilot', 'bnms_dd_manual_membership_recognition'].includes(table)) return { data: [], error: null };
+        if ([
+          'bnms_dd_alpha_membership_recognition',
+          'bnms_membership_recognition_beta_pilot',
+          'bnms_dd_manual_membership_recognition',
+        ].includes(table)) return { data: [], error: null };
         throw new Error(`Unexpected table ${table}`);
       };
       const chain = {
