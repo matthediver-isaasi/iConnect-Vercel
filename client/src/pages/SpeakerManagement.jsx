@@ -553,14 +553,14 @@ export default function SpeakerManagementPage() {
 
         {/* Editor Dialog */}
         <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="flex w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] flex-col overflow-hidden">
+            <DialogHeader className="shrink-0 pr-6">
               <DialogTitle>
                 {editingSpeaker ? `Edit ${moduleNameSingular}` : `Add ${moduleNameSingular}`}
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4">
+            <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto overscroll-contain px-1 -mx-1" data-testid="speaker-editor-fields">
               <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <Label>Linked Member (optional)</Label>
                 <MemberCombobox
@@ -589,7 +589,7 @@ export default function SpeakerManagementPage() {
               {/* Profile Photo */}
               <div className="space-y-2">
                 <Label>Profile Photo</Label>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
                   {formData.profile_photo_url ? (
                     <div className="relative">
                       <img
@@ -723,7 +723,7 @@ export default function SpeakerManagementPage() {
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="shrink-0 gap-2 sm:gap-0">
               <Button
                 variant="outline"
                 onClick={handleCloseEditor}
