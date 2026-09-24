@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applicantConfigurationDigest, hashApplicantToken, verifyApplicantContinuation,
-  loadSubmissionApplicantContinuation, bindApplicantContinuation,
+  loadSubmissionApplicantContinuation, bindApplicantContinuation, bindApplicantDraft,
   loadApplicantMemberScope, canIssueApplicantContinuation,
 } from './formApplicantContinuation.js';
 
@@ -12,14 +12,18 @@ const token = 'a'.repeat(43);
 const grant = { id: 'grant', tenant_id: 'tenant', form_id: 'form',
   organization_id: 'org', expires_at: '2099-01-01',
   configuration_digest: applicantConfigurationDigest(form) };
-function dbFor(row) {
+function dbFor(row, { organization = { id: 'org' } } = {}) {
   const filters = [];
-  const query = {
-    select() { return this; },
-    eq(key, value) { filters.push([key, value]); return this; },
-    async maybeSingle() { return { data: row, error: null }; },
-  };
-  return { from: () => query, filters };
+  return { from(table) {
+    const query = {
+      select() { return this; },
+      eq(key, value) { filters.push([key, value]); return this; },
+      async maybeSingle() {
+        return { data: table === 'organization' ? organization : row, error: null };
+      },
+    };
+    return query;
+  }, filters };
 }
 test('digest is key-order invariant but changes with processing configuration', () => {
   assert.equal(applicantConfigurationDigest(form), applicantConfigurationDigest({
@@ -33,7 +37,7 @@ test('valid bearer is looked up only by hash and tenant/form', async () => {
   const db = dbFor(grant);
   assert.equal((await verifyApplicantContinuation({ db, form, token })).organization_id, 'org');
   assert.deepEqual(db.filters, [['tenant_id', 'tenant'], ['form_id', 'form'],
-    ['token_hash', hashApplicantToken(token)]]);
+    ['token_hash', hashApplicantToken(token)], ['tenant_id', 'tenant'], ['id', 'org']]);
 });
 test('bare IDs and expired/revoked/cross-tenant/config-changed grants fail closed', async () => {
   for (const supplied of ['org', '', null]) {
@@ -99,6 +103,29 @@ test('member scope is intersection of immutable issuance snapshot and current or
 });
 test('atomic bind rejection cannot grant replay on another submission', async () => {
   await assert.rejects(bindApplicantContinuation({
-    db: { rpc: async () => ({ data: false }) }, form, grant, submissionId: 'other',
+    db: { ...dbFor(grant), rpc: async () => ({ data: false }) }, form, grant, submissionId: 'other',
+  }));
+});
+test('detached organization invalidates bearer, draft bind, submission bind, and bound processing', async () => {
+  const detached = dbFor(grant, { organization: null });
+  await assert.rejects(
+    verifyApplicantContinuation({ db: detached, form, token }),
+    error => error.code === 'APPLICANT_CONTINUATION_REQUIRED',
+  );
+
+  let rpcCalled = false;
+  const bindDb = {
+    ...dbFor(grant, { organization: null }),
+    async rpc() { rpcCalled = true; return { data: true, error: null }; },
+  };
+  await assert.rejects(bindApplicantDraft({ db: bindDb, grant, resumeToken: 'resume' }));
+  await assert.rejects(bindApplicantContinuation({
+    db: bindDb, form, grant, submissionId: 'submission',
+  }));
+  assert.equal(rpcCalled, false);
+
+  const boundGrant = { ...grant, submission_id: 'submission', bound_at: '2026-01-01' };
+  await assert.rejects(loadSubmissionApplicantContinuation({
+    db: dbFor(boundGrant, { organization: null }), form, submissionId: 'submission',
   }));
 });

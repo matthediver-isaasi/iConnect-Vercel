@@ -21,3 +21,13 @@ organisation membership, never inferred from a newly submitted email. Previously
 sent unauthenticated links need a replacement secure link or verified ownership;
 they cannot be silently upgraded. Invitation admission expiry is distinct from
 finalizing an already authorized immutable submission.
+
+Deleting a capability's organisation must retain revoked, detached history.
+
+**Why:** Removing consumed grants loses the evidence needed to reject delayed
+processing. Draft associations must not silently become ordinary unbound drafts.
+
+**How to apply:** Preserve consumed-submission and draft associations, reject
+detached authority on already-bound processing, and enforce binding predicates
+in the database too. Never retry live organisation deletion as verification:
+the existing multi-step cleanup can have partial effects.

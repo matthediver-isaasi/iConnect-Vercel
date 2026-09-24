@@ -680,6 +680,15 @@ export default async function handler(req, res, dependencies = {}) {
     }
   }
 
+  // Organization deletion is a tenant-wide destructive operation. Owning or
+  // belonging to an organization is not sufficient authority to cascade its
+  // members, sessions, submissions, and financial references.
+  if (entityNorm === 'organization' && req.method === 'DELETE') {
+    if (!(await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx))) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
   // A platform/admin tenant deletion must not cascade around the form guard.
   if (entityNorm === 'tenant' && req.method === 'DELETE'
     && String(id).toLowerCase() === PROTECTED_DEPARTMENT_TENANT_ID) {

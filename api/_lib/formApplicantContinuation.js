@@ -94,13 +94,24 @@ export async function loadApplicantMemberScope({ db, form, grant }) {
 function validateGrant(grant, form, { allowBoundProcessing = false } = {}) {
   const bound = allowBoundProcessing && grant?.submission_id
     && Number.isFinite(Date.parse(grant.bound_at));
-  if (!grant || grant.revoked_at || (!bound && Date.parse(grant.expires_at) <= Date.now())
+  if (!grant || !grant.organization_id || grant.revoked_at || (!bound && Date.parse(grant.expires_at) <= Date.now())
     || !Number.isFinite(Date.parse(grant.expires_at))
     || grant.tenant_id !== form.tenant_id || grant.form_id !== form.id
     || grant.configuration_digest !== applicantConfigurationDigest(form)) {
     throw new FormApplicantContinuationError();
   }
   return grant;
+}
+async function requireAttachedGrantOrganization(db, grant) {
+  if (!grant?.organization_id || grant.revoked_at) throw new FormApplicantContinuationError();
+  const { data, error } = await db.from('organization').select('id')
+    .eq('tenant_id', grant.tenant_id).eq('id', grant.organization_id).maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new FormApplicantContinuationError(
+      'The organization for this applicant link is no longer available.',
+    );
+  }
 }
 // Server-only API: callers must establish administrator/workflow authority.
 export async function issueApplicantContinuation({ db, form, organizationId, issuedBy = null }) {
@@ -148,9 +159,12 @@ export async function verifyApplicantContinuation({ db, form, token, resumeToken
   const { data, error } = await query.maybeSingle();
   if (continuationStorageMissing(error)) throw new FormApplicantContinuationError('Applicant continuation access is not available until its database migration is installed.');
   if (error) throw error;
-  return validateGrant(data, form);
+  const grant = validateGrant(data, form);
+  await requireAttachedGrantOrganization(db, grant);
+  return grant;
 }
 export async function bindApplicantDraft({ db, grant, resumeToken }) {
+  await requireAttachedGrantOrganization(db, grant);
   const { data, error } = await db.rpc('bind_form_applicant_draft', {
     p_grant_id: grant.id, p_tenant_id: grant.tenant_id,
     p_token_hash: hashApplicantToken(resumeToken),
@@ -160,6 +174,7 @@ export async function bindApplicantDraft({ db, grant, resumeToken }) {
 }
 export async function bindApplicantContinuation({ db, form, grant, submissionId }) {
   validateGrant(grant, form);
+  await requireAttachedGrantOrganization(db, grant);
   const { data, error } = await db.rpc('bind_form_applicant_continuation', {
     p_grant_id: grant.id, p_tenant_id: form.tenant_id, p_form_id: form.id,
     p_submission_id: submissionId, p_digest: applicantConfigurationDigest(form),
@@ -179,5 +194,7 @@ export async function loadSubmissionApplicantContinuation({ db, form, submission
   if (data.submission_id !== submissionId || !Number.isFinite(Date.parse(data.bound_at))) {
     throw new FormApplicantContinuationError('The persisted applicant authorization is not bound to this submission.');
   }
-  return validateGrant(data, form, { allowBoundProcessing: true });
+  const grant = validateGrant(data, form, { allowBoundProcessing: true });
+  await requireAttachedGrantOrganization(db, grant);
+  return grant;
 }

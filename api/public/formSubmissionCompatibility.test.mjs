@@ -578,6 +578,49 @@ test('deferred processor accepts an expired bound grant but rejects revocation b
   ), false);
 });
 
+test('deleted continuation organization rejects admission and bound processing before writes', async () => {
+  const fixture = sanitizedFixtures[0];
+  const form = continuationForm(fixture);
+  const token = 'D'.repeat(43);
+  const grant = makeContinuationGrant({
+    form,
+    token,
+    organizationId: 'deleted-organization',
+  });
+
+  const admission = await submitThroughRealProcessor({
+    form,
+    submissionData: fixtureAnswers(form, grant.organization_id),
+    applicantContinuationToken: token,
+    continuationGrant: grant,
+    prefillOrganizationId: grant.organization_id,
+    processorOptions: { existingOrganization: null },
+  });
+  assert.equal(admission.response.statusCode, 403);
+  assert.equal(admission.response.body.code, 'APPLICANT_CONTINUATION_REQUIRED');
+  assert.equal(admission.handoffs.length, 0);
+  assert.equal(admission.insertedSubmissions.length, 0);
+
+  const bound = await invokePersistedContinuation({
+    form,
+    submissionData: fixtureAnswers(form, grant.organization_id),
+    grant: {
+      ...grant,
+      submission_id: 'submission-runtime-org',
+      bound_at: new Date().toISOString(),
+    },
+    processorOptions: { existingOrganization: null },
+  });
+  assert.equal(bound.response.statusCode, 403);
+  assert.equal(bound.response.body.code, 'APPLICANT_CONTINUATION_REQUIRED');
+  assert.equal(bound.updates.some(
+    ({ table }) => table === 'organization' || table === 'member',
+  ), false);
+  assert.equal(bound.inserts.some(
+    ({ table }) => table === 'organization' || table === 'member',
+  ), false);
+});
+
 test('hostile continuation token, draft, scope, expiry, and configuration matrix fails before handoff', async (t) => {
   const fixture = sanitizedFixtures[0];
   const baseForm = continuationForm(fixture);

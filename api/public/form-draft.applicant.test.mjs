@@ -13,7 +13,8 @@ function harness() {
   const grant = { id: 'grant', tenant_id: 'tenant', form_id: form.id, organization_id: 'org',
     token_hash: hashApplicantToken(token), expires_at: '2099-01-01T00:00:00Z',
     configuration_digest: applicantConfigurationDigest(form), draft_token_hashes: [] };
-  const tables = { form: [form], form_applicant_continuation: [grant],
+  const tables = { form: [form], organization: [{ id: 'org', tenant_id: 'tenant' }],
+    form_applicant_continuation: [grant],
     form_draft_submission: [], form_submission: [] };
   class Query {
     constructor(table) { this.table = table; this.predicates = []; }
@@ -100,4 +101,49 @@ test('changed form configuration invalidates saved applicant draft authority', a
   h.form.default_member_role_id = 'changed-role';
   const resumed = await h.invoke('GET', {}, { token: saved.payload.resume_token });
   assert.equal(resumed.statusCode, 403);
+});
+
+test('real draft GET and POST reject detached or revoked grant while unrelated drafts remain usable', async (t) => {
+  for (const reason of ['detached', 'revoked']) {
+    await t.test(reason, async () => {
+      const h = harness();
+      const linked = await h.invoke('POST', {
+        form_id: h.form.id,
+        draft_data: { answer: 'linked' },
+        applicant_continuation_token: h.token,
+      });
+      assert.equal(linked.statusCode, 201);
+
+      const unrelated = await h.invoke('POST', {
+        form_id: h.form.id,
+        draft_data: { answer: 'unrelated' },
+      });
+      assert.equal(unrelated.statusCode, 201);
+
+      if (reason === 'detached') h.tables.organization.length = 0;
+      else h.grant.revoked_at = new Date().toISOString();
+
+      const getLinked = await h.invoke('GET', {}, { token: linked.payload.resume_token });
+      assert.equal(getLinked.statusCode, 403);
+      assert.equal(getLinked.payload.code, 'APPLICANT_CONTINUATION_REQUIRED');
+
+      const updateLinked = await h.invoke('POST', {
+        form_id: h.form.id,
+        draft_data: { answer: 'must-not-write' },
+        resume_token: linked.payload.resume_token,
+        applicant_continuation_token: h.token,
+      });
+      assert.equal(updateLinked.statusCode, 403);
+      assert.equal(updateLinked.payload.code, 'APPLICANT_CONTINUATION_REQUIRED');
+      assert.deepEqual(
+        h.tables.form_draft_submission.find(row => row.resume_token_hash
+          === hashApplicantToken(linked.payload.resume_token)).draft_data,
+        { answer: 'linked' },
+      );
+
+      const getUnrelated = await h.invoke('GET', {}, { token: unrelated.payload.resume_token });
+      assert.equal(getUnrelated.statusCode, 200);
+      assert.deepEqual(getUnrelated.payload.draft.draft_data, { answer: 'unrelated' });
+    });
+  }
 });
