@@ -78,6 +78,7 @@ import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule'
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import ResourceCard from '@/components/resources/ResourceCard';
 import WidgetCard from '@/components/dashboard/WidgetCard';
+import { canvasWidgetDiscoveryOptions } from '@/lib/canvasWidgetDiscovery';
 import { resolveResourceNewTab, TENANT_FORM_RESOURCE_TYPE } from '@/lib/resourcePresentation';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
@@ -8971,8 +8972,8 @@ function FeaturedJobInspector({ block, update, breakpoint }) {
 // request is authoritative for the widget itself. Both requests intentionally
 // use the Canvas embed scope so this renderer never falls back to a dashboard
 // page's cached response.
-async function fetchCanvasWidgetJson(url) {
-  const response = await fetch(url, { credentials: 'include' });
+async function fetchCanvasWidgetJson(url, signal) {
+  const response = await fetch(url, { credentials: 'include', signal });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error('Dashboard widget unavailable');
@@ -9164,22 +9165,14 @@ function DynamicWidgetRender({ block, asEditor = false, breakpoint = 'desktop' }
     ));
   };
 
-  const listQuery = useQuery({
-    queryKey: ['canvas-dynamic-widget-list', instanceScope, authScope],
-    queryFn: () => collectCanvasDashboardWidgetPages(fetchCanvasWidgetJson),
-    enabled: !!widgetId,
-    retry: false,
-    staleTime: 0,
-    gcTime: 0,
+  const discovery = canvasWidgetDiscoveryOptions({
+    authScope,
+    widgetId,
+    ready: authResolved && sessionValidated,
+    fetchJson: fetchCanvasWidgetJson,
   });
-  const detailQuery = useQuery({
-    queryKey: ['canvas-dynamic-widget-detail', instanceScope, authScope, widgetId],
-    queryFn: () => fetchCanvasWidgetJson(canvasDashboardWidgetUrl(widgetId)),
-    enabled: !!widgetId,
-    retry: false,
-    staleTime: 0,
-    gcTime: 0,
-  });
+  const listQuery = useQuery(discovery.list);
+  const detailQuery = useQuery(discovery.detail);
 
   const list = normalizeCanvasDashboardWidgetsResponse(
     listQuery.isSuccess ? listQuery.data : null,
