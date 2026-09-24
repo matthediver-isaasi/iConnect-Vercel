@@ -27,9 +27,11 @@ import {
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
+import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import {
   formatRegistrationCreditBreakdown,
+  formatRegistrationCreditExplanation,
   formatRegistrationCredits,
   formatRegistrationCreditsExport,
   formatRegistrationCreditSummary,
@@ -848,6 +850,41 @@ export default function EventRegistrationReport() {
     return result;
   }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter, consentFilter]);
 
+  const creditRefreshFilterDescriptors = useMemo(() => {
+    if (!appliedFilters) return [];
+    const descriptors = [];
+    if (appliedFilters.eventName) descriptors.push(`Event: ${appliedFilters.eventName}`);
+    if (!appliedFilters.eventId && appliedFilters.internalReference) {
+      descriptors.push(`Internal reference: ${appliedFilters.internalReference}`);
+    }
+    if (appliedFilters.dateFrom || appliedFilters.dateTo) {
+      descriptors.push(`Booking date: ${appliedFilters.dateFrom || 'any'} to ${appliedFilters.dateTo || 'any'}`);
+    }
+    if (appliedFilters.eventDateFrom || appliedFilters.eventDateTo) {
+      descriptors.push(`Event date: ${appliedFilters.eventDateFrom || 'any'} to ${appliedFilters.eventDateTo || 'any'}`);
+    }
+    descriptors.push(`Status: ${statusFilter === 'active' ? 'Active only' : statusFilter === 'all' ? 'All statuses' : 'Cancelled only'}`);
+    descriptors.push(`Consent: ${consentFilter === 'all' ? 'All' : consentFilter === 'consented' ? 'Consented only' : 'Not consented'}`);
+    if (searchQuery) descriptors.push(`Registration search: ${searchQuery}`);
+    if (descriptors.length === 2) descriptors.unshift('All events and booking dates');
+    return descriptors;
+  }, [appliedFilters, statusFilter, consentFilter, searchQuery]);
+
+  const creditRefreshScopeKey = useMemo(() => JSON.stringify({
+    appliedFilters,
+    statusFilter,
+    consentFilter,
+    searchQuery,
+  }), [appliedFilters, statusFilter, consentFilter, searchQuery]);
+
+  const refetchPinnedCreditReport = useCallback(async () => {
+    await queryClient.refetchQueries({
+      queryKey: ['event-registration-report', appliedFilters],
+      exact: true,
+      type: 'all',
+    });
+  }, [queryClient, appliedFilters]);
+
   const totalAttendees = useMemo(() => {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
   }, [filteredGroups]);
@@ -1527,6 +1564,14 @@ export default function EventRegistrationReport() {
         </div>
         {reportGenerated && (
           <div className="flex items-center gap-2 flex-wrap">
+            <BookingCreditRefresh
+              groups={filteredGroups}
+              tenantId={reportData?.tenantId}
+              canRefresh={reportData?.canRefreshCredits === true}
+              scopeKey={creditRefreshScopeKey}
+              filterDescriptors={creditRefreshFilterDescriptors}
+              onRefetch={refetchPinnedCreditReport}
+            />
             {(hasZoomForSelectedEvents || anyGroupHasZoom || hasTeamsForSelectedEvents || anyGroupHasTeams) && (
               <Button
                 variant="outline"
@@ -1995,7 +2040,9 @@ export default function EventRegistrationReport() {
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-credits-${attendee.id}`}>
                                   <Tooltip>
                                     <TooltipTrigger asChild><span className="cursor-help">{formatRegistrationCredits(group.credits)}</span></TooltipTrigger>
-                                    <TooltipContent>{formatRegistrationCreditBreakdown(group.credits) || 'No post-booking reversals recorded.'}</TooltipContent>
+                                    <TooltipContent>
+                                      {[formatRegistrationCreditBreakdown(group.credits), formatRegistrationCreditExplanation(group.credits)].filter(Boolean).join(' — ')}
+                                    </TooltipContent>
                                   </Tooltip>
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
@@ -2128,7 +2175,9 @@ export default function EventRegistrationReport() {
                             <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount} data-testid={`text-credits-${keyAttendeeId}`}>
                               <Tooltip>
                                 <TooltipTrigger asChild><span className="cursor-help">{formatRegistrationCredits(group.credits)}</span></TooltipTrigger>
-                                <TooltipContent>{formatRegistrationCreditBreakdown(group.credits) || 'No post-booking reversals recorded.'}</TooltipContent>
+                                <TooltipContent>
+                                  {[formatRegistrationCreditBreakdown(group.credits), formatRegistrationCreditExplanation(group.credits)].filter(Boolean).join(' — ')}
+                                </TooltipContent>
                               </Tooltip>
                             </td>
                           );

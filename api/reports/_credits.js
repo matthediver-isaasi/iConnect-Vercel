@@ -8,7 +8,17 @@ export function projectCredits(rows, { historicalUnknown = false, partialScope =
   }));
   // Absence of a ledger row is not proof that no historic provider reversal
   // exists (including on active bookings). Only actual zero evidence is zero.
-  if (!rows.length) return { amount: null, currency: null, status: 'unavailable', breakdown };
+  if (!rows.length) {
+    const ambiguous = historicalUnknown || partialScope;
+    return {
+      amount: null,
+      currency: null,
+      status: 'unavailable',
+      reasonCode: ambiguous ? 'ambiguous' : 'no_evidence',
+      breakdown,
+      ...(ambiguous ? { error: 'Historical credit evidence is incomplete. Review the booking before relying on this value.' } : {}),
+    };
+  }
   const currencies = new Set(rows.filter(r => r.status !== 'failed').map(r => r.currency).filter(Boolean));
   const operations = new Map();
   for (const row of rows) {
@@ -34,7 +44,29 @@ export function projectCredits(rows, { historicalUnknown = false, partialScope =
   const statuses = new Set(rows.map(r => r.status));
   const status = ambiguous || statuses.has('unavailable') ? 'unavailable'
     : statuses.size > 1 ? 'mixed' : [...statuses][0];
-  return { amount: status === 'confirmed' ? cents / (currencyFactor([...currencies][0]) || 100) : null, currency: currencies.size === 1 ? [...currencies][0] : null, status, breakdown };
+  const hasLookupFailure = rows.some(r => r.detail?.reconciliationError || r.detail?.lookupError);
+  const reasonCode = ambiguous ? 'ambiguous'
+    : statuses.has('pending') ? 'pending'
+      : hasLookupFailure || statuses.has('unavailable') ? 'lookup_failure'
+        : statuses.has('failed') ? 'provider_failed'
+          : null;
+  const error = reasonCode === 'ambiguous'
+    ? 'Credit evidence cannot be attributed safely. Review the provider records for this booking.'
+    : reasonCode === 'pending'
+      ? 'Provider confirmation is pending. Refresh the credit evidence later.'
+      : reasonCode === 'lookup_failure'
+        ? 'Credit evidence could not be verified with the provider. Check the provider connection and retry.'
+        : reasonCode === 'provider_failed'
+          ? 'The provider reports that the credit operation failed. Review the provider record.'
+          : null;
+  return {
+    amount: status === 'confirmed' ? cents / (currencyFactor([...currencies][0]) || 100) : null,
+    currency: currencies.size === 1 ? [...currencies][0] : null,
+    status,
+    reasonCode,
+    breakdown,
+    ...(error ? { error } : {}),
+  };
 }
 
 export async function attachReportCredits({ db, tenantId, bookings, groups }) {
@@ -56,7 +88,15 @@ export async function attachReportCredits({ db, tenantId, bookings, groups }) {
       }
     }
   } catch (error) {
-    for (const group of groups) group.credits = { amount: null, currency: null, status: 'unavailable', breakdown: [], error: error.message };
+    console.error('[Event Registration Report] Credit evidence storage lookup failed:', error);
+    for (const group of groups) group.credits = {
+      amount: null,
+      currency: null,
+      status: 'unavailable',
+      reasonCode: 'storage_failure',
+      breakdown: [],
+      error: 'Credit evidence storage is temporarily unavailable. Retry the report; contact support if the problem continues.',
+    };
     return;
   }
   const unique = [...new Map(rows.map(r => [r.id, r])).values()];

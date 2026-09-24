@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { projectCredits, attachReportCredits } from './_credits.js';
 import { captureCancellationCredits, persistBookingCreditEvidence, prepareCancellationCredits, currencyFactor } from '../_lib/bookingCreditEvidence.js';
 import { reconcileBookingCredits } from '../_lib/bookingCreditReconciliation.js';
+import { handleReconcileBookingCredits } from './reconcile-booking-credits.js';
 
 const a = '00000000-0000-0000-0000-000000000001';
 const b = '00000000-0000-0000-0000-000000000002';
@@ -86,6 +87,11 @@ test('statuses and currencies never masquerade as confirmed zero', () => {
   assert.equal(projectCredits([row({ amount_minor: 0 })]).amount, 0);
   assert.equal(projectCredits([row({ amount_minor: 500, currency: 'JPY' })]).amount, 500);
   assert.equal(projectCredits([row({ amount_minor: 1234, currency: 'KWD' })]).amount, 1.234);
+  assert.equal(projectCredits([]).reasonCode, 'no_evidence');
+  assert.equal(projectCredits([], { historicalUnknown: true }).reasonCode, 'ambiguous');
+  assert.equal(projectCredits([row({ status: 'pending' })]).reasonCode, 'pending');
+  assert.equal(projectCredits([row({ status: 'unavailable', detail: { reconciliationError: 'secret provider detail' } })]).reasonCode, 'lookup_failure');
+  assert.doesNotMatch(projectCredits([row({ status: 'unavailable', detail: { reconciliationError: 'secret provider detail' } })]).error, /secret provider detail/);
 });
 test('projection preserves group consolidation and tenant/source isolation', async () => {
   const db = database({ booking_reversal_evidence: [
@@ -113,7 +119,112 @@ test('cancelled legacy evidence is unavailable and storage failure does not bloc
   await attachReportCredits({ db: database(), tenantId: 'tenant', bookings: [{ id: a, status: 'cancelled' }], groups });
   assert.equal(groups[0].credits.status, 'unavailable');
   await attachReportCredits({ db: { from() { throw new Error('migration absent'); } }, tenantId: 'tenant', bookings: [{ id: a }], groups });
-  assert.match(groups[0].credits.error, /migration absent/);
+  assert.equal(groups[0].credits.reasonCode, 'storage_failure');
+  assert.match(groups[0].credits.error, /temporarily unavailable/);
+  assert.doesNotMatch(groups[0].credits.error, /migration absent/);
+});
+
+function responseCapture() {
+  return {
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+}
+
+const authorizedHandlerDeps = overrides => ({
+  db: {},
+  loadTenantContext: async () => ({ tenantId: 'tenant-a', isAuthenticated: true, roleId: 'role' }),
+  checkAdminAccess: async () => true,
+  checkFeatureAccess: async () => true,
+  reconcile: async () => ({ written: 0, nextCursor: null, unresolved: false }),
+  ...overrides,
+});
+
+test('refresh requires the report-pinned tenant before reconciliation or provider reads', async () => {
+  let reconciliations = 0;
+  const reconcile = async () => { reconciliations++; return {}; };
+  for (const [body, status, code] of [
+    [{ source: 'booking', bookingIds: [a] }, 400, 'EXPECTED_TENANT_REQUIRED'],
+    [{ expectedTenantId: 'tenant-b', source: 'booking', bookingIds: [a] }, 409, 'EXPECTED_TENANT_MISMATCH'],
+  ]) {
+    const res = responseCapture();
+    await handleReconcileBookingCredits({ method: 'POST', body }, res, authorizedHandlerDeps({ reconcile }));
+    assert.equal(res.statusCode, status);
+    assert.equal(res.body.code, code);
+  }
+  assert.equal(reconciliations, 0);
+});
+
+test('authorized registration report pins the refresh tenant contract', () => {
+  const source = readFileSync(new URL('./event-registration-report.js', import.meta.url), 'utf8');
+  assert.match(source, /return res\.status\(200\)\.json\(\{\s*tenantId,\s*canRefreshCredits: true,/);
+});
+
+test('refresh preserves report authorization and returns the pinned tenant', async () => {
+  for (const [context, admin, feature, expected] of [
+    [{ tenantId: null, isAuthenticated: false }, true, true, 401],
+    [{ tenantId: 'tenant-a', isAuthenticated: true, tenantMismatch: true }, true, true, 409],
+    [{ tenantId: 'tenant-a', isAuthenticated: true, roleId: 'role' }, false, true, 403],
+    [{ tenantId: 'tenant-a', isAuthenticated: true, roleId: 'role' }, true, false, 403],
+  ]) {
+    const res = responseCapture();
+    await handleReconcileBookingCredits(
+      { method: 'POST', body: { expectedTenantId: 'tenant-a' } },
+      res,
+      authorizedHandlerDeps({
+        loadTenantContext: async () => context,
+        checkAdminAccess: async () => admin,
+        checkFeatureAccess: async () => feature,
+      }),
+    );
+    assert.equal(res.statusCode, expected);
+  }
+  const res = responseCapture();
+  await handleReconcileBookingCredits(
+    { method: 'POST', body: { expectedTenantId: 'tenant-a', source: 'booking', bookingIds: [a] } },
+    res,
+    authorizedHandlerDeps(),
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.tenantId, 'tenant-a');
+});
+
+test('refresh routes read-only provider lookups and never exposes raw provider errors', async () => {
+  const calls = [];
+  const routeRes = responseCapture();
+  await handleReconcileBookingCredits(
+    { method: 'POST', body: { expectedTenantId: 'tenant-a', source: 'booking', bookingIds: [a] } },
+    routeRes,
+    authorizedHandlerDeps({
+      loadStripeCredentials: async (tenantId, use) => {
+        calls.push(['credentials', tenantId, use]);
+        return { secret_key: 'not-returned', is_enabled: true };
+      },
+      createStripe: () => ({ refunds: { list: async args => { calls.push(['refund-list', args]); return { data: [] }; } } }),
+      loadXeroCreditNote: async (tenantId, id) => { calls.push(['xero', tenantId, id]); return { providerId: id }; },
+      loadQuickBooksCreditNote: async (tenantId, id) => { calls.push(['quickbooks', tenantId, id]); return { providerId: id }; },
+      reconcile: async ({ readRefunds, readCreditNote }) => {
+        await readRefunds('pi_1', 're_1');
+        await readCreditNote('xero', 'cn_x');
+        await readCreditNote('quickbooks', 'cn_q');
+        return { written: 0 };
+      },
+    }),
+  );
+  assert.equal(routeRes.statusCode, 200);
+  assert.deepEqual(calls.map(call => call[0]), ['credentials', 'refund-list', 'xero', 'quickbooks']);
+
+  const failedRes = responseCapture();
+  await handleReconcileBookingCredits(
+    { method: 'POST', body: { expectedTenantId: 'tenant-a', source: 'booking', bookingIds: [a] } },
+    failedRes,
+    authorizedHandlerDeps({ reconcile: async () => { throw new Error('provider secret account abc-123 timed out'); } }),
+  );
+  assert.equal(failedRes.statusCode, 422);
+  assert.equal(failedRes.body.code, 'CREDIT_LOOKUP_FAILURE');
+  assert.doesNotMatch(failedRes.body.error, /abc-123|secret|timed out/);
 });
 test('capture is idempotent, uses actual minor amount, and preserves pending lifecycle', async () => {
   const db = database();

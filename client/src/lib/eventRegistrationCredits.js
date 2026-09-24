@@ -6,7 +6,7 @@ const CREDIT_STATUS_LABELS = {
 };
 
 export function formatCreditMoney(amount, currency) {
-  if (!Number.isFinite(Number(amount))) return null;
+  if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return null;
   const code = currency
     ? String(currency).toUpperCase()
     : Number(amount) === 0 ? 'GBP' : null;
@@ -46,7 +46,26 @@ export function formatRegistrationCreditBreakdown(credits) {
 export function formatRegistrationCreditsExport(credits) {
   const amount = formatRegistrationCredits(credits);
   const breakdown = formatRegistrationCreditBreakdown(credits);
-  return breakdown ? `${amount} — ${breakdown}` : amount;
+  const explanation = formatRegistrationCreditExplanation(credits);
+  return [amount, breakdown, explanation].filter(Boolean).join(' — ');
+}
+
+export function formatRegistrationCreditExplanation(credits) {
+  const explanations = {
+    no_evidence: 'No verified reversal evidence was found. This does not establish a zero credit.',
+    pending: 'The provider has not yet confirmed the reversal. Refresh again later.',
+    ambiguous: 'The evidence cannot be allocated or combined reliably. Manual review is required; no amount has been assumed.',
+    lookup_failure: 'Provider evidence could not be verified. Check the provider connection and retry.',
+    storage_failure: 'Credit evidence storage could not be read. Ask an administrator to verify the evidence migration and database access, then retry.',
+    provider_failed: 'The provider reports that the reversal failed. No confirmed credit amount is available.',
+  };
+  if (credits?.reasonCode && explanations[credits.reasonCode]) return explanations[credits.reasonCode];
+  if (credits?.error) return explanations.storage_failure;
+  if (credits?.status === 'confirmed' && credits.amount != null) return '';
+  if (credits?.status === 'pending') return explanations.pending;
+  if (credits?.status === 'failed') return explanations.provider_failed;
+  if (credits?.status === 'mixed') return 'Some evidence remains unresolved. The total is not yet confirmed.';
+  return credits?.breakdown?.length ? explanations.ambiguous : explanations.no_evidence;
 }
 
 export function summarizeRegistrationCredits(groups) {

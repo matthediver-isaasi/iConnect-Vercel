@@ -7,12 +7,32 @@ import {
   formatRegistrationCreditsExport,
   formatRegistrationCreditSummary,
   summarizeRegistrationCredits,
+  formatRegistrationCreditExplanation,
+  formatCreditMoney,
 } from './eventRegistrationCredits.js';
 
 const reportSource = readFileSync(
   new URL('../pages/EventRegistrationReport.jsx', import.meta.url),
   'utf8',
 );
+
+test('unresolved explanations distinguish safe causes in visible details and CSV', () => {
+  for (const [reasonCode, pattern] of Object.entries({
+    no_evidence: /does not establish a zero/,
+    pending: /not yet confirmed/,
+    ambiguous: /Manual review/,
+    lookup_failure: /provider connection/,
+    storage_failure: /migration and database access/,
+    provider_failed: /reversal failed/,
+  })) {
+    const credits = { amount: null, status: 'unavailable', reasonCode };
+    assert.match(formatRegistrationCreditExplanation(credits), pattern);
+    assert.match(formatRegistrationCreditsExport(credits), pattern);
+  }
+  assert.equal(formatCreditMoney(null, 'GBP'), null);
+  assert.equal(formatCreditMoney('', 'GBP'), null);
+  assert.doesNotMatch(formatRegistrationCreditExplanation({ error: 'secret-provider-detail' }), /secret-provider-detail/);
+});
 
 test('credits formatter distinguishes confirmed zero and unresolved evidence', () => {
   assert.equal(
