@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { dispatchCampaignSendFeedback } from "@/lib/campaignSendFeedback";
@@ -147,6 +148,7 @@ function blankComposeState() {
     id: null,
     name: "",
     subject: "",
+    event_survey_context: null,
     from_name: "",
     preheader: "",
     html_content: "",
@@ -183,6 +185,24 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState(blankComposeState());
+  const hasSurveyToken = /\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/i.test(`${compose.subject}\n${compose.html_content}\n${JSON.stringify(compose.slotValues)}`);
+  const { data: surveyPreview, error: surveyPreviewError } = useQuery({
+    queryKey: ['group-campaign-survey-preview', activeGroupId, compose.event_survey_context],
+    enabled: composeOpen && hasSurveyToken && !!activeGroupId,
+    retry: false,
+    queryFn: async () => {
+      const response = await fetch('/api/email-campaigns/preview-survey', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId: activeGroupId, event_survey_context: compose.event_survey_context }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not preview event survey');
+      return result;
+    },
+  });
+  const resolveSurveyPreview = text => surveyPreview?.url && hasSurveyToken
+    ? String(text || '').replace(/\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/gi, () => surveyPreview.url)
+    : text;
   const [recipientPreview, setRecipientPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -352,6 +372,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
         id: full.id,
         name: full.name || "",
         subject: full.subject || "",
+        event_survey_context: full.event_survey_context || null,
         from_name: full.from_name || activeGroup?.name || "",
         preheader: full.preheader || "",
         html_content: full.html_content || "",
@@ -432,6 +453,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
       ? {
           name: compose.name,
           subject: compose.subject,
+          event_survey_context: compose.event_survey_context || null,
           from_name: compose.from_name,
           preheader: compose.preheader,
           html_content: compose.html_content,
@@ -443,6 +465,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
           groupId: activeGroupId,
           name: compose.name,
           subject: compose.subject,
+          event_survey_context: compose.event_survey_context || null,
           from_name: compose.from_name,
           preheader: compose.preheader,
           html_content: compose.html_content,
@@ -797,6 +820,8 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                   <Input id="campaign-name" value={compose.name} onChange={(e) => setCompose({ ...compose, name: e.target.value })} data-testid="input-campaign-name" />
                 </div>
                 <div>
+                  <CampaignEventSurveySettings value={compose.event_survey_context} onChange={value => setCompose({ ...compose, event_survey_context: value })} />
+                  {hasSurveyToken && surveyPreviewError && <p role="alert">{surveyPreviewError.message}</p>}
                   <Label htmlFor="campaign-subject">Subject *</Label>
                   <Input id="campaign-subject" value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })} data-testid="input-campaign-subject" />
                 </div>
@@ -904,7 +929,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                 <SlotEditContext.Provider value={slotEditCtx}>
                   <div className="rounded-md overflow-hidden bg-white shadow-sm" data-testid="interactive-compose-preview">
                     <ReadOnlyBlockPreview
-                      blocks={compose.design_json.blocks}
+                      blocks={JSON.parse(resolveSurveyPreview(JSON.stringify(compose.design_json.blocks)))}
                       globalStyles={compose.design_json.globalStyles}
                     />
                   </div>
@@ -912,7 +937,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
               ) : compose.html_content ? (
                 <div className="border rounded-md overflow-hidden bg-white">
                   <iframe
-                    srcDoc={fillDynamicSlots(compose.html_content, compose.slotValues, compose.richSlots)}
+                    srcDoc={resolveSurveyPreview(fillDynamicSlots(compose.html_content, compose.slotValues, compose.richSlots))}
                     title="Email preview"
                     className="w-full border-0"
                     style={{ minHeight: 400 }}

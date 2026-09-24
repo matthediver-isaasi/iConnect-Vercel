@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { dispatchCampaignSendFeedback } from "@/lib/campaignSendFeedback";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
@@ -248,12 +249,32 @@ export default function EmailCampaignEdit() {
     email_template_id: '',
     html_content: '',
     design_json: null,
+    event_survey_context: null,
     target_audiences: [],
     communication_category_id: '',
     scheduled_at: '',
     is_test_mode: false
   });
   const [editorMode, setEditorMode] = useState('visual');
+  const hasSurveyToken = /\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
+  const { data: surveyPreview, error: surveyPreviewError } = useQuery({
+    queryKey: ['campaign-event-survey-preview', formData.event_survey_context],
+    enabled: hasSurveyToken,
+    retry: false,
+    queryFn: async () => {
+      const response = await fetch('/api/email-campaigns/preview-survey', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_survey_context: formData.event_survey_context }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not preview event survey');
+      return result;
+    },
+  });
+  const resolveSurveyPreview = html => surveyPreview?.url && hasSurveyToken
+    ? String(html || '').replace(/\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/gi, () => surveyPreview.url)
+    : html;
 
   const { data: campaign, isLoading: campaignLoading } = useQuery({
     queryKey: ['email-campaign', id],
@@ -296,6 +317,7 @@ export default function EmailCampaignEdit() {
         email_template_id: campaign.email_template_id || '',
         html_content: content.html_content,
         design_json: content.design_json,
+        event_survey_context: campaign.event_survey_context || null,
         target_audiences: audiences,
         communication_category_id: campaign.communication_category_id || '',
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
@@ -539,6 +561,10 @@ export default function EmailCampaignEdit() {
   };
 
   const handleTestSend = async (recipients) => {
+    if (JSON.stringify(formData.event_survey_context) !== JSON.stringify(campaign?.event_survey_context || null)) {
+      toast.error('Save the campaign event survey settings before sending a test.');
+      return;
+    }
     if (!isEditing) {
       toast.error('Please save the campaign first before sending a test');
       return;
@@ -630,6 +656,10 @@ export default function EmailCampaignEdit() {
   };
 
   const handleSendCampaign = async () => {
+    if (JSON.stringify(formData.event_survey_context) !== JSON.stringify(campaign?.event_survey_context || null)) {
+      toast.error('Save the campaign event survey settings before sending.');
+      return;
+    }
     if (!isEditing) {
       toast.error('Please save the campaign first');
       return;
@@ -833,6 +863,8 @@ export default function EmailCampaignEdit() {
                 />
               </div>
               <div className="space-y-2">
+                <CampaignEventSurveySettings value={formData.event_survey_context} onChange={value => setFormData(prev => ({ ...prev, event_survey_context: value }))} />
+                {hasSurveyToken && surveyPreviewError && <p role="alert" className="text-sm text-destructive">{surveyPreviewError.message}</p>}
                 <Label htmlFor="subject">Email Subject *</Label>
                 <Input
                   id="subject"
@@ -1360,7 +1392,7 @@ export default function EmailCampaignEdit() {
                             if (!html) return null;
                             return (
                               <iframe
-                                srcDoc={html}
+                                srcDoc={resolveSurveyPreview(html)}
                                 title="Email Preview"
                                 className="w-full border-0"
                                 style={{ minHeight: '300px' }}
@@ -1425,7 +1457,7 @@ export default function EmailCampaignEdit() {
                         className="border rounded-md p-4 min-h-[500px] bg-white prose prose-sm max-w-none"
                         data-testid="preview-html-content"
                       >
-                        <div dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Enter HTML in the HTML tab.</p>' }} />
+                        <div dangerouslySetInnerHTML={{ __html: resolveSurveyPreview(formData.html_content) || '<p class="text-muted-foreground italic">No content yet. Enter HTML in the HTML tab.</p>' }} />
                         {footerData?.footer && (
                           <>
                             <hr className="my-4 border-gray-200" />
@@ -1473,7 +1505,7 @@ export default function EmailCampaignEdit() {
           <div className="space-y-3 py-4">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Subject</span>
-              <span className="font-medium truncate max-w-[250px]">{formData.subject}</span>
+              <span className="font-medium truncate max-w-[250px]">{resolveSurveyPreview(formData.subject)}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Recipients (saved campaign)</span>
@@ -1870,7 +1902,7 @@ export default function EmailCampaignEdit() {
 
               <div className="border-b border-border px-4 py-3 space-y-1.5 bg-background" data-testid="preview-email-headers">
                 <div className="text-base font-semibold text-foreground" data-testid="text-preview-subject">
-                  {formData.subject || 'No subject'}
+                  {resolveSurveyPreview(formData.subject) || 'No subject'}
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">

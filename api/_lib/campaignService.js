@@ -5,6 +5,7 @@ import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import { getPublicBaseUrl } from './publicBaseUrl.js';
+import { resolveCampaignEventSurvey, replaceEventSurvey } from './campaignEventSurvey.js';
 import {
   filterExplicitCategorySubscribers,
   isActiveCommunicationMember,
@@ -406,6 +407,9 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    if (cleanedData.event_survey_context?.event_id) {
+      await resolveCampaignEventSurvey(supabase, { ...cleanedData, subject: '{{event_survey_url}}' }, tenantId);
+    }
     delete cleanedData.category_review_required;
     delete cleanedData.category_review_reason;
     delete cleanedData.category_review_marked_at;
@@ -485,11 +489,14 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
 
     const { data: existing, error: existingError } = await supabase
       .from('email_campaign')
-      .select('target_type, target_ids, target_audiences, updated_at')
+      .select('*')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
     if (existingError) throw existingError;
+    if (cleanedUpdates.event_survey_context?.event_id) {
+      await resolveCampaignEventSurvey(supabase, { ...existing, ...cleanedUpdates, subject: '{{event_survey_url}}' }, tenantId);
+    }
     const listValidation = await validateCampaignAudienceLists(
       { ...existing, ...cleanedUpdates },
       tenantId,
@@ -768,7 +775,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null, opt
   try {
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, status, updated_at, name, from_email, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
+      .select('*')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
@@ -787,6 +794,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null, opt
     if (!listValidation.valid) return { success: false, error: listValidation.reason };
 
     const resumableFromPaused = campaign.status === 'paused';
+    await resolveCampaignEventSurvey(supabase, campaign, tenantId);
     const resumableFromStuck = ['sent', 'failed', 'cancelled'].includes(campaign.status);
 
     if (!resumableFromPaused && !resumableFromStuck) {
@@ -2722,6 +2730,7 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt, option
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
     }
+    await resolveCampaignEventSurvey(supabase, campaign, tenantId);
     if (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt) {
       return campaignConflict();
     }
@@ -2910,7 +2919,7 @@ export async function processSendingCampaigns() {
 
     const { data: sendingCampaigns, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, tenant_id, name, updated_at')
+      .select('*')
       .eq('status', 'sending')
       .eq('category_review_required', false);
 
@@ -2922,6 +2931,12 @@ export async function processSendingCampaigns() {
 
     const results = [];
     for (const sc of sendingCampaigns) {
+      try {
+        await resolveCampaignEventSurvey(supabase, sc, sc.tenant_id);
+      } catch (error) {
+        results.push({ campaignId: sc.id, error: error.message });
+        continue;
+      }
       const { count: pendingCount } = await supabase
         .from('email_campaign_recipient')
         .select('*', { count: 'exact', head: true })
@@ -3097,6 +3112,7 @@ export function applyDynamicSlotValues(html, slotValues, options = {}) {
   let out = html;
   for (const [token, value] of Object.entries(slotValues)) {
     if (!token) continue;
+    if (token.toLowerCase() === 'event_survey_url') continue;
     const re = new RegExp(`\\{\\{\\s*${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'gi');
     const raw = value == null ? '' : String(value);
     let replacement;
@@ -3441,6 +3457,11 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
       subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
     }
+    const surveyUrl = await resolveCampaignEventSurvey(supabase, { ...campaign, html_content: html, subject }, tenantId);
+    if (surveyUrl) {
+      html = replaceEventSurvey(html, surveyUrl);
+      subject = replaceEventSurvey(subject, surveyUrl);
+    }
 
     const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';
     html = html.replace(/\{\{recipient_name\}\}/gi, recipientName);
@@ -3710,7 +3731,7 @@ async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
 async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
   const { data: currentCampaign, error } = await supabase
     .from('email_campaign')
-    .select('id, status, category_review_required, from_email')
+    .select('*')
     .eq('id', campaignId)
     .eq('tenant_id', tenantId)
     .single();
@@ -3722,6 +3743,12 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
       code: 'CAMPAIGN_SEND_GATE_UNAVAILABLE',
       error: 'Campaign could not be verified before sending. No recipients were claimed or submitted; try again after confirming the campaign still exists.',
     };
+  }
+
+  try {
+    await resolveCampaignEventSurvey(supabase, currentCampaign, tenantId);
+  } catch (error) {
+    return { allowed: false, blocked: true, code: 'EVENT_SURVEY_UNAVAILABLE', error: error.message };
   }
 
   if (currentCampaign.status === 'cancelled' || currentCampaign.status === 'paused') {
@@ -3784,6 +3811,11 @@ async function releaseClaimedRecipients(claimedRecipients, status = 'pending') {
 }
 
 export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE) {
+  try {
+    await resolveCampaignEventSurvey(supabase, campaign, tenantId);
+  } catch (error) {
+    return { success: false, error: error.message, remaining: null };
+  }
   // Gate before the claim mutation. In particular, malformed legacy campaigns
   // discovered by the worker must not move recipient rows to processing.
   const initialGate = await checkCampaignBatchGate(campaignId, tenantId, campaign);
@@ -3924,6 +3956,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null, opt
     }
     const listValidation = await validateCampaignAudienceLists(campaign, tenantId);
     if (!listValidation.valid) return { success: false, error: listValidation.reason };
+
+    await resolveCampaignEventSurvey(supabase, campaign, tenantId);
 
     // Atomic claim into the interim 'preparing' status. This prevents
     // double-send (a second caller will fail the status filter) AND keeps

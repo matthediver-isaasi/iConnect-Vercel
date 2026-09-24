@@ -1,5 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { resolveEventEmailSurvey } from '../_lib/campaignEventSurvey.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { fetchComplexEventData, parseCcField } from '../_lib/eventConfirmationEmail.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '../_lib/trainingAgenda.js';
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
           subject,
           body,
           cc,
+          event_survey_assignment_id,
           event_id,
           is_complex_event
         )
@@ -208,13 +210,14 @@ export default async function handler(req, res) {
           }
         }
 
-        let subject = replacePlaceholders(eventEmail.subject, {
+        const surveyContent = await resolveEventEmailSurvey(supabase, eventEmail, event, isComplexEvent ? 'complex_event' : 'event');
+        let subject = replacePlaceholders(surveyContent.subject, {
           event,
           booking,
           complexEventData
         });
 
-        let body = replacePlaceholders(eventEmail.body, {
+        let body = replacePlaceholders(surveyContent.body, {
           event,
           booking,
           complexEventData

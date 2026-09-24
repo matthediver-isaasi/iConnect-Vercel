@@ -64,6 +64,21 @@ const RichTextEditorModule = await import('./RichTextEditor.jsx');
 const RichTextEditor = RichTextEditorModule.default;
 const { buildRichTextExtensions } = RichTextEditorModule;
 
+test('campaign survey placeholders survive the real link editor extension and HTML round trip', () => {
+  for (const token of ['{{event_survey_url}}', '[[event.survey_url]]']) {
+    const editor = new Editor({ extensions: buildRichTextExtensions(), content: '<p>Survey</p>' });
+    try {
+      editor.commands.selectAll();
+      assert.equal(editor.commands.setLink({ href: token }), true);
+      assert.ok(editor.getHTML().includes(`href="${token}"`));
+      editor.commands.setContent(editor.getHTML());
+      assert.ok(editor.getHTML().includes(`href="${token}"`));
+    } finally {
+      editor.destroy();
+    }
+  }
+});
+
 // Rich slot HTML authored before compact mode existed: heading, colored
 // text, explicit font size. rgb() form matches what jsdom/tiptap emit so we
 // can also assert byte-identity of the untouched part.

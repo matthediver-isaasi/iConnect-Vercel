@@ -1,4 +1,5 @@
 import { useState } from "react";
+import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -198,7 +199,7 @@ export default function EventEmailSettingsEditor({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ subject: email.subject || "", body: email.body || "" }),
+        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -450,6 +451,15 @@ export default function EventEmailSettingsEditor({
           )}
 
           {/* Subject Line */}
+          {eventId && <CampaignEventSurveySettings
+            fixedEvent
+            value={{
+              event_type: mode === 'session' ? 'complex_event' : 'event',
+              event_id: eventId,
+              assignment_id: email.event_survey_assignment_id || '',
+            }}
+            onChange={value => updateEmail(email.id, 'event_survey_assignment_id', value.assignment_id || null)}
+          />}
           <div className="mb-3">
             <Label className="text-sm font-medium mb-2 block">Subject</Label>
             <Input

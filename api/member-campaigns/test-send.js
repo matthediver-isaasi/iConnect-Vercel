@@ -9,6 +9,7 @@ import {
   validateCampaignSenderEmail,
 } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -137,6 +138,7 @@ export default async function handler(req, res) {
       } catch (_e) {}
     }
 
+    const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantContext.tenantId);
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
     const results = [];
 
@@ -150,7 +152,11 @@ export default async function handler(req, res) {
       let html = campaign.html_content || '';
       html = stripHiddenDynamicRegions(html, campaignHiddenSlots);
       if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues, { html: true, richSlots: campaignRichSlots });
-      const subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues, { richSlots: campaignRichSlots })}`;
+      let subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues, { richSlots: campaignRichSlots })}`;
+      if (surveyUrl) {
+        html = replaceEventSurvey(html, surveyUrl);
+        subject = replaceEventSurvey(subject, surveyUrl);
+      }
       html = html.replace(/\{\{first_name\}\}/gi, 'Test');
       html = html.replace(/\{\{last_name\}\}/gi, 'User');
       html = html.replace(/\{\{email\}\}/gi, emailToUse);
@@ -210,6 +216,9 @@ export default async function handler(req, res) {
     if (succeeded.length === 0) return res.status(500).json({ ...responseBody, error: message });
     return res.json(responseBody);
   } catch (err) {
+    if (err.message?.startsWith('Event survey:')) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('[MemberCampaigns Test Send] Error:', err);
     return res.status(500).json({ error: 'Failed to send test email' });
   }

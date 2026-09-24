@@ -111,6 +111,18 @@ test('standalone CTA keeps configured delivery-safe colours, padding, and radius
   assertClientSafeButton(html, 'Standalone CTA');
 });
 
+test('campaign event survey tokens survive real button HTML generation in both syntaxes', () => {
+  for (const token of ['{{event_survey_url}}', '[[event.survey_url]]']) {
+    const html = designToHtml({
+      blocks: [{ id: 'survey', type: BLOCK_TYPES.BUTTON, content: 'Complete survey', href: token, styles: configuredStyles }],
+    });
+    const parsed = new JSDOM(html);
+    const link = [...parsed.window.document.querySelectorAll('a')]
+      .find(candidate => candidate.textContent.trim() === 'Complete survey');
+    assert.equal(link?.getAttribute('href'), token);
+  }
+});
+
 test('regression fixture reproduces the previous intrinsic-width table without positioning', () => {
   assert.notEqual(oldButtonSource, currentButtonSource, 'historical renderer is compiled by source replacement');
   const oldHtml = oldButtonToMjml({

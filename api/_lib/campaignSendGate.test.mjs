@@ -10,6 +10,22 @@ process.env.SUPABASE_SERVICE_KEY = 'isolated-test-key';
 const { supabase } = await import('./database.js');
 const { resumeCampaign, sendBatch } = await import('./campaignService.js');
 
+test('scheduled/retry batch with a survey token and no explicit event fails before recipient claims', async () => {
+  const campaign = {
+    id: 'campaign-1', status: 'sending', from_email: 'sender@example.com',
+    subject: '{{event_survey_url}}', html_content: '<a href="[[event.survey_url]]">Survey</a>',
+  };
+  const mock = installCampaignMock(campaign);
+  try {
+    const result = await sendBatch('campaign-1', 'tenant-1', campaign, 'fixture', null);
+    assert.equal(result.success, false);
+    assert.match(result.error, /select an event/);
+    assert.equal(mock.calls.length, 0);
+  } finally {
+    mock.restore();
+  }
+});
+
 function installCampaignMock(campaign) {
   const calls = [];
   const originalFrom = supabase.from;

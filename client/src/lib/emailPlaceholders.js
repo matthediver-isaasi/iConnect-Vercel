@@ -96,6 +96,18 @@ const entry = (
 });
 
 export const EMAIL_PLACEHOLDERS = [
+  entry(
+    '{{event_survey_url}}', PLACEHOLDER_SYNTAX.CURLY, 'System & Links',
+    'Survey assignment URL for the event selected on this campaign. Reuse the same template for different events.',
+    ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event email survey settings',
+    { prerequisites: 'Select a campaign event and, when it has multiple surveys, a specific assignment. The assignment must be open and the survey active and published.',
+      notes: 'Use as a button URL, link href, body text or subject. Alias: [[event.survey_url]]. Login and survey access restrictions still apply. Never inferred from recipient booking history.' },
+  ),
+  entry(
+    '[[event.survey_url]]', PLACEHOLDER_SYNTAX.BRACKET, 'System & Links',
+    'Alias of {{event_survey_url}}; resolves from campaign event survey settings, not the template.',
+    ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event email survey settings',
+  ),
   // --- Member ---
   entry(
     '[[member.id]]',

@@ -1,4 +1,6 @@
 import { supabase } from '../_lib/database.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { resolveEventEmailSurvey, usesEventSurvey } from '../_lib/campaignEventSurvey.js';
 import {
   scheduleReminderEmails,
   scheduleComplexEventReminderEmails,
@@ -41,6 +43,25 @@ export default async function handler(req, res) {
 
       if (!Array.isArray(emails)) {
         return res.status(400).json({ error: 'Emails must be an array' });
+      }
+      const surveyEmails = emails.filter(email => email.event_survey_assignment_id ||
+        usesEventSurvey({ subject: email.subject, html_content: email.body }));
+      if (surveyEmails.length) {
+        const ctx = await getTenantContext(req);
+        if (!ctx.isAuthenticated || !ctx.tenantId || !await hasAdminAccess(ctx)) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+        const eventType = is_complex_event ? 'complex_event' : 'event';
+        const { data: event, error } = await supabase.from(eventType).select('id, tenant_id')
+          .eq('id', eventId).eq('tenant_id', ctx.tenantId).maybeSingle();
+        if (error || !event) return res.status(404).json({ error: 'Event not found' });
+        try {
+          for (const email of surveyEmails) {
+            await resolveEventEmailSurvey(supabase, { ...email, subject: '{{event_survey_url}}' }, event, eventType);
+          }
+        } catch (error) {
+          return res.status(400).json({ error: error.message });
+        }
       }
 
       const { data: existingEmails, error: fetchError } = await supabase
@@ -96,6 +117,7 @@ export default async function handler(req, res) {
 
         const emailData = {
           event_id: eventId,
+          event_survey_assignment_id: email.event_survey_assignment_id || null,
           email_type: email.email_type,
           timing_type: email.timing_type || null,
           custom_hours_before: email.custom_hours_before || null,

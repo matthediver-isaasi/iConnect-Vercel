@@ -21,6 +21,7 @@ import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolve
 const MEMBER_EDITABLE_FIELDS = new Set([
   'name', 'subject', 'preheader', 'from_name',
   'html_content', 'design_json', 'email_template_id', 'audience_roles',
+  'event_survey_context',
 ]);
 
 async function loadAccessibleCampaign(campaignId, access) {
@@ -183,6 +184,7 @@ export default async function handler(req, res) {
       const dup = await createCampaign({
         name: `${row.name} (Copy)`,
         subject: row.subject,
+        event_survey_context: row.event_survey_context || null,
         preheader: row.preheader || null,
         from_name: sender.fromName,
         from_email: sender.fromEmail,

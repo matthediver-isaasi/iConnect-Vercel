@@ -4,6 +4,7 @@ import { buildInboxDelivery } from './transactionalInbox.js';
 import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders } from './trainingAgenda.js';
+import { resolveEventEmailSurvey } from './campaignEventSurvey.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -38,6 +39,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       eventQuery = eventQuery.eq('tenant_id', tenantId);
     }
     let { data: event, error: eventError } = await eventQuery.single();
+    let surveyEventType = 'event';
 
     if (eventError || !event) {
       let complexQuery = supabase
@@ -53,6 +55,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
         return results;
       }
       event = { ...complexEvent, is_complex: true, zoom_meeting_id: null, zoom_webinar_id: null };
+      surveyEventType = 'complex_event';
     }
 
     let zoomJoinUrl = personalizedZoomUrl;
@@ -128,8 +131,9 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     for (const emailConfig of confirmationEmails) {
       try {
-        let subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
-        let body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
+        const surveyContent = await resolveEventEmailSurvey(supabase, emailConfig, event, surveyEventType);
+        let subject = replacePlaceholders(surveyContent.subject, { event, booking: bookingData, complexEventData });
+        let body = replacePlaceholders(surveyContent.body, { event, booking: bookingData, complexEventData });
         if (!event.is_complex) {
           subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData });
           body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData });
@@ -806,7 +810,7 @@ export function formatBodyAsHtml(body) {
 //
 // Returns { found, subject, html, isComplex } — found=false when the event
 // does not exist in either table for the given tenant.
-export async function renderEventEmailPreview({ eventId, tenantId, subject, body }) {
+export async function renderEventEmailPreview({ eventId, tenantId, subject, body, event_survey_assignment_id }) {
   if (!supabase) return { found: false };
 
   let eventQuery = supabase
@@ -815,6 +819,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     .eq('id', eventId);
   if (tenantId) eventQuery = eventQuery.eq('tenant_id', tenantId);
   let { data: event, error: eventError } = await eventQuery.maybeSingle();
+  let surveyEventType = 'event';
 
   if (eventError || !event) {
     let complexQuery = supabase
@@ -825,6 +830,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     const { data: complexEvent } = await complexQuery.maybeSingle();
     if (!complexEvent) return { found: false };
     event = { ...complexEvent, is_complex: true, zoom_meeting_id: null, zoom_webinar_id: null };
+    surveyEventType = 'complex_event';
   }
 
   // Resolve the event-level Zoom link the same way the send path does.
@@ -871,8 +877,9 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     pricingDetails: null,
   };
 
-  let renderedSubject = replacePlaceholders(subject || '', { event, booking: sampleBooking, complexEventData });
-  let renderedBody = replacePlaceholders(body || '', { event, booking: sampleBooking, complexEventData });
+  const surveyContent = await resolveEventEmailSurvey(supabase, { subject, body, event_survey_assignment_id }, event, surveyEventType);
+  let renderedSubject = replacePlaceholders(surveyContent.subject || '', { event, booking: sampleBooking, complexEventData });
+  let renderedBody = replacePlaceholders(surveyContent.body || '', { event, booking: sampleBooking, complexEventData });
   if (!event.is_complex) {
     renderedSubject = applyAgendaPlaceholders(renderedSubject, { agendaData: trainingAgendaData });
     renderedBody = applyAgendaPlaceholders(renderedBody, { agendaData: trainingAgendaData });

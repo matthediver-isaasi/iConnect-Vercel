@@ -1,6 +1,8 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendCampaign, getTargetRecipients, getCampaign, scheduleCampaign } from '../_lib/campaignService.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
+import { supabase } from '../_lib/database.js';
+import { resolveCampaignEventSurvey } from '../_lib/campaignEventSurvey.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -67,6 +69,11 @@ export default async function handler(req, res) {
     const campaignResult = await getCampaign(campaignId, tenantId);
     if (!campaignResult.success) {
       return res.status(404).json({ error: campaignResult.error });
+    }
+    try {
+      await resolveCampaignEventSurvey(supabase, campaignResult.campaign, tenantId);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
 
     const recipientsResult = await getTargetRecipients(campaignResult.campaign, tenantId);

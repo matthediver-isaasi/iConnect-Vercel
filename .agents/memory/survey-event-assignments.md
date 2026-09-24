@@ -5,6 +5,24 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+- **Reusable campaign survey links resolve at send time, not when a template
+  is saved.** `{{event_survey_url}}` and `[[event.survey_url]]` use explicit
+  `email_campaign.event_survey_context` (`event_type`, `event_id`,
+  `assignment_id`), or the canonical automated `event_email.event_id` plus
+  `event_survey_assignment_id`. Never infer an event from recipient booking
+  history. Exactly one active assignment can be automatic; multiple require
+  selection on the campaign/email configuration, not the shared template.
+  **Why:** persisted recipients, scheduling and retries outlive authoring;
+  assignments/forms can close, be archived or change publication state.
+  **How to apply:** reuse `campaignEventSurvey.js` before generic placeholder
+  substitution/link tracking and revalidate during delivery. Use existing
+  assignment tokens and the trusted tenant URL helper, never Origin, minted
+  tokens, frozen template URLs or relaxed access checks. Validation currently
+  requires the assignment to be open even when scheduling for a future date.
+  The additive columns live in
+  `migrations/20260901_campaign_event_survey_context.sql`; its destination-only
+  runner is `scripts/apply-campaign-event-survey-context.mjs`.
+
 - **Assignment links are exclusive.** While a survey has any ACTIVE event
   assignment, the plain slug URL neither serves nor accepts responses.
   **Why:** respondent dedupe is scoped per response context (per-assignment

@@ -9,6 +9,7 @@ import {
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
+import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 25;
@@ -211,6 +212,15 @@ export default async function handler(req, res) {
     const { success, campaign, error } = await getCampaign(campaignId, tenantId);
     if (!success || !campaign) {
       return res.status(404).json({ error: error || 'Campaign not found' });
+    }
+    try {
+      const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantId);
+      if (surveyUrl) {
+        campaign.html_content = replaceEventSurvey(campaign.html_content, surveyUrl);
+        campaign.subject = replaceEventSurvey(campaign.subject, surveyUrl);
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
 
     const senderValidation = validateCampaignSenderEmail(campaign.from_email);

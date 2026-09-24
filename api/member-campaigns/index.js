@@ -92,6 +92,7 @@ export default async function handler(req, res) {
     if (sender.error) return res.status(400).json({ error: sender.error });
 
     const campaignData = {
+      event_survey_context: req.body?.event_survey_context || null,
       name,
       subject,
       from_name: sender.fromName,

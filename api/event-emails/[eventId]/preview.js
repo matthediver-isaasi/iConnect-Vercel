@@ -37,6 +37,7 @@ export default async function handler(req, res) {
       tenantId: ctx.tenantId,
       subject: typeof subject === 'string' ? subject : '',
       body: typeof body === 'string' ? body : '',
+      event_survey_assignment_id: req.body?.event_survey_assignment_id || null,
     });
     if (!result.found) return res.status(404).json({ error: 'Event not found' });
     return res.status(200).json({
@@ -45,6 +46,7 @@ export default async function handler(req, res) {
       is_complex: result.isComplex,
     });
   } catch (err) {
+    if (err.message?.startsWith('Event survey:')) return res.status(400).json({ error: err.message });
     console.error('[event-emails preview] Error:', err);
     return res.status(500).json({ error: 'Failed to render preview' });
   }
