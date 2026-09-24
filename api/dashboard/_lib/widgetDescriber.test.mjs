@@ -29,6 +29,17 @@ test('plain count stat', () => {
   assert.equal(text, 'Counts organisations.');
 });
 
+test('Events count explains union, multi-day, statuses and inclusive end dates', () => {
+  const text = describeWidgetConfig(
+    { source: 'event', measure: { aggregator: 'count' }, filters: [] },
+    { sourceLabel: 'Events', fieldLabel, widgetType: 'stat' },
+  );
+  assert.match(text, /simple and complex events once each/);
+  assert.match(text, /period in which they start/);
+  assert.match(text, /All event statuses are included unless/);
+  assert.match(text, /end dates include the whole selected day/);
+});
+
 test('count grouped by a countries custom field explains per-country counting', () => {
   const text = describeWidgetConfig(
     {

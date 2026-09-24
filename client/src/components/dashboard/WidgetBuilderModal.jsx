@@ -370,6 +370,7 @@ export default function WidgetBuilderModal({
   const sources = sourcesPayload?.sources || [];
   const currentSource = sources.find(s => s.id === draft.config.source) || null;
   const isMemberGroup = draft.config.source === "member_group";
+  const isEventSource = !!currentSource?.isEvent;
   const groupMeasure = draft.config.measure?.field || "groups";
   const fieldOptions = useMemo(() => {
     const fields = buildFieldOptions(currentSource);
@@ -388,11 +389,15 @@ export default function WidgetBuilderModal({
       [...fieldOptions]
         // Filter-only descriptors (organisation-level booking filters)
         // never appear in the group-by picker.
-        .filter(o => !o.filterOnly && (!isMemberGroup || groupFieldCompatible(o, groupMeasure, "group")))
+        .filter(o =>
+          !o.filterOnly &&
+          (!isMemberGroup || groupFieldCompatible(o, groupMeasure, "group")) &&
+          (!isEventSource || (o.fieldKind === "system" && ["event_kind", "status"].includes(o.field))),
+        )
         .sort((a, b) =>
           (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
         ),
-    [fieldOptions, isMemberGroup, groupMeasure],
+    [fieldOptions, isMemberGroup, groupMeasure, isEventSource],
   );
 
   // DD stage-transition capability (surfaced via the source's `isDd` flag so
@@ -610,6 +615,30 @@ export default function WidgetBuilderModal({
       if (isGroupTemporal(groupMeasure) && ["pie", "donut"].includes(draft.widget_type)) errs.push("Choose a stat, bar, line or list for membership history.");
       if (draft.config.seriesBy && draft.widget_type === "stat") errs.push("Choose a bar, line or list to display named group series.");
     }
+    if (isEventSource) {
+      const measure = draft.config.measure || {};
+      if (measure.aggregator !== "count" || measure.field || measure.fieldId) {
+        errs.push("Events only support Count with no measure field.");
+      }
+      if (
+        draft.config.groupBy &&
+        (draft.config.groupBy.kind !== "system" ||
+          !["event_kind", "status"].includes(draft.config.groupBy.field))
+      ) {
+        errs.push("Events can only be grouped by Event kind or Status.");
+      }
+      if (
+        draft.config.timeBucket &&
+        (draft.config.timeBucket.field !== "event_start_date" ||
+          (draft.config.timeBucket.fieldKind &&
+            draft.config.timeBucket.fieldKind !== "system"))
+      ) {
+        errs.push("Events can only be time-bucketed by Event start date.");
+      }
+      if (draft.config.participation || draft.config.clickThrough) {
+        errs.push("Events do not support participation or CRM click-through.");
+      }
+    }
     if (requireMeasureField && !draft.config.measure.field && !draft.config.measure.fieldId) {
       const agg = draft.config.measure.aggregator;
       const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
@@ -722,7 +751,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, participationActive]);
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, isEventSource, participationActive]);
 
   const canSave = validationErrors.length === 0;
 
@@ -1381,6 +1410,22 @@ export default function WidgetBuilderModal({
               </div>
             )}
 
+            {isEventSource && (
+              <div
+                className="space-y-1 rounded-md border p-3 text-xs text-muted-foreground"
+                data-testid="event-counting-semantics"
+              >
+                <p>
+                  Counts simple and complex events once each. Multi-day events
+                  are counted in the period in which they start.
+                </p>
+                <p>
+                  All statuses are included unless filtered. A date range&apos;s
+                  end date includes the whole selected day.
+                </p>
+              </div>
+            )}
+
             {!transitionActive && !isConversionSource && !isMembershipValueSource && !participationActive && (
             <>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1394,7 +1439,9 @@ export default function WidgetBuilderModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {AGGREGATORS.filter(a => !isMemberGroup || a.value === "count").map(a => (
+                    {AGGREGATORS.filter(a =>
+                      (!isMemberGroup && !isEventSource) || a.value === "count"
+                    ).map(a => (
                       <SelectItem key={a.value} value={a.value}>
                         {a.label}
                       </SelectItem>
@@ -1745,7 +1792,12 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     <SelectItem value="__none__">No bucket</SelectItem>
                     {fieldOptions
-                      .filter(opt => opt.type === "date" && !opt.filterOnly && (!isMemberGroup || groupFieldCompatible(opt, groupMeasure, "date")))
+                      .filter(opt =>
+                        opt.type === "date" &&
+                        !opt.filterOnly &&
+                        (!isMemberGroup || groupFieldCompatible(opt, groupMeasure, "date")) &&
+                        (!isEventSource || (opt.fieldKind === "system" && opt.field === "event_start_date")),
+                      )
                       .map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}

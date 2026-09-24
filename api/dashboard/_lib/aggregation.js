@@ -24,6 +24,7 @@ import {
   matchWidgetDateFilter,
   normalizeWidgetConfigDateFilters,
 } from './widgetFilterDates.js';
+import { runEventWidgetConfig } from './eventAggregation.js';
 
 // Synthetic DD date dimension: "Date moved to stage …". Not a stored column;
 // each row's value is derived from its history_log as the timestamp it first
@@ -95,6 +96,16 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // bespoke aggregator that unions both tables tenant-scoped.
   if (source.isBooking) {
     return runBookingWidgetConfig(config, tenantId, source, maxGroups, options);
+  }
+  if (source.isEvent) {
+    return runEventWidgetConfig(
+      config,
+      tenantId,
+      source,
+      maxGroups,
+      { ...options, client },
+      { aggregate, bucketTimestamp, finalizeTimeRows, matchFilter },
+    );
   }
 
   const measure = normaliseMeasure(config.measure);

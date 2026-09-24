@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { validateMemberGroupConfig } from './memberGroupContract.js';
 import { validateOrganisationMembershipValueConfig } from './organisationMembershipValue.js';
+import { validateEventsConfig } from '../../../shared/eventsWidgetContract.js';
 
 const fieldRefSchema = z.object({
   field: z.string().nullable().optional(),
@@ -199,6 +200,11 @@ export const widgetConfigSchema = z.object({
 }).passthrough().superRefine((cfg, ctx) => {
   try {
     validateMemberGroupConfig(cfg);
+  } catch (err) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: err.message });
+  }
+  try {
+    validateEventsConfig(cfg);
   } catch (err) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: err.message });
   }

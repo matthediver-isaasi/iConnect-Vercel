@@ -295,6 +295,46 @@ export const DASHBOARD_SOURCES = {
       { name: 'created_at', label: 'Booked at', type: 'date' },
     ],
   },
+  event: {
+    id: 'event',
+    label: 'Events',
+    // Unified source over simple and complex events. The bespoke event
+    // aggregator normalises start_date to event_start_date and tags each row
+    // with event_kind, without changing the separate Event Bookings source.
+    table: 'event',
+    complexTable: 'complex_event',
+    timestampField: 'event_start_date',
+    isEvent: true,
+    systemFields: [
+      { name: 'id', label: 'ID', type: 'id' },
+      {
+        name: 'event_kind',
+        label: 'Event kind',
+        type: 'enum',
+        options: [
+          { value: 'simple', label: 'Simple event' },
+          { value: 'complex', label: 'Complex event' },
+        ],
+      },
+      {
+        name: 'status',
+        label: 'Status',
+        type: 'enum',
+        // The union exposes every status allowed by either live table:
+        // immediate is simple-only; closed is complex-only; cancelling is the
+        // transient safe-deletion lock used by both.
+        options: [
+          { value: 'draft', label: 'Draft' },
+          { value: 'published', label: 'Published' },
+          { value: 'tbc', label: 'To be confirmed' },
+          { value: 'closed', label: 'Closed' },
+          { value: 'cancelling', label: 'Cancelling' },
+          { value: 'immediate', label: 'Immediate access' },
+        ],
+      },
+      { name: 'event_start_date', label: 'Event start date', type: 'date' },
+    ],
+  },
   job_posting: {
     id: 'job_posting',
     label: 'Jobs',
@@ -562,6 +602,9 @@ export async function getSourceCatalog(tenantId, { includeMembershipValue = fals
       // Event-bookings capability flag so the builder can offer the
       // organisation-participation split without hard-coding source ids.
       isBooking: !!def.isBooking,
+      // Events capability flag lets the builder apply the deliberately narrow
+      // event-count contract without coupling it to a source label.
+      isEvent: !!def.isEvent,
       isMemberGroup: !!def.isMemberGroup,
       isOrganisationMembershipValue: !!def.isOrganisationMembershipValue,
       ...(def.isOrganisationMembershipValue

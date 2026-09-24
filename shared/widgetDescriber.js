@@ -125,7 +125,12 @@ export function describeWidgetConfig(config, options = {}) {
   const sourcePlural = lowerFirst(sourceLabel);
 
   // --- What is measured -------------------------------------------------
-  if (config.source === 'organisation_membership') {
+  if (config.source === 'event') {
+    sentences.push('Counts simple and complex events once each.');
+    sentences.push(
+      'Multi-day events are counted in the period in which they start. All event statuses are included unless a status filter is applied. Date-range end dates include the whole selected day.',
+    );
+  } else if (config.source === 'organisation_membership') {
     const membershipValue = config.membershipValue || {};
     sentences.push(
       `Shows recorded organisation membership value for ${membershipPeriodLabel(membershipValue)}, including a saved membership when its structure effective date falls within that exact 12-month period.`,
