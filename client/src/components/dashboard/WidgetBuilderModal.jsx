@@ -158,6 +158,7 @@ const DEFAULT_DRAFT = {
     filters: [],
     // Optional plain-text helper shown behind the ⓘ icon on the widget card.
     helperText: "",
+    membershipValue: null,
   },
 };
 
@@ -303,6 +304,7 @@ export default function WidgetBuilderModal({
           numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
           helperText: seed.config?.helperText || "",
+          membershipValue: seed.config?.membershipValue || null,
         },
       });
     } else {
@@ -364,6 +366,7 @@ export default function WidgetBuilderModal({
   // flag). The source/target pickers use the tenant's forms published on
   // the source descriptor. Conversion widgets always render as a stat.
   const isConversionSource = !!currentSource?.isConversion;
+  const isMembershipValueSource = draft.config.source === "organisation_membership";
   const isBookingSource = !!currentSource?.isBooking;
   const participationActive = isBookingSource && draft.config.participation === true;
   const conversion = draft.config.conversion || null;
@@ -514,6 +517,33 @@ export default function WidgetBuilderModal({
     const errs = [];
     if (!draft.title.trim()) errs.push("Add a widget title.");
     if (!draft.config.source) errs.push("Choose a data source.");
+    if (isMembershipValueSource) {
+      const value = draft.config.membershipValue || {};
+      if (!Number.isInteger(Number(value.startMonth)) || Number(value.startMonth) < 1 || Number(value.startMonth) > 12) {
+        errs.push("Choose the annual period start month.");
+      }
+      if (!Number.isInteger(Number(value.startYear)) || Number(value.startYear) < 1900 || Number(value.startYear) > 9998) {
+        errs.push("Enter a valid annual period start year.");
+      }
+      (draft.config.filters || []).forEach((filter, index) => {
+        if (filter.fieldKind !== "custom" || !filter.fieldId) {
+          errs.push(`Filter ${index + 1}: choose an organisation classification field.`);
+        }
+        if (!["eq", "neq", "in", "contains", "is_null", "is_not_null"].includes(filter.operator)) {
+          errs.push(`Filter ${index + 1}: choose a supported comparison.`);
+        }
+        if (filter.operator === "in") {
+          const values = Array.isArray(filter.value)
+            ? filter.value
+            : String(filter.value || "").split(",").map(item => item.trim()).filter(Boolean);
+          if (values.length === 0) errs.push(`Filter ${index + 1}: list cannot be empty.`);
+        } else if (!["is_null", "is_not_null"].includes(filter.operator)
+          && (filter.value === null || filter.value === undefined || filter.value === "")) {
+          errs.push(`Filter ${index + 1}: enter a value.`);
+        }
+      });
+      return errs;
+    }
     if (isMemberGroup) {
       if (!MEMBER_GROUP_MEASURES.some(m => m.field === draft.config.measure.field)) errs.push("Choose a Member Groups measure.");
       if (groupMeasure === "period_end_members" && !draft.config.timeBucket) errs.push("Period-end members requires a time bucket.");
@@ -633,7 +663,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField, fieldOptions, isConversionSource, participationActive]);
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, participationActive]);
 
   const canSave = validationErrors.length === 0;
 
@@ -768,6 +798,7 @@ export default function WidgetBuilderModal({
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              {!isMembershipValueSource && (
               <div className="space-y-2">
                 <Label>Chart type</Label>
                 <Select
@@ -802,6 +833,7 @@ export default function WidgetBuilderModal({
                   </SelectContent>
                 </Select>
               </div>
+              )}
               <div className="space-y-2">
                 <Label>Width</Label>
                 <Select
@@ -869,7 +901,7 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
-            {draft.widget_type === "stat" && (
+            {draft.widget_type === "stat" && !isMembershipValueSource && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Number format</Label>
@@ -977,11 +1009,12 @@ export default function WidgetBuilderModal({
                 value={draft.config.source}
                 onValueChange={value => {
                   const sel = sources.find(s => s.id === value);
-                  const toConversion = !!sel?.isConversion;
+                   const toConversion = !!sel?.isConversion;
+                   const toMembershipValue = value === "organisation_membership";
                   setDraft(prev => ({
                     ...prev,
-                    // Conversion widgets only render as a stat card.
-                    widget_type: toConversion ? "stat" : prev.widget_type,
+                     // Special-purpose sources only render as a stat card.
+                     widget_type: toConversion || toMembershipValue ? "stat" : prev.widget_type,
                     config: {
                       source: value,
                       measure: { aggregator: "count", field: value === "member_group" ? "groups" : null, fieldKind: value === "member_group" ? "system" : null, fieldId: null },
@@ -992,10 +1025,20 @@ export default function WidgetBuilderModal({
                       conversion: toConversion
                         ? { sourceFormId: null, targetFormIds: [], matchBy: "organization" }
                         : null,
+                       membershipValue: toMembershipValue
+                         ? {
+                             startMonth: new Date().getMonth() + 1,
+                             startYear: new Date().getFullYear(),
+                             currency: null,
+                             configIds: [],
+                             bandIds: [],
+                           }
+                         : null,
                       // Display-only settings survive a source change.
                       color: prev.config.color || "default",
                       numberFormat: prev.config.numberFormat || null,
                       filters: [],
+                       helperText: prev.config.helperText || "",
                     },
                   }));
                 }}
@@ -1012,6 +1055,14 @@ export default function WidgetBuilderModal({
                 </SelectContent>
               </Select>
             </div>
+
+            {isMembershipValueSource && (
+              <MembershipValueControls
+                value={draft.config.membershipValue}
+                source={currentSource}
+                onChange={membershipValue => updateConfig({ membershipValue })}
+              />
+            )}
 
             {isConversionSource && (
               <div className="space-y-3 rounded-md border p-3">
@@ -1273,7 +1324,7 @@ export default function WidgetBuilderModal({
               </div>
             )}
 
-            {!transitionActive && !isConversionSource && !participationActive && (
+            {!transitionActive && !isConversionSource && !isMembershipValueSource && !participationActive && (
             <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1980,7 +2031,10 @@ export default function WidgetBuilderModal({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {FILTER_OPERATORS.map(op => (
+                          {FILTER_OPERATORS
+                            .filter(op => !isMembershipValueSource
+                              || ["eq", "neq", "in", "contains", "is_null", "is_not_null"].includes(op.value))
+                            .map(op => (
                             <SelectItem key={op.value} value={op.value}>
                               {op.label}
                             </SelectItem>
@@ -2181,6 +2235,157 @@ export default function WidgetBuilderModal({
   );
 }
 
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function membershipCatalog(source) {
+  const catalog = source?.membershipCatalog || source?.catalog || {};
+  const configs = source?.membershipConfigs || catalog.configs || source?.configs || [];
+  const bands = source?.membershipBands || catalog.bands || source?.bands || [];
+  const currencies = source?.currencies || catalog.currencies || [];
+  const asOption = (item, fallback) => ({
+    value: String(item?.value ?? item?.id ?? ""),
+    label: String(item?.label ?? item?.name ?? item?.tier_label ?? fallback ?? ""),
+    configId: item?.configId ?? item?.config_id ?? null,
+  });
+  return {
+    configs: configs.map((item, i) => asOption(item, `Structure ${i + 1}`)).filter(o => o.value),
+    bands: bands.map((item, i) => asOption(item, `Band ${i + 1}`)).filter(o => o.value),
+    currencies: currencies.map(item =>
+      typeof item === "string"
+        ? { value: item, label: item }
+        : asOption(item, item?.code),
+    ).filter(o => o.value),
+  };
+}
+
+function MembershipMultiSelect({ label, options, selected, onChange, testId }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" className="w-full justify-between font-normal" data-testid={testId}>
+            <span className="truncate">
+              {selected.length === 0
+                ? `All ${label.toLowerCase()}`
+                : `${selected.length} selected`}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="max-h-72 w-72 overflow-y-auto p-2" align="start">
+          {options.length === 0 ? (
+            <p className="p-2 text-sm text-muted-foreground">No tenant choices are available.</p>
+          ) : options.map(option => {
+            const checked = selected.includes(option.value);
+            return (
+              <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover-elevate">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={on => onChange(on
+                    ? [...selected, option.value]
+                    : selected.filter(id => id !== option.value))}
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function MembershipValueControls({ value, source, onChange }) {
+  const current = value || {};
+  const catalog = membershipCatalog(source);
+  const configIds = Array.isArray(current.configIds) ? current.configIds.map(String) : [];
+  const bandIds = Array.isArray(current.bandIds) ? current.bandIds.map(String) : [];
+  const visibleBands = configIds.length === 0
+    ? catalog.bands
+    : catalog.bands.filter(band => !band.configId || configIds.includes(String(band.configId)));
+  const patch = next => onChange({ ...current, ...next });
+  return (
+    <div className="space-y-4 rounded-md border p-3" data-testid="membership-value-controls">
+      <div>
+        <Label>Annual membership value period</Label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Uses recorded organisation memberships whose saved structure effective date falls in the exact 12-month period.
+          Unpaid records are included. Payments, refunds and credits are not reconciled.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Start month</Label>
+          <Select value={String(current.startMonth || "")} onValueChange={v => patch({ startMonth: Number(v) })}>
+            <SelectTrigger data-testid="select-membership-value-start-month"><SelectValue placeholder="Choose month" /></SelectTrigger>
+            <SelectContent>
+              {MONTHS.map((month, index) => <SelectItem key={month} value={String(index + 1)}>{month}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Start year</Label>
+          <Input
+            type="number"
+            min={1900}
+            max={9998}
+            value={current.startYear ?? ""}
+            onChange={e => patch({ startYear: e.target.value === "" ? null : Number(e.target.value) })}
+            data-testid="input-membership-value-start-year"
+          />
+        </div>
+      </div>
+      {catalog.currencies.length > 0 && (
+        <div className="space-y-2">
+          <Label>Currency</Label>
+          <Select value={current.currency || "__all__"} onValueChange={v => patch({ currency: v === "__all__" ? null : v })}>
+            <SelectTrigger data-testid="select-membership-value-currency"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All recorded currencies</SelectItem>
+              {catalog.currencies.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {!current.currency && catalog.currencies.length > 1 && (
+            <p className="text-xs text-amber-700">Values in different currencies cannot be added; choose one currency.</p>
+          )}
+        </div>
+      )}
+      {catalog.configs.length > 0 && (
+        <MembershipMultiSelect
+          label="Membership structures"
+          options={catalog.configs}
+          selected={configIds}
+          onChange={next => patch({
+            configIds: next,
+            bandIds: bandIds.filter(id => {
+              const band = catalog.bands.find(item => item.value === id);
+              return next.length === 0 || !band?.configId || next.includes(String(band.configId));
+            }),
+          })}
+          testId="select-membership-value-configs"
+        />
+      )}
+      {visibleBands.length > 0 && (
+        <MembershipMultiSelect
+          label="Membership bands"
+          options={visibleBands}
+          selected={bandIds}
+          onChange={next => patch({ bandIds: next })}
+          testId="select-membership-value-bands"
+        />
+      )}
+      <p className="text-xs text-muted-foreground">
+        Value is net of VAT and is allocated by the saved membership structure's effective date;
+        this is not cash received or an accounting-ledger balance.
+      </p>
+    </div>
+  );
+}
+
 function PreviewWidget({ widget, payload, palette }) {
   // Reuse WidgetCard rendering by injecting fake query data via a thin wrapper.
   // The card component fetches data on its own; in preview we render a minimal
@@ -2192,7 +2397,7 @@ function PreviewWidget({ widget, payload, palette }) {
       </p>
     );
   }
-  if (widget.config?.source === "member_group") {
+  if (["member_group", "organisation_membership"].includes(widget.config?.source)) {
     return <WidgetBody widget={widget} payload={payload} palette={palette} />;
   }
   return (

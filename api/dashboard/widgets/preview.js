@@ -1,6 +1,11 @@
 import { getDashboardActor } from '../_lib/permissions.js';
 import { runWidgetConfig, MAX_LIST_GROUPS } from '../_lib/aggregation.js';
-import { widgetConfigSchema } from '../_lib/validation.js';
+import { validateMembershipValueWidgetType, widgetConfigSchema } from '../_lib/validation.js';
+import {
+  canAccessMembershipValue,
+  isMembershipValueConfig,
+  setMembershipValueNoStore,
+} from '../_lib/permissions.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 
 export default async function handler(req, res) {
@@ -25,6 +30,10 @@ async function previewHandler(req, res, deps) {
   if (!actor.permissions.view) {
     return res.status(403).json({ error: 'Dashboard not available for this role' });
   }
+  setMembershipValueNoStore(req.body?.config, res);
+  if (isMembershipValueConfig(req.body?.config) && !canAccessMembershipValue(actor)) {
+    return res.status(403).json({ error: 'Membership Payment Report permission required' });
+  }
 
   const parsed = widgetConfigSchema.safeParse(req.body?.config);
   if (!parsed.success) {
@@ -33,6 +42,7 @@ async function previewHandler(req, res, deps) {
 
   try {
     validateMemberGroupWidgetType(parsed.data, req.body?.widgetType);
+    validateMembershipValueWidgetType(parsed.data, req.body?.widgetType);
     // List widgets can display far more groups than a chart, so the builder
     // sends the draft widget type alongside the config.
     const isList = req.body?.widgetType === 'list';

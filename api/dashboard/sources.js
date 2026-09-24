@@ -14,9 +14,14 @@ export default async function handler(req, res) {
   if (!actor.permissions.view) {
     return res.status(403).json({ error: 'Dashboard not available for this role' });
   }
+  if (actor.permissions.viewMembershipValue) {
+    res.setHeader('Cache-Control', 'private, no-store');
+  }
 
   try {
-    const sources = await getSourceCatalog(actor.tenantId);
+    const sources = await getSourceCatalog(actor.tenantId, {
+      includeMembershipValue: actor.permissions.viewMembershipValue === true,
+    });
     return res.status(200).json({ sources });
   } catch (err) {
     console.error('[Dashboard Sources] Failed:', err);

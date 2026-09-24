@@ -4,6 +4,9 @@ import {
   isCanvasDashboardEmbed,
   setCanvasDashboardNoStore,
   tenantFilter,
+  canAccessMembershipValue,
+  isMembershipValueConfig,
+  setMembershipValueNoStore,
 } from '../_lib/permissions.js';
 import { widgetCreateSchema } from '../_lib/validation.js';
 import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
@@ -52,6 +55,9 @@ export function createHandler(overrides = {}) {
 }
 
 async function listWidgets(req, res, actor, deps) {
+  if (canAccessMembershipValue(actor)) {
+    res.setHeader('Cache-Control', 'private, no-store');
+  }
   const canvasEmbed = isCanvasDashboardEmbed(req);
   // Optional ?scope=shared|personal narrows the response. The default returns
   // both lists so the dashboard page can render in a single round trip.
@@ -79,6 +85,11 @@ async function listWidgets(req, res, actor, deps) {
       sharedQuery = sharedQuery
         .eq('scope', 'shared')
         .order('display_order', { ascending: true });
+      if (!canAccessMembershipValue(actor)) {
+        if (typeof sharedQuery.not === 'function') {
+          sharedQuery = sharedQuery.not('config->>source', 'eq', 'organisation_membership');
+        }
+      }
       if (canvasEmbed) {
         // display_order is editable and is not unique.  A stable id tie-break
         // keeps page boundaries deterministic when widgets share an order.
@@ -124,6 +135,11 @@ async function listWidgets(req, res, actor, deps) {
         .eq('owner_member_id', actor.memberId)
         .order('display_order', { ascending: true });
       personalQuery = tenantFilter(personalQuery, actor.tenantId);
+      if (!canAccessMembershipValue(actor)) {
+        if (typeof personalQuery.not === 'function') {
+          personalQuery = personalQuery.not('config->>source', 'eq', 'organisation_membership');
+        }
+      }
       const { data, error } = await personalQuery;
       if (error) throw error;
       personal = data || [];
@@ -133,6 +149,10 @@ async function listWidgets(req, res, actor, deps) {
       permissions: actor.permissions,
       palette: await deps.getDashboardWidgetPalette(actor.tenantId),
     };
+    if (!canAccessMembershipValue(actor)) {
+      shared = shared.filter(widget => !isMembershipValueConfig(widget.config));
+      personal = personal.filter(widget => !isMembershipValueConfig(widget.config));
+    }
     if (wantShared) body.shared = shared;
     if (wantPersonal) body.personal = personal;
     if (pagination) body.pagination = pagination;
@@ -165,6 +185,10 @@ async function createWidget(req, res, actor, deps) {
     return res.status(400).json({ error: 'Invalid widget payload', details: parsed.error.flatten() });
   }
   const payload = parsed.data;
+  setMembershipValueNoStore(payload.config, res);
+  if (isMembershipValueConfig(payload.config) && !canAccessMembershipValue(actor)) {
+    return res.status(403).json({ error: 'Membership Payment Report permission required' });
+  }
 
   if (payload.scope === 'shared' && !actor.permissions.manageShared) {
     return res.status(403).json({ error: 'No permission to manage shared widgets' });

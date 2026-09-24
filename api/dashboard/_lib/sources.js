@@ -7,6 +7,7 @@ import {
   REGION_SCHEME_APP,
   REGION_SCHEME_WORLD_BANK,
 } from '../../../shared/countryRegions.js';
+import { getOrganisationMembershipValueCatalog } from './organisationMembershipValue.js';
 
 // Derived dimension: world region classified from the source's
 // `countries`-typed multi-country preference field(s). Not a stored
@@ -92,6 +93,19 @@ export const DASHBOARD_SOURCES = {
       { name: 'guest_access_unlimited', label: 'Guest access unlimited', type: 'boolean' },
       { name: 'purchase_order_enabled', label: 'Purchase order enabled', type: 'boolean' },
     ],
+  },
+  organisation_membership: {
+    id: 'organisation_membership',
+    label: 'Annual Membership Value',
+    table: 'organization',
+    preferenceTable: 'organization_preference_value',
+    preferenceFkColumn: 'organization_id',
+    preferenceScope: 'organization',
+    isOrganisationMembershipValue: true,
+    // The bespoke engine reads recorded membership commitments. There are no
+    // selectable measures or groupings; organisation custom fields are exposed
+    // solely so the builder can apply classification filters.
+    systemFields: [],
   },
   dd_submission: {
     id: 'dd_submission',
@@ -525,10 +539,11 @@ export async function getHiddenGroupFields(tenantId) {
   }
 }
 
-export async function getSourceCatalog(tenantId) {
+export async function getSourceCatalog(tenantId, { includeMembershipValue = false } = {}) {
   const sources = [];
   const hiddenBySource = await getHiddenGroupFields(tenantId);
   for (const def of Object.values(DASHBOARD_SOURCES)) {
+    if (def.isOrganisationMembershipValue && !includeMembershipValue) continue;
     const hidden = new Set(hiddenBySource[def.id] || []);
     const customFields = (await getCustomFieldsForSource(def, tenantId))
       .filter(f => !hidden.has(`custom:${f.id}`));
@@ -548,6 +563,12 @@ export async function getSourceCatalog(tenantId) {
       // organisation-participation split without hard-coding source ids.
       isBooking: !!def.isBooking,
       isMemberGroup: !!def.isMemberGroup,
+      isOrganisationMembershipValue: !!def.isOrganisationMembershipValue,
+      ...(def.isOrganisationMembershipValue
+        ? {
+            membershipCatalog: await getMembershipValueSourceCatalog(tenantId),
+          }
+        : {}),
       ...(def.isConversion
         ? { forms: await getTenantFormOptions(tenantId) }
         : {}),
@@ -570,6 +591,15 @@ export async function getSourceCatalog(tenantId) {
     });
   }
   return sources;
+}
+
+async function getMembershipValueSourceCatalog(tenantId) {
+  const catalog = await getOrganisationMembershipValueCatalog(supabase, tenantId);
+  return {
+    configs: catalog.structures,
+    bands: catalog.bands,
+    currencies: catalog.currencies,
+  };
 }
 
 /**

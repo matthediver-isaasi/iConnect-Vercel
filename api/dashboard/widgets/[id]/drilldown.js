@@ -5,6 +5,9 @@ import {
   isSharedTenantWidget,
   setCanvasDashboardNoStore,
   tenantFilter,
+  canAccessMembershipValue,
+  isMembershipValueConfig,
+  setMembershipValueNoStore,
 } from '../../_lib/permissions.js';
 import { runWidgetConfig, MAX_LIST_GROUPS } from '../../_lib/aggregation.js';
 import { getSourceDef } from '../../_lib/sources.js';
@@ -61,10 +64,6 @@ export function createHandler(overrides = {}) {
 
     const { id } = req.query || {};
     if (!id) return res.status(400).json({ error: 'Widget id is required' });
-    const key = typeof req.body?.key === 'string' ? req.body.key : null;
-    if (key === null) {
-      return res.status(400).json({ error: 'Bucket key is required' });
-    }
 
     let query = deps.supabase.from('dashboard_widget').select('*').eq('id', id);
     query = tenantFilter(query, actor.tenantId);
@@ -80,6 +79,17 @@ export function createHandler(overrides = {}) {
     }
 
     const config = widget.config || {};
+    setMembershipValueNoStore(config, res);
+    if (isMembershipValueConfig(config)) {
+      if (!canAccessMembershipValue(actor)) {
+        return res.status(403).json({ error: 'Membership Payment Report permission required' });
+      }
+      return res.status(400).json({ error: 'Annual Membership Value does not support click-through' });
+    }
+    const key = typeof req.body?.key === 'string' ? req.body.key : null;
+    if (key === null) {
+      return res.status(400).json({ error: 'Bucket key is required' });
+    }
     const sourceDef = deps.getSourceDef(config.source);
     // Event Bookings widgets drill to the ORGANISATIONS behind a bucket
     // (bookings have no CRM list page): both the participation split

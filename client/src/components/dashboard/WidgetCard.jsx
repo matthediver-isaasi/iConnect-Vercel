@@ -98,6 +98,21 @@ export function formatNumber(value, numberFormat = null) {
   return Number(value).toFixed(2);
 }
 
+export function formatMembershipCurrency(value, currency) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Unavailable";
+  if (!currency) return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: String(currency).toUpperCase(),
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value));
+  } catch {
+    return `${String(currency).toUpperCase()} ${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+}
+
 // Widget click-through: sources whose grouped buckets can open a CRM list
 // page filtered to the bucket's records.
 const DRILL_ROUTES = {
@@ -342,6 +357,17 @@ export function buildExportRows(widget, payload) {
     return [
       ["Label", ...categories.map(c => payload.seriesLabels?.[c] || c), "Status"],
       ...rows.map(row => [row.key, ...categories.map(c => row[c] == null ? "Unavailable" : row[c]), row.available === false ? "Unavailable" : row.provisional ? "Current / provisional" : ""]),
+    ];
+  }
+  if (widget.config?.source === "organisation_membership") {
+    const metadata = payload.membershipValue || {};
+    const incomplete = metadata.warnings?.some(w => w?.code === "incomplete_zero");
+    const value = incomplete ? null : metadata.exactValue ?? payload.value ?? null;
+    return [
+      ["Metric", "Value", "Currency"],
+      ["Annual membership value (net of VAT)", value ?? "Unavailable", metadata.currency || widget.config.membershipValue?.currency || ""],
+      ["Allocation basis", metadata.allocation || "", ""],
+      ["Period", metadata.period?.label || "", ""],
     ];
   }
   if (payload.type === "conversion") {
@@ -1064,6 +1090,9 @@ export function WidgetCacheStatus({
 }
 
 export function WidgetBody(props) {
+  if (props.widget.config?.source === "organisation_membership") {
+    return <MembershipValueBody {...props} />;
+  }
   if (props.widget.config?.source !== "member_group") return <ChartBody {...props} />;
   const { payload, widget } = props;
   return (
@@ -1078,6 +1107,47 @@ export function WidgetBody(props) {
         <summary className="cursor-pointer">Counting rules and eligibility · no member click-through</summary>
         <p className="mt-1">{describeWidgetConfig(widget.config, { widgetType: widget.widget_type })}</p>
       </details>
+    </div>
+  );
+}
+
+function MembershipValueBody({ widget, payload, palette, embedded = false }) {
+  const metadata = payload.membershipValue || {};
+  const currency = metadata.currency || widget.config?.membershipValue?.currency || null;
+  const warnings = Array.isArray(metadata.warnings)
+    ? metadata.warnings.map(w => typeof w === "string" ? { message: w } : w).filter(w => w?.message)
+    : [];
+  const incompleteZero = warnings.some(w => w.code === "incomplete_zero");
+  const value = payload.available === false || incompleteZero
+    ? null
+    : metadata.exactValue ?? payload.value ?? null;
+  const periodLabel = metadata.period?.label || null;
+  const allocation = metadata.allocation === "membership_structure_effective_from_half_open"
+    ? "Included when the saved membership structure effective date falls in this period"
+    : metadata.allocation || "Saved membership structure effective-date allocation";
+  const minH = embedded ? "h-full min-h-0" : STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
+  return (
+    <div className={cn("flex flex-1 flex-col justify-center gap-2", minH)} data-testid="membership-value-report">
+      <p
+        className="text-3xl font-semibold tracking-tight"
+        style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
+        data-testid={`stat-value-${widget.id}`}
+      >
+        {formatMembershipCurrency(value, currency)}
+      </p>
+      <p className="text-xs font-medium uppercase text-muted-foreground">
+        Recorded annual membership value · net of VAT{currency ? ` · ${String(currency).toUpperCase()}` : ""}
+      </p>
+      {periodLabel && <p className="text-xs text-muted-foreground">Period: {periodLabel}</p>}
+      <p className="text-xs text-muted-foreground">
+        {allocation}. Unpaid records are included. Payments, refunds and credits are not reconciled.
+      </p>
+      {warnings.map((warning, index) => (
+        <p key={`${warning.code || warning.message}-${index}`} role="alert" className="flex items-start gap-1 text-xs text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{warning.message}{warning.count > 1 ? ` (${warning.count} records)` : ""}</span>
+        </p>
+      ))}
     </div>
   );
 }

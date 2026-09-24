@@ -6,6 +6,9 @@ import {
   isSharedTenantWidget,
   setCanvasDashboardNoStore,
   tenantFilter,
+  canAccessMembershipValue,
+  isMembershipValueConfig,
+  setMembershipValueNoStore,
 } from '../../_lib/permissions.js';
 import { runWidgetConfig } from '../../_lib/aggregation.js';
 import { readWidgetCache } from '../../_lib/resultCache.js';
@@ -82,6 +85,10 @@ export function createHandler(overrides = {}) {
     }
     if (isCanvasDashboardEmbed(req) && !isSharedTenantWidget(widget, actor)) {
       return reply(404, { error: 'Widget not found' });
+    }
+    setMembershipValueNoStore(widget.config, res);
+    if (isMembershipValueConfig(widget.config) && !canAccessMembershipValue(actor)) {
+      return reply(403, { error: 'Membership Payment Report permission required' });
     }
 
     try {

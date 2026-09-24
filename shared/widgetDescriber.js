@@ -105,6 +105,19 @@ function describeFilter(filter, fieldLabel, valueLabel) {
   }
 }
 
+function membershipPeriodLabel(value) {
+  const month = Number(value?.startMonth);
+  const year = Number(value?.startYear);
+  if (!Number.isInteger(month) || month < 1 || month > 12
+      || !Number.isInteger(year)) return 'the selected annual period';
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year + 1, month - 1, 0));
+  const fmt = date => date.toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+  });
+  return `${fmt(start)} to ${fmt(end)}`;
+}
+
 export function describeWidgetConfig(config, options = {}) {
   if (!config) return '';
   const { widgetType = 'stat', sourceLabel = 'records', fieldLabel, valueLabel } = options;
@@ -112,7 +125,24 @@ export function describeWidgetConfig(config, options = {}) {
   const sourcePlural = lowerFirst(sourceLabel);
 
   // --- What is measured -------------------------------------------------
-  if (config.source === 'member_group') {
+  if (config.source === 'organisation_membership') {
+    const membershipValue = config.membershipValue || {};
+    sentences.push(
+      `Shows recorded organisation membership value for ${membershipPeriodLabel(membershipValue)}, including a saved membership when its structure effective date falls within that exact 12-month period.`,
+    );
+    sentences.push(
+      'The headline is net of VAT; unpaid membership records are included. It is not cash received: payments, refunds and credits are not reconciled. Records without reliable valuation evidence are excluded and shown as warnings; an incomplete zero is unavailable, not a confident zero.',
+    );
+    if (membershipValue.currency) {
+      sentences.push(`Only ${String(membershipValue.currency).toUpperCase()} records are included; currencies are never converted or added together.`);
+    }
+    if (Array.isArray(membershipValue.configIds) && membershipValue.configIds.length > 0) {
+      sentences.push('Only the selected membership structures are included.');
+    }
+    if (Array.isArray(membershipValue.bandIds) && membershipValue.bandIds.length > 0) {
+      sentences.push('Only the selected membership bands are included.');
+    }
+  } else if (config.source === 'member_group') {
     const measure = config.measure?.field || 'groups';
     const descriptions = {
       groups: 'Counts distinct member groups, including empty groups.',

@@ -2,6 +2,8 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
 
+export const MEMBERSHIP_VALUE_FEATURE = 'commerce.membership-payment-report';
+
 /**
  * Resolve the current member, their tenant context and the dashboard
  * permissions they hold. Returns null when no authenticated member is found.
@@ -43,14 +45,41 @@ export async function getDashboardActor(req) {
     excludedFeatures,
     'dashboard.personal-widgets.manage',
   );
+  // This widget exposes tenant-wide membership amounts. Keep it aligned with
+  // the existing Membership Payment Report authorization rather than treating
+  // ordinary dashboard access as financial-report access. Tenant users are
+  // administrators; member sessions must retain both admin and report access.
+  const combinedExclusions = [
+    ...excludedFeatures,
+    ...(Array.isArray(ctx.memberExcludedFeatures) ? ctx.memberExcludedFeatures : []),
+  ];
+  const viewMembershipValue = view && (!!ctx.tenantUserId || (
+    !!ctx.roleId
+    && !isResourceExcluded(excludedFeatures, 'admin.role-management')
+    && !isResourceExcluded(combinedExclusions, MEMBERSHIP_VALUE_FEATURE)
+  ));
 
   return {
     tenantId: ctx.tenantId,
     memberId: ctx.memberId,
     organizationId: ctx.organizationId,
     roleId: ctx.roleId,
-    permissions: { view, manageShared, managePersonal },
+    permissions: { view, manageShared, managePersonal, viewMembershipValue },
   };
+}
+
+export function isMembershipValueConfig(config) {
+  return config?.source === 'organisation_membership';
+}
+
+export function canAccessMembershipValue(actor) {
+  return !!actor?.permissions?.viewMembershipValue;
+}
+
+export function setMembershipValueNoStore(config, res) {
+  if (isMembershipValueConfig(config)) {
+    res.setHeader('Cache-Control', 'private, no-store');
+  }
 }
 
 export function tenantFilter(query, tenantId) {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { validateMemberGroupConfig } from './memberGroupContract.js';
+import { validateOrganisationMembershipValueConfig } from './organisationMembershipValue.js';
 
 const fieldRefSchema = z.object({
   field: z.string().nullable().optional(),
@@ -120,6 +121,14 @@ const numberFormatSchema = z.object({
   decimals: z.number().int().min(0).max(4).nullable().optional(),
 });
 
+const membershipValueSchema = z.object({
+  startMonth: z.number().int().min(1).max(12),
+  startYear: z.number().int().min(1900).max(9998),
+  currency: z.string().regex(/^[A-Za-z]{3}$/, 'Currency must be a three-letter code').nullable().optional(),
+  configIds: z.array(z.string().min(1)).max(200).optional(),
+  bandIds: z.array(z.string().min(1)).max(200).optional(),
+}).strict();
+
 // Form-conversion widgets (source `form_conversion`): admin picks a source
 // form and one or more target forms plus how submissions are matched — by
 // the submission's organisation, or by the submitter's (lowercased) email.
@@ -166,6 +175,9 @@ export const widgetConfigSchema = z.object({
   // participation split (organisations with vs without at least one
   // booking matching the filters). Group-by / time-bucket don't apply.
   participation: z.boolean().nullable().optional(),
+  // Annual Membership Value is a bespoke financial KPI over persisted
+  // organisation membership commitments.
+  membershipValue: membershipValueSchema.nullable().optional(),
   // When true (organisation / member sources with a group-by only),
   // clicking a bar / slice / legend / list row on the widget card opens
   // the CRM list filtered to the records that make up that bucket.
@@ -185,6 +197,46 @@ export const widgetConfigSchema = z.object({
     validateMemberGroupConfig(cfg);
   } catch (err) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: err.message });
+  }
+  if (cfg.source === 'organisation_membership') {
+    if (!cfg.membershipValue) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['membershipValue'],
+        message: 'Annual Membership Value widgets need a reporting period.',
+      });
+    }
+    if (cfg.groupBy || cfg.timeBucket || cfg.seriesBy || cfg.clickThrough === true
+      || cfg.participation === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Annual Membership Value is a KPI only and does not support grouping, trends, participation or click-through.',
+      });
+    }
+    for (const [index, filter] of (cfg.filters || []).entries()) {
+      if (filter.fieldKind !== 'custom' || !filter.fieldId || filter.orgField === true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['filters', index],
+          message: 'Annual Membership Value filters must be organisation classification fields.',
+        });
+      }
+    }
+    try {
+      validateOrganisationMembershipValueConfig(cfg);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['membershipValue'],
+        message: error.message,
+      });
+    }
+  } else if (cfg.membershipValue) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['membershipValue'],
+      message: 'Membership value settings can only be used with the Annual Membership Value source.',
+    });
   }
   if (cfg.source === 'form_conversion') {
     if (!cfg.conversion) {
@@ -230,6 +282,14 @@ export const widgetCreateSchema = z.object({
   width: widthEnum.default('third'),
   height: heightEnum.default('medium'),
   config: widgetConfigSchema,
+}).superRefine((value, ctx) => {
+  if (value.config.source === 'organisation_membership' && value.widget_type !== 'stat') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['widget_type'],
+      message: 'Annual Membership Value is available only as a KPI/stat widget.',
+    });
+  }
 });
 
 export const widgetUpdateSchema = z.object({
@@ -238,7 +298,22 @@ export const widgetUpdateSchema = z.object({
   width: widthEnum.optional(),
   height: heightEnum.optional(),
   config: widgetConfigSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.config?.source === 'organisation_membership'
+    && value.widget_type && value.widget_type !== 'stat') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['widget_type'],
+      message: 'Annual Membership Value is available only as a KPI/stat widget.',
+    });
+  }
 });
+
+export function validateMembershipValueWidgetType(config, widgetType) {
+  if (config?.source === 'organisation_membership' && widgetType !== 'stat') {
+    throw new Error('Annual Membership Value is available only as a KPI/stat widget.');
+  }
+}
 
 export const reorderSchema = z.object({
   scope: z.enum(['shared', 'personal']),

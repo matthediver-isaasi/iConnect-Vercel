@@ -5,8 +5,11 @@ import {
   isSharedTenantWidget,
   setCanvasDashboardNoStore,
   tenantFilter,
+  canAccessMembershipValue,
+  isMembershipValueConfig,
+  setMembershipValueNoStore,
 } from '../_lib/permissions.js';
-import { widgetUpdateSchema } from '../_lib/validation.js';
+import { validateMembershipValueWidgetType, widgetUpdateSchema } from '../_lib/validation.js';
 import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 
@@ -43,6 +46,15 @@ export function createHandler(overrides = {}) {
     const widget = await loadWidget(id, actor, deps.supabase);
     if (!widget) {
       return res.status(404).json({ error: 'Widget not found' });
+    }
+    const effectiveConfig = req.method === 'PATCH' && req.body?.config
+      ? req.body.config
+      : widget.config;
+    setMembershipValueNoStore(widget.config, res);
+    setMembershipValueNoStore(effectiveConfig, res);
+    if ((isMembershipValueConfig(widget.config) || isMembershipValueConfig(effectiveConfig))
+      && !canAccessMembershipValue(actor)) {
+      return res.status(403).json({ error: 'Membership Payment Report permission required' });
     }
     if (req.method === 'GET' && isCanvasDashboardEmbed(req)
         && !isSharedTenantWidget(widget, actor)) {
@@ -95,6 +107,10 @@ async function updateWidget(req, res, widget, deps) {
   const update = { ...parsed.data, updated_at: new Date().toISOString() };
   try {
     validateMemberGroupWidgetType(update.config || widget.config, update.widget_type || widget.widget_type);
+    validateMembershipValueWidgetType(
+      update.config || widget.config,
+      update.widget_type || widget.widget_type,
+    );
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

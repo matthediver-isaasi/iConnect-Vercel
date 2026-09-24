@@ -19,6 +19,7 @@ import {
   getStatusFromHistory,
   findFirstTransitionAt,
 } from '../../reports/_ddReportHelpers.js';
+import { runOrganisationMembershipValueWidget } from './organisationMembershipValue.js';
 
 // Synthetic DD date dimension: "Date moved to stage …". Not a stored column;
 // each row's value is derived from its history_log as the timestamp it first
@@ -63,6 +64,9 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     throw new Error(`Unknown source: ${config.source}`);
   }
   const client = options.client || supabase;
+  if (source.isOrganisationMembershipValue) {
+    return runOrganisationMembershipValueWidget(config, tenantId, client);
+  }
   if (source.isMemberGroup) {
     return runMemberGroupWidgetConfig(config, tenantId, client, { ...options, maxGroups });
   }

@@ -60,9 +60,11 @@ const {
   cachePollDelay,
   completedRefreshOutcome,
   mergeWidgetResponse,
+  formatMembershipCurrency,
   widgetDataQueryKey,
   widgetRequestUrl,
 } = await import("./WidgetCard.jsx");
+const { describeWidgetConfig } = await import("@shared/widgetDescriber.js");
 const { default: WidgetBuilderModal } = await import("./WidgetBuilderModal.jsx");
 const { dashboardWidgetChartColours, normalizeDashboardWidgetPalette } =
   await import("@shared/dashboardWidgetPalette.js");
@@ -76,6 +78,168 @@ async function settleQuery() {
   await new Promise((done) => setTimeout(done, 0));
   await new Promise((done) => setTimeout(done, 0));
 }
+
+test("Annual membership value renders currency, exact basis and reconciliation warning", async () => {
+  assert.match(formatMembershipCurrency(1234.5, "GBP"), /£1,234\.50/);
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(
+    <WidgetBody
+      widget={{
+        id: "membership-value",
+        widget_type: "stat",
+        config: {
+          source: "organisation_membership",
+          membershipValue: { startMonth: 4, startYear: 2026, currency: "GBP" },
+        },
+      }}
+      payload={{
+        type: "scalar",
+        value: 1200,
+        membershipValue: {
+          currency: "GBP",
+          exactValue: "1200",
+          period: { start: "2026-04-01", endExclusive: "2027-04-01", label: "2026-04-01 – 2027-03-31" },
+          allocation: "membership_structure_effective_from_half_open",
+          warnings: [{ code: "review", message: "One record needs review", count: 1 }],
+        },
+      }}
+    />,
+  ));
+  assert.match(container.textContent, /£1,200\.00/);
+  assert.match(container.textContent, /net of VAT/i);
+  assert.match(container.textContent, /2026-04-01 – 2027-03-31/);
+  assert.match(container.textContent, /effective date falls in this period/);
+  assert.match(container.textContent, /Unpaid records are included/);
+  assert.match(container.textContent, /Payments, refunds and credits are not reconciled/);
+  assert.match(container.textContent, /One record needs review/);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("Annual membership value description states period, VAT and allocation semantics", () => {
+  const text = describeWidgetConfig({
+    source: "organisation_membership",
+    membershipValue: {
+      startMonth: 4,
+      startYear: 2026,
+      currency: "GBP",
+      configIds: ["config-a"],
+      bandIds: ["band-a"],
+    },
+    filters: [],
+  });
+  assert.match(text, /1 April 2026 to 31 March 2027/);
+  assert.match(text, /exact 12-month period/);
+  assert.match(text, /net of VAT/);
+  assert.match(text, /unpaid membership records are included/i);
+  assert.match(text, /payments, refunds and credits are not reconciled/i);
+  assert.match(text, /currencies are never converted/);
+  assert.match(text, /selected membership structures/);
+  assert.match(text, /selected membership bands/);
+});
+
+test("Annual membership value never presents an incomplete zero as valid", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(
+    <WidgetBody
+      widget={{ id: "incomplete-value", widget_type: "stat", config: { source: "organisation_membership", membershipValue: { currency: "GBP" } } }}
+      payload={{
+        type: "scalar",
+        value: 0,
+        membershipValue: {
+          currency: "GBP",
+          exactValue: "0",
+          warnings: [{ code: "incomplete_zero", message: "The displayed zero is incomplete because eligible records lacked valuation evidence.", count: 1 }],
+        },
+      }}
+    />,
+  ));
+  assert.match(container.textContent, /Unavailable/);
+  assert.doesNotMatch(container.textContent, /£0\.00/);
+  assert.match(container.textContent, /zero is incomplete/);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("Annual membership value builder preserves its dedicated config and hides generic controls", async () => {
+  globalThis.CustomEvent = window.CustomEvent;
+  globalThis.NodeFilter = window.NodeFilter;
+  globalThis.HTMLInputElement = window.HTMLInputElement;
+  globalThis.HTMLSelectElement = window.HTMLSelectElement;
+  globalThis.HTMLTextAreaElement = window.HTMLTextAreaElement;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { type: "scalar", value: 1250, currency: "GBP" } }),
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } } });
+  client.setQueryData(["/api/dashboard/sources"], {
+    sources: [{
+      id: "organisation_membership",
+      label: "Annual Membership Value",
+      membershipCatalog: {
+        configs: [{ id: "config-a", name: "Corporate" }],
+        bands: [{ id: "band-a", label: "Band A", config_id: "config-a" }],
+        currencies: ["GBP"],
+      },
+      customFields: [{ id: "classification", label: "Classification", type: "enum", options: [] }],
+      systemFields: [],
+    }],
+  });
+  const config = {
+    source: "organisation_membership",
+    measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
+    membershipValue: {
+      startMonth: 4,
+      startYear: 2026,
+      currency: "GBP",
+      configIds: ["config-a"],
+      bandIds: ["band-a"],
+    },
+    filters: [],
+    helperText: "Annual value",
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let saved;
+  try {
+    await act(async () => root.render(
+      <QueryClientProvider client={client}>
+        <WidgetBuilderModal
+          open
+          initialWidget={{ title: "Annual value", widget_type: "stat", scope: "personal", config }}
+          onClose={() => {}}
+          onSave={value => { saved = value; }}
+          canSavePersonal
+        />
+      </QueryClientProvider>,
+    ));
+    await settleQuery();
+    assert.ok(document.querySelector('[data-testid="membership-value-controls"]'));
+    assert.equal(document.querySelector('[data-testid="select-widget-type"]'), null);
+    assert.equal(document.querySelector('[data-testid="select-widget-aggregator"]'), null);
+    assert.equal(document.querySelector('[data-testid="select-widget-groupby"]'), null);
+    assert.equal(document.querySelector('[data-testid="select-widget-timebucket-field"]'), null);
+    assert.equal(document.querySelector('[data-testid="switch-widget-click-through"]'), null);
+    const save = document.querySelector('[data-testid="button-save-widget"]');
+    assert.ok(save);
+    assert.equal(save.disabled, false);
+    await act(async () => save.click());
+    assert.equal(saved.widget_type, "stat");
+    assert.deepEqual(saved.config.membershipValue, config.membershipValue);
+    assert.equal(saved.config.helperText, "Annual value");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    client.clear();
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("Member Groups list renders missing history and provisional values without clickthrough or summed headcounts", async () => {
   const container = document.createElement("div");

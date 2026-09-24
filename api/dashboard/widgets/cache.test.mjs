@@ -104,3 +104,44 @@ test('status metadata never substitutes zero for missing success or hides a fail
   assert.equal(out.cache.pending,false);
   assert.equal(out.cache.retryAfterSeconds,60);
 });
+
+test('financial membership widgets require report permission before cached data or refresh is accessed', async () => {
+  const financial = {
+    ...widget,
+    widget_type: 'stat',
+    config: { source: 'organisation_membership' },
+  };
+  const db = {
+    from: () => ({
+      select() { return this; },
+      eq() { return this; },
+      single: async () => ({ data: financial }),
+    }),
+  };
+  for (const factory of [dataHandler, refreshHandler]) {
+    let cacheReads = 0;
+    const denied = response();
+    await factory(deps({
+      supabase: db,
+      getDashboardActor: async () => actor,
+      readWidgetCache: async () => { cacheReads++; return {}; },
+    }))({ method: 'POST', query: { id: 'widget' } }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(cacheReads, 0);
+
+    const allowed = response();
+    await factory(deps({
+      supabase: db,
+      getDashboardActor: async () => ({
+        ...actor,
+        permissions: { view: true, viewMembershipValue: true },
+      }),
+      readWidgetCache: async () => {
+        cacheReads++;
+        return { data: { rows: [{ value: 100 }] }, cache: { status: 'current' } };
+      },
+    }))({ method: 'POST', query: { id: 'widget' } }, allowed);
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(cacheReads, 1);
+  }
+});

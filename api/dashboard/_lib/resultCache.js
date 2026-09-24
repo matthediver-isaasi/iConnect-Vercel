@@ -1,5 +1,6 @@
 import { runWidgetConfig, MAX_LIST_GROUPS } from './aggregation.js';
 import { validateMemberGroupWidgetType } from './memberGroupContract.js';
+import { validateMembershipValueWidgetType } from './validation.js';
 
 export const FRESHNESS_MS = 15 * 60 * 1000;
 export const COMPUTE_TIMEOUT_MS = 20000;
@@ -44,6 +45,7 @@ export async function executeClaim(db, claim, { run = runWidgetConfig, timeoutMs
   let failure = null;
   try {
     validateMemberGroupWidgetType(widget.config, widget.widget_type);
+    validateMembershipValueWidgetType(widget.config, widget.widget_type);
     result = await Promise.race([
       run(widget.config, widget.tenant_id, {
         maxGroups: widget.widget_type === 'list' ? MAX_LIST_GROUPS : undefined,
