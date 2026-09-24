@@ -1,6 +1,8 @@
 import { assignmentWindowState } from './surveyAssignment.js';
 import { isFormScheduleAvailable } from './formAvailability.js';
 import { getTenantTrustedBaseUrl } from './publicBaseUrl.js';
+import { resolveEventEmailContext } from './eventEmailContext.js';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 
 const tokenPattern = () => /\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/gi;
 export function usesEventSurvey(campaign) {
@@ -14,6 +16,9 @@ function reject(message) {
 }
 
 export async function resolveEventEmailSurvey(db, config, event, eventType) {
+  const sponsorCampaign = { subject: config.subject, html_content: config.body,
+    event_survey_context: { event_id: event.id, event_type: eventType } };
+  const sponsors = await resolveCampaignEventSponsors(db, sponsorCampaign, event.tenant_id);
   const url = await resolveCampaignEventSurvey(db, {
     subject: config.subject, html_content: config.body,
     event_survey_context: {
@@ -23,13 +28,16 @@ export async function resolveEventEmailSurvey(db, config, event, eventType) {
   }, event.tenant_id);
   return {
     subject: url ? replaceEventSurvey(config.subject, url) : config.subject,
-    body: url ? replaceEventSurvey(config.body, url) : config.body,
+    body: sponsors !== null
+      ? replaceEventSponsors(url ? replaceEventSurvey(config.body, url) : config.body, sponsors)
+      : url ? replaceEventSurvey(config.body, url) : config.body,
   };
 }
 
 // Resolve only explicit campaign context, never recipient bookings. No writes,
 // token minting, access-mode changes or request-Origin dependencies.
 export async function resolveCampaignEventSurvey(db, campaign, tenantId) {
+  await resolveCampaignEventSponsors(db, campaign, tenantId);
   if (!usesEventSurvey(campaign)) return null;
   const context = campaign.event_survey_context;
   if (!context?.event_id || !['event', 'complex_event'].includes(context.event_type)) {
@@ -42,8 +50,7 @@ export async function resolveCampaignEventSurvey(db, campaign, tenantId) {
     if (error) reject('could not validate the selected survey. Please retry.');
     return data;
   }
-  const event = await one(context.event_type, { id: context.event_id });
-  if (!event || event.status === 'archived' || event.is_active === false) reject('the selected event is unavailable.');
+  await resolveEventEmailContext(db, context, tenantId);
   let query = db.from('event_survey_assignment').select('*')
     .eq('tenant_id', tenantId).eq('event_type', context.event_type)
     .eq(context.event_type === 'event' ? 'event_id' : 'complex_event_id', context.event_id);

@@ -10,6 +10,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 25;
@@ -215,6 +216,8 @@ export default async function handler(req, res) {
     }
     try {
       const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantId);
+      const sponsors = await resolveCampaignEventSponsors(supabase, campaign, tenantId);
+      if (sponsors !== null) campaign.html_content = replaceEventSponsors(campaign.html_content, sponsors);
       if (surveyUrl) {
         campaign.html_content = replaceEventSurvey(campaign.html_content, surveyUrl);
         campaign.subject = replaceEventSurvey(campaign.subject, surveyUrl);

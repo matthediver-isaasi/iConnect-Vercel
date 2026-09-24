@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { resolveEventEmailPreview } from '@/lib/eventEmailPreview';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -256,25 +257,23 @@ export default function EmailCampaignEdit() {
     is_test_mode: false
   });
   const [editorMode, setEditorMode] = useState('visual');
-  const hasSurveyToken = /\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
+  const hasSurveyToken = /\{\{event_(?:survey_url|sponsors)\}\}|\[\[event\.(?:survey_url|sponsors)\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
   const { data: surveyPreview, error: surveyPreviewError } = useQuery({
-    queryKey: ['campaign-event-survey-preview', formData.event_survey_context],
+    queryKey: ['campaign-event-survey-preview', formData.event_survey_context, formData.subject, formData.html_content],
     enabled: hasSurveyToken,
     retry: false,
     queryFn: async () => {
       const response = await fetch('/api/email-campaigns/preview-survey', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_survey_context: formData.event_survey_context }),
+        body: JSON.stringify({ event_survey_context: formData.event_survey_context, subject: formData.subject, html_content: formData.html_content }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not preview event survey');
       return result;
     },
   });
-  const resolveSurveyPreview = html => surveyPreview?.url && hasSurveyToken
-    ? String(html || '').replace(/\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/gi, () => surveyPreview.url)
-    : html;
+  const resolveSurveyPreview = html => resolveEventEmailPreview(html, surveyPreview);
 
   const { data: campaign, isLoading: campaignLoading } = useQuery({
     queryKey: ['email-campaign', id],

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 
 // Execute the actual endpoint/access code with hermetic dependencies: no service
 // module imports, database connections, or email transports are loaded.
@@ -80,7 +81,7 @@ async function fixture(options = {}) {
     };
   };
   const dependencies = {
-    resolveCampaignEventSurvey, replaceEventSurvey,
+    resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
     supabase, ...access, ...services,
     getHostFromRequest: () => 'example.org',
     validateCampaignSenderEmail: () => ({ valid: true }),

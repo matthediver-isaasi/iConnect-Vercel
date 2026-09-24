@@ -97,6 +97,19 @@ const entry = (
 
 export const EMAIL_PLACEHOLDERS = [
   entry(
+    '{{event_sponsors}}', PLACEHOLDER_SYNTAX.CURLY, 'Event Confirmation & Reminder',
+    'Public sponsor logos and names for the selected event, rendered as an email table.',
+    ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign event context / automatic event email context',
+    { prerequisites: 'Select a campaign event. Event confirmations and reminders use their own event. No survey required.',
+      notes: 'Body block only: insert in its own paragraph, never in subjects, button URLs, hrefs or inline text. Alias: [[event.sponsors]]. Resolves at send time; hidden sponsors or no sponsors produce no heading or content.' },
+  ),
+  entry(
+    '[[event.sponsors]]', PLACEHOLDER_SYNTAX.BRACKET, 'Event Confirmation & Reminder',
+    'Alias of {{event_sponsors}}: public sponsor logos and names, not a URL.',
+    ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event context',
+    { notes: 'Standalone body paragraph only. Not supported in subjects or link attributes. No survey required.' },
+  ),
+  entry(
     '{{event_survey_url}}', PLACEHOLDER_SYNTAX.CURLY, 'System & Links',
     'Survey assignment URL for the event selected on this campaign. Reuse the same template for different events.',
     ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event email survey settings',

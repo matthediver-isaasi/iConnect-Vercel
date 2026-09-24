@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { resolveCampaignEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { resolveCampaignEventSponsors } from '../_lib/eventEmailSponsors.js';
 import { getCallerEmsAccess, requireGroupAccess } from '../_lib/memberGroupEmsAccess.js';
 
 export default async function handler(req, res) {
@@ -16,12 +17,16 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   try {
-    const url = await resolveCampaignEventSurvey(supabase, {
-      subject: '{{event_survey_url}}',
+    const campaign = {
+      subject: req.body?.subject ?? '{{event_survey_url}}',
+      html_content: req.body?.html_content || '',
+      design_json: req.body?.design_json || null,
       event_survey_context: req.body?.event_survey_context,
-    }, context.tenantId);
+    };
+    const url = await resolveCampaignEventSurvey(supabase, campaign, context.tenantId);
+    const sponsors = await resolveCampaignEventSponsors(supabase, campaign, context.tenantId);
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ url });
+    return res.status(200).json({ url, sponsors });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

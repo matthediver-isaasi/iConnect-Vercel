@@ -6,6 +6,8 @@ import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from 
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import { getPublicBaseUrl } from './publicBaseUrl.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from './campaignEventSurvey.js';
+import { resolveEventEmailContext } from './eventEmailContext.js';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 import {
   filterExplicitCategorySubscribers,
   isActiveCommunicationMember,
@@ -408,7 +410,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
   try {
     const cleanedData = { ...campaignData };
     if (cleanedData.event_survey_context?.event_id) {
-      await resolveCampaignEventSurvey(supabase, { ...cleanedData, subject: '{{event_survey_url}}' }, tenantId);
+      await resolveEventEmailContext(supabase, cleanedData.event_survey_context, tenantId);
     }
     delete cleanedData.category_review_required;
     delete cleanedData.category_review_reason;
@@ -495,7 +497,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
       .single();
     if (existingError) throw existingError;
     if (cleanedUpdates.event_survey_context?.event_id) {
-      await resolveCampaignEventSurvey(supabase, { ...existing, ...cleanedUpdates, subject: '{{event_survey_url}}' }, tenantId);
+      await resolveEventEmailContext(supabase, cleanedUpdates.event_survey_context, tenantId);
     }
     const listValidation = await validateCampaignAudienceLists(
       { ...existing, ...cleanedUpdates },
@@ -3458,6 +3460,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
     }
     const surveyUrl = await resolveCampaignEventSurvey(supabase, { ...campaign, html_content: html, subject }, tenantId);
+    const sponsors = await resolveCampaignEventSponsors(supabase, { ...campaign, html_content: html, subject }, tenantId);
+    if (sponsors !== null) html = replaceEventSponsors(html, sponsors);
     if (surveyUrl) {
       html = replaceEventSurvey(html, surveyUrl);
       subject = replaceEventSurvey(subject, surveyUrl);

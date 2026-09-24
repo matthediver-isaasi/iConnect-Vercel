@@ -23,12 +23,17 @@ export default function CampaignEventSurveySettings({ value, onChange, fixedEven
   });
   const classes = 'w-full rounded-md border bg-background p-2';
   return <fieldset className="space-y-3 rounded-md border p-4">
-    <legend className="px-1 font-medium">Campaign event survey</legend>
+    <legend className="px-1 font-medium">Event context (survey optional)</legend>
+    <p className="text-sm text-muted-foreground">
+      Insert <code>{'{{event_sponsors}}'}</code> or <code>[[event.sponsors]]</code> in its own body paragraph
+      to display public sponsor logos and names for this event. No survey is required.
+      Not supported in subjects, links or button URLs. Hidden sponsors and empty lists produce no content.
+    </p>
     <p className="text-sm text-muted-foreground">
       Use <code>{'{{event_survey_url}}'}</code> (or <code>[[event.survey_url]]</code>)
       in your reusable template, including a button URL or link href.
-      {fixedEvent ? ' The event is taken from this email configuration.' : ' Select the event here, not on the template.'}
-      Sending requires an open assignment and an active published survey. Existing login and access restrictions still apply.
+      {fixedEvent ? ' The event is taken from this email configuration. ' : ' Select the event here, not on the template. '}
+      Using a survey URL requires an open assignment and an active published survey. Existing login and access restrictions still apply.
     </p>
     {(eventError || assignmentError || formError) && <p role="alert">Could not load event survey choices. Please retry.</p>}
     {!fixedEvent && <><label className="block">Event type
@@ -42,7 +47,7 @@ export default function CampaignEventSurveySettings({ value, onChange, fixedEven
         {events.map(event => <option key={event.id} value={event.id}>{event.title || event.name}</option>)}
       </select>
     </label></>}
-    <label className="block">Survey assignment
+    <label className="block">Survey assignment (optional; only for survey URLs)
       <select aria-label="Survey assignment" className={classes} disabled={!context.event_id} value={context.assignment_id || ''} onChange={e => onChange({ ...context, assignment_id: e.target.value })}>
         <option value="">Automatic only when exactly one active assignment exists</option>
         {assignments.map(row => <option key={row.id} value={row.id}>{forms.find(form => form.id === row.form_id)?.name || 'Survey'} ({row.access_mode === 'authenticated' ? 'Login required' : 'Public assignment'})</option>)}

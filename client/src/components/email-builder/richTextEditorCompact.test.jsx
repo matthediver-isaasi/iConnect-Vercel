@@ -64,6 +64,18 @@ const RichTextEditorModule = await import('./RichTextEditor.jsx');
 const RichTextEditor = RichTextEditorModule.default;
 const { buildRichTextExtensions } = RichTextEditorModule;
 
+test('sponsor body tokens survive actual editor insertion and HTML round trip', () => {
+  for (const token of ['{{event_sponsors}}', '[[event.sponsors]]']) {
+    const editor = new Editor({ extensions: buildRichTextExtensions(), content: '<p></p>' });
+    try {
+      editor.commands.insertContent(token);
+      assert.equal(editor.getHTML(), `<p>${token}</p>`);
+      editor.commands.setContent(editor.getHTML());
+      assert.equal(editor.getText(), token);
+    } finally { editor.destroy(); }
+  }
+});
+
 test('campaign survey placeholders survive the real link editor extension and HTML round trip', () => {
   for (const token of ['{{event_survey_url}}', '[[event.survey_url]]']) {
     const editor = new Editor({ extensions: buildRichTextExtensions(), content: '<p>Survey</p>' });

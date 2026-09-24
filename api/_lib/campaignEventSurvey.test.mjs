@@ -5,6 +5,7 @@ import { sanitizeSlotHtml } from './slotHtmlSanitizer.js';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 
 function fixture() {
   const rows = {
@@ -109,6 +110,15 @@ test('unrelated campaigns perform no survey lookups; sanitizer preserves both to
   }
 });
 
+test('survey and sponsor tokens coexist without changing survey access rules', async () => {
+  const f = fixture();
+  f.rows.event_sponsor_assignment = [];
+  const result = await resolveEventEmailSurvey(f.db, {
+    subject: 'Feedback', body: '<p>[[event.sponsors]]</p><a href="{{event_survey_url}}">Feedback</a>',
+  }, f.rows.event[0], 'event');
+  assert.equal(result.body, '<a href="https://survey.fixture.invalid/survey/private-token-1">Feedback</a>');
+});
+
 test('actual per-recipient send resolves subject, body and tracked button; retries fail closed without token logs', async () => {
   const f = fixture();
   const submissions = [];
@@ -118,7 +128,7 @@ test('actual per-recipient send resolves subject, body and tracked button; retri
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer,
-    supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey,
+    supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
     replacePlaceholders: text => text,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },
     console: { error: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')), log() {} },

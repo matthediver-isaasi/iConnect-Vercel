@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { resolveEventEmailPreview } from '@/lib/eventEmailPreview';
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
@@ -185,24 +186,22 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState(blankComposeState());
-  const hasSurveyToken = /\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/i.test(`${compose.subject}\n${compose.html_content}\n${JSON.stringify(compose.slotValues)}`);
+  const hasSurveyToken = /\{\{event_(?:survey_url|sponsors)\}\}|\[\[event\.(?:survey_url|sponsors)\]\]/i.test(`${compose.subject}\n${compose.html_content}\n${JSON.stringify(compose.slotValues)}`);
   const { data: surveyPreview, error: surveyPreviewError } = useQuery({
-    queryKey: ['group-campaign-survey-preview', activeGroupId, compose.event_survey_context],
+    queryKey: ['group-campaign-survey-preview', activeGroupId, compose.event_survey_context, compose.subject, compose.html_content, compose.slotValues],
     enabled: composeOpen && hasSurveyToken && !!activeGroupId,
     retry: false,
     queryFn: async () => {
       const response = await fetch('/api/email-campaigns/preview-survey', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId: activeGroupId, event_survey_context: compose.event_survey_context }),
+        body: JSON.stringify({ groupId: activeGroupId, event_survey_context: compose.event_survey_context, subject: compose.subject, html_content: compose.html_content, design_json: { slotValues: compose.slotValues } }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not preview event survey');
       return result;
     },
   });
-  const resolveSurveyPreview = text => surveyPreview?.url && hasSurveyToken
-    ? String(text || '').replace(/\{\{event_survey_url\}\}|\[\[event\.survey_url\]\]/gi, () => surveyPreview.url)
-    : text;
+  const resolveSurveyPreview = text => resolveEventEmailPreview(text, surveyPreview);
   const [recipientPreview, setRecipientPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sending, setSending] = useState(false);

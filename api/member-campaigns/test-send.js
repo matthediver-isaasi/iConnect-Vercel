@@ -10,6 +10,7 @@ import {
 } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -153,6 +154,8 @@ export default async function handler(req, res) {
       html = stripHiddenDynamicRegions(html, campaignHiddenSlots);
       if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues, { html: true, richSlots: campaignRichSlots });
       let subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues, { richSlots: campaignRichSlots })}`;
+      const sponsors = await resolveCampaignEventSponsors(supabase, { ...campaign, subject, html_content: html }, tenantContext.tenantId);
+      if (sponsors !== null) html = replaceEventSponsors(html, sponsors);
       if (surveyUrl) {
         html = replaceEventSurvey(html, surveyUrl);
         subject = replaceEventSurvey(subject, surveyUrl);
@@ -216,7 +219,7 @@ export default async function handler(req, res) {
     if (succeeded.length === 0) return res.status(500).json({ ...responseBody, error: message });
     return res.json(responseBody);
   } catch (err) {
-    if (err.message?.startsWith('Event survey:')) {
+    if (/^Event (survey|sponsors|context):/.test(err.message || '')) {
       return res.status(400).json({ error: err.message });
     }
     console.error('[MemberCampaigns Test Send] Error:', err);
