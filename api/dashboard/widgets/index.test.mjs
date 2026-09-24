@@ -111,3 +111,51 @@ test('Canvas widget discovery returns only the requested page and follows page m
     hasMore: false,
   });
 });
+
+test('create persists normalized date filters with the server-owned cache identity version', async () => {
+  let inserted;
+  const supabase = {
+    from() {
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        order() { return query; },
+        limit() { return query; },
+        insert(row) { inserted = row; return query; },
+        single: async () => ({ data: inserted, error: null }),
+        then(resolve, reject) {
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+  const handler = createHandler({
+    supabase,
+    getDashboardActor: async () => actor,
+  });
+  const res = response();
+  await handler({
+    method: 'POST',
+    query: {},
+    body: {
+      title: 'Created after date',
+      widget_type: 'stat',
+      scope: 'personal',
+      config: {
+        source: 'organization',
+        measure: { aggregator: 'count', field: null, fieldKind: null, fieldId: null },
+        filters: [{
+          fieldKind: 'system',
+          field: 'created_at',
+          operator: 'gte',
+          value: '05/02/2025',
+        }],
+      },
+    },
+  }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(inserted.config.filters[0].value, '2025-02-05');
+  assert.equal(inserted.config.filters[0].valueType, 'date');
+  assert.equal(inserted.config.dateFilterVersion, 'instant-v1');
+});

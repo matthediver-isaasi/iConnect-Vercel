@@ -12,6 +12,7 @@ import { widgetCreateSchema } from '../_lib/validation.js';
 import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 import { getDashboardWidgetPalette } from '../_lib/palette.js';
+import { normalizeWidgetConfigDateFilters } from '../_lib/widgetFilterDates.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
@@ -28,6 +29,7 @@ export function createHandler(overrides = {}) {
     getDashboardWidgetPalette,
     widgetCreateSchema,
     validateMemberGroupTenantConfig,
+    normalizeWidgetConfigDateFilters,
     ...overrides,
   };
   return async function dashboardWidgetsHandler(req, res) {
@@ -185,6 +187,11 @@ async function createWidget(req, res, actor, deps) {
     return res.status(400).json({ error: 'Invalid widget payload', details: parsed.error.flatten() });
   }
   const payload = parsed.data;
+  try {
+    payload.config = await deps.normalizeWidgetConfigDateFilters(payload.config, actor.tenantId);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   setMembershipValueNoStore(payload.config, res);
   if (isMembershipValueConfig(payload.config) && !canAccessMembershipValue(actor)) {
     return res.status(403).json({ error: 'Membership Payment Report permission required' });

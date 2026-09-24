@@ -20,6 +20,10 @@ import {
   findFirstTransitionAt,
 } from '../../reports/_ddReportHelpers.js';
 import { runOrganisationMembershipValueWidget } from './organisationMembershipValue.js';
+import {
+  matchWidgetDateFilter,
+  normalizeWidgetConfigDateFilters,
+} from './widgetFilterDates.js';
 
 // Synthetic DD date dimension: "Date moved to stage …". Not a stored column;
 // each row's value is derived from its history_log as the timestamp it first
@@ -63,6 +67,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   if (!source) {
     throw new Error(`Unknown source: ${config.source}`);
   }
+  config = await normalizeWidgetConfigDateFilters(config, tenantId);
   const client = options.client || supabase;
   if (source.isOrganisationMembershipValue) {
     return runOrganisationMembershipValueWidget(config, tenantId, client);
@@ -1332,6 +1337,7 @@ function compare(value, filterValue, op) {
 }
 
 export function matchFilter(rawValue, filter, lmicCodes, isList = false) {
+  if (filter.valueType === 'date') return matchWidgetDateFilter(rawValue, filter);
   // List-typed (multi-pick) custom fields: a row qualifies when ANY
   // element of the list satisfies the predicate (for `lmic`, `eq`,
   // `neq`, `in`, `contains`). `is_null` becomes "list is missing or

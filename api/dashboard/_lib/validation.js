@@ -29,6 +29,10 @@ const filterSchema = z.object({
   // resolves matching organisations and keeps only their bookings. Must be
   // whitelisted here or zod silently strips it and the filter degrades.
   orgField: z.boolean().nullable().optional(),
+  // Set by the date-filter normalizer after resolving source metadata.
+  // Keeping it in persisted configs lets every execution path (including
+  // cached widgets and drilldowns) retain date-aware equality semantics.
+  valueType: z.enum(['date']).nullable().optional(),
 });
 
 // Optional secondary field references for additive measures. When the

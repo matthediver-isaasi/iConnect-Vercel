@@ -12,6 +12,7 @@ import {
 import { validateMembershipValueWidgetType, widgetUpdateSchema } from '../_lib/validation.js';
 import { validateMemberGroupTenantConfig } from '../_lib/memberGroupAggregation.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
+import { normalizeWidgetConfigDateFilters } from '../_lib/widgetFilterDates.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
@@ -23,6 +24,7 @@ export function createHandler(overrides = {}) {
     getDashboardActor,
     widgetUpdateSchema,
     validateMemberGroupTenantConfig,
+    normalizeWidgetConfigDateFilters,
     ...overrides,
   };
   return async function dashboardWidgetHandler(req, res) {
@@ -105,6 +107,13 @@ async function updateWidget(req, res, widget, deps) {
     return res.status(400).json({ error: 'Invalid widget payload', details: parsed.error.flatten() });
   }
   const update = { ...parsed.data, updated_at: new Date().toISOString() };
+  if (update.config) {
+    try {
+      update.config = await deps.normalizeWidgetConfigDateFilters(update.config, widget.tenant_id);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  }
   try {
     validateMemberGroupWidgetType(update.config || widget.config, update.widget_type || widget.widget_type);
     validateMembershipValueWidgetType(

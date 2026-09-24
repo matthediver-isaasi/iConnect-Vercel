@@ -155,3 +155,4 @@
 - [New-member incentive evidence](new-member-incentive-evidence.md) — rollover preserves original entitlement less usage; later pricing cannot establish legacy credit.
 - [Post-booking credit authority](post-booking-credit-authority.md) — use actual reversal evidence; overlapping refund and credit-note legs require durable linkage, never inferred totals.
 - [Annual membership value](annual-membership-value-semantics.md) — recorded net commitments are not settlement; allocate by applied structure, not term or payment dates.
+- [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.

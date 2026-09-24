@@ -58,6 +58,11 @@ import {
   normalizeDashboardWidgetPalette,
   resolveDashboardWidgetColour,
 } from "@shared/dashboardWidgetPalette.js";
+import {
+  isWidgetDateOperator,
+  normalizeWidgetDate,
+  widgetDateError,
+} from "@shared/widgetFilterDates.js";
 
 const WIDGET_TYPES = [
   { value: "stat", label: "Stat / KPI" },
@@ -243,6 +248,41 @@ function buildFieldOptions(source) {
   return [...system, ...custom, ...org];
 }
 
+// Resolve the descriptor behind a filter without confusing booking fields
+// with organisation-level custom fields. The latter use the same custom-field
+// shape but carry orgField so their type (including date) must come from the
+// organisation descriptor.
+function filterFieldOption(filter, fieldOptions) {
+  return fieldOptions.find(option =>
+    filter.fieldKind === "system"
+      ? option.fieldKind === "system" && option.field === filter.field
+      : option.fieldKind === "custom" && option.fieldId === filter.fieldId
+        && !!option.orgField === !!filter.orgField,
+  ) || null;
+}
+
+function dateFilterError(filter, fieldOptions) {
+  const option = filterFieldOption(filter, fieldOptions);
+  if (option?.type !== "date" || !isWidgetDateOperator(filter.operator)) return null;
+  if (filter.value === null || filter.value === undefined || filter.value === "") return null;
+  return widgetDateError(filter.value);
+}
+
+function normalizeFiltersForRequest(filters, fieldOptions, normalizeLists = false) {
+  return (filters || []).map(filter => {
+    if (normalizeLists && filter.operator === "in" && !Array.isArray(filter.value)) {
+      return {
+        ...filter,
+        value: String(filter.value || "").split(",").map(value => value.trim()).filter(Boolean),
+      };
+    }
+    const option = filterFieldOption(filter, fieldOptions);
+    if (option?.type !== "date" || !isWidgetDateOperator(filter.operator)) return filter;
+    const normalized = normalizeWidgetDate(filter.value);
+    return normalized ? { ...filter, value: normalized } : filter;
+  });
+}
+
 export default function WidgetBuilderModal({
   open,
   onClose,
@@ -380,16 +420,31 @@ export default function WidgetBuilderModal({
   useEffect(() => {
     if (!open) return;
     setPreviewError(null);
-    if (!draft.config.source) return;
+    if (!draft.config.source || !currentSource) return;
+
+    const invalidDateIndex = (draft.config.filters || []).findIndex(
+      filter => !!dateFilterError(filter, fieldOptions),
+    );
+    if (invalidDateIndex !== -1) {
+      const error = dateFilterError(draft.config.filters[invalidDateIndex], fieldOptions);
+      setPreviewError(`Filter ${invalidDateIndex + 1}: ${error}`);
+      setPreviewData(null);
+      setPreviewLoading(false);
+      return;
+    }
 
     const handle = setTimeout(async () => {
       try {
         setPreviewLoading(true);
+        const previewConfig = {
+          ...draft.config,
+          filters: normalizeFiltersForRequest(draft.config.filters, fieldOptions),
+        };
         const res = await fetch("/api/dashboard/widgets/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ config: draft.config, widgetType: draft.widget_type }),
+          body: JSON.stringify({ config: previewConfig, widgetType: draft.widget_type }),
         });
         const body = await res.json();
         if (!res.ok) {
@@ -406,7 +461,7 @@ export default function WidgetBuilderModal({
     }, 350);
 
     return () => clearTimeout(handle);
-  }, [draft.config, draft.widget_type, open]);
+  }, [draft.config, draft.widget_type, open, currentSource, fieldOptions]);
 
   const updateConfig = patch => {
     setDraft(prev => ({ ...prev, config: { ...prev.config, ...patch } }));
@@ -517,6 +572,10 @@ export default function WidgetBuilderModal({
     const errs = [];
     if (!draft.title.trim()) errs.push("Add a widget title.");
     if (!draft.config.source) errs.push("Choose a data source.");
+    (draft.config.filters || []).forEach((filter, index) => {
+      const error = dateFilterError(filter, fieldOptions);
+      if (error) errs.push(`Filter ${index + 1}: ${error}`);
+    });
     if (isMembershipValueSource) {
       const value = draft.config.membershipValue || {};
       if (!Number.isInteger(Number(value.startMonth)) || Number(value.startMonth) < 1 || Number(value.startMonth) > 12) {
@@ -669,16 +728,14 @@ export default function WidgetBuilderModal({
 
   const handleSave = () => {
     if (!canSave) return;
-    // Normalise `in` filter values to arrays before persisting.
-    const normalisedFilters = (draft.config.filters || []).map(f => {
-      if (f.operator === "in" && !Array.isArray(f.value)) {
-        return {
-          ...f,
-          value: String(f.value || "").split(",").map(s => s.trim()).filter(Boolean),
-        };
-      }
-      return f;
-    });
+    // Keep the draft untouched while typing, but persist date comparisons in
+    // their canonical ISO form (including legacy DD/MM/YYYY widget values).
+    // `in` filter values retain their existing array normalization.
+    const normalisedFilters = normalizeFiltersForRequest(
+      draft.config.filters,
+      fieldOptions,
+      true,
+    );
     onSave({
       title: draft.title.trim(),
       widget_type: draft.widget_type,
@@ -1940,16 +1997,8 @@ export default function WidgetBuilderModal({
               )}
               <div className="space-y-2">
                 {(draft.config.filters || []).map((filter, idx) => {
-                  const opt = fieldOptions.find(o =>
-                    filter.fieldKind === "system"
-                      ? o.fieldKind === "system" && o.field === filter.field
-                      // Organisation-level and row-level custom fields can
-                      // never share a fieldId in practice, but match the
-                      // orgField marker too so the row re-selects the right
-                      // descriptor.
-                      : o.fieldKind === "custom" && o.fieldId === filter.fieldId
-                        && !!o.orgField === !!filter.orgField,
-                  );
+                  const opt = filterFieldOption(filter, fieldOptions);
+                  const filterDateError = dateFilterError(filter, fieldOptions);
                   // Region filters offer the bucket list of the filter's
                   // chosen scheme (not the field's static app-scheme
                   // options); every other field keeps its own options.
@@ -2079,13 +2128,21 @@ export default function WidgetBuilderModal({
                           }
                           onChange={e => updateFilter(idx, { value: e.target.value })}
                           placeholder={
-                            filter.operator === "in"
+                            opt?.type === "date" && isWidgetDateOperator(filter.operator)
+                              ? "DD/MM/YYYY or YYYY-MM-DD"
+                              : filter.operator === "in"
                               ? "value1, value2, value3"
                               : filter.operator === "contains"
                                 ? "Substring"
                                 : "Value"
                           }
                           data-testid={`input-filter-value-${idx}`}
+                          aria-invalid={filterDateError ? "true" : undefined}
+                          aria-describedby={
+                            opt?.type === "date" && isWidgetDateOperator(filter.operator)
+                              ? `filter-date-help-${idx}`
+                              : undefined
+                          }
                         />
                       )}
                       <Button
@@ -2099,6 +2156,18 @@ export default function WidgetBuilderModal({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                    {opt?.type === "date" && isWidgetDateOperator(filter.operator) && (
+                      <p
+                        id={`filter-date-help-${idx}`}
+                        className={cn(
+                          "text-xs",
+                          filterDateError ? "text-destructive" : "text-muted-foreground",
+                        )}
+                        data-testid={`text-filter-date-help-${idx}`}
+                      >
+                        {filterDateError || "Enter a complete date as DD/MM/YYYY or YYYY-MM-DD."}
+                      </p>
+                    )}
                     {TENANT_LIST_OPERATORS.some(o => o.value === filter.operator) && (
                       <p
                         className="text-xs text-muted-foreground"

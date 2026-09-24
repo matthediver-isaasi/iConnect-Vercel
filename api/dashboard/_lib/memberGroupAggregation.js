@@ -1,5 +1,6 @@
 import { tenantFilter } from './permissions.js';
 import { GROUP_CUSTOM_TYPES, validateMemberGroupConfig } from './memberGroupContract.js';
+import { matchWidgetDateFilter } from './widgetFilterDates.js';
 
 const PAGE = 1000;
 export const MEMBER_GROUP_ROW_CAP = 50000;
@@ -40,6 +41,7 @@ function parseValue(value) {
 
 function values(value) { return Array.isArray(value) ? value : [value]; }
 function matches(value, f) {
+  if (f.valueType === 'date') return matchWidgetDateFilter(value, f);
   const list = values(value);
   const same = (a, b) => a != null && b != null && String(a) === String(b);
   switch (f.operator) {

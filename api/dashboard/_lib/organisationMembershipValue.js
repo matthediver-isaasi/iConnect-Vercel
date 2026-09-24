@@ -1,3 +1,5 @@
+import { matchWidgetDateFilter } from './widgetFilterDates.js';
+
 const SOURCE_ID = 'organisation_membership';
 const HISTORY_TABLE = 'organisation_membership_history';
 const PAGE_SIZE = 1000;
@@ -205,6 +207,14 @@ function filterMatches(value, filter) {
   const values = list(value);
   if (filter.operator === 'is_null') return values.length === 0;
   if (filter.operator === 'is_not_null') return values.length > 0;
+  if (filter.valueType === 'date') {
+    if (filter.operator === 'eq') {
+      return values.some(item => matchWidgetDateFilter(item, filter));
+    }
+    if (filter.operator === 'neq') {
+      return values.every(item => !matchWidgetDateFilter(item, { ...filter, operator: 'eq' }));
+    }
+  }
   if (filter.operator === 'eq') return values.some(item => same(item, filter.value));
   if (filter.operator === 'neq') return values.every(item => !same(item, filter.value));
   if (filter.operator === 'in') return values.some(item => filter.value.some(wanted => same(item, wanted)));

@@ -13,6 +13,7 @@ import {
 import { runWidgetConfig } from '../../_lib/aggregation.js';
 import { readWidgetCache } from '../../_lib/resultCache.js';
 import { validateMemberGroupWidgetType } from '../../_lib/memberGroupContract.js';
+import { normalizeWidgetConfigDateFilters } from '../../_lib/widgetFilterDates.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
@@ -24,6 +25,7 @@ export function createHandler(overrides = {}) {
     getDashboardActor,
     runWidgetConfig,
     readWidgetCache,
+    normalizeWidgetConfigDateFilters,
     ...overrides,
   };
   return async function dashboardWidgetDataHandler(req, res) {
@@ -92,6 +94,10 @@ export function createHandler(overrides = {}) {
     }
 
     try {
+      // Validate legacy saved date filters before entering the durable cache.
+      // Cache workers deliberately hide internal failures, but an invalid
+      // user-authored date is actionable and should be reported directly.
+      await deps.normalizeWidgetConfigDateFilters(widget.config, actor.tenantId);
       validateMemberGroupWidgetType(widget.config, widget.widget_type);
       const result = await measure('cache', () => deps.readWidgetCache(deps.supabase, widget, actor, {
         refresh, run: deps.runWidgetConfig,
@@ -99,6 +105,9 @@ export function createHandler(overrides = {}) {
       return reply(200, { widget, ...result });
     } catch (err) {
       console.error('[Dashboard Widgets] Data failed:', err);
+      if (/^Filter \d+: Enter (?:a date|a valid calendar date)/.test(err.message || '')) {
+        return reply(400, { error: err.message });
+      }
       if (err.message?.includes('Refresh limit')) {
         res.setHeader('Retry-After', '60');
         return reply(429, { error: 'Refresh limit reached; try again in one minute' });

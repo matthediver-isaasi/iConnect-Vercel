@@ -7,13 +7,19 @@ import {
   setMembershipValueNoStore,
 } from '../_lib/permissions.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
+import { normalizeWidgetConfigDateFilters } from '../_lib/widgetFilterDates.js';
 
 export default async function handler(req, res) {
   return createHandler()(req, res);
 }
 
 export function createHandler(overrides = {}) {
-  const deps = { getDashboardActor, runWidgetConfig, ...overrides };
+  const deps = {
+    getDashboardActor,
+    runWidgetConfig,
+    normalizeWidgetConfigDateFilters,
+    ...overrides,
+  };
   return (req, res) => previewHandler(req, res, deps);
 }
 
@@ -41,12 +47,13 @@ async function previewHandler(req, res, deps) {
   }
 
   try {
-    validateMemberGroupWidgetType(parsed.data, req.body?.widgetType);
-    validateMembershipValueWidgetType(parsed.data, req.body?.widgetType);
+    const config = await deps.normalizeWidgetConfigDateFilters(parsed.data, actor.tenantId);
+    validateMemberGroupWidgetType(config, req.body?.widgetType);
+    validateMembershipValueWidgetType(config, req.body?.widgetType);
     // List widgets can display far more groups than a chart, so the builder
     // sends the draft widget type alongside the config.
     const isList = req.body?.widgetType === 'list';
-    const result = await deps.runWidgetConfig(parsed.data, actor.tenantId, {
+    const result = await deps.runWidgetConfig(config, actor.tenantId, {
       maxGroups: isList ? MAX_LIST_GROUPS : undefined,
     });
     return res.status(200).json({ data: result });

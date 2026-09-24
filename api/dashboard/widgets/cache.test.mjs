@@ -105,6 +105,40 @@ test('status metadata never substitutes zero for missing success or hides a fail
   assert.equal(out.cache.retryAfterSeconds,60);
 });
 
+test('saved invalid date filters return actionable feedback before cache access', async () => {
+  const res = response();
+  let cacheReads = 0;
+  await dataHandler(deps({
+    normalizeWidgetConfigDateFilters: async () => {
+      throw new Error('Filter 1: Enter a valid calendar date in DD/MM/YYYY or ISO format.');
+    },
+    readWidgetCache: async () => {
+      cacheReads++;
+      return {};
+    },
+  }))({ method: 'GET', query: { id: 'widget' } }, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.error, /^Filter 1: Enter a valid calendar date/);
+  assert.equal(cacheReads, 0);
+});
+
+test('saved empty date filters return actionable feedback before cache access', async () => {
+  const res = response();
+  let cacheReads = 0;
+  await dataHandler(deps({
+    normalizeWidgetConfigDateFilters: async () => {
+      throw new Error('Filter 1: Enter a date in DD/MM/YYYY or ISO format.');
+    },
+    readWidgetCache: async () => {
+      cacheReads++;
+      return {};
+    },
+  }))({ method: 'GET', query: { id: 'widget' } }, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.error, /^Filter 1: Enter a date/);
+  assert.equal(cacheReads, 0);
+});
+
 test('financial membership widgets require report permission before cached data or refresh is accessed', async () => {
   const financial = {
     ...widget,
