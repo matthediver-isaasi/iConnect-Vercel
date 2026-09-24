@@ -1,5 +1,5 @@
 // The same allow-list is enforced during save, preview and saved execution.
-export const GROUP_METRICS = ['groups', 'current_members', 'joins', 'period_end_members'];
+export const GROUP_METRICS = ['groups', 'current_members', 'current_organizations', 'joins', 'period_end_members'];
 export const GROUP_CUSTOM_TYPES = new Set([
   'text', 'string', 'textarea', 'long_text', 'number', 'decimal', 'boolean',
   'date', 'picklist', 'dropdown', 'list', 'country', 'countries',

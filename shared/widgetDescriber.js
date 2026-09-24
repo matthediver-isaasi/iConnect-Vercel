@@ -152,6 +152,7 @@ export function describeWidgetConfig(config, options = {}) {
     const descriptions = {
       groups: 'Counts distinct member groups, including empty groups.',
       current_members: 'Counts distinct current members with unexpired group memberships. Empty groups show zero. Members in multiple groups count once in the overall result; group counts must not be added to obtain a tenant-wide headcount.',
+      current_organizations: 'Counts distinct current organisations represented by members with unexpired group memberships. Empty groups show zero. Organisations represented in multiple groups count once in the overall result; group counts must not be added to obtain a tenant-wide organisation count.',
       joins: 'Counts membership joins, not current headcounts. A rejoin after a gap counts again; overlapping assignments and role changes do not create extra joins. Baseline memberships are not new joins.',
       period_end_members: 'Counts distinct members present immediately before each UTC period boundary, not joins or cumulative joins. The incomplete current period shows membership now and is provisional. Members in multiple groups count once overall; group counts are not additive.',
     };

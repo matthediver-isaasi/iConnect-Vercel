@@ -1745,6 +1745,7 @@ export default function WidgetBuilderModal({
               );
             })()}
 
+            {(!isMemberGroup || isGroupTemporal(groupMeasure)) && (<>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Time bucket — date field</Label>
@@ -1966,6 +1967,7 @@ export default function WidgetBuilderModal({
                 </div>
               );
             })()}
+            </>)}
 
             {isMemberGroup && draft.widget_type !== "stat" && isGroupTemporal(groupMeasure) && draft.config.timeBucket && (
               <div className="flex items-center justify-between gap-4 rounded-md border p-3">

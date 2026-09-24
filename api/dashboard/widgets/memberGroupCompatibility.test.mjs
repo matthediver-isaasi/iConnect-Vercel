@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHandler as createPreview } from './preview.js';
 import { createHandler as createWidget } from './index.js';
 import { createHandler as createUpdate } from './[id].js';
+import { createHandler as createData } from './[id]/data.js';
 import { runMemberGroupWidgetConfig } from '../_lib/memberGroupAggregation.js';
 import { validateMemberGroupWidgetType } from '../_lib/memberGroupContract.js';
 
@@ -24,6 +25,63 @@ const failures = [
   ['pie', { ...config, timeBucket: null }],
   ['stat', { ...config, seriesBy: { kind: 'system', field: 'group_id' } }],
 ];
+
+test('organisation preview, saved creation and reloaded execution agree including zero and overlapping buckets', async () => {
+  for (const scope of ['shared', 'personal']) for (const empty of [false, true]) {
+    let saved;
+    const tables = {
+      preference_field: [],
+      member_group: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }],
+      member: empty ? [] : [{ id: 'm1', organization_id: 'o1' }, { id: 'm2', organization_id: 'o1' }],
+      member_group_assignment: [
+        { id: '1', group_id: 'a', member_id: 'm1' },
+        { id: '2', group_id: 'b', member_id: 'm1' },
+        { id: '3', group_id: 'b', member_id: 'm2' },
+      ],
+    };
+    const db = { from(table) {
+      let inserted;
+      return {
+        select() { return this; }, order() { return this; }, limit() { return this; },
+        eq() { return this; },
+        insert(row) { inserted = row; return this; },
+        async range() { return { data: tables[table] || [] }; },
+        async single() {
+          if (inserted) saved = JSON.parse(JSON.stringify({ ...inserted, id: 'saved-widget' }));
+          return { data: saved };
+        },
+        then(resolve) { return Promise.resolve({ data: [] }).then(resolve); },
+      };
+    } };
+    const run = (cfg, tenantId) => runMemberGroupWidgetConfig(cfg, tenantId, db);
+    const dependencies = { supabase: db, getDashboardActor: async () => actor, runWidgetConfig: run };
+    const cfg = {
+      source: 'member_group',
+      measure: { aggregator: 'count', field: 'current_organizations', fieldKind: 'system' },
+      filters: [{ fieldKind: 'system', field: 'group_id', operator: 'in', value: ['a', 'b'] }],
+      groupBy: { kind: 'system', field: 'group_id' },
+    };
+    const preview = response();
+    await createPreview(dependencies)({ method: 'POST', body: { config: cfg, widgetType: 'bar' } }, preview);
+    assert.equal(preview.statusCode, 200);
+    assert.equal(preview.body.data.total, empty ? 0 : 1);
+    assert.deepEqual(preview.body.data.rows.map(r => r.value), empty ? [0, 0] : [1, 1]);
+    const created = response();
+    await createWidget(dependencies)({ method: 'POST', body: {
+      title: 'Distinct organisations', scope, widget_type: 'bar', config: cfg,
+    } }, created);
+    assert.equal(created.statusCode, 201);
+    assert.equal(saved.config.measure.field, 'current_organizations');
+    const reloaded = response();
+    await createData({
+      ...dependencies,
+      // Execute the persisted config through the saved endpoint's cache seam.
+      readWidgetCache: async (_db, widget, viewer, { run }) => ({ data: await run(widget.config, viewer.tenantId) }),
+    })({ method: 'GET', query: { id: saved.id } }, reloaded);
+    assert.equal(reloaded.statusCode, 200);
+    assert.deepEqual(reloaded.body.data, preview.body.data);
+  }
+});
 
 test('preview rejects temporal pie/donut, stat series and missing type before aggregation', async () => {
   let calls = 0;

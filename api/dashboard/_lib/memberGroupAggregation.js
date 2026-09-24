@@ -141,7 +141,7 @@ export async function runMemberGroupWidgetConfig(config, tenantId, client, optio
   }
   const refs = [...(config.filters || []), ...(config.groupBy ? [{ ...config.groupBy, fieldKind: config.groupBy.kind }] : [])];
   const customIds = [...new Set(refs.filter(r => r.fieldKind === 'custom').map(r => r.fieldId))];
-  const needsMembers = metric === 'current_members' || refs.some(r => r.fieldKind === 'custom' || MEMBER_FIELDS.includes(r.field));
+  const needsMembers = ['current_members', 'current_organizations'].includes(metric) || refs.some(r => r.fieldKind === 'custom' || MEMBER_FIELDS.includes(r.field));
   if (needsMembers) members = await read('member', 'id,role_id,organization_id,login_enabled');
   if (customIds.length) {
     // This value table has no tenant column. Both sides of the lookup are
@@ -188,7 +188,14 @@ export function aggregateMemberGroups(config, dataset, options = {}) {
     if (ref.kind === 'system' && ref.field === 'group_id') return [label(row.group_id)];
     return values(fieldValue(row, ref, ref.kind)).map(v => v == null || v === '' ? '(Not set)' : String(v));
   };
-  const count = rows => new Set(rows.map(r => metric === 'groups' ? r.group_id : metric === 'joins' ? r.joinId : r.member_id)).size;
+  const count = rows => {
+    if (metric === 'current_organizations') {
+      // Each bucket and the overall total have independent identity sets.
+      return new Set(rows.map(r => members.get(r.member_id)?.organization_id)
+        .filter(id => id != null && String(id).trim() !== '')).size;
+    }
+    return new Set(rows.map(r => metric === 'groups' ? r.group_id : metric === 'joins' ? r.joinId : r.member_id)).size;
+  };
   const joinRows = unionMembershipIntervals(dataset.history || []).filter(x => !x.baseline && x.start <= nowMs)
     .flatMap((x, index) => x.starts.map(row => ({ ...row, joinId: index, joinedAt: x.start })));
   const historyRows = dataset.history || [];

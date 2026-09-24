@@ -25,6 +25,80 @@ const assignments = [
 const data = { groups, members, assignments };
 const now = '2026-03-15T12:00:00Z';
 const options = { now };
+const organisationData = {
+  groups,
+  members: [
+    { id: 'm1', organization_id: 'o1', login_enabled: false },
+    { id: 'm2', organization_id: 'o1', login_enabled: true },
+    { id: 'm3', organization_id: 'o2', login_enabled: true },
+    { id: 'none', organization_id: null },
+    { id: 'empty', organization_id: '' },
+    { id: 'blank', organization_id: '  ' },
+    { id: 'excluded', organization_id: 'o3' },
+  ],
+  assignments: [
+    ...assignments,
+    { group_id: 'a', member_id: 'm2' },
+    { group_id: 'b', member_id: 'm3' },
+    ...['none', 'empty', 'blank'].map(member_id => ({ group_id: 'a', member_id })),
+    { group_id: 'a', member_id: 'excluded', guest_id: 'guest' },
+    { group_id: 'a', member_id: 'excluded', expires_at: now },
+    { group_id: 'a', guest_id: 'guest' },
+    { group_id: 'missing', member_id: 'excluded' },
+  ],
+};
+const groupFilter = ids => ({ fieldKind: 'system', field: 'group_id', operator: 'in', value: ids });
+
+test('current organisations deduplicate members, assignments and overlapping groups, excluding ineligible identities', () => {
+  for (const [ids, expected] of [[null, 2], [['a'], 1], [['a', 'b'], 2], [['c'], 0], [[], 0]]) {
+    const result = aggregateMemberGroups(cfg('current_organizations', { filters: ids ? [groupFilter(ids)] : [] }), organisationData, options);
+    assert.equal(result.value, expected);
+    assert.equal(result.total, expected);
+    assert.equal(result.clickThroughAvailable, false);
+    assert.equal(result.historyBaseline, undefined);
+  }
+  const grouped = aggregateMemberGroups(cfg('current_organizations', {
+    groupBy: { kind: 'system', field: 'group_id' },
+  }), organisationData, options);
+  assert.deepEqual(grouped.rows, [{ key: 'Alpha', value: 1 }, { key: 'Beta', value: 2 }, { key: 'Empty', value: 0 }]);
+  assert.equal(grouped.total, 2);
+});
+
+test('organisation counts preserve member, group, role and custom filters with independent bucket sets', () => {
+  for (const [field, value, expected] of [['login_enabled', false, 1], ['is_active', true, 1], ['organization_id', 'o2', 1], ['group_role', 'unassigned', 0]]) {
+    assert.equal(aggregateMemberGroups(cfg('current_organizations', {
+      filters: [{ fieldKind: 'system', field, operator: 'eq', value }],
+    }), organisationData, options).value, expected);
+  }
+  const preferences = [
+    { member_id: 'm1', field_id: 'f', value: '["UK","USA"]' },
+    { member_id: 'm2', field_id: 'f', value: '["UK"]' },
+    { member_id: 'm3', field_id: 'f', value: '["USA"]' },
+  ];
+  const result = aggregateMemberGroups(cfg('current_organizations', {
+    groupBy: { kind: 'custom', fieldId: 'f' },
+    filters: [{ fieldKind: 'custom', fieldId: 'f', operator: 'in', value: ['UK', 'USA'] }],
+  }), { ...organisationData, preferences }, options);
+  assert.deepEqual(result.rows, [{ key: 'UK', value: 1 }, { key: 'USA', value: 2 }]);
+  assert.equal(result.total, 2);
+});
+
+test('organisation measure is count-only and current-state in preview, create and update schemas', () => {
+  const valid = cfg('current_organizations', { filters: [groupFilter(['a', 'b'])] });
+  for (const config of [valid, { ...valid, groupBy: { kind: 'system', field: 'organization_id' } }]) {
+    assert.equal(widgetConfigSchema.safeParse(config).success, true);
+    assert.equal(widgetCreateSchema.safeParse({ title: 'Organisations', scope: 'personal', widget_type: 'stat', config }).success, true);
+    assert.equal(widgetUpdateSchema.safeParse({ config }).success, true);
+  }
+  for (const patch of [
+    { timeBucket: { field: 'membership_at', granularity: 'month' } },
+    { cumulative: true }, { clickThrough: true },
+    { seriesBy: { kind: 'system', field: 'group_id' } },
+    { measure: { aggregator: 'count_distinct', field: 'organization_id' } },
+  ]) {
+    assert.equal(widgetConfigSchema.safeParse({ ...valid, ...patch }).success, false);
+  }
+});
 const time = { field: 'membership_at', granularity: 'month', window: { amount: 3, unit: 'month' } };
 const interval = (member_id, group_id, valid_from, valid_until = null, extra = {}) =>
   ({ member_id, group_id, valid_from, valid_until, ...extra });
@@ -182,6 +256,28 @@ function fakeClient(tables, queries) {
     return query;
   } };
 }
+
+test('unfiltered organisation measure always reads current tenant members, rejecting foreign rows on every join', async () => {
+  const queries = [];
+  const tables = {
+    member_group: [...groups.map(g => ({ ...g, tenant_id: 'tenant' })), { id: 'foreign-group', tenant_id: 'other' }],
+    member: [
+      ...organisationData.members.map(m => ({ ...m, tenant_id: 'tenant' })),
+      { id: 'foreign-member', organization_id: 'foreign-org', tenant_id: 'other' },
+    ],
+    member_group_assignment: [
+      ...organisationData.assignments.map((a, id) => ({ ...a, id, tenant_id: 'tenant' })),
+      { id: 'foreign-member-link', group_id: 'a', member_id: 'foreign-member', tenant_id: 'tenant' },
+      { id: 'foreign-assignment', group_id: 'a', member_id: 'excluded', tenant_id: 'other' },
+      { id: 'foreign-group-link', group_id: 'foreign-group', member_id: 'excluded', tenant_id: 'tenant' },
+    ],
+  };
+  const result = await runMemberGroupWidgetConfig(cfg('current_organizations'), 'tenant', fakeClient(tables, queries), options);
+  assert.equal(result.value, 2);
+  assert.ok(queries.some(q => q.table === 'member'));
+  assert.ok(queries.every(q => q.filters.some(([k, v]) => k === 'tenant_id' && v === 'tenant')));
+  assert.equal((await runMemberGroupWidgetConfig(cfg('current_organizations'), 'empty-tenant', fakeClient(tables, []), options)).value, 0);
+});
 
 test('tenant-scoped metadata rejects forged foreign custom fields before accessing values', async () => {
   const queries = [];

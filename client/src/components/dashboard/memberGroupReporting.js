@@ -1,6 +1,7 @@
 export const MEMBER_GROUP_MEASURES = [
   { field: "groups", label: "Distinct groups" },
   { field: "current_members", label: "Current distinct members" },
+  { field: "current_organizations", label: "Current distinct organisations" },
   { field: "joins", label: "Membership joins" },
   { field: "period_end_members", label: "Period-end members" },
 ];

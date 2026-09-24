@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MEMBER_GROUP_MEASURES, changeGroupMeasure, groupFieldCompatible, groupHistoryNotice } from "./memberGroupReporting.js";
 import { describeWidgetConfig } from "../../../../shared/widgetDescriber.js";
 
-test("all four metric selections serialize with the count contract and reset incompatible state", () => {
+test("all Member Groups metric selections serialize with the count contract and reset incompatible state", () => {
   for (const { field } of MEMBER_GROUP_MEASURES) {
     const next = changeGroupMeasure({ source: "member_group", groupBy: { field: "role_id" }, filters: [{ field: "role_id" }], cumulative: true, clickThrough: true }, field);
     assert.deepEqual(next.measure, { aggregator: "count", fieldKind: "system", field, fieldId: null });
@@ -28,7 +28,22 @@ test("group dimensions exclude measure/date fields and member dimensions for gro
     assert.equal(groupFieldCompatible({ fieldKind: "custom", fieldId: "tenant-field" }, "period_end_members", usage), true);
   }
   assert.equal(groupFieldCompatible({ field: "membership_at" }, "current_members", "date"), false);
+  assert.equal(groupFieldCompatible({ field: "membership_at" }, "current_organizations", "date"), false);
   assert.equal(groupFieldCompatible({ field: "membership_at" }, "joins", "date"), true);
+});
+
+test("current organisation measure is picker-compatible only as a measure and retains current dimensions", () => {
+  const measure = MEMBER_GROUP_MEASURES.find(item => item.field === "current_organizations");
+  assert.deepEqual(measure, {
+    field: "current_organizations",
+    label: "Current distinct organisations",
+  });
+  assert.equal(groupFieldCompatible(measure, "current_organizations", "measure"), true);
+  assert.equal(groupFieldCompatible(measure, "current_organizations", "group"), false);
+  assert.equal(groupFieldCompatible(measure, "current_organizations", "filter"), false);
+  assert.equal(groupFieldCompatible({ field: "organization_id" }, "current_organizations", "group"), true);
+  assert.equal(groupFieldCompatible({ field: "group_role" }, "current_organizations", "filter"), true);
+  assert.equal(groupFieldCompatible({ fieldKind: "custom", fieldId: "member-field" }, "current_organizations", "group"), true);
 });
 
 test("missing history and provisional periods have explicit labels; known zero is not unavailable", () => {
@@ -43,6 +58,8 @@ test("describer distinguishes group counts, current headcounts, joins and period
   const describe = field => describeWidgetConfig({ source: "member_group", measure: { aggregator: "count", field }, seriesBy: { field: "group_id" } });
   assert.match(describe("groups"), /including empty groups/);
   assert.match(describe("current_members"), /must not be added/);
+  assert.match(describe("current_organizations"), /distinct current organisations/);
+  assert.match(describe("current_organizations"), /multiple groups count once/);
   assert.match(describe("joins"), /Baseline memberships are not new joins/);
   assert.match(describe("period_end_members"), /not joins or cumulative joins/);
   assert.match(describe("period_end_members"), /provisional/);
