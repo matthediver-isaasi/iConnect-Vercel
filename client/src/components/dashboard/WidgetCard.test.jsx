@@ -79,6 +79,46 @@ async function settleQuery() {
   await new Promise((done) => setTimeout(done, 0));
 }
 
+test("Cache warnings use a focusable header-sized icon with full error details", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(
+    <WidgetCacheStatus widgetId="compact-warning" cache={{
+      status: "failed",
+      updatedAt: "2026-09-24T18:00:00Z",
+      error: "Unable to refresh widget. Please try again later.",
+    }} />,
+  ));
+  const status = container.querySelector('[role="alert"]');
+  const button = status.querySelector("button");
+  assert.match(button.getAttribute("aria-label"), /Refresh failed.*Showing data updated.*Unable to refresh widget/);
+  assert.ok(button.querySelector("svg"));
+  assert.equal(status.querySelector("span").className, "sr-only");
+  assert.ok(!status.className.includes("mb-2"));
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("Stat cards omit redundant record counts while list totals remain", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(
+    <WidgetBody widget={{ id: "compact-stat", widget_type: "stat", config: {} }}
+      payload={{ type: "scalar", value: 98, total: 98 }} />,
+  ));
+  assert.equal(container.textContent, "98");
+  await act(async () => root.render(
+    <WidgetBody widget={{ id: "list-total", widget_type: "list", config: {} }}
+      payload={{ type: "group", rows: [{ key: "Events", value: 98 }], total: 98 }} />,
+  ));
+  assert.match(container.textContent, /Total/);
+  assert.match(container.textContent, /98/);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
 test("Annual membership value renders currency, exact basis and reconciliation warning", async () => {
   assert.match(formatMembershipCurrency(1234.5, "GBP"), /£1,234\.50/);
   const container = document.createElement("div");

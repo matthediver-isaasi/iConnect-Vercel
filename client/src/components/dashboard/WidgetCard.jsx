@@ -795,6 +795,14 @@ export default function WidgetCard({
             </Popover>
           )}
         </div>
+        <WidgetCacheStatus
+          cache={cache}
+          isFetching={isFetching}
+          networkError={isError && payload ? error : null}
+          refreshFeedback={displayedRefreshFeedback}
+          pendingOverride={refreshPending}
+          widgetId={widget.id}
+        />
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -919,14 +927,6 @@ export default function WidgetCard({
           embedded && "min-h-0 overflow-hidden",
         )}
       >
-        <WidgetCacheStatus
-          cache={cache}
-          isFetching={isFetching}
-          networkError={isError && payload ? error : null}
-          refreshFeedback={displayedRefreshFeedback}
-          pendingOverride={refreshPending}
-          widgetId={widget.id}
-        />
         {drillEnabled && cache?.updatedAt && (
           <p
             className="mb-2 text-xs text-muted-foreground"
@@ -1064,27 +1064,38 @@ export function WidgetCacheStatus({
     : (feedbackMessage || message || "Checking for updated data…");
   if (!message && !feedbackMessage && !isFetching) return null;
 
+  const fullMessage = `${displayedMessage}${status === "failed" && cache?.error ? `: ${cache.error}` : ""}`;
   return (
     <div
-      className={cn("mb-2 flex min-h-4 items-center gap-1.5 text-xs", tone)}
+      className={cn("flex shrink-0 items-center text-xs", tone)}
       data-testid={`widget-cache-status-${widgetId}`}
       role={refreshFeedback?.kind === "error" || status === "failed" ? "alert" : "status"}
       aria-live="polite"
       aria-atomic="true"
     >
-      {(message || isFetching) && (
-        <Icon
-          className={cn(
-            "h-3 w-3 shrink-0",
-            (pending || (isFetching && !message && !feedbackMessage)) && "animate-spin",
-          )}
-          aria-hidden="true"
-        />
-      )}
-      <span>
-        {displayedMessage}
-        {status === "failed" && cache?.error ? `: ${cache.error}` : ""}
-      </span>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={fullMessage}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Icon
+                className={cn(
+                  "h-4 w-4",
+                  (pending || (isFetching && !message && !feedbackMessage)) && "animate-spin",
+                )}
+                aria-hidden="true"
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs whitespace-normal break-words">
+            {fullMessage}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <span className="sr-only">{fullMessage}</span>
     </div>
   );
 }
@@ -1251,7 +1262,6 @@ function StatBody({ widget, payload, palette, embedded = false }) {
     : widget.config?.source === "member_group"
       ? payload.type === "time" ? payload.rows?.at(-1)?.value : payload.total
       : payload.rows?.[0]?.value;
-  const aggregator = widget.config?.measure?.aggregator || "count";
   const minH = embedded
     ? "h-full min-h-0"
     : STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
@@ -1264,13 +1274,11 @@ function StatBody({ widget, payload, palette, embedded = false }) {
       >
         {widget.config?.source === "member_group" && value == null ? "Unavailable" : formatNumber(value, widget.config?.numberFormat)}
       </p>
-      <p className="text-xs uppercase text-muted-foreground">
-        {widget.config?.source === "member_group"
-          ? MEMBER_GROUP_MEASURES.find(m => m.field === widget.config.measure?.field)?.label
-          : widget.config?.transition?.mode
-          ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
-          : `${aggregator} · ${payload.total ?? 0} record${payload.total === 1 ? "" : "s"}`}
-      </p>
+      {widget.config?.source === "member_group" && (
+        <p className="text-xs uppercase text-muted-foreground">
+          {MEMBER_GROUP_MEASURES.find(m => m.field === widget.config.measure?.field)?.label}
+        </p>
+      )}
     </div>
   );
 }
