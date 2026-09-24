@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
+import { normalizeGroupPricePaid } from './_pricePaid.js';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -307,13 +308,16 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to fetch bookings' });
         }
 
-        allBookings.push(...(bookingData || []));
+        allBookings.push(...(bookingData || []).map(b => ({
+          ...b,
+          _report_booking_source: 'standard',
+        })));
       }
 
       if (targetComplexEventIds.length > 0) {
         let complexBookingQuery = supabase
           .from('complex_event_booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, payment_status, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
           .in('event_id', targetComplexEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -336,6 +340,7 @@ export default async function handler(req, res) {
         } else {
           const normalizedComplexBookings = (complexBookingData || []).map(b => ({
             ...b,
+            _report_booking_source: 'complex',
             // Invoice intentions have no payment, but retain a registration value.
             total_cost: b.payment_method === 'public_invoice_po' ? (b.ticket_price || 0) : (b.total_paid || 0),
             account_amount: b.account_balance_amount || 0,
@@ -761,6 +766,7 @@ export default async function handler(req, res) {
 
         const first = members[0];
         const isGroup = members.length > 1;
+        const groupPricePaid = normalizeGroupPricePaid(members);
 
         const groupTicketTotal = members.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0);
         const groupTotalCost = members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
@@ -835,7 +841,7 @@ export default async function handler(req, res) {
             last_name: bookerInfo.last_name,
             in_attendees: bookerInAttendees,
           } : null,
-          attendees: members.map(b => {
+          attendees: members.map((b, memberIndex) => {
             const tcInfo = b.ticket_class_id ? ticketClassMap[b.ticket_class_id] : null;
 
             const attendanceDetails = attendanceByBookingId[b.id] || [];
@@ -920,6 +926,8 @@ export default async function handler(req, res) {
               ticket_class_id: b.ticket_class_id || null,
               ticket_price: b.ticket_price,
               total_cost: b.total_cost,
+              price_paid: groupPricePaid[memberIndex].price_paid,
+              price_paid_status: groupPricePaid[memberIndex].price_paid_status,
               organization_id: b.organization_id,
               is_guest_booking: b.is_guest_booking,
               member_id: b.member_id,

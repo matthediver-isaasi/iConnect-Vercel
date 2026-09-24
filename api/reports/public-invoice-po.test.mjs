@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
+import { normalizeGroupPricePaid } from './_pricePaid.js';
 
 test('classification remains public after member linkage and excludes legacy invoice methods', () => {
   const booking = { payment_method: 'public_invoice_po', member_id: 'later-linked-member', purchaser_context: { classification: 'public_non_member' } };
@@ -31,6 +32,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const isPublicInvoicePo = ${isPublicInvoicePo.toString()};
     const publicInvoicePurchaser = ${publicInvoicePurchaser.toString()};
     const buildEventCheckinFlagMap = async () => new Map();
+    const normalizeGroupPricePaid = ${normalizeGroupPricePaid.toString()};
     const fixtures = ${JSON.stringify(fixtures)};
     const failTable = ${JSON.stringify(failTable)};
     const queries = [];
@@ -116,6 +118,8 @@ test('confirmed non-member one-off Invoice / PO registration is returned without
   assert.equal(group.groupPayment.totalCost, 318.6);
   assert.equal(group.attendees[0].status, 'confirmed');
   assert.equal(group.attendees[0].member_id, null);
+  assert.equal(group.attendees[0].price_paid, 318.6);
+  assert.equal(group.attendees[0].price_paid_status, 'pending');
 });
 
 test('handler pages past server cap, scopes tenant/event/date and preserves complete PO group and value', async () => {
@@ -147,6 +151,31 @@ test('handler pages past server cap, scopes tenant/event/date and preserves comp
   assert.equal(group.groupPayment.purchaseOrderNumber, 'PO-5');
   assert.equal(group.publicInvoicePurchaser.email, contextSnapshot.details.email);
   assert.deepEqual(result.ranges.filter(r => r.table === 'complex_event_booking').map(r => r.from), [0, 2, 4, 5]);
+});
+
+test('authorized report exposes source-specific complex net price without double-deducting code discount', async () => {
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      complex_event: [{
+        id: 'complex-net', title: 'Complex net event', tenant_id: 'tenant',
+        status: 'published', is_complex: true,
+      }],
+      complex_event_booking: [{
+        id: 'complex-booking', event_id: 'complex-net', tenant_id: 'tenant',
+        booking_reference: 'CEB-NET', booking_group_reference: 'CEB-NET',
+        attendee_email: 'attendee@example.invalid', status: 'confirmed',
+        ticket_price: 90, discount_amount: 10, voucher_amount: 20,
+        training_fund_amount: 5, account_balance_amount: 15,
+        total_paid: 90, payment_method: 'card', payment_status: 'paid',
+        created_at: '2026-09-20T16:25:00.000Z',
+      }],
+    },
+    query: { generate: 'true', eventId: 'complex-net' },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.bookingGroups.length, 1);
+  assert.equal(result.body.bookingGroups[0].attendees[0].price_paid, 50);
+  assert.equal(result.body.bookingGroups[0].attendees[0].price_paid_status, 'net');
 });
 
 test('complex discovery and booking failures are explicit, not successful empty reports', async () => {

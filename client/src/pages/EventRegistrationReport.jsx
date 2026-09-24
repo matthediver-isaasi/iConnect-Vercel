@@ -27,6 +27,7 @@ import {
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
+import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 
 function formatDietarySelections(value) {
   if (!Array.isArray(value)) return '';
@@ -1032,6 +1033,7 @@ export default function EventRegistrationReport() {
     { key: 'std:ticketType', label: 'Ticket Type', get: ({ a }) => a.ticket_class_name || '' },
     { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
     { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => Number(a.ticket_price || 0).toFixed(2) },
+    { key: 'std:pricePaid', label: 'Price Paid', get: ({ a }) => formatRegistrationPricePaid(a) },
     { key: 'std:groupDiscount', label: 'Group Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discount || 0).toFixed(2) : '') },
     { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
     { key: 'std:groupTotal', label: 'Group Total', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '') },
@@ -1093,11 +1095,14 @@ export default function EventRegistrationReport() {
   // columns that no longer exist after the report scope changes.
   useEffect(() => {
     const current = new Set(allColumnKeys);
+    // Capture before scheduling the state update: React may defer functional
+    // updaters until after the ref below has advanced to the current keys.
+    const previouslyKnown = knownColumnKeysRef.current;
     setSelectedColumnKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
       for (const k of current) {
-        if (!knownColumnKeysRef.current.has(k)) { next.add(k); changed = true; }
+        if (!previouslyKnown.has(k)) { next.add(k); changed = true; }
       }
       for (const k of Array.from(next)) {
         if (!current.has(k)) { next.delete(k); changed = true; }
@@ -1806,6 +1811,9 @@ export default function EventRegistrationReport() {
                 </div>
               ) : (
                 <>
+                  <p className="mb-3 text-xs text-muted-foreground" data-testid="text-price-paid-explanation">
+                    Price Paid is the net ticket price after discounts and credits. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
+                  </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -1817,7 +1825,8 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Organisation</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '120px' }}>Ticket</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '100px' }}>Tracks</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Ticket Price</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price Paid</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Discount</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Total</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Voucher</th>
@@ -1885,6 +1894,9 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
+                                  {formatRegistrationPricePaid(attendee)}
+                                </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
                                   {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${attendee.id}`}>{gp.discountCode}</div>}
@@ -2048,6 +2060,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
                                 {renderPaymentCells(headerKey)}
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
@@ -2109,6 +2122,9 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
+                                  {formatRegistrationPricePaid(attendee)}
+                                </td>
                                 {renderGroupSpannedCells ? renderPaymentCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
