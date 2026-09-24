@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
@@ -196,7 +197,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   });
 
   if (!simResult.success) {
-    return res.status(400).json({ error: simResult.error || 'Simulation failed' });
+    return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
   const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
     tenantId,
@@ -278,6 +279,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       annual_cost: annualCost,
       prorata_cost: simResult.prorataCost,
       free_period_discount: simResult.freeDiscount || 0,
+      ...membershipIncentiveSnapshot(simResult),
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,

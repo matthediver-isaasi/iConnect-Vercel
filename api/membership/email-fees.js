@@ -44,7 +44,7 @@ export default async function handler(req, res) {
         });
 
     if (!simResult.success) {
-      return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
+      return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees', code: simResult.code });
     }
 
     const yearLabel = simResult.membershipYear?.label;
@@ -129,6 +129,14 @@ export default async function handler(req, res) {
       freePeriodUnit: simResult.freePeriodUnit,
       yearNumber: simResult.yearNumber,
       rolloverDiscount: simResult.rolloverDiscount || 0,
+      incentiveRollover: simResult.incentiveRollover || null,
+      isFeeQuote: true,
+      renewalQuote: structuredClone({
+        config: simResult.config,
+        incentiveConfig: simResult.incentiveConfig,
+        membershipYear: simResult.membershipYear,
+        previousTerm: simResult.previousTerm,
+      }),
       proRataEnabled: simResult.proRataEnabled,
       overrideType: simResult.overrideType || null,
       overrideDiscountType: simResult.overrideDiscountType || null,

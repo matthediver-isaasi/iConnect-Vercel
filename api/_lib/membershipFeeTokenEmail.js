@@ -154,9 +154,8 @@ function buildBreakdownRows(currencySymbol, costBreakdown, finalCost, feeLineLab
     rows.push({ label, value: `-${currencySymbol}${parseFloat(costBreakdown.freeDiscount).toFixed(2)}`, isDiscount: true });
   }
   if (costBreakdown.rolloverDiscount > 0) {
-    const label = costBreakdown.freePeriodUnit === 'percent'
-      ? `New Member Discount (${costBreakdown.freePeriodAmount}%) (rollover from Y1)`
-      : `New Member Discount (${costBreakdown.freePeriodDaysApplied || 0} days rollover)`;
+    // The renewal configuration's rate may differ from the joining incentive.
+    const label = 'New Member Discount (rollover from Y1)';
     rows.push({ label, value: `-${currencySymbol}${parseFloat(costBreakdown.rolloverDiscount).toFixed(2)}`, isDiscount: true });
   }
   if (costBreakdown.overrideType === 'price') {

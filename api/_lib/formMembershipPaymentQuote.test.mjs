@@ -8,6 +8,25 @@ import {
 } from './formMembershipPaymentQuote.js';
 import { quoteFromSimulationResult } from './membershipQuote.js';
 import { commitmentFromQuote } from './rollingMembershipCommitment.js';
+import { calculateOriginalIncentiveRollover } from './membershipSimulationCore.js';
+
+test('fixed-cycle organisation payment quote survives config edits before settlement and Year 2', () => {
+  const sim = { ...simulation(), yearNumber: 1, annualCost: 1000, freeDiscount: 100,
+    config: { id: 'joining', start_mode: 'fixed_date', currency: 'GBP', free_period_amount: 40,
+      free_period_unit: 'percent', rollover_enabled: true } };
+  const saved = snapshotFormMembershipPayment(sim);
+  sim.config.free_period_amount = 90;
+  sim.config.rollover_enabled = false;
+  sim.annualCost = 2000;
+  const history = historyFromFormPaymentSnapshot(JSON.parse(JSON.stringify(saved)));
+  assert.equal(history.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(history.annual_cost, 1000);
+  assert.equal(history.free_period_discount, 100);
+  const rollover = calculateOriginalIncentiveRollover({ history, originalConfig: sim.config, annualCost: 2000 });
+  assert.equal(rollover.source, 'commitment_snapshot');
+  assert.equal(rollover.originalEntitlement, 400);
+  assert.equal(rollover.appliedDiscount, 300);
+});
 
 function simulation(billingPeriod = 'annual') {
   return {

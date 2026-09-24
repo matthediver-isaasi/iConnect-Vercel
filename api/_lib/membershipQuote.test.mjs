@@ -1,6 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeNewApplicantCost, quoteFromSimulationResult } from './membershipQuote.js';
+import { readFile } from 'node:fs/promises';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
+import { calculateMembershipYearWindow } from './membershipYear.js';
+import { buildRollingCommitment } from './rollingMembershipCommitment.js';
+import { calculateOriginalIncentiveRollover } from './membershipSimulationCore.js';
+
+test('detached new-organisation quote freezes original entitlement before entity creation', async () => {
+  const config = { id: 'joining', start_mode: 'fixed_date', pricing_model: 'flat', flat_cost: 1000,
+    currency: 'GBP', billing_period: 'annual', membership_start_month: 1, membership_start_day: 1,
+    free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true, prorata_enabled: true };
+  const source = (await readFile(new URL('./membershipQuote.js', import.meta.url), 'utf8'))
+    .replace(/^import .*;$/gm, '').replace(/export /g, '');
+  const deps = {
+    supabase: { from() { throw new Error('Unexpected database access'); } },
+    membershipIncentiveSnapshot, calculateMembershipYearWindow, buildRollingCommitment,
+    getConfigByIdDirect: async () => config,
+    evaluateDiscountsForEntity: async () => ({ discountDetails: [] }),
+    evaluateVatOverrideForOrg: async () => null,
+  };
+  const quoteApplicant = new Function(...Object.keys(deps), `${source}; return quoteMembershipForNewApplicant;`)(...Object.values(deps));
+  const result = await quoteApplicant({ tenantId: 'tenant', configId: config.id, now: new Date('2026-10-01T00:00:00Z') });
+  assert.equal(result.success, true);
+  const persisted = JSON.parse(JSON.stringify(result.quote));
+  config.free_period_amount = 90;
+  config.flat_cost = 2000;
+  config.rollover_enabled = false;
+  assert.equal(persisted.target, 'organization');
+  assert.equal(persisted.commitment_snapshot.config.free_period_amount, 40);
+  const rollover = calculateOriginalIncentiveRollover({ history: persisted, originalConfig: config, annualCost: 2000 });
+  assert.equal(rollover.originalEntitlement, 400);
+  assert.equal(rollover.appliedDiscount, Math.round((400 - persisted.free_period_discount) * 100) / 100);
+});
 
 // A calendar year window (365 days, non-leap).
 const year = {

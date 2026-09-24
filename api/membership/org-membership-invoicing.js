@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
@@ -257,7 +258,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   });
 
   if (!simResult.success) {
-    return res.status(400).json({ error: simResult.error || 'Simulation failed' });
+    return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
   const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
     tenantId,
@@ -349,6 +350,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       annual_cost: annualCost,
       prorata_cost: simResult.prorataCost,
       free_period_discount: simResult.freeDiscount || 0,
+      ...membershipIncentiveSnapshot(simResult),
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
@@ -517,7 +519,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
   });
 
   if (!simResult.success) {
-    return res.status(400).json({ error: simResult.error || 'Simulation failed' });
+    return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
   const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
     tenantId,
@@ -617,6 +619,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       annual_cost: annualCost,
       prorata_cost: simResult.prorataCost,
       free_period_discount: simResult.freeDiscount || 0,
+      ...membershipIncentiveSnapshot(simResult),
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,

@@ -61,7 +61,7 @@ function formatCost(value, currency) {
   return `${symbol}${parseFloat(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function YearCostSection({
+export function YearCostSection({
   yearData,
   yearLabel,
   currency,
@@ -292,14 +292,18 @@ function YearCostSection({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {yearData.freePeriodUnit === 'percent'
-                    ? `New Member Discount (${yearData.freePeriodAmount}%)${yearData.yearNumber === 2 ? ' (rollover from Y1)' : ''}`
-                    : yearData.yearNumber === 2 && yearData.freeDiscount > 0
-                      ? `New Member Discount (${yearData.freePeriodDaysApplied} days rollover)`
-                      : `New Member Discount (${yearData.freePeriodDaysApplied} free days${yearData.dailyCost ? ` ${'\u00d7'} ${formatCost(yearData.dailyCost, currency)}` : ''})`}
+                    ? `New Member Discount (${yearData.freePeriodAmount}%)`
+                    : `New Member Discount (${yearData.freePeriodDaysApplied} free days${yearData.dailyCost ? ` ${'\u00d7'} ${formatCost(yearData.dailyCost, currency)}` : ''})`}
                 </span>
                 <span className={yearData.freeDiscount > 0 ? 'text-green-600' : 'font-medium'}>
                   {yearData.freeDiscount > 0 ? `-${formatCost(yearData.freeDiscount, currency)}` : formatCost(0, currency)}
                 </span>
+              </div>
+            )}
+            {yearData.rolloverDiscount > 0 && (
+              <div className="flex items-center justify-between text-sm" data-testid={`rollover-discount-${testIdPrefix}`}>
+                <span className="text-muted-foreground">New Member Discount (rollover from Y1)</span>
+                <span className="text-green-600">-{formatCost(yearData.rolloverDiscount, currency)}</span>
               </div>
             )}
             <div className="flex items-center justify-between text-sm border-t pt-1">
@@ -755,7 +759,10 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     queryKey: ['org-membership', organizationId],
     queryFn: async () => {
       const response = await fetch(`/api/membership/org-membership?organizationId=${organizationId}`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to fetch membership data');
+      if (!response.ok) {
+        const failure = await response.json();
+        throw new Error(failure.error || 'Failed to fetch membership data');
+      }
       return response.json();
     },
     enabled: !!organizationId,
@@ -1332,7 +1339,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p>Failed to load membership data</p>
+            <p>{error?.message || 'Failed to load membership data'}</p>
           </CardContent>
         </Card>
       </div>

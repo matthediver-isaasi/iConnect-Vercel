@@ -16,6 +16,7 @@
  */
 
 import { supabase } from './database.js';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { getConfigByIdDirect } from './membershipConfigResolver.js';
 import { matchBand } from './tierBandMatcher.js';
 import { calculateMembershipYearWindow } from './membershipYear.js';
@@ -293,6 +294,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       invoice_description: config.invoice_description || null,
        direct_debit_allowed: false,
     };
+  Object.assign(quote, membershipIncentiveSnapshot({ yearNumber: 1, config, annualCost: quote.annual_cost }));
   attachQuoteCommitment(quote, config, matchedBand);
   // Keep the DD terms canonical and derived from the same matched band as
   // the fee. In particular, never infer an instalment amount from annual
@@ -329,6 +331,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
  */
 export function quoteFromSimulationResult(simResult, target) {
   const quote = {
+    ...membershipIncentiveSnapshot(simResult),
     target,
     config_id: simResult.config?.id || null,
     config_name: simResult.config?.name || null,
@@ -350,6 +353,9 @@ export function quoteFromSimulationResult(simResult, target) {
     prorata_cost: simResult.prorataCost,
     prorata_days: simResult.prorataDays,
     free_period_discount: simResult.freeDiscount || 0,
+    rollover_discount: simResult.rolloverDiscount || 0,
+    override_applied: simResult.overrideApplied || false,
+    override_type: simResult.overrideType || null,
     free_period_days_applied: simResult.freePeriodDaysApplied || 0,
     billing_period: simResult.billingPeriod || 'annual',
     vat_rate_percent: simResult.vatRatePercent || null,

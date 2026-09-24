@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { loadAddonLines, computeAddonTotals, buildExtraLineItems, buildAddonDisplayLines, processTrainingFundAddons } from '../_lib/membershipAddons.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
@@ -545,6 +546,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       annual_cost: annualCost,
       prorata_cost: simResult.prorataCost,
       free_period_discount: freeDiscount,
+      ...membershipIncentiveSnapshot(simResult),
       rollover_discount: rolloverDiscount,
       custom_discount_total: customDiscountTotal,
       custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,

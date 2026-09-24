@@ -1,4 +1,5 @@
 import { createMembershipSimulator } from './membershipSimulationCore.js';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { loadApprovedAddonLines, computeAddonTotals, readPausedOwners } from './membershipOwnerReadHelpers.js';
 import { annualRecordSchedule, resolveEntityAnnualRenewalEligibility } from './annualRenewalPolicy.js';
 import { upfrontRollingCommitment } from './upfrontRollingRenewal.js';
@@ -19,7 +20,11 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   if (memberScope && (await readPausedOwners(db, tenantId, [ownerId])).has(ownerId)) return skip('Membership paused');
   const sim = await (memberScope ? simulator.simulateMembershipForMember : simulator.simulateMembershipForOrg)(
     tenantId, ownerId, { source: 'cron', mode, targetYear: setting.membership_year || null });
-  if (!sim.success) return skip(sim.error || 'Simulation failed');
+  if (!sim.success) {
+    const reason = sim.error || 'Simulation failed';
+    trace({ stage, status: 'skipped', reason, code: sim.code });
+    return { skipped: true, reason, code: sim.code };
+  }
   const owner = memberScope ? sim.member : sim.org;
   if (!owner) return skip(`${scope} not found`);
   if (!memberScope && !sim.goLiveDate) return skip('No Go Live date set - organisation cannot be auto-renewed without a go-live date');
@@ -71,6 +76,7 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
       rolling = { ...annualRecordSchedule(eligibility), ...upfrontRollingCommitment(sim, { addonTotals: addons }) };
     }
     const values = {
+      ...membershipIncentiveSnapshot(sim),
       tenant_id: tenantId, [column]: ownerId, membership_year: sim.membershipYear.label,
       config_id: sim.config.id, band_id: sim.matchedBand?.id || null, tier_label: sim.tierLabel,
       field_value: sim.fieldValue, annual_cost: sim.annualCost, prorata_cost: sim.prorataCost,

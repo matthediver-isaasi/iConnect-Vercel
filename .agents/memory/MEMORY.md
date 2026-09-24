@@ -152,3 +152,4 @@
 - [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
 - [Group campaign claims](group-campaign-claims.md) — bind validated delivery snapshots and scheduled-worker selections to the atomic claim; draft status alone is insufficient.
 - [Canvas widget discovery sharing](canvas-widget-discovery-sharing.md) — deduplicate auth-scoped metadata discovery without sharing per-card result or refresh state.
+- [New-member incentive evidence](new-member-incentive-evidence.md) — rollover preserves original entitlement less usage; later pricing cannot establish legacy credit.

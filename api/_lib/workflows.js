@@ -5,6 +5,7 @@ import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } 
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from './membershipSimulation.js';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { getConfigForMember } from './membershipConfigResolver.js';
 import { autoApproveMemberFees, autoApproveOrgFees } from './membershipFeeApproval.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
@@ -1893,6 +1894,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       return { action_type: 'create_membership', status: 'skipped', message: 'An existing monthly payment arrangement must renew through its provider-managed commitment' };
     }
     const record = {
+      ...membershipIncentiveSnapshot(simResult),
       tenant_id: tenantId,
       organization_id: organizationId,
       membership_year: simResult.membershipYear.label,

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { membershipIncentiveSnapshot } from '../../_lib/membershipIncentiveSnapshot.js';
 import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
@@ -17,7 +18,7 @@ export function simulationFromRenewalQuote(token) {
   }
   const cb = token.cost_breakdown;
   return {
-    ...cb, success: true, config: quote.config,
+    ...cb, success: true, config: quote.config, incentiveConfig: quote.incentiveConfig,
     membershipYear: quote.membershipYear, previousTerm: quote.previousTerm,
     existingRecord: token.history_record_id ? { id: token.history_record_id } : null,
     finalCost: Number(token.final_cost), totalWithVat: Number(cb.totalWithVat ?? token.final_cost),
@@ -109,7 +110,7 @@ export default async function handler(req, res) {
     const { resolveFeeTokenInvoiceReference } = await import('../../_lib/feeTokenInvoiceReference.js');
     // Never route historical debt through the tenant's current provider.
     const invoiceReference = await resolveFeeTokenInvoiceReference(supabase, feeToken);
-    const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote;
+    const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote && !feeToken.cost_breakdown?.isFeeQuote;
     // Reminder checkout is an upfront renewal, not a new recurring agreement.
     // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
     // still attach a PO to the existing debt through the established path.
@@ -707,6 +708,12 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create_payment') {
+        if (!isMemberToken && !feeToken.history_record_id && !savedFeeSimulation(feeToken)) {
+          return res.status(409).json({
+            code: 'new_member_incentive_review_required',
+            error: 'Original organisation payment terms are unavailable. Ask an administrator to issue a new fee quote before paying.',
+          });
+        }
         if (await checkApprovalBlocked()) {
           return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
         }
@@ -1011,8 +1018,12 @@ export default async function handler(req, res) {
           })
           .eq('id', feeToken.id);
 
+        const acceptedSimulation = savedFeeSimulation(feeToken);
+        if (!acceptedSimulation && !isMemberToken && !feeToken.history_record_id) {
+          return confirmFailure('Original organisation payment terms are unavailable; administrator review is required. Do not pay again.');
+        }
         const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = savedFeeSimulation(feeToken) || (isMemberToken
+        const simResult = acceptedSimulation || (isMemberToken
           ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
               source: 'stripe-payment',
               mode: 'manual',
@@ -1077,6 +1088,9 @@ export default async function handler(req, res) {
           }
         }
         if (simResult.success && !simResult.existingRecord) {
+          if (!acceptedSimulation && !isMemberToken) {
+            return confirmFailure('Original organisation payment terms are unavailable; cannot create history from current pricing.');
+          }
           // If the token snapshot includes add-on lines, its final_cost /
           // totals are addon-inclusive — store the record with the token's
           // totals and the "add-on line(s) included." marker so any later
@@ -1086,6 +1100,7 @@ export default async function handler(req, res) {
           const { data: insertedRecord, error: insertError } = await supabase
             .from(historyTable)
             .insert({
+              ...membershipIncentiveSnapshot(simResult),
               ...(feeTokenCommitment(feeToken) || {}),
               tenant_id: feeToken.tenant_id,
               ...(isMemberToken

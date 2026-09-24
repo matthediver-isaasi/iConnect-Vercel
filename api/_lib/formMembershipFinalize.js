@@ -648,6 +648,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     // ── Insert the paid history row. ─────────────────────────────────────
     const paidAtIso = new Date().toISOString();
     const insertData = {
+      ...(quote.commitment_snapshot ? { commitment_snapshot: structuredClone(quote.commitment_snapshot) } : {}),
       ...commitmentFromQuote(quote),
       tenant_id: tenantId,
       [historyIdCol]: entityId,
@@ -659,7 +660,9 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
       annual_cost: quote.annual_cost,
       prorata_cost: quote.prorata_cost,
       free_period_discount: quote.free_period_discount || 0,
-      rollover_discount: 0,
+      rollover_discount: quote.rollover_discount || 0,
+      override_applied: quote.override_applied || false,
+      override_type: quote.override_type || null,
       custom_discount_total: quote.custom_discount_total || 0,
       custom_discount_details: quote.custom_discount_details || null,
       final_cost: quote.final_cost,

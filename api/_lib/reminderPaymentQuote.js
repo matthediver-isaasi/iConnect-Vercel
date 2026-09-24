@@ -24,6 +24,9 @@ export function reminderRenewalSnapshot(quote, history) {
   }
   return {
     config: pick(quote.config, CONFIG_FIELDS),
+    incentiveConfig: pick(quote.incentiveConfig || quote.config, [
+      ...CONFIG_FIELDS, 'free_period_amount', 'free_period_unit', 'rollover_enabled',
+    ]),
     membershipYear: { label: quote.membershipYear.label,
       start: new Date(quote.membershipYear.start).toISOString().slice(0, 10),
       end: new Date(quote.membershipYear.end).toISOString().slice(0, 10) },

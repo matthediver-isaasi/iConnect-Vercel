@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { matchBand } from '../_lib/tierBandMatcher.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 import { computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -205,7 +206,6 @@ function determineMembershipYearNumber(goLiveDate, targetYear, config) {
 }
 
 function mapSimResultToYearData(sim, startDate) {
-  const effectiveFreeDiscount = sim.yearNumber === 2 ? sim.rolloverDiscount : sim.freeDiscount;
   return {
     membershipYear: sim.membershipYear?.label || null,
     yearNumber: sim.yearNumber,
@@ -221,7 +221,9 @@ function mapSimResultToYearData(sim, startDate) {
     proRataEnabled: sim.proRataEnabled,
     prorataDays: sim.prorataDays,
     prorataCost: sim.prorataCost,
-    freeDiscount: effectiveFreeDiscount,
+    freeDiscount: sim.freeDiscount || 0,
+    rolloverDiscount: sim.rolloverDiscount || 0,
+    incentiveRollover: sim.incentiveRollover || null,
     freePeriodDaysApplied: sim.freePeriodDaysApplied || 0,
     freePeriodAmount: sim.freePeriodAmount,
     freePeriodUnit: sim.freePeriodUnit,
@@ -418,10 +420,10 @@ async function handleGet(req, res, tenantId) {
         if (simResult.success) {
           currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
         } else {
-          console.warn('[Org Membership] Current year simulation failed:', simResult.error);
+          return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees', code: simResult.code });
         }
       } catch (simErr) {
-        console.warn('[Org Membership] Current year simulation error:', simErr.message);
+        return res.status(400).json({ error: simErr.message, code: simErr.code });
       }
     }
 
@@ -433,7 +435,7 @@ async function handleGet(req, res, tenantId) {
     if (nextSimResult.success) {
       nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
     } else {
-      console.warn('[Org Membership] Next year simulation failed:', nextSimResult.error);
+      return res.status(400).json({ error: nextSimResult.error || 'Could not calculate renewal fees', code: nextSimResult.code });
     }
   }
 
@@ -509,6 +511,7 @@ async function handleGet(req, res, tenantId) {
 
   if (currentYearOverride?.override_type === 'price' && nextYearPreview) {
     nextYearPreview.freeDiscount = 0;
+    nextYearPreview.rolloverDiscount = 0;
     nextYearPreview.freePeriodDaysApplied = 0;
     nextYearPreview.freePeriodAmount = null;
     nextYearPreview.freePeriodUnit = null;
@@ -662,7 +665,7 @@ async function handlePost(req, res, tenantId) {
   });
 
   if (!simResult.success) {
-    return res.status(400).json({ error: simResult.error || 'Simulation failed' });
+    return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
 
   // Stored, approved add-ons are part of the membership amount due. Keep the
@@ -733,6 +736,7 @@ async function handlePost(req, res, tenantId) {
 
   const paidAt = zeroDue ? new Date().toISOString() : null;
   const insertData = {
+    ...membershipIncentiveSnapshot(simResult),
     tenant_id: tenantId,
     organization_id: organizationId,
     membership_year: simResult.membershipYear.label,

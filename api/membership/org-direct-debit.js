@@ -25,6 +25,7 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getSessionMember } from '../_lib/session.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
@@ -329,6 +330,7 @@ async function handleStart(req, res, resolvedTenantId) {
     ? await findReusableMandate({ tenantId, organizationId: org.id })
     : null;
   let snapshot = unstartedAgreement?.metadata?.dd || {
+    ...membershipIncentiveSnapshot(simResult),
     ...buildAgreementSnapshot({
       offer,
       simResult,
@@ -430,15 +432,16 @@ async function handleStart(req, res, resolvedTenantId) {
   // Pending membership-history row linked to the agreement.
   if (!existingHistory) {
     const { error: histErr } = await supabase.from('organisation_membership_history').insert({
+      ...(snapshot.commitment_snapshot ? { commitment_snapshot: structuredClone(snapshot.commitment_snapshot) } : {}),
       ...(snapshot.commitment || {}),
       tenant_id: tenantId,
       organization_id: org.id,
       membership_year: yearLabel,
-      config_id: simResult.config?.id || null,
-      band_id: simResult.matchedBand?.id || null,
-      tier_label: simResult.tierLabel,
-      field_value: simResult.fieldValue,
-      annual_cost: simResult.annualCost,
+      config_id: snapshot.config_id || null,
+      band_id: snapshot.band_id || null,
+      tier_label: snapshot.tier_label,
+      field_value: snapshot.field_value,
+      annual_cost: snapshot.annual_cost,
       final_cost: snapshot.final_cost,
       currency: offer.currency,
       billing_period: 'monthly_direct_debit',

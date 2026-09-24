@@ -1,9 +1,11 @@
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { computeAddonTotals } from './membershipAddons.js';
 
 /** Freeze server-derived simulation, including addon prices, before charging. */
 export function snapshotFormMembershipPayment(simulation, addonLines = [], paymentMethod = 'stripe') {
   const simResult = structuredClone(simulation);
+  if (!simResult.commitment_snapshot) Object.assign(simResult, membershipIncentiveSnapshot(simResult));
   if (simResult.config?.start_mode === 'immediate' && !simResult.commitment) {
     const start = new Date(simResult.membershipYear?.start).toISOString().slice(0, 10);
     if ((simResult.config.effective_from && simResult.config.effective_from > start)
@@ -96,6 +98,7 @@ export function historyFromFormPaymentSnapshot(snapshot) {
   const sim = snapshot.simResult;
   const addons = computeAddonTotals(snapshot.addonLines || []);
   return {
+    ...(sim.commitment_snapshot ? { commitment_snapshot: structuredClone(sim.commitment_snapshot) } : membershipIncentiveSnapshot(sim)),
     ...(snapshot.quoteId ? { membership_payment_quote_id: snapshot.quoteId } : {}),
     ...(!sim.commitment && sim.paymentSchedule ? sim.paymentSchedule : {}),
     ...(sim.commitment || {}),
@@ -108,6 +111,8 @@ export function historyFromFormPaymentSnapshot(snapshot) {
     prorata_cost: sim.prorataCost,
     free_period_discount: sim.freeDiscount || 0,
     rollover_discount: sim.rolloverDiscount || 0,
+    override_applied: sim.overrideApplied || false,
+    override_type: sim.overrideType || null,
     custom_discount_total: sim.customDiscountTotal || 0,
     custom_discount_details: sim.customDiscountDetails?.length ? sim.customDiscountDetails : null,
     final_cost: Math.round((Number(sim.finalCost) + addons.subtotal) * 100) / 100,

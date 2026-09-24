@@ -5,6 +5,7 @@ import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
 import { snapshotFormMembershipPayment, saveFormMembershipPaymentQuote, loadFormMembershipPaymentQuote, formPaymentActivationFields, createReservedFormMembershipIntent } from '../_lib/formMembershipPaymentQuote.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
@@ -631,6 +632,7 @@ async function handlePost(req, res, resolvedTenantId) {
         .maybeSingle();
 
       const insertData = {
+        ...(simResult.commitment_snapshot ? { commitment_snapshot: structuredClone(simResult.commitment_snapshot) } : membershipIncentiveSnapshot(simResult)),
         ...(simResult.commitment || {}),
         ...(saved?.quoteId ? { membership_payment_quote_id: saved.quoteId } : {}),
         tenant_id: tenantId,
@@ -855,6 +857,7 @@ async function settleFormZeroDueMembership({
   const membershipYear = simResult.membershipYear?.label;
   const paidAt = new Date().toISOString();
   const insertData = {
+    ...membershipIncentiveSnapshot(simResult),
     ...(snapshotFormMembershipPayment(simResult, [], 'none').simResult.commitment || {}),
     tenant_id: tenantId,
     [idColumn]: idValue,

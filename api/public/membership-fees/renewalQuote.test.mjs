@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import * as policy from '../../_lib/annualRenewalPolicy.js';
 import { recordSucceededMembershipPaymentIntent } from '../../_lib/membershipPaymentReconciliation.js';
 import { resolveFeeTokenInvoiceReference } from '../../_lib/feeTokenInvoiceReference.js';
+import { membershipIncentiveSnapshot } from '../../_lib/membershipIncentiveSnapshot.js';
+import { calculateOriginalIncentiveRollover } from '../../_lib/membershipSimulationCore.js';
 
 // Evaluate the actual handler with all imported effects supplied explicitly.
 // No configured DB, Stripe account, accounting system or mailer is reachable.
@@ -13,7 +15,7 @@ const source = readFileSync(new URL('./[token].js', import.meta.url), 'utf8')
   .replace(/export function /g, 'function ')
   .replace(/import\(([^)]+)\)/g, 'deps($1)');
 const load = new Function('createClient', 'resolveEntityAnnualRenewalEligibility', 'resolveMemberFeeApproval',
-  'feeTokenCommitment', 'simulationFromFeeCommitment', 'reserveRollingFeePayment', 'reserveRollingMonthlyHistory', 'deps',
+  'feeTokenCommitment', 'simulationFromFeeCommitment', 'reserveRollingFeePayment', 'reserveRollingMonthlyHistory', 'deps', 'membershipIncentiveSnapshot',
   `${source}\nreturn {handler, simulationFromRenewalQuote, renewalQuoteActivationFields};`);
 
 function setup(member, rolling = false) {
@@ -119,7 +121,7 @@ function setup(member, rolling = false) {
   };
   const commitment = rolling ? { term_key: 'rolling:2099', term_start_date: '2099-01-01', term_end_date: '2099-12-31' } : null;
   const api = load(() => db, async () => eligibility, async () => ({ required: false }),
-    () => commitment, () => null, async () => null, async () => null, deps);
+    () => commitment, () => null, async () => null, async () => null, deps, membershipIncentiveSnapshot);
   async function request(method, body = {}) {
     const res = { code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }};
     await api.handler({ method, query: { token: 'bearer' }, body, headers: {} }, res);
@@ -131,6 +133,37 @@ function setup(member, rolling = false) {
 
 process.env.SUPABASE_URL = 'https://fixture.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'fixture-only';
+
+for (const ordinaryFee of [false, true]) test(`organisation public payment creates original Y1 evidence after config changes (ordinary fee: ${ordinaryFee})`, async () => {
+  const s = setup(false);
+  if (ordinaryFee) s.token.cost_breakdown.isFeeQuote = true;
+  const joining = { id: 'joining', start_mode: 'fixed_date', billing_period: 'annual', currency: 'GBP',
+    free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true, online_card_payment: true };
+  s.token.cost_breakdown.renewalQuote.config = structuredClone(joining);
+  Object.assign(s.token.cost_breakdown, { yearNumber: 1, annualCost: 1000, freeDiscount: 100, rolloverDiscount: 0 });
+  joining.free_period_amount = 90;
+  joining.rollover_enabled = false;
+  const result = await s.request('POST', { action: 'confirm_payment', paymentIntentId: 'pi_test' });
+  assert.equal(result.code, 200, JSON.stringify(result.body));
+  const history = s.tables[s.historyTable][0];
+  assert.equal(history.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(history.free_period_discount, 100);
+  assert.equal(history.year_number, 1);
+  const rollover = calculateOriginalIncentiveRollover({ history, originalConfig: joining, annualCost: 2000 });
+  assert.equal(rollover.originalEntitlement, 400);
+  assert.equal(rollover.appliedDiscount, 300);
+});
+
+test('ordinary fixed fee quotes retain PO support while legacy unquoted organisation charges are blocked', async () => {
+  const s = setup(false);
+  s.token.cost_breakdown.isFeeQuote = true;
+  assert.equal((await s.request('GET')).body.poAvailable, true);
+  delete s.token.cost_breakdown.renewalQuote;
+  const result = await s.request('POST', { action: 'create_payment' });
+  assert.equal(result.code, 409);
+  assert.equal(result.body.code, 'new_member_incentive_review_required');
+  assert.equal(s.tables[s.historyTable].length, 0);
+});
 
 test('reminder confirmation surfaces shared accounting-pending and retries recorder', async () => {
   const s = setup(true);

@@ -4,6 +4,75 @@ import { createMembershipConfigResolver } from './membershipConfigResolverCore.j
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow, rollingMembershipWindow } from './membershipYear.js';
+
+// A saved usage amount is not evidence of the rate/entitlement that produced it.
+// In particular, never substitute the renewal schedule for the joining schedule.
+export function calculateOriginalIncentiveRollover({ history = null, originalConfig, goLiveDate, annualCost, projectedAnnualCost, projectedDiscount, projectedDays }) {
+  const review = (message) => {
+    const error = new Error(`New-member incentive requires review: ${message}`);
+    error.code = 'new_member_incentive_review_required';
+    throw error;
+  };
+  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+  const validNumber = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+  const snapshotConfig = history?.commitment_snapshot?.config;
+  const original = snapshotConfig || originalConfig;
+  if (!original) review('the original joining configuration is unavailable.');
+  if (typeof original.rollover_enabled !== 'boolean') review('the original rollover policy is missing.');
+  if (!snapshotConfig) {
+    const evidenceDate = new Date(history?.created_at || goLiveDate).getTime();
+    const created = new Date(original.created_at).getTime();
+    const updated = new Date(original.updated_at).getTime();
+    if (!original.created_at || !original.updated_at || !(history?.created_at || goLiveDate)
+        || ![evidenceDate, created, updated].every(Number.isFinite) || created > evidenceDate || updated > evidenceDate
+        || (history && (!history.config_id || history.config_id !== original.id))) {
+      review('no snapshot or demonstrably unchanged, history-linked joining configuration is available.');
+    }
+  }
+  const result = {
+    source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
+    originalConfigId: original.id || history?.config_id || null,
+    year1HistoryId: history?.id || null,
+    unit: original.free_period_unit || null,
+    originalEntitlement: 0, usedInYear1: 0, remainingEntitlement: 0,
+    appliedDiscount: 0, appliedDays: 0,
+    eligible: false,
+  };
+  if (!original.rollover_enabled || !original.free_period_amount || !original.free_period_unit) return result;
+  if (!validNumber(original.free_period_amount)) review('the original incentive amount is invalid.');
+  const originalAnnual = history?.annual_cost ?? history?.commitment_snapshot?.amounts?.annual_cost ?? projectedAnnualCost;
+  const usedDiscount = history ? history.free_period_discount : projectedDiscount;
+  if (!validNumber(originalAnnual) || !validNumber(usedDiscount)) review('original net annual price and Year 1 incentive usage must both be recorded.');
+  if (history?.override_type === 'price') return result;
+  if (history?.override_applied && !history.override_type) review('the original override type is missing.');
+  if (history?.override_type === 'structure' && !snapshotConfig) review('the original structure override requires a saved configuration snapshot.');
+  if (original.free_period_unit === 'percent') {
+    result.originalEntitlement = money(Number(originalAnnual) * Number(original.free_period_amount) / 100);
+    result.usedInYear1 = Number(usedDiscount);
+    result.remainingEntitlement = money(Math.max(0, result.originalEntitlement - result.usedInYear1));
+    result.appliedDiscount = money(Math.min(result.remainingEntitlement, Math.max(0, annualCost)));
+  } else {
+    const amount = Number(original.free_period_amount);
+    const totalDays = original.free_period_unit === 'days' ? Math.round(amount)
+      : original.free_period_unit === 'weeks' ? Math.round(amount / 4.33 * 30.44)
+      : original.free_period_unit === 'months' ? Math.round(amount * 30.44) : null;
+    const usedDays = history ? history.free_period_days_applied : projectedDays;
+    if (totalDays === null || !validNumber(usedDays)) review('original free-day entitlement and Year 1 day usage must both be recorded.');
+    const join = new Date(`${String(goLiveDate).slice(0, 10)}T00:00:00.000Z`);
+    if (!Number.isFinite(join.getTime())) review('the original joining date is unavailable.');
+    const firstWindow = calculateMembershipYearWindow(original, join);
+    const totalYearDays = Math.round((firstWindow.end - firstWindow.start) / 86400000) + 1;
+    const originalDaily = Number((Number(originalAnnual) / totalYearDays).toFixed(4));
+    result.originalEntitlement = totalDays;
+    result.usedInYear1 = Number(usedDays);
+    result.remainingEntitlement = Math.max(0, totalDays - Number(usedDays));
+    result.appliedDays = result.remainingEntitlement;
+    result.appliedDiscount = money(Math.min(Math.max(0, annualCost), originalDaily * result.remainingEntitlement));
+  }
+  result.eligible = result.remainingEntitlement > 0;
+  return result;
+}
+
 export function createMembershipSimulator(supabase, clock = () => new Date()) {
 const { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } = createDiscountHelper(supabase);
 const { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } = createVatOverrideHelper(supabase);
@@ -165,8 +234,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   // re-resolve as of that date so future-scheduled configs are honoured.
   let configResolutionDate = asOfDate || null;
   if (!explicitConfigId && !rollingContext) {
-    const bootstrapCurrentYear = calculateMembershipYear(config);
-    const bootstrapNextYear = calculateNextMembershipYear(config);
+    const referenceDate = asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock();
+    const bootstrapCurrentYear = calculateMembershipYearWindow(config, referenceDate);
+    const bootstrapNextYear = calculateNextMembershipYearWindow(config, referenceDate);
     let targetWindow;
     if (targetYear) {
       targetWindow = targetYear === bootstrapCurrentYear.label ? bootstrapCurrentYear : bootstrapNextYear;
@@ -273,6 +343,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let usedConfigId = config.id;
   let usedBandId = null;
   let overrideApplied = false;
+  // Pricing structures can be overridden without changing the schedule used
+  // for the membership window. Keep the effective incentive policy separately.
+  let incentiveConfig = config;
 
   let fieldValue = null;
 
@@ -371,6 +444,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
           : matchBand(fieldValue, overrideBands);
 
         if (overrideBand) {
+          incentiveConfig = overrideConfig;
           annualCostRaw = parseFloat(overrideBand.annual_cost);
           annualCost = annualCostRaw;
           tierLabel = overrideBand.label;
@@ -401,11 +475,12 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   const isPriceOverride = override?.override_type === 'price';
 
-  const { data: historyRecords } = await supabase
+  const { data: historyRecords, error: historyError } = await supabase
     .from('organisation_membership_history')
-    .select('id, membership_year')
+    .select('*')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId);
+  if (historyError) return { success: false, steps, code: 'new_member_incentive_review_required', error: `Could not load original incentive usage: ${historyError.message}` };
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
   const isNewOrg = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
@@ -424,11 +499,13 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let billableDays = null;
   let finalCost = annualCost;
   let proRataEnabled = false;
+  let incentiveRollover = null;
 
   if (isPriceOverride) {
     finalCost = annualCost;
     log('Price Override', `Final cost set to manual price: ${finalCost.toFixed(2)}, all calculation lines suppressed`);
   } else if (yearNumber === 1) {
+    const config = incentiveConfig;
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
@@ -487,85 +564,53 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     }
   } else if (yearNumber === 2) {
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
-    const isPercentIncentive = config.free_period_unit === 'percent';
-
-    if (isNewOrg && config.free_period_amount && config.free_period_unit && config.rollover_enabled) {
-      if (isPercentIncentive) {
-        const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
-
-        const joinMidnight = new Date(effectiveJoinDate);
-        joinMidnight.setHours(0, 0, 0, 0);
-        let firstYearStart;
-        let firstYearEnd;
-        if (config.start_mode === 'immediate') {
-          firstYearStart = new Date(joinMidnight);
-          firstYearEnd = new Date(joinMidnight);
-          firstYearEnd.setFullYear(firstYearEnd.getFullYear() + 1);
-        } else {
-          const startMonth = config.membership_start_month || 1;
-          const startDay = config.membership_start_day || 1;
-          const joinYear = joinMidnight.getFullYear();
-          const y1Start = new Date(joinYear, startMonth - 1, startDay);
-          firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
-          firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+    try {
+      const activeHistory = (historyRecords || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+      const firstYears = activeHistory.filter(row => Number(row.year_number) === 1);
+      if (firstYears.length > 1) throw new Error('Multiple Year 1 records prevent identifying original incentive usage.');
+      const firstYear = firstYears[0] || null;
+      if (!firstYear && activeHistory.some(row => row.membership_year !== membershipYear.label)) {
+        throw new Error('Historical records do not identify original Year 1 incentive usage.');
+      }
+      const originalConfig = firstYear?.commitment_snapshot?.config || (firstYear?.config_id
+        ? await getConfigById(firstYear.config_id, tenantId)
+        : await getConfigForOrganisation(tenantId, organizationId, {}, goLiveDate));
+      if (originalConfig && (firstYear?.currency || originalConfig.currency || 'GBP') !== (config.currency || 'GBP')) {
+        throw new Error('Original incentive and renewal currencies differ; conversion requires review.');
+      }
+      let projection = null;
+      if (!firstYear) {
+        // Check provenance before quoting: a historical date alone does not make a
+        // mutable schedule (or today's organisation fields/bands) historical evidence.
+        if (!originalConfig || originalConfig.pricing_model !== 'flat') {
+          throw new Error('Unrecorded Year 1 banded pricing requires original pricing evidence.');
         }
-        const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
-        const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
-
-        let y1ProportionUsed = 1;
-        if (config.prorata_enabled) {
-          y1ProportionUsed = Math.min(1, remainingDaysInFirstYear / firstYearTotalDays);
+        calculateOriginalIncentiveRollover({ originalConfig, goLiveDate, annualCost,
+          projectedAnnualCost: originalConfig.flat_cost, projectedDiscount: 0, projectedDays: 0 });
+        const { data: originalRules, error: rulesError } = await supabase.from('membership_tier_discount')
+          .select('*').eq('tenant_id', tenantId).eq('config_id', originalConfig.id);
+        if (rulesError || originalRules?.length || overrideApplied) {
+          throw new Error('Unrecorded Year 1 discounts or overrides require original pricing evidence.');
         }
-
-        const y1DiscountApplied = parseFloat((fullDiscountAmount * y1ProportionUsed).toFixed(2));
-        const spilloverDiscount = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
-        freeDiscount = Math.min(spilloverDiscount, annualCost);
-        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
-
-        if (freeDiscount > 0) {
-          log('Percentage Discount Rollover', `Full discount: ${fullDiscountAmount.toFixed(2)} (${config.free_period_amount}%), applied in Y1: ${y1DiscountApplied.toFixed(2)} (${remainingDaysInFirstYear}/${firstYearTotalDays} days), rollover to Y2: ${freeDiscount.toFixed(2)}`);
-        } else {
-          log('Percentage Discount Rollover', `No rollover - full ${config.free_period_amount}% discount was used in year 1`);
-        }
-      } else {
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        const currentYear = calculateMembershipYear(config);
-        const currentYearStartMidnight = new Date(currentYear.start);
-        currentYearStartMidnight.setHours(0, 0, 0, 0);
-        const currentYearEndMidnight = new Date(currentYear.end);
-        currentYearEndMidnight.setHours(0, 0, 0, 0);
-        const currentYearTotalDays = Math.floor((currentYearEndMidnight - currentYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
-
-        let freeDaysInCurrentYear = 0;
-        if (config.prorata_enabled) {
-          const joinMidnight = new Date(effectiveJoinDate);
-          joinMidnight.setHours(0, 0, 0, 0);
-          const currentProrataDays = Math.max(0, Math.floor((currentYearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-          const freePeriodEnd = new Date(joinMidnight);
-          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-          const lastFreeDay = freePeriodEnd < currentYearEndMidnight ? freePeriodEnd : currentYearEndMidnight;
-          freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-          freeDaysInCurrentYear = Math.min(freeDaysInCurrentYear, currentProrataDays);
-        } else {
-          freeDaysInCurrentYear = Math.min(freePeriodTotalDays, currentYearTotalDays);
-        }
-
-        const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
-        freePeriodDaysApplied = Math.min(spilloverDays, totalDaysInYear);
-        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
-
-        if (freePeriodDaysApplied > 0) {
-          log('Free Period Spillover', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)} (spillover from year 1)`);
-        } else {
-          log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
+        projection = await simulateMembershipForOrg(tenantId, organizationId, {
+          source: 'workflow', configId: originalConfig.id, asOfDate: goLiveDate,
+        });
+        if (!projection.success || projection.yearNumber !== 1 || projection.overrideApplied) {
+          throw new Error('Original Year 1 incentive could not be reconstructed safely.');
         }
       }
-    } else if (isNewOrg && config.free_period_amount && config.free_period_unit && !config.rollover_enabled) {
-      log('Year 2 Rollover Skipped', `Free period rollover is disabled for this schedule. Full annual cost applies: ${finalCost.toFixed(2)}`);
-    } else {
-      log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
+      incentiveRollover = calculateOriginalIncentiveRollover({
+        history: firstYear, originalConfig, goLiveDate, annualCost,
+        projectedAnnualCost: projection?.annualCost, projectedDiscount: projection?.freeDiscount,
+        projectedDays: projection?.freePeriodDaysApplied,
+      });
+      freeDiscount = incentiveRollover.appliedDiscount;
+      freePeriodDaysApplied = incentiveRollover.appliedDays;
+      finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+      log('Original Incentive Rollover', `${incentiveRollover.source}: entitlement ${incentiveRollover.originalEntitlement}, used ${incentiveRollover.usedInYear1}, remaining ${incentiveRollover.remainingEntitlement}; discount ${freeDiscount.toFixed(2)}`);
+    } catch (error) {
+      log('Original Incentive Rollover', error.message, 'error');
+      return { success: false, steps, code: 'new_member_incentive_review_required', error: error.message };
     }
   } else {
     log('Discounts', `Year ${yearNumber} - no pro-rata, free period, or rollover discounts apply`);
@@ -753,6 +798,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     success: true,
     org,
     config,
+    incentiveConfig,
     matchedBand,
     tierLabel,
     fieldValue,
@@ -770,9 +816,10 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     prorataCost: proRataEnabled ? prorataCost : null,
     freeDiscount: isPriceOverride ? 0 : year1FreeDiscount,
     rolloverDiscount,
+    incentiveRollover,
     freePeriodDaysApplied: isPriceOverride ? 0 : freePeriodDaysApplied,
-    freePeriodAmount: config.free_period_amount,
-    freePeriodUnit: config.free_period_unit,
+    freePeriodAmount: incentiveConfig.free_period_amount,
+    freePeriodUnit: incentiveConfig.free_period_unit,
     billableDays: proRataEnabled ? billableDays : null,
     customDiscountTotal,
     customDiscountDetails,

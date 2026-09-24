@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -494,6 +495,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
           annual_cost: simResult.annualCost,
           prorata_cost: simResult.prorataCost,
           free_period_discount: simResult.freeDiscount || 0,
+          ...membershipIncentiveSnapshot(simResult),
           rollover_discount: simResult.rolloverDiscount || 0,
           custom_discount_total: simResult.customDiscountTotal || 0,
           custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
@@ -1062,6 +1064,7 @@ async function settlePortalZeroDueMembership({
   const membershipYear = simResult.membershipYear?.label;
   const paidAt = new Date().toISOString();
   const insertData = {
+    ...membershipIncentiveSnapshot(simResult),
     tenant_id: tenantId,
     [idColumn]: idValue,
     membership_year: membershipYear,

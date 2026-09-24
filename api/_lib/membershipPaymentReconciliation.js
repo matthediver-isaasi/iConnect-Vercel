@@ -16,6 +16,7 @@
 // helper; only newly-paid invoices from go-live onward trigger workflows.
 
 import { supabase } from './database.js';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { getAccountingProviderByName, PROVIDER_XERO } from './accountingProvider.js';
 import { triggerWorkflows } from './workflows.js';
 import { feeTokenCommitment } from './rollingFeeCommitment.js';
@@ -369,8 +370,19 @@ export async function recordSucceededMembershipPaymentIntent(
       }
       const early = new Date().toISOString().slice(0, 10) < start;
       savedFields = {
+        ...membershipIncentiveSnapshot({ ...cb, config: quote.config, incentiveConfig: quote.incentiveConfig }),
         config_id: quote.config.id, tier_label: feeToken.tier_label,
         annual_cost: cb.annualCost, billing_period: quote.config.billing_period || 'annual',
+        year_number: cb.yearNumber || null,
+        prorata_cost: cb.prorataCost ?? null,
+        prorata_days: cb.prorataDays ?? null,
+        free_period_discount: cb.freeDiscount || 0,
+        rollover_discount: cb.rolloverDiscount || 0,
+        override_applied: cb.overrideApplied || false,
+        override_type: cb.overrideType || null,
+        free_period_days_applied: cb.freePeriodDaysApplied || 0,
+        custom_discount_total: cb.customDiscountTotal || 0,
+        custom_discount_details: cb.customDiscountDetails || null,
         term_start_date: start, term_end_date: end,
         status: early ? 'scheduled' : 'active',
         scheduled_activation_date: early ? start : null,
