@@ -56,7 +56,7 @@ export function matchEventFilter(row, filter, matchFilter) {
   return matchFilter(raw, filter, null, false);
 }
 
-async function fetchPaged(client, table, columns, tenantId, maxRows = MAX_ROWS) {
+export async function fetchPaged(client, table, columns, tenantId, maxRows = MAX_ROWS) {
   const rows = [];
   let cursor = null;
   // Do not infer exhaustion from a short page: PostgREST installations may

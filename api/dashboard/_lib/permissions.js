@@ -58,21 +58,29 @@ export async function getDashboardActor(req) {
     && !isResourceExcluded(excludedFeatures, 'admin.role-management')
     && !isResourceExcluded(combinedExclusions, MEMBERSHIP_VALUE_FEATURE)
   ));
+  const viewEventRevenue = view && (!!ctx.tenantUserId || (
+    !!ctx.roleId
+    && !isResourceExcluded(excludedFeatures, 'admin.role-management')
+    && !isResourceExcluded(combinedExclusions, 'events.event-report')
+  ));
 
   return {
     tenantId: ctx.tenantId,
     memberId: ctx.memberId,
     organizationId: ctx.organizationId,
     roleId: ctx.roleId,
-    permissions: { view, manageShared, managePersonal, viewMembershipValue },
+    permissions: { view, manageShared, managePersonal, viewMembershipValue, viewEventRevenue },
   };
 }
 
 export function isMembershipValueConfig(config) {
-  return config?.source === 'organisation_membership';
+  // Historical helper name retained for compatibility: both financial sources
+  // need a report permission, but each checks its OWN feature below.
+  return ['organisation_membership', 'event_revenue'].includes(config?.source);
 }
 
-export function canAccessMembershipValue(actor) {
+export function canAccessMembershipValue(actor, config = null) {
+  if (config?.source === 'event_revenue') return !!actor?.permissions?.viewEventRevenue;
   return !!actor?.permissions?.viewMembershipValue;
 }
 

@@ -54,9 +54,10 @@ export function createHandler(overrides = {}) {
       : widget.config;
     setMembershipValueNoStore(widget.config, res);
     setMembershipValueNoStore(effectiveConfig, res);
-    if ((isMembershipValueConfig(widget.config) || isMembershipValueConfig(effectiveConfig))
-      && !canAccessMembershipValue(actor)) {
-      return res.status(403).json({ error: 'Membership Payment Report permission required' });
+    if ((isMembershipValueConfig(widget.config) && !canAccessMembershipValue(actor, widget.config))
+      || (isMembershipValueConfig(effectiveConfig) && !canAccessMembershipValue(actor, effectiveConfig))) {
+      return res.status(403).json({ error: [widget.config?.source, effectiveConfig?.source].includes('event_revenue')
+        ? 'Event Registration Report permission required' : 'Membership Payment Report permission required' });
     }
     if (req.method === 'GET' && isCanvasDashboardEmbed(req)
         && !isSharedTenantWidget(widget, actor)) {

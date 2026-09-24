@@ -37,8 +37,9 @@ async function previewHandler(req, res, deps) {
     return res.status(403).json({ error: 'Dashboard not available for this role' });
   }
   setMembershipValueNoStore(req.body?.config, res);
-  if (isMembershipValueConfig(req.body?.config) && !canAccessMembershipValue(actor)) {
-    return res.status(403).json({ error: 'Membership Payment Report permission required' });
+  if (isMembershipValueConfig(req.body?.config) && !canAccessMembershipValue(actor, req.body.config)) {
+    return res.status(403).json({ error: req.body.config.source === 'event_revenue'
+      ? 'Event Registration Report permission required' : 'Membership Payment Report permission required' });
   }
 
   const parsed = widgetConfigSchema.safeParse(req.body?.config);

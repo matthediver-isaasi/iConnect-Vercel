@@ -57,7 +57,7 @@ export function createHandler(overrides = {}) {
 }
 
 async function listWidgets(req, res, actor, deps) {
-  if (canAccessMembershipValue(actor)) {
+  if (canAccessMembershipValue(actor) || actor.permissions.viewEventRevenue) {
     res.setHeader('Cache-Control', 'private, no-store');
   }
   const canvasEmbed = isCanvasDashboardEmbed(req);
@@ -91,6 +91,9 @@ async function listWidgets(req, res, actor, deps) {
         if (typeof sharedQuery.not === 'function') {
           sharedQuery = sharedQuery.not('config->>source', 'eq', 'organisation_membership');
         }
+      }
+      if (!actor.permissions.viewEventRevenue && typeof sharedQuery.not === 'function') {
+        sharedQuery = sharedQuery.not('config->>source', 'eq', 'event_revenue');
       }
       if (canvasEmbed) {
         // display_order is editable and is not unique.  A stable id tie-break
@@ -142,6 +145,9 @@ async function listWidgets(req, res, actor, deps) {
           personalQuery = personalQuery.not('config->>source', 'eq', 'organisation_membership');
         }
       }
+      if (!actor.permissions.viewEventRevenue && typeof personalQuery.not === 'function') {
+        personalQuery = personalQuery.not('config->>source', 'eq', 'event_revenue');
+      }
       const { data, error } = await personalQuery;
       if (error) throw error;
       personal = data || [];
@@ -151,10 +157,8 @@ async function listWidgets(req, res, actor, deps) {
       permissions: actor.permissions,
       palette: await deps.getDashboardWidgetPalette(actor.tenantId),
     };
-    if (!canAccessMembershipValue(actor)) {
-      shared = shared.filter(widget => !isMembershipValueConfig(widget.config));
-      personal = personal.filter(widget => !isMembershipValueConfig(widget.config));
-    }
+    shared = shared.filter(widget => !isMembershipValueConfig(widget.config) || canAccessMembershipValue(actor, widget.config));
+    personal = personal.filter(widget => !isMembershipValueConfig(widget.config) || canAccessMembershipValue(actor, widget.config));
     if (wantShared) body.shared = shared;
     if (wantPersonal) body.personal = personal;
     if (pagination) body.pagination = pagination;
@@ -193,8 +197,9 @@ async function createWidget(req, res, actor, deps) {
     return res.status(400).json({ error: error.message });
   }
   setMembershipValueNoStore(payload.config, res);
-  if (isMembershipValueConfig(payload.config) && !canAccessMembershipValue(actor)) {
-    return res.status(403).json({ error: 'Membership Payment Report permission required' });
+  if (isMembershipValueConfig(payload.config) && !canAccessMembershipValue(actor, payload.config)) {
+    return res.status(403).json({ error: payload.config.source === 'event_revenue'
+      ? 'Event Registration Report permission required' : 'Membership Payment Report permission required' });
   }
 
   if (payload.scope === 'shared' && !actor.permissions.manageShared) {

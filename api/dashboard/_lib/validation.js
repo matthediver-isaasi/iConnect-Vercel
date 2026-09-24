@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { validateMemberGroupConfig } from './memberGroupContract.js';
 import { validateOrganisationMembershipValueConfig } from './organisationMembershipValue.js';
 import { validateEventsConfig } from '../../../shared/eventsWidgetContract.js';
+import { validateEventRevenueConfig } from '../../../shared/eventRevenueContract.js';
 
 const fieldRefSchema = z.object({
   field: z.string().nullable().optional(),
@@ -205,6 +206,7 @@ export const widgetConfigSchema = z.object({
   }
   try {
     validateEventsConfig(cfg);
+    validateEventRevenueConfig(cfg);
   } catch (err) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: err.message });
   }

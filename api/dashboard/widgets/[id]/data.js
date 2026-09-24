@@ -89,8 +89,9 @@ export function createHandler(overrides = {}) {
       return reply(404, { error: 'Widget not found' });
     }
     setMembershipValueNoStore(widget.config, res);
-    if (isMembershipValueConfig(widget.config) && !canAccessMembershipValue(actor)) {
-      return reply(403, { error: 'Membership Payment Report permission required' });
+    if (isMembershipValueConfig(widget.config) && !canAccessMembershipValue(actor, widget.config)) {
+      return reply(403, { error: widget.config.source === 'event_revenue'
+        ? 'Event Registration Report permission required' : 'Membership Payment Report permission required' });
     }
 
     try {

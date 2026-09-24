@@ -8,6 +8,7 @@ import {
   REGION_SCHEME_WORLD_BANK,
 } from '../../../shared/countryRegions.js';
 import { getOrganisationMembershipValueCatalog } from './organisationMembershipValue.js';
+import { eventRevenueOptions } from './eventRevenueAggregation.js';
 
 // Derived dimension: world region classified from the source's
 // `countries`-typed multi-country preference field(s). Not a stored
@@ -295,6 +296,22 @@ export const DASHBOARD_SOURCES = {
       { name: 'created_at', label: 'Booked at', type: 'date' },
     ],
   },
+  event_revenue: {
+    id: 'event_revenue',
+    label: 'Event Revenue',
+    table: 'booking',
+    timestampField: 'event_start_date',
+    isEventRevenue: true,
+    systemFields: [
+      { name: 'booked_value', label: 'Booking value after discounts', type: 'number', aggregatable: true },
+      { name: 'event_id', label: 'Event', type: 'enum', options: [] },
+      { name: 'event_kind', label: 'Event kind', type: 'enum', options: [
+        { value: 'simple', label: 'Simple event' },
+        { value: 'complex', label: 'Complex event' },
+      ] },
+      { name: 'event_start_date', label: 'Event start date', type: 'date' },
+    ],
+  },
   event: {
     id: 'event',
     label: 'Events',
@@ -492,6 +509,10 @@ export async function getOrgTypeOptions(tenantId) {
  * dimension (options are the tenant's org_type dropdown values).
  */
 async function resolveSystemFields(def, tenantId) {
+  if (def.isEventRevenue) {
+    const options = await eventRevenueOptions(supabase, tenantId);
+    return def.systemFields.map(field => field.name === 'event_id' ? { ...field, options } : field);
+  }
   if (def.isMemberGroup) {
     const groups = await readMemberGroupPages(() => tenantFilter(supabase.from('member_group')
       .select('id,name'), tenantId).order('id'));
@@ -579,11 +600,12 @@ export async function getHiddenGroupFields(tenantId) {
   }
 }
 
-export async function getSourceCatalog(tenantId, { includeMembershipValue = false } = {}) {
+export async function getSourceCatalog(tenantId, { includeMembershipValue = false, includeEventRevenue = false } = {}) {
   const sources = [];
   const hiddenBySource = await getHiddenGroupFields(tenantId);
   for (const def of Object.values(DASHBOARD_SOURCES)) {
     if (def.isOrganisationMembershipValue && !includeMembershipValue) continue;
+    if (def.isEventRevenue && !includeEventRevenue) continue;
     const hidden = new Set(hiddenBySource[def.id] || []);
     const customFields = (await getCustomFieldsForSource(def, tenantId))
       .filter(f => !hidden.has(`custom:${f.id}`));
@@ -605,6 +627,7 @@ export async function getSourceCatalog(tenantId, { includeMembershipValue = fals
       // Events capability flag lets the builder apply the deliberately narrow
       // event-count contract without coupling it to a source label.
       isEvent: !!def.isEvent,
+      isEventRevenue: !!def.isEventRevenue,
       isMemberGroup: !!def.isMemberGroup,
       isOrganisationMembershipValue: !!def.isOrganisationMembershipValue,
       ...(def.isOrganisationMembershipValue

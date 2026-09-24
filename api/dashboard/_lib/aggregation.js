@@ -25,6 +25,7 @@ import {
   normalizeWidgetConfigDateFilters,
 } from './widgetFilterDates.js';
 import { runEventWidgetConfig } from './eventAggregation.js';
+import { runEventRevenueWidget } from './eventRevenueAggregation.js';
 
 // Synthetic DD date dimension: "Date moved to stage …". Not a stored column;
 // each row's value is derived from its history_log as the timestamp it first
@@ -70,6 +71,10 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   }
   config = await normalizeWidgetConfigDateFilters(config, tenantId);
   const client = options.client || supabase;
+  if (source.isEventRevenue) {
+    return runEventRevenueWidget(config, tenantId, client,
+      { matchFilter, bucketTimestamp, finalizeTimeRows, resolveTimeWindowStart }, maxGroups);
+  }
   if (source.isOrganisationMembershipValue) {
     return runOrganisationMembershipValueWidget(config, tenantId, client);
   }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { describeWidgetConfig } from "@shared/widgetDescriber.js";
+import { EVENT_REVENUE_BASIS } from "@shared/eventRevenueContract.js";
 import { MEMBER_GROUP_MEASURES, groupHistoryNotice } from "./memberGroupReporting";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -96,6 +97,18 @@ export function formatNumber(value, numberFormat = null) {
   }
   if (Number.isInteger(value)) return value.toLocaleString();
   return Number(value).toFixed(2);
+}
+
+function formatWidgetValue(value, widget, payload) {
+  return widget.config?.source === "event_revenue"
+    ? new Intl.NumberFormat(undefined, { style: "currency", currency: payload.currency || widget.config.revenueCurrency }).format(value)
+    : formatNumber(value, widget.config?.numberFormat);
+}
+
+function revenueTooltipFormatter(widget, payload) {
+  return widget.config?.source === "event_revenue"
+    ? value => <span className="font-mono font-medium tabular-nums">Booked value: {formatWidgetValue(value, widget, payload)}</span>
+    : undefined;
 }
 
 export function formatMembershipCurrency(value, currency) {
@@ -351,6 +364,18 @@ const STAT_HEIGHT_CLASS = {
 export function buildExportRows(widget, payload) {
   if (!payload) return [];
   const type = widget.widget_type;
+  if (widget.config?.source === "event_revenue") {
+    const currency = payload.currency || widget.config.revenueCurrency;
+    const rows = payload.type === "scalar" || type === "stat"
+      ? [{ key: "Total booked value", value: payload.value ?? payload.total }]
+      : payload.rows || [];
+    return [
+      ["Label", "Booking value after discounts", "Currency"],
+      ...rows.map(row => [row.key, row.value, currency]),
+      ...(type !== "stat" && payload.type !== "scalar" ? [["Total", payload.total, currency]] : []),
+      ["Basis", EVENT_REVENUE_BASIS, currency],
+    ];
+  }
   if (widget.config?.source === "member_group") {
     const categories = payload.categories?.length ? payload.categories : ["value"];
     const rows = payload.type === "scalar" ? [{ key: MEMBER_GROUP_MEASURES.find(m => m.field === widget.config.measure?.field)?.label || "Value", value: payload.value }] : payload.rows || [];
@@ -1101,6 +1126,29 @@ export function WidgetCacheStatus({
 }
 
 export function WidgetBody(props) {
+  if (props.widget.config?.source === "event_revenue") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-1" data-testid="event-revenue-report">
+        <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <span>Booked value · {props.payload.currency || props.widget.config.revenueCurrency}</span>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" aria-label={EVENT_REVENUE_BASIS} className="rounded focus-visible:ring-2 focus-visible:ring-ring">
+                  <Info className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs whitespace-normal">
+                {EVENT_REVENUE_BASIS}
+                {props.payload.excludedOtherCurrencyBookings > 0 && ` ${props.payload.excludedOtherCurrencyBookings} bookings in other currencies excluded.`}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <ChartBody {...props} onDrill={null} />
+      </div>
+    );
+  }
   if (props.widget.config?.source === "organisation_membership") {
     return <MembershipValueBody {...props} />;
   }
@@ -1257,7 +1305,9 @@ function ChartBody({
 }
 
 function StatBody({ widget, payload, palette, embedded = false }) {
-  const value = payload.type === "scalar"
+  const value = widget.config?.source === "event_revenue"
+    ? payload.value ?? payload.total
+    : payload.type === "scalar"
     ? payload.value
     : widget.config?.source === "member_group"
       ? payload.type === "time" ? payload.rows?.at(-1)?.value : payload.total
@@ -1272,7 +1322,7 @@ function StatBody({ widget, payload, palette, embedded = false }) {
       style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
         data-testid={`stat-value-${widget.id}`}
       >
-        {widget.config?.source === "member_group" && value == null ? "Unavailable" : formatNumber(value, widget.config?.numberFormat)}
+        {widget.config?.source === "member_group" && value == null ? "Unavailable" : formatWidgetValue(value, widget, payload)}
       </p>
       {widget.config?.source === "member_group" && (
         <p className="text-xs uppercase text-muted-foreground">
@@ -1404,7 +1454,7 @@ function BarBody({
               height={barProps.xAxisHeight}
             />
             <YAxis tickLine={false} axisLine={false} width={40} />
-            <ChartTooltip content={<ChartTooltipContent />} />
+            <ChartTooltip content={<ChartTooltipContent formatter={revenueTooltipFormatter(widget, payload)} />} />
             {categories.map((c, i) => (
               <Bar
                 key={c}
@@ -1438,7 +1488,7 @@ function BarBody({
             className="text-right text-xs text-muted-foreground"
             data-testid={`widget-total-${widget.id}`}
           >
-            {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
+            {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatWidgetValue(widget.config?.source === "event_revenue" ? payload.total : total, widget, payload)}`}
           </p>
         </div>
       </div>
@@ -1468,7 +1518,7 @@ function BarBody({
             height={barProps.xAxisHeight}
           />
           <YAxis tickLine={false} axisLine={false} width={40} />
-          <ChartTooltip content={<ChartTooltipContent />} />
+          <ChartTooltip content={<ChartTooltipContent formatter={revenueTooltipFormatter(widget, payload)} />} />
           <Bar
             dataKey="value"
             fill={colour}
@@ -1484,7 +1534,7 @@ function BarBody({
               position="top"
               className="fill-foreground"
               fontSize={11}
-              formatter={(v) => formatNumber(v)}
+              formatter={(v) => formatWidgetValue(v, widget, payload)}
             />
           </Bar>
         </BarChart>
@@ -1493,7 +1543,7 @@ function BarBody({
         className="text-right text-xs text-muted-foreground"
         data-testid={`widget-total-${widget.id}`}
       >
-        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
+        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatWidgetValue(widget.config?.source === "event_revenue" ? payload.total : total, widget, payload)}`}
       </p>
     </div>
   );
@@ -1524,7 +1574,7 @@ function LineBody({ payload, widget, palette, embedded = false, containerSize })
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis dataKey="key" tickLine={false} axisLine={false} />
         <YAxis tickLine={false} axisLine={false} width={40} />
-        <ChartTooltip content={<ChartTooltipContent />} />
+        <ChartTooltip content={<ChartTooltipContent formatter={revenueTooltipFormatter(widget, payload)} />} />
         {categories.length > 1 && <Legend />}
         {categories.map(key => <Line
           key={key}
@@ -1591,7 +1641,7 @@ function PieBody({
         style={pieCfg.style}
       >
         <PieChart>
-          <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
+          <ChartTooltip content={<ChartTooltipContent nameKey="key" formatter={revenueTooltipFormatter(widget, payload)} />} />
           <Pie
             data={rows}
             dataKey="value"
@@ -1659,7 +1709,7 @@ function PieBody({
                 {row.key}
               </span>
               <span className="shrink-0 tabular-nums text-foreground">
-                {formatNumber(value)}
+                {formatWidgetValue(value, widget, payload)}
                 <span className="ml-1 text-muted-foreground">({pct}%)</span>
               </span>
             </div>
@@ -1670,7 +1720,7 @@ function PieBody({
         className="text-right text-xs text-muted-foreground"
         data-testid={widget ? `widget-total-${widget.id}` : undefined}
       >
-        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatNumber(total)}`}
+        {widget.config?.source === "member_group" ? "Group counts are not an overall headcount" : `Total: ${formatWidgetValue(widget.config?.source === "event_revenue" ? payload.total : total, widget, payload)}`}
       </p>
     </div>
   );
@@ -1736,7 +1786,7 @@ function ListBody({ payload, widget, onDrill = null, palette, embedded = false }
             >
               {widget.config?.source === "member_group" && payload.categories?.some(c => c !== "value")
                 ? payload.categories.map(c => `${payload.seriesLabels?.[c] || c}: ${row[c] == null ? "Unavailable" : formatNumber(row[c])}`).join(" · ")
-                : widget.config?.source === "member_group" && row.value == null ? "Unavailable" : formatNumber(row.value)}
+                : widget.config?.source === "member_group" && row.value == null ? "Unavailable" : formatWidgetValue(row.value, widget, payload)}
             </span>
           </div>
         ))}
@@ -1746,7 +1796,7 @@ function ListBody({ payload, widget, onDrill = null, palette, embedded = false }
         data-testid={`widget-total-${widget.id}`}
       >
         {rows.length} group{rows.length === 1 ? "" : "s"}
-        {widget.config?.source === "member_group" ? " · Group counts are not an overall headcount" : ` · Total: ${formatNumber(total)}`}
+        {widget.config?.source === "member_group" ? " · Group counts are not an overall headcount" : ` · Total: ${formatWidgetValue(widget.config?.source === "event_revenue" ? payload.total : total, widget, payload)}`}
       </p>
     </div>
   );

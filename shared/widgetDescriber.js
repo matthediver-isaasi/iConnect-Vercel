@@ -125,7 +125,10 @@ export function describeWidgetConfig(config, options = {}) {
   const sourcePlural = lowerFirst(sourceLabel);
 
   // --- What is measured -------------------------------------------------
-  if (config.source === 'event') {
+  if (config.source === 'event_revenue') {
+    sentences.push(`Shows booking value after discounts in ${config.revenueCurrency || 'the selected currency'}, including unpaid invoices and excluding cancelled bookings. Vouchers, training funds and account credit are payment allocations, not additional discounts. Not cash received or refund-reconciled. Currencies are never converted or added together.`);
+    sentences.push('Time buckets use event start date (first session for complex events); unscheduled events cannot be time-bucketed.');
+  } else if (config.source === 'event') {
     sentences.push('Counts simple and complex events once each.');
     sentences.push(
       'Multi-day events are counted in the period in which they start. All event statuses are included unless a status filter is applied. Date-range end dates include the whole selected day.',

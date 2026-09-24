@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { EVENT_REVENUE_BASIS, validateEventRevenueConfig } from "@shared/eventRevenueContract.js";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -345,6 +346,7 @@ export default function WidgetBuilderModal({
           filters: seed.config?.filters || [],
           helperText: seed.config?.helperText || "",
           membershipValue: seed.config?.membershipValue || null,
+          revenueCurrency: seed.config?.revenueCurrency || null,
         },
       });
     } else {
@@ -371,6 +373,7 @@ export default function WidgetBuilderModal({
   const currentSource = sources.find(s => s.id === draft.config.source) || null;
   const isMemberGroup = draft.config.source === "member_group";
   const isEventSource = !!currentSource?.isEvent;
+  const isEventRevenueSource = draft.config.source === "event_revenue";
   const groupMeasure = draft.config.measure?.field || "groups";
   const fieldOptions = useMemo(() => {
     const fields = buildFieldOptions(currentSource);
@@ -392,12 +395,13 @@ export default function WidgetBuilderModal({
         .filter(o =>
           !o.filterOnly &&
           (!isMemberGroup || groupFieldCompatible(o, groupMeasure, "group")) &&
-          (!isEventSource || (o.fieldKind === "system" && ["event_kind", "status"].includes(o.field))),
+          (!isEventSource || (o.fieldKind === "system" && ["event_kind", "status"].includes(o.field))) &&
+          (!isEventRevenueSource || ["event_id", "event_kind"].includes(o.field)),
         )
         .sort((a, b) =>
           (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
         ),
-    [fieldOptions, isMemberGroup, groupMeasure, isEventSource],
+    [fieldOptions, isMemberGroup, groupMeasure, isEventSource, isEventRevenueSource],
   );
 
   // DD stage-transition capability (surfaced via the source's `isDd` flag so
@@ -615,6 +619,9 @@ export default function WidgetBuilderModal({
       if (isGroupTemporal(groupMeasure) && ["pie", "donut"].includes(draft.widget_type)) errs.push("Choose a stat, bar, line or list for membership history.");
       if (draft.config.seriesBy && draft.widget_type === "stat") errs.push("Choose a bar, line or list to display named group series.");
     }
+    if (isEventRevenueSource) {
+      try { validateEventRevenueConfig(draft.config); } catch (error) { errs.push(error.message); }
+    }
     if (isEventSource) {
       const measure = draft.config.measure || {};
       if (measure.aggregator !== "count" || measure.field || measure.fieldId) {
@@ -700,7 +707,8 @@ export default function WidgetBuilderModal({
       ) {
         errs.push("Bar and pie charts need a group-by or time bucket.");
       }
-      if (draft.widget_type === "list" && !draft.config.groupBy) {
+      if (draft.widget_type === "list" && !draft.config.groupBy
+          && !(isEventRevenueSource && draft.config.timeBucket?.field)) {
         errs.push("List widgets need a group-by field.");
       }
       // "Date moved to stage …" needs a stage chosen alongside it.
@@ -751,7 +759,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, isEventSource, participationActive]);
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, isEventSource, isEventRevenueSource, participationActive]);
 
   const canSave = validationErrors.length === 0;
 
@@ -987,7 +995,7 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
-            {draft.widget_type === "stat" && !isMembershipValueSource && (
+            {draft.widget_type === "stat" && !isMembershipValueSource && !isEventRevenueSource && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Number format</Label>
@@ -1103,7 +1111,10 @@ export default function WidgetBuilderModal({
                      widget_type: toConversion || toMembershipValue ? "stat" : prev.widget_type,
                     config: {
                       source: value,
-                      measure: { aggregator: "count", field: value === "member_group" ? "groups" : null, fieldKind: value === "member_group" ? "system" : null, fieldId: null },
+                      measure: value === "event_revenue"
+                        ? { aggregator: "sum", field: "booked_value", fieldKind: "system", fieldId: null }
+                        : { aggregator: "count", field: value === "member_group" ? "groups" : null, fieldKind: value === "member_group" ? "system" : null, fieldId: null },
+                      revenueCurrency: value === "event_revenue" ? "GBP" : null,
                       groupBy: null,
                       seriesBy: null,
                       timeBucket: null,
@@ -1142,6 +1153,20 @@ export default function WidgetBuilderModal({
               </Select>
             </div>
 
+            {isEventRevenueSource && (
+              <div className="space-y-2 rounded-md border p-3" data-testid="event-revenue-controls">
+                <Label htmlFor="event-revenue-currency">Reporting currency (ISO code)</Label>
+                <Input
+                  id="event-revenue-currency"
+                  maxLength={3}
+                  value={draft.config.revenueCurrency || ""}
+                  onChange={event => updateConfig({ revenueCurrency: event.target.value.toUpperCase() })}
+                  placeholder="GBP"
+                />
+                <p className="text-xs text-muted-foreground">{EVENT_REVENUE_BASIS}</p>
+                <p className="text-xs text-muted-foreground">Only the selected currency is included. Choose Event filters to select one or several events. Unscheduled events must be excluded for time-bucketed views.</p>
+              </div>
+            )}
             {isMembershipValueSource && (
               <MembershipValueControls
                 value={draft.config.membershipValue}
@@ -1440,7 +1465,7 @@ export default function WidgetBuilderModal({
                   </SelectTrigger>
                   <SelectContent>
                     {AGGREGATORS.filter(a =>
-                      (!isMemberGroup && !isEventSource) || a.value === "count"
+                      isEventRevenueSource ? a.value === "sum" : ((!isMemberGroup && !isEventSource) || a.value === "count")
                     ).map(a => (
                       <SelectItem key={a.value} value={a.value}>
                         {a.label}
@@ -2110,6 +2135,7 @@ export default function WidgetBuilderModal({
                             // excluded unless explicitly marked filterable
                             // (e.g. Region — resolved in JS server-side).
                             .filter(o => !o.groupOnly || o.filterable)
+                            .filter(o => !isEventRevenueSource || o.field !== "booked_value")
                             .map(o => (
                               <SelectItem key={o.value} value={o.value}>
                                 {o.label}
@@ -2520,7 +2546,7 @@ function PreviewWidget({ widget, payload, palette }) {
       </p>
     );
   }
-  if (["member_group", "organisation_membership"].includes(widget.config?.source)) {
+  if (["member_group", "organisation_membership", "event_revenue"].includes(widget.config?.source)) {
     return <WidgetBody widget={widget} payload={payload} palette={palette} />;
   }
   return (

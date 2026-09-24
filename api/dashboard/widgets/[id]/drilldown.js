@@ -81,10 +81,12 @@ export function createHandler(overrides = {}) {
     const config = widget.config || {};
     setMembershipValueNoStore(config, res);
     if (isMembershipValueConfig(config)) {
-      if (!canAccessMembershipValue(actor)) {
-        return res.status(403).json({ error: 'Membership Payment Report permission required' });
+      if (!canAccessMembershipValue(actor, config)) {
+        return res.status(403).json({ error: config.source === 'event_revenue'
+          ? 'Event Registration Report permission required' : 'Membership Payment Report permission required' });
       }
-      return res.status(400).json({ error: 'Annual Membership Value does not support click-through' });
+      return res.status(400).json({ error: config.source === 'event_revenue'
+        ? 'Event Revenue does not support click-through' : 'Annual Membership Value does not support click-through' });
     }
     const key = typeof req.body?.key === 'string' ? req.body.key : null;
     if (key === null) {

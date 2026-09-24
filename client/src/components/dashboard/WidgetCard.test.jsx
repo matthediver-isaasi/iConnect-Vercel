@@ -180,6 +180,90 @@ test("Annual membership value description states period, VAT and allocation sema
   assert.match(text, /selected membership bands/);
 });
 
+test("Event revenue renders currency and booked-value basis without a record count; CSV retains currency", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const widget = { id: "revenue", widget_type: "stat", config: { source: "event_revenue", revenueCurrency: "GBP" } };
+  const payload = { type: "scalar", value: 1234.5, total: 1234.5, currency: "GBP" };
+  try {
+    await act(async () => root.render(<WidgetBody widget={widget} payload={payload} />));
+    assert.match(container.textContent, /£1,234\.50/);
+    assert.match(container.textContent, /Booked value · GBP/);
+    assert.doesNotMatch(container.textContent, /records/i);
+    assert.match(container.querySelector("button").getAttribute("aria-label"), /including unpaid invoices/);
+    assert.match(container.querySelector("button").getAttribute("aria-label"), /Not cash received/);
+    const csv = buildExportRows(widget, payload);
+    assert.deepEqual(csv[1], ["Total booked value", 1234.5, "GBP"]);
+    assert.match(csv.at(-1)[1], /refund-reconciled/);
+    await act(async () => root.render(<WidgetBody widget={{ ...widget, widget_type: "list" }} payload={{
+      type: "time", rows: [{ key: "2026-01", value: 100 }, { key: "2026-02", value: 250 }],
+      total: 250, currency: "GBP",
+    }} />));
+    assert.match(container.textContent, /£100\.00/);
+    assert.match(container.textContent, /Total: £250\.00/);
+    assert.doesNotMatch(container.textContent, /350/);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test("Event revenue builder reopens and saves currency, event filters and event-date buckets", async () => {
+  globalThis.CustomEvent = window.CustomEvent;
+  globalThis.NodeFilter = window.NodeFilter;
+  globalThis.HTMLInputElement = window.HTMLInputElement;
+  globalThis.HTMLSelectElement = window.HTMLSelectElement;
+  globalThis.HTMLTextAreaElement = window.HTMLTextAreaElement;
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: {
+    type: "time", currency: "GBP", total: 100, rows: [{ key: "2026-04", value: 100 }],
+  } }) });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } } });
+  client.setQueryData(["/api/dashboard/sources"], { sources: [{
+    id: "event_revenue", label: "Event Revenue", isEventRevenue: true, timestampField: "event_start_date",
+    systemFields: [
+      { name: "booked_value", label: "Booking value after discounts", type: "number", aggregatable: true },
+      { name: "event_start_date", label: "Event start date", type: "date" },
+      { name: "event_id", label: "Event", type: "enum", options: [{ value: "simple:event-a", label: "Spring event" }] },
+    ], customFields: [],
+  }] });
+  const config = {
+    source: "event_revenue", revenueCurrency: "GBP",
+    measure: { aggregator: "sum", field: "booked_value", fieldKind: "system", fieldId: null },
+    timeBucket: { field: "event_start_date", fieldKind: "system", granularity: "month" },
+    filters: [{ field: "event_id", fieldKind: "system", operator: "in", value: ["simple:event-a"] }],
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let saved;
+  try {
+    await act(async () => root.render(
+      <QueryClientProvider client={client}>
+        <WidgetBuilderModal open initialWidget={{ title: "Revenue", widget_type: "list", scope: "personal", config }}
+          onClose={() => {}} onSave={value => { saved = value; }} canSavePersonal />
+      </QueryClientProvider>,
+    ));
+    await settleQuery();
+    assert.ok(document.querySelector('[data-testid="event-revenue-controls"]'));
+    assert.equal(document.querySelector("#event-revenue-currency").value, "GBP");
+    assert.match(document.body.textContent, /including unpaid invoices/);
+    const button = document.querySelector('[data-testid="button-save-widget"]');
+    assert.equal(button.disabled, false, document.body.textContent);
+    await act(async () => button.click());
+    assert.equal(saved.config.revenueCurrency, "GBP");
+    assert.deepEqual(saved.config.filters, config.filters);
+    assert.equal(saved.config.timeBucket.field, "event_start_date");
+    assert.equal(saved.config.measure.aggregator, "sum");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    client.clear();
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("Annual membership value never presents an incomplete zero as valid", async () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
