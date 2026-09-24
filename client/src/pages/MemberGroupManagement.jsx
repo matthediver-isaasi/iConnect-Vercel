@@ -37,6 +37,7 @@ import { buildAssignmentEditForm, buildAssignmentEditPayload, getAssignmentEditE
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import AllMembersDialog from "@/components/member-groups/AllMembersDialog";
+import { visibleGroupAssignments } from "@/lib/memberGroupAssignmentVisibility";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -116,6 +117,7 @@ export default function MemberGroupManagementPage() {
   const [classificationName, setClassificationName] = useState('');
   const [classificationToDelete, setClassificationToDelete] = useState(null);
   const [membersModalGroupId, setMembersModalGroupId] = useState(null);
+  const [showExpiredMembersByGroup, setShowExpiredMembersByGroup] = useState({});
   const [torOpen, setTorOpen] = useState(false);
   // Pending save awaiting confirmation of role→badge changes that affect
   // current role holders (Task #3302): { payload, changes: [...] } or null.
@@ -1447,8 +1449,13 @@ export default function MemberGroupManagementPage() {
     return Number.isNaN(t) ? 0 : t;
   };
 
-  const getSortedGroupAssignments = (groupId) => {
-    return getGroupAssignments(groupId)
+  const assignmentVisibilityNow = Date.now();
+  const getVisibleGroupAssignments = (groupId) => {
+    return visibleGroupAssignments(
+      getGroupAssignments(groupId),
+      showExpiredMembersByGroup[groupId] !== false,
+      assignmentVisibilityNow,
+    )
       .slice()
       .sort((a, b) => getAssignmentJoinTime(b) - getAssignmentJoinTime(a));
   };
@@ -1623,7 +1630,9 @@ export default function MemberGroupManagementPage() {
         {assignment.expires_at && (
           <div className="text-slate-400 flex items-center gap-1">
             <Calendar className="w-3 h-3" />
-            Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
+            Expires: {Number.isFinite(new Date(assignment.expires_at).getTime())
+              ? format(new Date(assignment.expires_at), 'dd MMM yyyy')
+              : 'Invalid expiry date'}
           </div>
         )}
       </div>
@@ -1664,7 +1673,7 @@ export default function MemberGroupManagementPage() {
   );
 
   const renderGroupCard = (group) => {
-    const groupAssignments = getSortedGroupAssignments(group.id);
+    const groupAssignments = getVisibleGroupAssignments(group.id);
     const groupPersonCount = uniqueGroupPersonCount(groupAssignments);
     const previewAssignments = groupAssignments.slice(0, 5);
     const isSelected = selectedGroups.includes(group.id);
@@ -1844,6 +1853,24 @@ export default function MemberGroupManagementPage() {
             </Button>
           </div>
 
+          <div className="flex items-center gap-2 pt-2">
+            <Switch
+              id={`show-expired-members-${group.id}`}
+              data-testid={`switch-show-expired-members-${group.id}`}
+              checked={showExpiredMembersByGroup[group.id] !== false}
+              onCheckedChange={(checked) => setShowExpiredMembersByGroup((current) => ({
+                ...current, [group.id]: checked,
+              }))}
+            />
+            <Label htmlFor={`show-expired-members-${group.id}`}>Show expired members</Label>
+          </div>
+          {groupAssignments.length === 0 && (
+            <p className="pt-2 text-sm text-slate-500">
+              {getGroupAssignments(group.id).length > 0
+                ? 'All assignments are expired. Turn on Show expired members to view them.'
+                : 'No members in this group.'}
+            </p>
+          )}
           {groupAssignments.length > 0 && (
           <div className="pt-2 border-t border-slate-200">
           <div className="space-y-1">
@@ -4542,7 +4569,9 @@ export default function MemberGroupManagementPage() {
           <AllMembersDialog
             key={membersModalGroupId}
             group={groups.find(g => g.id === membersModalGroupId) || { name: '' }}
-            assignments={getSortedGroupAssignments(membersModalGroupId)}
+            assignments={getVisibleGroupAssignments(membersModalGroupId)}
+            hasHiddenExpiredAssignments={showExpiredMembersByGroup[membersModalGroupId] === false
+              && getGroupAssignments(membersModalGroupId).length > 0}
             getAssigneeName={getAssigneeName}
             renderAssignmentRow={renderAssignmentRow}
             onClose={() => setMembersModalGroupId(null)}

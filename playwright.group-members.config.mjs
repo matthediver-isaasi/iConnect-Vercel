@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: 'group-members-dialog.spec.mjs',
+  testMatch: /group-members-(dialog|expiry)\.spec\.mjs/,
   outputDir: 'test-results/group-members-dialog',
   workers: 1,
   use: {

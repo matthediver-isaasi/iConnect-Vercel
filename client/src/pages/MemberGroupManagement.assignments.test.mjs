@@ -11,7 +11,7 @@ test('All Members uses sorted assignments, existing actions, and a group-keyed s
   const modal = source.slice(source.indexOf('{/* All Members Dialog */}'));
   assert.match(modal, /membersModalGroupId &&/);
   assert.match(modal, /key=\{membersModalGroupId\}/);
-  assert.match(modal, /assignments=\{getSortedGroupAssignments\(membersModalGroupId\)\}/);
+  assert.match(modal, /assignments=\{getVisibleGroupAssignments\(membersModalGroupId\)\}/);
   assert.match(modal, /getAssigneeName=\{getAssigneeName\}/);
   assert.match(modal, /renderAssignmentRow=\{renderAssignmentRow\}/);
   assert.match(modal, /onClose=\{\(\) => setMembersModalGroupId\(null\)\}/);

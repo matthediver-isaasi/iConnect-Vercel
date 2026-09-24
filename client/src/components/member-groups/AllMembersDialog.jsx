@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { uniqueGroupPersonCount } from '@/lib/memberGroupAutomaticSync';
 
 // Mounted only for an open group and keyed by its ID to reset each search session.
-export default function AllMembersDialog({ group, assignments, getAssigneeName, renderAssignmentRow, onClose }) {
+export default function AllMembersDialog({ group, assignments, hasHiddenExpiredAssignments = false, getAssigneeName, renderAssignmentRow, onClose }) {
   const [search, setSearch] = useState('');
   const inputRef = useRef(null);
   const query = search.trim().toLowerCase();
@@ -51,7 +51,11 @@ export default function AllMembersDialog({ group, assignments, getAssigneeName, 
           {matches.length > 0
             ? matches.map((assignment) => renderAssignmentRow(assignment, { compact: true }))
             : <p className="py-4 text-sm text-slate-500">
-              {assignments.length === 0 ? 'No members in this group.' : 'No members or guests match your search.'}
+              {assignments.length === 0
+                ? (hasHiddenExpiredAssignments
+                  ? 'All assignments are expired. Turn on Show expired members on the group card to view them.'
+                  : 'No members in this group.')
+                : 'No members or guests match your search.'}
             </p>}
         </div>
       </DialogContent>
