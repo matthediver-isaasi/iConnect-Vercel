@@ -239,6 +239,16 @@ function formatCurrency(amount) {
   return `\u00A3${Number(amount).toFixed(2)}`;
 }
 
+function isGrossSnapshotUnavailable(record) {
+  return record?.totalsStatus === 'unavailable_gross_snapshot'
+    || record?.ticket_price_status === 'unavailable_gross_snapshot';
+}
+
+function formatRegistrationTicketPrice(attendee) {
+  if (isGrossSnapshotUnavailable(attendee) || attendee?.ticket_price == null) return 'Unavailable';
+  return formatCurrency(attendee.ticket_price);
+}
+
 function PaymentMethodBadge({ method, totalCost }) {
   if (method === 'public_invoice_po') return <Badge variant="outline">Invoice / PO</Badge>;
   if (method === 'card') {
@@ -1032,13 +1042,22 @@ export default function EventRegistrationReport() {
     { key: 'std:org', label: 'Organisation', get: ({ a }) => organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member') },
     { key: 'std:ticketType', label: 'Ticket Type', get: ({ a }) => a.ticket_class_name || '' },
     { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
-    { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => Number(a.ticket_price || 0).toFixed(2) },
-    { key: 'std:pricePaid', label: 'Price Paid', get: ({ a }) => formatRegistrationPricePaid(a) },
-    { key: 'std:groupDiscount', label: 'Group Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discount || 0).toFixed(2) : '') },
-    { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
-    { key: 'std:groupTotal', label: 'Group Total', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '') },
+    { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => (
+      isGrossSnapshotUnavailable(a) || a.ticket_price == null
+        ? 'Unavailable'
+        : Number(a.ticket_price).toFixed(2)
+    ) },
+    { key: 'std:groupDiscount', label: 'Discount', get: ({ gp, isFirstInGroup }) => {
+      if (!isFirstInGroup) return '';
+      if (isGrossSnapshotUnavailable(gp) || gp.discount == null) return 'Unavailable';
+      const discount = Math.abs(Number(gp.discount || 0));
+      return (discount > 0 ? -discount : 0).toFixed(2);
+    } },
+    { key: 'std:groupTotal', label: 'Total after Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? Number(gp.totalAfterDiscount || 0).toFixed(2) : '') },
     { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '') },
     { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '') },
+    { key: 'std:pricePaid', label: 'Price Paid', get: ({ a }) => formatRegistrationPricePaid(a) },
+    { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
     { key: 'std:accountAmount', label: 'Account Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '') },
     { key: 'std:paymentMethod', label: 'Payment Method', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.paymentMethod || '') : '') },
     { key: 'std:poNumber', label: 'PO Number', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.purchaseOrderNumber || '') : '') },
@@ -1125,6 +1144,12 @@ export default function EventRegistrationReport() {
     let totalVoucher = 0;
     let totalTrainingFund = 0;
     let totalDiscount = 0;
+    let totalTicketPrice = 0;
+    let totalFooterDiscount = 0;
+    let totalAfterDiscount = 0;
+    let totalPricePaid = 0;
+    let hasUnavailableTicketTotal = false;
+    let hasUnavailableDiscount = false;
     let totalStripePayments = 0;
     const countByMethod = {};
     for (const group of filteredGroups) {
@@ -1133,6 +1158,22 @@ export default function EventRegistrationReport() {
       totalVoucher += gp.voucherAmount || 0;
       totalTrainingFund += gp.trainingFundAmount || 0;
       totalDiscount += gp.discount || 0;
+      if (isGrossSnapshotUnavailable(gp) || gp.ticketTotal == null) {
+        hasUnavailableTicketTotal = true;
+      } else {
+        totalTicketPrice += Number(gp.ticketTotal);
+      }
+      if (isGrossSnapshotUnavailable(gp) || gp.discount == null) {
+        hasUnavailableDiscount = true;
+      } else {
+        totalFooterDiscount += Math.abs(Number(gp.discount));
+      }
+      totalAfterDiscount += Number(gp.totalAfterDiscount || 0);
+      for (const attendee of group.attendees) {
+        if (attendee.price_paid_status === 'net' && attendee.price_paid != null && Number.isFinite(Number(attendee.price_paid))) {
+          totalPricePaid += Number(attendee.price_paid);
+        }
+      }
       if (gp.paymentMethod === 'card' || gp.stripePaymentIntentId) {
         totalStripePayments += (gp.totalCost || 0) - (gp.codeDiscount || 0);
       }
@@ -1146,6 +1187,12 @@ export default function EventRegistrationReport() {
       totalVoucher,
       totalTrainingFund,
       totalDiscount,
+      totalTicketPrice,
+      totalFooterDiscount,
+      totalAfterDiscount,
+      totalPricePaid,
+      hasUnavailableTicketTotal,
+      hasUnavailableDiscount,
       totalStripePayments,
       countByMethod,
     };
@@ -1813,6 +1860,7 @@ export default function EventRegistrationReport() {
                 <>
                   <p className="mb-3 text-xs text-muted-foreground" data-testid="text-price-paid-explanation">
                     Price Paid is the net ticket price after discounts and credits. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
+                    {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1826,11 +1874,26 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '120px' }}>Ticket</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '100px' }}>Tracks</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Ticket Price</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price Paid</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Discount</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Total</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Voucher</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Fund</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Total after Discount</span></TooltipTrigger>
+                              <TooltipContent>Ticket total after discounts, before voucher and training fund credits.</TooltipContent>
+                            </Tooltip>
+                          </th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Voucher</span></TooltipTrigger>
+                              <TooltipContent>Voucher credit applied after discounts.</TooltipContent>
+                            </Tooltip>
+                          </th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Fund</span></TooltipTrigger>
+                              <TooltipContent>Training fund credit applied after discounts.</TooltipContent>
+                            </Tooltip>
+                          </th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price Paid</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">PO Number</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Invoice</th>
@@ -1893,20 +1956,24 @@ export default function EventRegistrationReport() {
                                     <span className="text-xs">{attendee.track_access}</span>
                                   ) : '-'}
                                 </td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
-                                  {formatRegistrationPricePaid(attendee)}
-                                </td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap">{formatRegistrationTicketPrice(attendee)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                  {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                  {isGrossSnapshotUnavailable(gp) || gp.discount == null
+                                    ? <span className="text-muted-foreground">Unavailable</span>
+                                    : Math.abs(Number(gp.discount || 0)) > 0
+                                      ? <span className="text-green-600">-{formatCurrency(Math.abs(Number(gp.discount)))}</span>
+                                      : '-'}
                                   {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${attendee.id}`}>{gp.discountCode}</div>}
                                 </td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalCost)}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalAfterDiscount)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                                </td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
+                                  {formatRegistrationPricePaid(attendee)}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
@@ -1990,14 +2057,18 @@ export default function EventRegistrationReport() {
                             </>
                           );
 
-                          const renderPaymentCells = (keyAttendeeId) => (
+                          const renderGroupFinancialCells = (keyAttendeeId) => (
                             <>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
-                                {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                {isGrossSnapshotUnavailable(gp) || gp.discount == null
+                                  ? <span className="text-muted-foreground">Unavailable</span>
+                                  : Math.abs(Number(gp.discount || 0)) > 0
+                                    ? <span className="text-green-600">-{formatCurrency(Math.abs(Number(gp.discount)))}</span>
+                                    : '-'}
                                 {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${keyAttendeeId}`}>{gp.discountCode}</div>}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={groupRowCount}>
-                                {formatCurrency(gp.totalCost)}
+                                {formatCurrency(gp.totalAfterDiscount)}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
@@ -2005,6 +2076,11 @@ export default function EventRegistrationReport() {
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
                               </td>
+                            </>
+                          );
+
+                          const renderPaymentDetailCells = (keyAttendeeId) => (
+                            <>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
                                 <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
                               </td>
@@ -2060,8 +2136,10 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
+                                {renderGroupFinancialCells(headerKey)}
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
-                                {renderPaymentCells(headerKey)}
+                                {renderPaymentDetailCells(headerKey)}
+                                <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
@@ -2121,11 +2199,12 @@ export default function EventRegistrationReport() {
                                     <span className="text-xs">{attendee.track_access}</span>
                                   ) : '-'}
                                 </td>
-                                <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap">{formatRegistrationTicketPrice(attendee)}</td>
+                                {renderGroupSpannedCells ? renderGroupFinancialCells(attendee.id) : null}
                                 <td className="py-2 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
                                   {formatRegistrationPricePaid(attendee)}
                                 </td>
-                                {renderGroupSpannedCells ? renderPaymentCells(attendee.id) : null}
+                                {renderGroupSpannedCells ? renderPaymentDetailCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
@@ -2171,13 +2250,19 @@ export default function EventRegistrationReport() {
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalRevenue + filteredSummary.totalDiscount)}
+                              {filteredSummary.hasUnavailableTicketTotal
+                                ? <span className="text-muted-foreground">Unavailable</span>
+                                : formatCurrency(filteredSummary.totalTicketPrice)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap text-green-600">
-                              {filteredSummary.totalDiscount > 0 ? `-${formatCurrency(filteredSummary.totalDiscount)}` : '-'}
+                              {filteredSummary.hasUnavailableDiscount
+                                ? <span className="text-muted-foreground">Unavailable</span>
+                                : filteredSummary.totalFooterDiscount > 0
+                                  ? `-${formatCurrency(filteredSummary.totalFooterDiscount)}`
+                                  : '-'}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalRevenue)}
+                              {formatCurrency(filteredSummary.totalAfterDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {formatCurrency(filteredSummary.totalVoucher)}
@@ -2185,7 +2270,10 @@ export default function EventRegistrationReport() {
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {formatCurrency(filteredSummary.totalTrainingFund)}
                             </td>
-                            <td className="pt-3 pr-3" colSpan={4}>
+                            <td className="pt-3 pr-3 text-right whitespace-nowrap">
+                              {formatCurrency(filteredSummary.totalPricePaid)}
+                            </td>
+                            <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 10 : 9}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
                                 <span>Account: {filteredSummary.countByMethod?.account || 0}</span>
                                 <span>Card: {filteredSummary.countByMethod?.card || 0}</span>

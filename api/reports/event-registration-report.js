@@ -2,7 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
-import { normalizeGroupPricePaid } from './_pricePaid.js';
+import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -767,28 +767,33 @@ export default async function handler(req, res) {
         const first = members[0];
         const isGroup = members.length > 1;
         const groupPricePaid = normalizeGroupPricePaid(members);
+        const canonicalPayment = normalizeGroupPayment(members);
+        const groupTicketPrices = normalizeGroupTicketPrices(members);
 
-        const groupTicketTotal = members.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0);
+        // Keep totalCost and the summary-card calculations below on their
+        // historical raw snapshots. The canonical footer values are calculated
+        // independently because complex ticket_price is already code-discounted.
         const groupTotalCost = members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
 
         const groupVoucher = members.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0);
         const groupTrainingFund = members.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0);
         const groupAccountAmount = members.reduce((sum, b) => sum + (Number(b.account_amount) || 0), 0);
-        // Ticket-offer discount (BOGO, early-bird, etc.) is what's left after ticket price minus stored cost.
-        // Discount-code amounts are stored separately (not reflected in total_cost/total_paid), so add them.
-        const groupOfferDiscount = Math.max(0, groupTicketTotal - groupTotalCost);
-        const groupCodeDiscount = members.reduce((sum, b) => sum + (Number(b.discount_code_amount) || 0), 0);
-        const groupDiscount = groupOfferDiscount + groupCodeDiscount;
+        // Legacy card totals intentionally remain based on the old raw source
+        // semantics; changing those is outside this footer correction.
+        const legacyTicketTotal = members.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0);
+        const legacyOfferDiscount = Math.max(0, legacyTicketTotal - groupTotalCost);
+        const legacyCodeDiscount = members.reduce((sum, b) => sum + (Number(b.discount_code_amount) || 0), 0);
+        const legacyDiscount = legacyOfferDiscount + legacyCodeDiscount;
         const groupDiscountCode = (members.find(b => b.discount_code_label)?.discount_code_label) || null;
 
-        totalRevenue += groupTotalCost - groupCodeDiscount;
+        totalRevenue += groupTotalCost - legacyCodeDiscount;
         totalVoucher += groupVoucher;
         totalTrainingFund += groupTrainingFund;
-        totalDiscount += groupDiscount;
+        totalDiscount += legacyDiscount;
         totalAccountPayments += groupAccountAmount;
 
         if (first.payment_method === 'card' || first.stripe_payment_intent_id) {
-          totalStripePayments += groupTotalCost - groupCodeDiscount;
+          totalStripePayments += groupTotalCost - legacyCodeDiscount;
         }
 
         const method = first.payment_method || 'unknown';
@@ -814,11 +819,13 @@ export default async function handler(req, res) {
           eventStartDate: eventInfo.start_date || null,
           eventEndDate: eventInfo.end_date || null,
           groupPayment: {
-            ticketTotal: groupTicketTotal,
+            ticketTotal: canonicalPayment.ticketTotal,
             totalCost: groupTotalCost,
-            discount: groupDiscount,
-            offerDiscount: groupOfferDiscount,
-            codeDiscount: groupCodeDiscount,
+            totalAfterDiscount: canonicalPayment.totalAfterDiscount,
+            discount: canonicalPayment.discount,
+            offerDiscount: canonicalPayment.offerDiscount,
+            codeDiscount: canonicalPayment.codeDiscount,
+            totalsStatus: canonicalPayment.totalsStatus,
             discountCode: groupDiscountCode,
             voucherAmount: groupVoucher,
             trainingFundAmount: groupTrainingFund,
@@ -924,7 +931,14 @@ export default async function handler(req, res) {
               attendee_email: b.attendee_email,
               ticket_class_name: b.ticket_class_name,
               ticket_class_id: b.ticket_class_id || null,
-              ticket_price: b.ticket_price,
+              // Public display is gross/list price. Preserve the persisted
+              // source snapshot for consumers that need to audit complex net
+              // ticket_price semantics.
+              ticket_price: groupTicketPrices[memberIndex],
+              ticket_price_status: groupTicketPrices[memberIndex] === null
+                ? 'unavailable_gross_snapshot'
+                : 'available',
+              raw_ticket_price: b.ticket_price,
               total_cost: b.total_cost,
               price_paid: groupPricePaid[memberIndex].price_paid,
               price_paid_status: groupPricePaid[memberIndex].price_paid_status,

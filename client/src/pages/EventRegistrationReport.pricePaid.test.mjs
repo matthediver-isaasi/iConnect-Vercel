@@ -23,12 +23,33 @@ test('price paid formatter distinguishes net, pending, and unavailable values', 
   assert.equal(formatRegistrationPricePaid({}), 'Unavailable');
 });
 
-test('Price Paid is introduced as a default-selected export column next to Ticket Price', () => {
+test('financial export columns use stable keys in accounting order', () => {
   const ticketPriceIndex = source.indexOf("{ key: 'std:ticketPrice'");
-  const pricePaidIndex = source.indexOf("{ key: 'std:pricePaid'");
   const groupDiscountIndex = source.indexOf("{ key: 'std:groupDiscount'");
+  const groupTotalIndex = source.indexOf("{ key: 'std:groupTotal'");
+  const voucherIndex = source.indexOf("{ key: 'std:voucher'");
+  const trainingFundIndex = source.indexOf("{ key: 'std:trainingFund'");
+  const pricePaidIndex = source.indexOf("{ key: 'std:pricePaid'");
   assert.ok(ticketPriceIndex >= 0);
-  assert.ok(ticketPriceIndex < pricePaidIndex && pricePaidIndex < groupDiscountIndex);
+  assert.ok(
+    ticketPriceIndex < groupDiscountIndex
+      && groupDiscountIndex < groupTotalIndex
+      && groupTotalIndex < voucherIndex
+      && voucherIndex < trainingFundIndex
+      && trainingFundIndex < pricePaidIndex,
+  );
+  assert.match(source, /key: 'std:groupTotal', label: 'Total after Discount'/);
+  assert.match(source, /gp\.totalAfterDiscount/);
+  assert.match(
+    source,
+    /key: 'std:groupTotal'[\s\S]*?gp\.totalAfterDiscount/,
+    'the CSV total must use the canonical intermediate total',
+  );
+  assert.match(
+    source,
+    /totalRevenue \+= \(gp\.totalCost \|\| 0\) - \(gp\.codeDiscount \|\| 0\)/,
+    'the separate revenue summary keeps its existing meaning',
+  );
 
   // Exercise the page's actual introduction effect. Existing deselections
   // remain untouched while the newly introduced Price Paid key is selected.
@@ -79,6 +100,37 @@ test('table and filtered CSV export share the same Price Paid formatter', () => 
     'CSV rows must continue to come from the filtered report groups',
   );
   assert.match(source, /data-testid=\{`text-price-paid-\$\{attendee\.id\}`\}/);
+});
+
+test('table financial columns and whole-filter footer use canonical totals in order', () => {
+  const headerStart = source.indexOf('<th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Ticket Price</th>');
+  const headerEnd = source.indexOf('<th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>', headerStart);
+  const financialHeaders = source.slice(headerStart, headerEnd);
+  for (const label of ['Ticket Price', 'Discount', 'Total after Discount', 'Voucher', 'Fund', 'Price Paid']) {
+    assert.ok(financialHeaders.indexOf(label) >= 0, `missing ${label}`);
+  }
+  assert.ok(financialHeaders.indexOf('Discount') < financialHeaders.indexOf('Total after Discount'));
+  assert.ok(financialHeaders.indexOf('Fund') < financialHeaders.indexOf('Price Paid'));
+  assert.match(source, /for \(const group of filteredGroups\)[\s\S]*?totalAfterDiscount \+= Number\(gp\.totalAfterDiscount \|\| 0\)/);
+  assert.match(source, /totalDiscount \+= gp\.discount \|\| 0/);
+  assert.match(source, /totalFooterDiscount \+= Math\.abs\(Number\(gp\.discount\)\)/);
+  assert.match(source, /formatCurrency\(filteredSummary\.totalAfterDiscount\)/);
+  assert.match(source, /formatCurrency\(filteredSummary\.totalPricePaid\)/);
+});
+
+test('unavailable historical gross snapshots are never rendered or exported as zero', () => {
+  assert.match(source, /ticket_price_status === 'unavailable_gross_snapshot'/);
+  assert.match(
+    source,
+    /isGrossSnapshotUnavailable\(a\) \|\| a\.ticket_price == null[\s\S]*?'Unavailable'/,
+  );
+  assert.match(
+    source,
+    /isGrossSnapshotUnavailable\(gp\) \|\| gp\.discount == null\) return 'Unavailable'/,
+  );
+  assert.match(source, /hasUnavailableTicketTotal[\s\S]*?text-muted-foreground">Unavailable/);
+  assert.match(source, /hasUnavailableDiscount[\s\S]*?text-muted-foreground">Unavailable/);
+  assert.match(source, /Historical Invoice \/ PO registrations with offer-adjusted prices/);
 });
 
 test('report explains net and pending Price Paid semantics', () => {

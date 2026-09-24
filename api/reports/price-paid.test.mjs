@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeGroupPricePaid } from './_pricePaid.js';
+import {
+  normalizeGroupPayment,
+  normalizeGroupPricePaid,
+  normalizeGroupTicketPrices,
+} from './_pricePaid.js';
 
 const standard = (values = {}) => ({
   _report_booking_source: 'standard',
@@ -113,4 +117,118 @@ test('attendee allocations are not copied and fractional cents reconcile to the 
   ]);
   assert.deepEqual(rows.map(row => row.price_paid), [3.34, 3.33, 3.33]);
   assert.equal(rows.reduce((sum, row) => sum + row.price_paid, 0), 10);
+});
+
+test('canonical standard totals cover full, partial and no code discounts', () => {
+  assert.deepEqual(normalizeGroupPayment([
+    standard({ ticket_price: 60, total_cost: 60, discount_code_amount: 60 }),
+  ]), {
+    ticketTotal: 60, totalAfterDiscount: 0, discount: 60,
+    offerDiscount: 0, codeDiscount: 60, totalsStatus: 'available',
+  });
+  assert.deepEqual(normalizeGroupPayment([
+    standard({ ticket_price: 60, total_cost: 60, discount_code_amount: 15 }),
+    standard({ ticket_price: 40, total_cost: 30, discount_code_amount: 0 }),
+  ]), {
+    ticketTotal: 100, totalAfterDiscount: 75, discount: 25,
+    offerDiscount: 10, codeDiscount: 15, totalsStatus: 'available',
+  });
+  assert.equal(normalizeGroupPayment([
+    standard({ ticket_price: 60, total_cost: 60 }),
+  ]).totalAfterDiscount, 60);
+});
+
+test('canonical pre-credit total ignores vouchers, funds, and account liabilities or credits', () => {
+  assert.deepEqual(normalizeGroupPayment([
+    standard({
+      ticket_price: 100, total_cost: 100, discount_code_amount: 10,
+      voucher_amount: 20, training_fund_amount: 5, account_amount: 65,
+    }),
+  ]), {
+    ticketTotal: 100, totalAfterDiscount: 90, discount: 10,
+    offerDiscount: 0, codeDiscount: 10, totalsStatus: 'available',
+  });
+  assert.deepEqual(normalizeGroupPayment([
+    complex({
+      ticket_price: 90, discount_amount: 10, voucher_amount: 20,
+      training_fund_amount: 5, account_balance_amount: 15,
+    }),
+  ]), {
+    ticketTotal: 100, totalAfterDiscount: 90, discount: 10,
+    offerDiscount: 0, codeDiscount: 10, totalsStatus: 'available',
+  });
+});
+
+test('complex groups reconstruct gross ticket values without double-subtracting codes', () => {
+  const bookings = [
+    complex({ ticket_class_id: 'a', ticket_price: 49.99, discount_amount: 10.01 }),
+    complex({ ticket_class_id: 'a', ticket_price: 49.99, discount_amount: 0 }),
+    complex({ ticket_class_id: 'b', ticket_price: 25, discount_amount: 0 }),
+  ];
+  assert.deepEqual(normalizeGroupPayment(bookings), {
+    ticketTotal: 145, totalAfterDiscount: 124.98, discount: 20.02,
+    offerDiscount: 0, codeDiscount: 20.02, totalsStatus: 'available',
+  });
+  assert.deepEqual(normalizeGroupTicketPrices(bookings), [60, 60, 25]);
+});
+
+test('canonical currency rounding is cent precise and always reconciles', () => {
+  const totals = normalizeGroupPayment([
+    standard({ ticket_price: 10.005, total_cost: 10.005, discount_code_amount: 0.335 }),
+    standard({ ticket_price: 20.004, total_cost: 20.004, discount_code_amount: 0.334 }),
+  ]);
+  assert.deepEqual(totals, {
+    ticketTotal: 30.01, totalAfterDiscount: 29.34, discount: 0.67,
+    offerDiscount: 0, codeDiscount: 0.67, totalsStatus: 'available',
+  });
+  assert.equal(
+    Math.round((totals.totalAfterDiscount + totals.discount) * 100),
+    Math.round(totals.ticketTotal * 100),
+  );
+});
+
+test('standard PO offer totals use immutable checkout snapshots for BOGO and bulk offers', () => {
+  const poGroup = (gross, net, count) => Array.from({ length: count }, () => standard({
+    payment_method: 'public_invoice_po',
+    stripe_payment_intent_id: null,
+    ticket_price: net / count,
+    total_cost: net / count,
+    purchaser_context: {
+      classification: 'public_non_member',
+      financial_snapshot: {
+        gross_ticket_unit_amount: gross / count,
+        gross_ticket_total_amount: gross,
+      },
+    },
+  }));
+  assert.deepEqual(normalizeGroupPayment(poGroup(200, 100, 2)), {
+    ticketTotal: 200, totalAfterDiscount: 100, discount: 100,
+    offerDiscount: 100, codeDiscount: 0, totalsStatus: 'available',
+  });
+  assert.deepEqual(normalizeGroupTicketPrices(poGroup(200, 100, 2)), [100, 100]);
+  assert.deepEqual(normalizeGroupPayment(poGroup(400, 300, 4)), {
+    ticketTotal: 400, totalAfterDiscount: 300, discount: 100,
+    offerDiscount: 100, codeDiscount: 0, totalsStatus: 'available',
+  });
+});
+
+test('legacy standard PO rows do not invent gross prices from mutable catalogues', () => {
+  const rows = [
+    standard({
+      payment_method: 'public_invoice_po', stripe_payment_intent_id: null,
+      ticket_price: 50, total_cost: 50,
+      purchaser_context: { classification: 'public_non_member' },
+    }),
+    standard({
+      payment_method: 'public_invoice_po', stripe_payment_intent_id: null,
+      ticket_price: 50, total_cost: 50,
+      purchaser_context: { classification: 'public_non_member' },
+    }),
+  ];
+  assert.deepEqual(normalizeGroupPayment(rows), {
+    ticketTotal: null, totalAfterDiscount: 100, discount: null,
+    offerDiscount: null, codeDiscount: 0,
+    totalsStatus: 'unavailable_gross_snapshot',
+  });
+  assert.deepEqual(normalizeGroupTicketPrices(rows), [null, null]);
 });

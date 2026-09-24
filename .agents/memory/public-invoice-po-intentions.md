@@ -14,3 +14,9 @@ An apparently missing public registration can be an unchanged report query rathe
 **Why:** React Query hashes report filters by value. Setting a new filter object with the same values does not refetch an already-mounted report, even with `staleTime: 0`; this app also disables window-focus refetch globally.
 
 **How to apply:** Explicitly refetch when Generate Report repeats the applied filters. Before attempting data recovery, check the tenant-scoped booking and report projection separately; an existing confirmed record-only booking must not be recreated or financially converted to make it visible.
+
+Historical standard public Invoice / PO registrations cannot prove pre-offer list prices from their stored ticket amount.
+
+**Why:** The booking writer divided the offer-adjusted total across attendees, and did not persist the original gross price or offer snapshot. A stored amount can equally represent an undiscounted ticket or a BOGO/bulk-discounted share. Today's editable catalogue is not historical evidence.
+
+**How to apply:** Report known discounted totals, but explicitly mark gross price and discount unavailable without authoritative historical evidence. Do not silently reconstruct from current ticket settings, and do not expand report-only fixes into checkout changes or backfills.

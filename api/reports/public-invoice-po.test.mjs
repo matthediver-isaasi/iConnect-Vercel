@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
-import { normalizeGroupPricePaid } from './_pricePaid.js';
+import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
 
 test('classification remains public after member linkage and excludes legacy invoice methods', () => {
   const booking = { payment_method: 'public_invoice_po', member_id: 'later-linked-member', purchaser_context: { classification: 'public_non_member' } };
@@ -33,6 +33,31 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const publicInvoicePurchaser = ${publicInvoicePurchaser.toString()};
     const buildEventCheckinFlagMap = async () => new Map();
     const normalizeGroupPricePaid = ${normalizeGroupPricePaid.toString()};
+    const moneyToCents = ${((value) => {
+      if (value === null || value === undefined || value === '') return 0;
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.round((number + Number.EPSILON) * 100) : 0;
+    }).toString()};
+    const centsToMoney = ${(value => value / 100).toString()};
+    const complexDiscountKey = ${((booking) => {
+      const ticketIdentity = booking.ticket_class_id || booking.ticket_class_name || '';
+      return `${ticketIdentity}::${moneyToCents(booking.ticket_price)}`;
+    }).toString()};
+    const complexDiscountCentsByRow = ${((rows) => {
+      const discountByTicket = new Map();
+      for (const booking of rows) {
+        const discountCents = Math.max(0, moneyToCents(booking.discount_amount));
+        if (discountCents > 0) {
+          discountByTicket.set(complexDiscountKey(booking), discountCents);
+        }
+      }
+      return rows.map(booking => {
+        const ownDiscount = Math.max(0, moneyToCents(booking.discount_amount));
+        return ownDiscount || discountByTicket.get(complexDiscountKey(booking)) || 0;
+      });
+    }).toString()};
+    const normalizeGroupPayment = ${normalizeGroupPayment.toString()};
+    const normalizeGroupTicketPrices = ${normalizeGroupTicketPrices.toString()};
     const fixtures = ${JSON.stringify(fixtures)};
     const failTable = ${JSON.stringify(failTable)};
     const queries = [];
@@ -116,6 +141,13 @@ test('confirmed non-member one-off Invoice / PO registration is returned without
   assert.equal(group.isPublicInvoicePo, true);
   assert.equal(group.groupPayment.bookingReference, 'OOE-regression');
   assert.equal(group.groupPayment.totalCost, 318.6);
+  assert.equal(group.groupPayment.ticketTotal, null);
+  assert.equal(group.groupPayment.discount, null);
+  assert.equal(group.groupPayment.totalAfterDiscount, 318.6);
+  assert.equal(group.groupPayment.totalsStatus, 'unavailable_gross_snapshot');
+  assert.equal(group.attendees[0].ticket_price, null);
+  assert.equal(group.attendees[0].ticket_price_status, 'unavailable_gross_snapshot');
+  assert.equal(group.attendees[0].raw_ticket_price, 318.6);
   assert.equal(group.attendees[0].status, 'confirmed');
   assert.equal(group.attendees[0].member_id, null);
   assert.equal(group.attendees[0].price_paid, 318.6);
@@ -176,6 +208,61 @@ test('authorized report exposes source-specific complex net price without double
   assert.equal(result.body.bookingGroups.length, 1);
   assert.equal(result.body.bookingGroups[0].attendees[0].price_paid, 50);
   assert.equal(result.body.bookingGroups[0].attendees[0].price_paid_status, 'net');
+  assert.equal(result.body.bookingGroups[0].attendees[0].ticket_price, 100);
+  assert.equal(result.body.bookingGroups[0].attendees[0].raw_ticket_price, 90);
+  assert.deepEqual(result.body.bookingGroups[0].groupPayment, {
+    ...result.body.bookingGroups[0].groupPayment,
+    ticketTotal: 100,
+    totalCost: 90,
+    totalAfterDiscount: 90,
+    discount: 10,
+    offerDiscount: 0,
+    codeDiscount: 10,
+    totalsStatus: 'available',
+  });
+});
+
+test('standard PO BOGO report uses persisted gross snapshot, not discounted ticket_price', async () => {
+  const snapshot = {
+    classification: 'public_non_member',
+    details: { email: 'buyer@example.invalid' },
+    financial_snapshot: {
+      version: 1,
+      gross_ticket_unit_amount: 100,
+      gross_ticket_total_amount: 200,
+      offer_discount_amount: 100,
+      total_after_offer_discount_amount: 100,
+    },
+  };
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      event: [{ id: 'bogo', title: 'BOGO', tenant_id: 'tenant', status: 'published' }],
+      booking: [0, 1].map(index => ({
+        id: `bogo-${index}`, event_id: 'bogo', tenant_id: 'tenant',
+        booking_group_reference: 'BOGO-GROUP', booking_reference: `BOGO-${index}`,
+        attendee_email: `a${index}@example.invalid`, status: 'confirmed',
+        payment_method: 'public_invoice_po', purchaser_context: snapshot,
+        ticket_price: 50, total_cost: 50,
+        created_at: `2026-09-20T16:25:0${index}.000Z`,
+      })),
+    },
+    query: { generate: 'true', eventId: 'bogo' },
+  });
+  const group = result.body.bookingGroups[0];
+  assert.deepEqual({
+    ticketTotal: group.groupPayment.ticketTotal,
+    totalAfterDiscount: group.groupPayment.totalAfterDiscount,
+    discount: group.groupPayment.discount,
+    offerDiscount: group.groupPayment.offerDiscount,
+    codeDiscount: group.groupPayment.codeDiscount,
+    totalsStatus: group.groupPayment.totalsStatus,
+  }, {
+    ticketTotal: 200, totalAfterDiscount: 100, discount: 100,
+    offerDiscount: 100, codeDiscount: 0, totalsStatus: 'available',
+  });
+  assert.deepEqual(group.attendees.map(attendee => attendee.ticket_price), [100, 100]);
+  assert.ok(group.attendees.every(attendee => attendee.ticket_price_status === 'available'));
+  assert.deepEqual(group.attendees.map(attendee => attendee.raw_ticket_price), [50, 50]);
 });
 
 test('complex discovery and booking failures are explicit, not successful empty reports', async () => {
