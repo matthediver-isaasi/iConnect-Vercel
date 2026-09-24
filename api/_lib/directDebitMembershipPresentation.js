@@ -1,6 +1,7 @@
 import { readConsoleRows, lookupConsoleRows } from './directDebitConsoleEligibility.js';
 import { ALPHA_RECOGNITION_TENANT, MEMBERSHIP_RECOGNITION_TABLES, currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { selectCanvasCommitment, buildCanvasSummary } from '../membership/canvas-summary.js';
+import { MANUAL_ADOPTION, MANUAL_RECOGNITION } from './bnmsManualCohort.js';
 
 // Entitlement presentation only. Never change the agreement, payment plan,
 // collection hold or provider state to make an existing member look current.
@@ -51,9 +52,10 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
   if (tenantId === ALPHA_RECOGNITION_TENANT) {
     // Canonical adoption ledgers, not arbitrary plan metadata, discovery or a
     // mandate's readiness, distinguish historical imports from new joiners.
-    for (const table of ['bnms_dd_alpha_adoption', 'bnms_dd_beta_adoption', 'bnms_dd_pilot_adoption']) {
+    for (const table of ['bnms_dd_alpha_adoption', 'bnms_dd_beta_adoption', 'bnms_dd_pilot_adoption', MANUAL_ADOPTION]) {
       const adoptions = await readConsoleRows(() => db.from(table)
-        .select('id,tenant_id,member_id,agreement_id,plan_id,history_id').eq('tenant_id', tenantId).order('id'));
+        .select('id,tenant_id,member_id,agreement_id,plan_id,history_id').eq('tenant_id', tenantId).order('id'),
+      { allowMissing: table === MANUAL_ADOPTION });
       for (const adoption of adoptions) {
         const plan = plans.find(p => p.id === adoption.plan_id);
         if (!plan) continue;
@@ -76,7 +78,8 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
     try {
       recognition = (await Promise.all(MEMBERSHIP_RECOGNITION_TABLES.map(table =>
         readConsoleRows(() => db.from(table)
-          .select('*').eq('tenant_id', tenantId).order('history_id'))))).flat();
+          .select('*').eq('tenant_id', tenantId).order('history_id'),
+        { allowMissing: table === MANUAL_RECOGNITION })))).flat();
     } catch (error) {
       // Missing deployment schema is not evidence of entitlement.
       throw new Error('Unable to load administrative membership recognition', { cause: error });

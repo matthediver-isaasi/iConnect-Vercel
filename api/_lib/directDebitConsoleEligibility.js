@@ -1,10 +1,11 @@
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
 // Console-only visibility. Never use this policy in collection/background jobs.
-export async function readConsoleRows(makeQuery) {
+export async function readConsoleRows(makeQuery, { allowMissing = false } = {}) {
   const rows = [];
   for (let offset = 0; offset < 100000; offset += 500) {
     const { data, error } = await makeQuery().range(offset, offset + 499);
+    if (allowMissing && offset === 0 && ['42P01', 'PGRST205'].includes(error?.code)) return [];
     if (error) throw new Error(`Direct Debit console lookup failed: ${error.message}`);
     if (!Array.isArray(data)) throw new Error('Direct Debit console lookup returned no data');
     rows.push(...data);

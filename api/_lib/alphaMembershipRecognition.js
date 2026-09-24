@@ -1,9 +1,11 @@
 // Administrative membership recognition is NOT settlement, collection release,
 // a contract amendment, a joining date, or permission to create a payment.
+import { MANUAL_RECOGNITION, isManualRecognition } from './bnmsManualCohort.js';
 export const ALPHA_RECOGNITION_TENANT = 'ff2df806-b321-4254-b651-3af11fccf1db';
 export const MEMBERSHIP_RECOGNITION_TABLES = [
   'bnms_dd_alpha_membership_recognition',
   'bnms_membership_recognition_beta_pilot',
+  MANUAL_RECOGNITION,
 ];
 export function currentMembershipRecognition(record, today = new Date().toISOString().slice(0, 10)) {
   const recognition = record?.membershipRecognition;
@@ -13,8 +15,8 @@ export function currentMembershipRecognition(record, today = new Date().toISOStr
       || recognition.member_id !== record.member_id || recognition.history_id !== record.id
       || recognition.agreement_id !== record.billing_agreement_id
       || recognition.tenant_id !== ALPHA_RECOGNITION_TENANT
-      || recognition.effective_from !== '2026-09-21'
-      || recognition.effective_until !== '2027-10-01'
+      || (!isManualRecognition(recognition) && (recognition.effective_from !== '2026-09-21'
+        || recognition.effective_until !== '2027-10-01' || recognition.provenance === 'bnms_manual_95'))
       || today < recognition.effective_from || today >= recognition.effective_until) return null;
   return recognition;
 }
@@ -24,7 +26,7 @@ export async function attachMembershipRecognition(db, tenantId, memberId, record
   const recognized = new Set();
   for (const table of MEMBERSHIP_RECOGNITION_TABLES) {
     const { data, error } = await db.from(table)
-      .select('tenant_id,member_id,history_id,agreement_id,effective_from,effective_until,revoked_at')
+      .select(table === MANUAL_RECOGNITION ? '*' : 'tenant_id,member_id,history_id,agreement_id,effective_from,effective_until,revoked_at')
       .eq('tenant_id', tenantId).eq('member_id', memberId);
     // During schema-first/rolling deployment an absent new relation means no
     // recognition, never inferred current access. All other failures are explicit.

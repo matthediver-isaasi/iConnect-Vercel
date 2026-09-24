@@ -52,6 +52,10 @@ function db(data, error, supplemental = []) {
   const query = { select() { return this; }, eq(key, value) { filters.push([key, value]); return this; },
     then(resolve) { return Promise.resolve({ data, error }).then(resolve); } };
   return { filters, from(name) {
+    if (name === 'bnms_dd_manual_membership_recognition') return {
+      select() { return this; }, eq() { return this; },
+      then(resolve) { return Promise.resolve({ data: null, error: { code: '42P01' } }).then(resolve); },
+    };
     if (name === 'bnms_membership_recognition_beta_pilot') return {
       select() { return this; }, eq() { return this; },
       then(resolve) { return Promise.resolve({ data: supplemental, error }).then(resolve); },

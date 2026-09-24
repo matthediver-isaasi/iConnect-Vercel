@@ -4,8 +4,11 @@ import { destinationTarget } from './apply-custom-object-relationship-deleted-me
 destinationTarget(process.env);
 process.env.SUPABASE_URL=process.env.DEST_SUPABASE_URL;
 process.env.SUPABASE_SERVICE_KEY=process.env.DEST_SUPABASE_KEY;
-if(process.argv.slice(2).some(a=>a!=='--phase2')||process.argv.length>3)throw Error('Only --phase2 is supported; no apply mode');
-const out=process.argv.includes('--phase2')?'exports/private-bnms-manual-phase2':'exports/private-bnms-manual-phase1';
+const args=process.argv.slice(2),custom=args.find(a=>a.startsWith('--out-dir='));
+if(args.some(a=>a!=='--phase2'&&a!==custom)||args.length>2
+ ||(custom&&(!args.includes('--phase2')||!/^--out-dir=exports\/private-bnms-manual-phase2-refresh-[a-zA-Z0-9-]+$/.test(custom))))
+ throw Error('Only --phase2 with a private new refresh directory is supported; no apply mode');
+const out=custom?custom.slice('--out-dir='.length):args.includes('--phase2')?'exports/private-bnms-manual-phase2':'exports/private-bnms-manual-phase1';
 await mkdir(out,{recursive:true,mode:0o700});await chmod(out,0o700);
 const save=async(name,data)=>writeFile(`${out}/${name}.json`,JSON.stringify(data,null,2),{mode:0o600,flag:'wx'});
 const {destinationConnection}=await import('./run-bnms-dd-pilot-history.mjs');

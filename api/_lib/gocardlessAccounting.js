@@ -22,6 +22,7 @@ import { supabase } from './database.js';
 import { assertBnmsAccountingContext } from './xero.js';
 import { resolveBetaAccountingContext, BNMS_BETA_TENANT, BNMS_BETA_REVENUE } from './bnmsBetaAccounting.js';
 import { resolveAlphaAccountingContext, findAlphaAdoption } from './bnmsAlphaAccounting.js';
+import { resolveManualAccountingContext } from './bnmsManualCohort.js';
 import {
   getAccountingProvider,
   PROVIDER_NONE,
@@ -101,7 +102,8 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
     const isPilot = agreement.tenant_id === BNMS_BETA_TENANT
       && agreement.member_id === '33e5d54d-162e-436d-9bff-ec6676d198f9';
     const alphaContext = betaContext || isPilot ? null : await resolveAlphaAccountingContext(agreement, db);
-    const ddAccountingMigration = betaContext || alphaContext || (migration ? {
+    const manualContext = betaContext || isPilot || alphaContext ? null : await resolveManualAccountingContext(agreement, db);
+    const ddAccountingMigration = betaContext || alphaContext || manualContext || (migration ? {
       snapshot: migration, memberId: agreement.member_id,
       environment: agreement.environment, provider: agreement.provider,
     } : null);
@@ -119,6 +121,7 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
       if (error || !canonical || !['confirmed', 'paid_out'].includes(canonical.status)
         || canonical.environment !== 'live' || canonical.currency !== 'GBP'
         || (alphaContext && canonical.plan_id !== alphaContext.planId)
+        || (manualContext && canonical.plan_id !== manualContext.planId)
         || !canonical.charge_date || canonical.charge_date < '2026-10-01'
         || canonical.gocardless_mandate_id !== agreement.gocardless_mandate_id
         || canonical.gocardless_payment_id !== paymentRow.gocardless_payment_id

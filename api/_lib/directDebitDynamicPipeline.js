@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { matchBand } from './tierBandMatcher.js';
 import { matchesSelections } from './selectionMatcher.js';
 import { findAlphaAdoption, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
+import { resolveManualAccountingContext } from './bnmsManualCohort.js';
 
 export const DYNAMIC_RESERVATIONS = 'gocardless_collection_reservations';
 const LIVE_STATUSES = ['active', 'mandate_pending', 'first_payment_pending'];
@@ -160,7 +161,9 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
       throw new Error('BNMS alpha reviewed release and processing gate are required');
     }
   } else if (plan.metadata?.bnms_alpha_held === true) throw new Error('BNMS alpha plan requires immutable adoption');
-  const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption);
+  const manualContext = bnmsPilot || bnmsBeta || alphaAdoption ? null : await resolveManualAccountingContext(agreement, db);
+  if (manualContext && manualContext.planId !== plan.id) throw new Error('Manual cohort plan ownership mismatch');
+  const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption) || Boolean(manualContext);
   if (bnmsProcessing) {
     if (!Number.isFinite(now.getTime())) throw new Error('BNMS pilot processing clock is invalid');
     if (now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip('BNMS processing starts 1 October 2026 Europe/London');

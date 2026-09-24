@@ -5,9 +5,16 @@ import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
 import { BNMS_BETA_BANK, assertBnmsBetaAccountingContext } from './bnmsBetaAccounting.js';
 import { BNMS_ALPHA_BANK, assertBnmsAlphaAccountingContext } from './bnmsAlphaAccounting.js';
+import { MANUAL_BANK_SOURCE, assertManualAccountingContext } from './bnmsManualCohort.js';
+
+const usesExactImportedContact = context =>
+  [BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(context?.snapshot?.source);
+const importedInvoiceRpc = (context, action) =>
+  `${context?.snapshot?.source === MANUAL_BANK_SOURCE ? 'bnms_manual' : 'bnms_alpha'}_${action}_invoice`;
 
 async function alphaContact({ appTenantId, context, xeroTenantId, accessToken, fetch }) {
-  assertBnmsAlphaAccountingContext(appTenantId, context);
+  if (context?.snapshot?.source === MANUAL_BANK_SOURCE) assertManualAccountingContext(appTenantId, context);
+  else assertBnmsAlphaAccountingContext(appTenantId, context);
   if (xeroTenantId !== context.snapshot.xero_tenant_id) throw new Error('Alpha Xero tenant mismatch');
   const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts/${encodeURIComponent(context.contactId)}`, {
     method: 'GET', headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
@@ -40,6 +47,7 @@ export async function validateBnmsPilotXeroAccount({
 }
 
 export function assertBnmsAccountingContext(appTenantId, context) {
+  if (context?.snapshot?.source === MANUAL_BANK_SOURCE) return assertManualAccountingContext(appTenantId, context);
   if (context?.snapshot?.source === BNMS_ALPHA_BANK.source) {
     return assertBnmsAlphaAccountingContext(appTenantId, context);
   }
@@ -73,7 +81,7 @@ export async function validateBnmsXeroAccount({
   }
   const revenues = (await get(`Accounts?where=Code=="${mapping.revenue_account_code}"`))?.Accounts;
   if (revenues?.length !== 1 || revenues[0].Code !== mapping.revenue_account_code || revenues[0].Status !== 'ACTIVE'
-    || ([BNMS_BETA_BANK.source, BNMS_ALPHA_BANK.source].includes(mapping.source) && revenues[0].Type !== 'REVENUE')) {
+    || ([BNMS_BETA_BANK.source, BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(mapping.source) && revenues[0].Type !== 'REVENUE')) {
     throw new Error('BNMS pilot Xero revenue account 200 must be ACTIVE');
   }
   return bank;
@@ -584,7 +592,7 @@ export async function createXeroMembershipInvoice({
     settlementMoney(finalCost, 'BNMS pilot canonical amount');
     if (!idempotencyKey || !paymentIdempotencyKey) throw new Error('BNMS pilot invoice and payment idempotency keys required');
   }
-  const isAlpha = ddAccountingMigration?.snapshot?.source === BNMS_ALPHA_BANK.source;
+  const isAlpha = usesExactImportedContact(ddAccountingMigration);
   const contactId = isAlpha ? await alphaContact({
     appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch: transportFetch,
   }) : await contactResolver(accessToken, xeroTenantId, {
@@ -707,7 +715,7 @@ export async function createXeroMembershipInvoice({
   if (isAlpha) {
     const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
     if (!paymentId) throw new Error('Alpha canonical collection reference required');
-    alphaOperation = await alphaInvoiceRpc(database, 'bnms_alpha_claim_invoice', {
+    alphaOperation = await alphaInvoiceRpc(database, importedInvoiceRpc(ddAccountingMigration, 'claim'), {
       p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
       p_identity: { contactId, xeroTenantId, amountMinor: Math.round(Number(finalCost) * 100),
         currency, revenueCode: String(nominalCode), paymentReference, idempotencyKey, paymentIdempotencyKey },
@@ -733,7 +741,7 @@ export async function createXeroMembershipInvoice({
   if (isAlpha) {
     assertPilotInvoice(invoice, contactId, finalCost, alphaOperation.invoice_id || undefined,
       invoice.Status === 'PAID', ddAccountingMigration.snapshot.revenue_account_code);
-    if (!alphaOperation.invoice_id) await alphaInvoiceRpc(database, 'bnms_alpha_link_invoice', {
+    if (!alphaOperation.invoice_id) await alphaInvoiceRpc(database, importedInvoiceRpc(ddAccountingMigration, 'link'), {
       p_operation: alphaOperation.id, p_token: alphaOperation.token, p_invoice: invoice.InvoiceID,
     });
   }
@@ -1176,11 +1184,11 @@ export async function applyStripePaymentToXeroInvoice({
   if (!invoice) throw new Error(`Xero invoice ${xeroInvoiceId} not found`);
   let pilotContactId = null;
   if (pilotBankAccount) {
-    if (ddAccountingMigration.snapshot.source === BNMS_ALPHA_BANK.source) {
+    if (usesExactImportedContact(ddAccountingMigration)) {
       pilotContactId = await alphaContact({ appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch });
       const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
       if (!paymentId) throw new Error('Alpha canonical collection reference required');
-      await alphaInvoiceRpc(dependencies.supabase || supabase, 'bnms_alpha_assert_invoice', {
+      await alphaInvoiceRpc(dependencies.supabase || supabase, importedInvoiceRpc(ddAccountingMigration, 'assert'), {
         p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
         p_invoice: xeroInvoiceId, p_contact: pilotContactId,
       });
