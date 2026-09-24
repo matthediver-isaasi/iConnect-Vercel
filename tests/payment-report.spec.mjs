@@ -188,6 +188,7 @@ async function installFixture(page, {
         state.csvRequests.push({
           format: url.searchParams.get("format"),
           method: url.searchParams.get("method"),
+          search: url.searchParams.get("search"),
           page: url.searchParams.get("page"),
           pageSize: url.searchParams.get("pageSize"),
         });
@@ -213,6 +214,7 @@ async function installFixture(page, {
       }
       state.reportRequests.push({
         method: url.searchParams.get("method"),
+        search: url.searchParams.get("search"),
         page: url.searchParams.get("page"),
         pageSize: url.searchParams.get("pageSize"),
       });
@@ -226,13 +228,17 @@ async function installFixture(page, {
         }, status);
       }
       const selectedMethod = url.searchParams.get("method") || "all";
+      const selectedSearch = (url.searchParams.get("search") || "").trim().toLocaleLowerCase();
       const requestedPage = Number(url.searchParams.get("page")) || 1;
-      const filtered = selectedMethod === "all"
+      const methodFiltered = selectedMethod === "all"
         ? ROWS
         : ROWS.filter((row) => row.paymentMethod === selectedMethod);
+      const filtered = selectedSearch
+        ? methodFiltered.filter((row) => `${row.name} ${row.email}`.toLocaleLowerCase().includes(selectedSearch))
+        : methodFiltered;
       // Keep more than one page for the unfiltered view without manufacturing
       // additional personally identifying row data.
-      const total = selectedMethod === "all" ? 27 : filtered.length;
+      const total = selectedMethod === "all" && !selectedSearch ? 27 : filtered.length;
       const rows = requestedPage === 1 ? filtered : [{
         ...ROWS[0],
         memberId: "member-page-two",
@@ -294,7 +300,9 @@ test("loads only after permission readiness and shows evidenced and unavailable 
 
   await expect(page.getByTestId("text-page-title")).toHaveText("Individual Membership Payment Report");
   await expect(page.getByTestId("membership-payment-loading")).toBeVisible();
-  expect(state.reportRequests).toEqual([{ method: "all", page: "1", pageSize: "25" }]);
+  expect(state.reportRequests).toEqual([{
+    method: "all", search: null, page: "1", pageSize: "25",
+  }]);
 
   state.releaseReport();
   await expect(page.getByTestId("row-payment-member-alex")).toContainText("06 Nov 2026");
@@ -322,7 +330,9 @@ test("pagination and method filtering send server-side query parameters and rese
 
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-page-two")).toBeVisible();
-  expect(state.reportRequests.at(-1)).toEqual({ method: "all", page: "2", pageSize: "25" });
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "all", search: null, page: "2", pageSize: "25",
+  });
 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
@@ -330,18 +340,72 @@ test("pagination and method filtering send server-side query parameters and rese
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Not Scheduled");
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Unknown");
   await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
-  expect(state.reportRequests.at(-1)).toEqual({ method: "upfront", page: "1", pageSize: "25" });
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "upfront", search: null, page: "1", pageSize: "25",
+  });
 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
   await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
-  expect(state.reportRequests.at(-1)).toEqual({ method: "direct_debit", page: "1", pageSize: "25" });
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "direct_debit", search: null, page: "1", pageSize: "25",
+  });
 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Invoice", exact: true }).click();
   await expect(page.getByTestId("text-no-payment-rows")).toBeVisible();
-  expect(state.reportRequests.at(-1)).toEqual({ method: "invoice", page: "1", pageSize: "25" });
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "invoice", search: null, page: "1", pageSize: "25",
+  });
+});
+
+test("debounces trimmed member search, resets pagination, hides stale results, and clears accessibly", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-page-two")).toBeVisible();
+
+  const input = page.getByLabel("Find member");
+  await input.fill("  BILLIE@EXAMPLE.INVALID  ");
+  await expect(page.getByTestId("membership-payment-loading")).toBeVisible();
+  await expect(page.getByTestId("row-payment-member-page-two")).toHaveCount(0);
+  await expect(page.getByTestId("text-result-count")).toHaveCount(0);
+
+  // A rapid replacement must produce only the final debounced query.
+  await input.fill("  ALEX@EXAMPLE.INVALID  ");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  expect(state.reportRequests.filter((request) => request.search)).toEqual([{
+    method: "all",
+    search: "ALEX@EXAMPLE.INVALID",
+    page: "1",
+    pageSize: "25",
+  }]);
+  await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Clear member search" }).click();
+  await expect(input).toHaveValue("");
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  // The unfiltered first page may be restored from React Query's fresh cache;
+  // either way, no filtered rows remain visible after clearing.
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+});
+
+test("search has a 200 character limit and a distinct no-match result", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  const input = page.getByLabel("Find member");
+  await input.fill(`nomatch${"x".repeat(250)}`);
+  await expect(input).toHaveValue(`nomatch${"x".repeat(193)}`);
+  await expect(page.getByTestId("text-no-payment-rows"))
+    .toContainText("No individual memberships match");
+  expect(state.reportRequests.at(-1).search).toHaveLength(200);
+  await expect(page.getByTestId("membership-payment-loading")).toHaveCount(0);
+  await expect(page.getByTestId("text-report-error")).toHaveCount(0);
 });
 
 test("downloads the selected full-report CSV with the server filename and leaves pagination intact", async ({ page }) => {
@@ -354,6 +418,8 @@ test("downloads the selected full-report CSV with the server filename and leaves
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+  await page.getByLabel("Find member").fill("  uma@example.invalid ");
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByTestId("button-download-payment-report").click();
@@ -363,11 +429,13 @@ test("downloads the selected full-report CSV with the server filename and leaves
   expect(state.csvRequests).toEqual([{
     format: "csv",
     method: "upfront",
+    search: "uma@example.invalid",
     page: null,
     pageSize: null,
   }]);
   expect(state.reportRequests.at(-1)).toEqual({
     method: "upfront",
+    search: "uma@example.invalid",
     page: "1",
     pageSize: "25",
   });
@@ -399,6 +467,22 @@ test("prevents duplicate exports while pending and reports JSON export failures 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Invoice", exact: true }).click();
   await expect(page.getByTestId("text-export-error")).toHaveCount(0);
+});
+
+test("changing search cancels a pending export and suppresses its stale error", async ({ page }) => {
+  const state = await installFixture(page, { holdCsv: true, csvStatuses: [500] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByTestId("button-download-payment-report").click();
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Downloading…");
+  await page.getByLabel("Find member").fill("Alex");
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Download CSV");
+
+  state.releaseCsv();
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByTestId("text-export-error")).toHaveCount(0);
+  expect(state.csvRequests).toHaveLength(1);
 });
 
 test("member names remain plain text unless both client and endpoint allow member access", async ({ page }) => {

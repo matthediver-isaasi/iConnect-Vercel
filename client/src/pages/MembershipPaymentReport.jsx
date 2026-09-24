@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, CreditCard, Download, Loader2 } from "lucide-react";
+import { AlertCircle, CreditCard, Download, Loader2, Search, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +17,8 @@ import { createPageUrl } from "@/utils";
 const FEATURE_ID = "commerce.membership-payment-report";
 const MEMBERS_PERMISSION = "crm.members";
 const PAGE_SIZE = 25;
+const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_MAX_LENGTH = 200;
 
 const FALLBACK_METHODS = [
   { value: "all", label: "All payment methods" },
@@ -55,13 +58,21 @@ function exportFilename(response, method) {
   return supplied || `individual-membership-payment-report-${method}.csv`;
 }
 
+function normaliseSearch(value) {
+  return String(value || "").trim().slice(0, SEARCH_MAX_LENGTH);
+}
+
 export default function MembershipPaymentReport() {
   const { isFeatureExcluded, isAccessReady, sessionValidated } = useMemberAccess();
   const [page, setPage] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("all");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const exportInFlight = useRef(false);
+  const exportController = useRef(null);
+  const exportRequestId = useRef(0);
   const hasReportAccess = isAccessReady && sessionValidated && !isFeatureExcluded(FEATURE_ID);
   const clientCanViewMembers = isAccessReady && !isFeatureExcluded(MEMBERS_PERMISSION);
 
@@ -71,23 +82,32 @@ export default function MembershipPaymentReport() {
     }
   }, [hasReportAccess, isAccessReady]);
 
+  useEffect(() => {
+    const value = normaliseSearch(search);
+    const timer = window.setTimeout(() => setDebouncedSearch(value), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => () => exportController.current?.abort(), []);
+
   const query = useQuery({
-    queryKey: ["membership-payment-report", page, paymentMethod],
-    queryFn: async () => {
+    queryKey: ["membership-payment-report", page, paymentMethod, debouncedSearch],
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         method: paymentMethod,
         page: String(page),
         pageSize: String(PAGE_SIZE),
       });
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const response = await fetch(`/api/admin/membership-payment-report?${params}`, {
         credentials: "include",
+        signal,
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Failed to load membership payments");
       return body;
     },
     enabled: hasReportAccess,
-    keepPreviousData: true,
     staleTime: 30_000,
   });
 
@@ -109,28 +129,59 @@ export default function MembershipPaymentReport() {
   const responsePageSize = Number(query.data?.pageSize) || PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / responsePageSize));
   const canViewMembers = clientCanViewMembers && query.data?.canViewMembers === true;
+  const isDebouncing = normaliseSearch(search) !== debouncedSearch;
+  const isLoadingResults = isDebouncing || query.isLoading || query.isFetching;
 
-  const changeMethod = (value) => {
-    setPaymentMethod(value);
-    setPage(1);
+  const cancelExport = () => {
+    exportRequestId.current += 1;
+    exportController.current?.abort();
+    exportController.current = null;
+    exportInFlight.current = false;
+    setIsExporting(false);
     setExportError("");
   };
 
+  const changeMethod = (value) => {
+    cancelExport();
+    setPaymentMethod(value);
+    setPage(1);
+  };
+
+  const changeSearch = (event) => {
+    cancelExport();
+    setSearch(event.target.value);
+    setPage(1);
+  };
+
+  const clearSearch = () => {
+    cancelExport();
+    setSearch("");
+    setDebouncedSearch("");
+    setPage(1);
+  };
+
   const downloadCsv = async () => {
-    if (exportInFlight.current) return;
+    if (exportInFlight.current || isDebouncing) return;
     exportInFlight.current = true;
     setIsExporting(true);
     setExportError("");
+    const requestId = ++exportRequestId.current;
+    const controller = new AbortController();
+    exportController.current = controller;
     try {
       const params = new URLSearchParams({ format: "csv", method: paymentMethod });
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const response = await fetch(`/api/admin/membership-payment-report?${params}`, {
         credentials: "include",
+        signal: controller.signal,
       });
+      if (requestId !== exportRequestId.current) return;
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || "Failed to export membership payments");
       }
       const blob = await response.blob();
+      if (requestId !== exportRequestId.current) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -140,10 +191,15 @@ export default function MembershipPaymentReport() {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
-      setExportError(error?.message || "Failed to export membership payments");
+      if (requestId === exportRequestId.current && error?.name !== "AbortError") {
+        setExportError(error?.message || "Failed to export membership payments");
+      }
     } finally {
-      exportInFlight.current = false;
-      setIsExporting(false);
+      if (requestId === exportRequestId.current) {
+        exportController.current = null;
+        exportInFlight.current = false;
+        setIsExporting(false);
+      }
     }
   };
 
@@ -173,21 +229,50 @@ export default function MembershipPaymentReport() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="membership-payment-method">Payment method</Label>
-              <Select value={paymentMethod} onValueChange={changeMethod}>
-                <SelectTrigger id="membership-payment-method" className="w-64" data-testid="select-payment-method">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {methods.map((method) => (
-                    <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="membership-payment-search">Find member</Label>
+                <div className="relative w-72 max-w-full">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <Input
+                    id="membership-payment-search"
+                    type="search"
+                    value={search}
+                    onChange={changeSearch}
+                    maxLength={SEARCH_MAX_LENGTH}
+                    placeholder="Search name or email"
+                    className="pl-9 pr-9"
+                    data-testid="input-payment-member-search"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={clearSearch}
+                      aria-label="Clear member search"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid="button-clear-payment-search"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="membership-payment-method">Payment method</Label>
+                <Select value={paymentMethod} onValueChange={changeMethod}>
+                  <SelectTrigger id="membership-payment-method" className="w-64" data-testid="select-payment-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {methods.map((method) => (
+                      <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-3">
-              {!query.isLoading && !query.error && (
+              {!isLoadingResults && !query.error && (
                 <p className="text-sm text-slate-500" data-testid="text-result-count">
                   {total} member{total === 1 ? "" : "s"}
                 </p>
@@ -195,7 +280,7 @@ export default function MembershipPaymentReport() {
               <Button
                 variant="outline"
                 onClick={downloadCsv}
-                disabled={isExporting}
+                disabled={isExporting || isDebouncing}
                 data-testid="button-download-payment-report"
               >
                 {isExporting ? (
@@ -215,8 +300,8 @@ export default function MembershipPaymentReport() {
               <AlertDescription data-testid="text-export-error">{exportError}</AlertDescription>
             </Alert>
           )}
-          {query.isLoading ? (
-            <div className="space-y-2" data-testid="membership-payment-loading">
+          {isLoadingResults ? (
+            <div className="space-y-2" role="status" aria-label="Loading membership payments" data-testid="membership-payment-loading">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
@@ -228,7 +313,9 @@ export default function MembershipPaymentReport() {
             </Alert>
           ) : rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-500" data-testid="text-no-payment-rows">
-              No individual memberships match this payment method.
+              {debouncedSearch
+                ? `No individual memberships match “${debouncedSearch}”.`
+                : "No individual memberships match this payment method."}
             </p>
           ) : (
             <>

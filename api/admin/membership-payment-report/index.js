@@ -44,6 +44,11 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const method = req.query?.method ?? 'all';
       const format = req.query?.format ?? 'json';
+      const rawSearch = req.query?.search ?? '';
+      if (typeof rawSearch !== 'string' || rawSearch.length > 200) {
+        return res.status(400).json({ error: 'Search must be text of at most 200 characters' });
+      }
+      const search = rawSearch.trim().toLowerCase();
       if (!['json', 'csv'].includes(format)) {
         return res.status(400).json({ error: 'Invalid report format' });
       }
@@ -69,7 +74,11 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         history, agreements, plans, payments, today: deps.today };
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules })
-        .filter(row => method === 'all' || row.paymentMethod === method);
+        .filter(row => (method === 'all' || row.paymentMethod === method)
+          // Literal substring matching avoids SQL/PostgREST wildcard semantics.
+          // Apply once to the complete projection for JSON totals, pages and CSV.
+          && (!search || row.name.toLowerCase().includes(search)
+            || (row.email || '').toLowerCase().includes(search)));
       if (format === 'csv') {
         const csv = membershipPaymentReportCsv(rows);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');

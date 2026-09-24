@@ -372,6 +372,71 @@ const upfront = { ...history, tenant_id: bnms, payment_method: 'upfront', billin
 const legacyFixture = overrides => fixture({ tenantId: bnms, members: [{ ...member, tenant_id: bnms }],
   history: [upfront], ...overrides });
 
+test('search is bounded and validated before database reads for JSON and CSV', async () => {
+  const db = { from() { throw new Error('Must not read invalid search'); } };
+  for (const search of [['Ada'], {}, 42, 'a'.repeat(201)]) {
+    for (const format of ['json', 'csv']) {
+      const response = await request({ db }, { search, format });
+      assert.equal(response.code, 400);
+      assert.match(response.body.error, /Search/);
+    }
+  }
+});
+
+test('literal case-insensitive search spans fetch batches, methods, totals and full CSV', async () => {
+  const members = Array.from({ length: 1105 }, (_, i) => ({
+    ...member, id: `m${String(i).padStart(4, '0')}`, first_name: `Person ${i}`,
+    last_name: 'Example', email: `person${i}@example.invalid`,
+  }));
+  members[1100].first_name = 'Zoë *_%[x],()\\';
+  members[1101].email = 'SAMPLE@EXAMPLE.INVALID';
+  const histories = members.map(m => ({ ...history, id: `h${m.id}`, member_id: m.id,
+    payment_method: m.id === 'm1101' ? 'invoice' : 'card', billing_agreement_id: null, billing_period: 'annual' }));
+  const deps = { db: database({
+    member: [...members, { ...member, id: 'deleted', first_name: 'Sample', email: 'deleted_x@deleted.local' },
+      { ...member, id: 'foreign', tenant_id: 'foreign', first_name: 'Sample' }],
+    member_membership_history: [...histories,
+      { ...history, id: 'deleted', member_id: 'deleted' },
+      { ...history, id: 'foreign', member_id: 'foreign', tenant_id: 'foreign' }],
+  }), resolveSchedules: async () => new Map() };
+  for (const search of ['  sample@EXAMPLE  ', 'SAMPLE']) {
+    const result = await request(deps, { search, pageSize: '1' });
+    assert.equal(result.body.total, 1);
+    assert.equal(result.body.rows[0].memberId, 'm1101');
+    assert.equal((await request(deps, { search, method: 'card' })).body.total, 0);
+    assert.equal((await request(deps, { search, method: 'invoice' })).body.total, 1);
+  }
+  for (const search of ['zoË', '*', '_', '%', '[x]', ',()', '\\', 'Example']) {
+    const result = await request(deps, { search, pageSize: '1' });
+    assert.equal(result.body.total, search === 'Example' ? 1105 : 1, search);
+  }
+  const filtered = await request(deps, { search: 'Person 10', method: 'card', pageSize: '1', page: '2' });
+  const csv = await request(deps, { search: 'Person 10', method: 'card', format: 'csv', pageSize: '1', page: '2' });
+  const lines = csv.body.trimEnd().split('\r\n');
+  assert.equal(lines.length - 1, filtered.body.total);
+  assert.ok(filtered.body.total > 25);
+  assert.equal(lines[2].split(',')[0], filtered.body.rows[0].name);
+  assert.equal((await request(deps, { search: '   ', method: 'invoice' })).body.total, 1);
+  assert.equal((await request(deps, { search: 'no match' })).body.total, 0);
+});
+
+test('search finds current reviewed upfront member in both methods but never extends expiry', async () => {
+  const deps = { today: '2026-09-24', db: database({
+    member: [{ ...member, tenant_id: bnms, email: 'sample@example.invalid' }],
+    member_membership_history: [{ ...upfront, term_end_date: '2026-09-29' }],
+  }), getTenantContext: async () => ({ isAuthenticated: true, tenantId: bnms, roleId: 'r' }),
+  resolveSchedules: async () => new Map() };
+  for (const method of ['all', 'upfront']) {
+    const result = await request(deps, { search: 'SAMPLE@', method });
+    assert.equal(result.body.total, 1);
+    assert.equal(result.body.rows[0].paymentMethod, 'upfront');
+    assert.equal(result.body.rows[0].nextPaymentDate, null);
+    assert.equal(result.body.rows[0].scheduleState, 'not_scheduled');
+    assert.equal((await request({ ...deps, today: '2026-09-29' }, { search: 'sample', method })).body.total, 1);
+    assert.equal((await request({ ...deps, today: '2026-09-30' }, { search: 'sample', method })).body.total, 0);
+  }
+});
+
 test('reviewed upfront records preserve unknown dates/amounts and never request providers', async () => {
   for (const cost of [null, 109]) {
     const input = legacyFixture({ history: [{ ...upfront, final_cost: cost, total_with_vat: cost }] });
