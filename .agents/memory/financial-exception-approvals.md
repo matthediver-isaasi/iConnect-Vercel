@@ -21,6 +21,8 @@ An old zero-blocker report can support a clearly labelled, non-authorizing econo
 
 **How to apply:** Retain original report timestamps, verify the new deployment proof, independently review the pure economic commitment, and use only the canonical forced-fresh apply. Keep all schema, current-state, exact-hash, handover and pre-commit freshness checks. Any mismatch requires review, not automatic acceptance of a new hash.
 
-For the separate BNMS manual-95 cohort, general trust in the existing worker/cron is not evidence that its new recognition and exact-contact accounting integration is deployed. Local source hashes alone cannot authorize release after the October gate: an old worker could collect and fall back to generic accounting.
+Financial release approval must distinguish reviewed source code from evidence that the same safeguards are deployed.
 
-Require independently supplied production deployment evidence or explicit user attestation covering the exact reviewed runtime hashes, worker, webhook accounting and membership readers. Bind the whole proof into the parent-reviewed manifest and reject missing/old/unknown proof before provider reads or any apply transaction. No publishing authority is inferred. Matching is complete for all 95 (81 exact cached provider-payment-reference identities plus 14 unique current emails); no invoice retrieval was needed. Do not reacquire provider evidence merely while waiting for publishing readiness.
+**Why:** Existing scheduled processing may still run older accounting behavior after local source changes.
+
+**How to apply:** Bind independent deployment evidence to the reviewed release approval and fail closed when it is absent or stale. Release approval does not itself authorize publishing; avoid reacquiring short-lived provider evidence while deployment readiness is unresolved.

@@ -445,7 +445,22 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
   }
 }
 
-export async function updateCampaign(campaignId, updates, tenantId) {
+function campaignConflict() {
+  return { success: false, code: 'CAMPAIGN_STATE_CONFLICT', error: 'Campaign changed or sending has already begun. Refresh and try again.' };
+}
+
+function matchCampaignValue(query, field, value) {
+  return value == null ? query.is(field, null) : query.eq(field, value);
+}
+
+function nextCampaignUpdatedAt(previous) {
+  // Keep schedule generations distinct even when return/reschedule requests
+  // complete within the same millisecond (or the application clock moves back).
+  const previousMs = Date.parse(previous);
+  return new Date(Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0)).toISOString();
+}
+
+export async function updateCampaign(campaignId, updates, tenantId, options = {}) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -470,7 +485,7 @@ export async function updateCampaign(campaignId, updates, tenantId) {
 
     const { data: existing, error: existingError } = await supabase
       .from('email_campaign')
-      .select('target_type, target_ids, target_audiences')
+      .select('target_type, target_ids, target_audiences, updated_at')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
@@ -483,18 +498,19 @@ export async function updateCampaign(campaignId, updates, tenantId) {
       return { success: false, error: listValidation.reason, code: 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' };
     }
 
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('email_campaign')
       .update({
         ...cleanedUpdates,
-        updated_at: new Date().toISOString()
+        updated_at: nextCampaignUpdatedAt(existing.updated_at)
       })
       .eq('id', campaignId)
-      .eq('tenant_id', tenantId)
-      .select()
-      .single();
+      .eq('tenant_id', tenantId);
+    if (options.expectedStatus) updateQuery = updateQuery.eq('status', options.expectedStatus);
+    const { data, error } = await updateQuery.select().maybeSingle();
 
     if (error) throw error;
+    if (!data) return campaignConflict();
     return { success: true, campaign: data };
   } catch (err) {
     console.error('[Campaign Service] Error updating campaign:', err);
@@ -744,7 +760,7 @@ export async function pauseCampaign(campaignId, tenantId, pausedBy = null) {
 // a no-op at best and confusing at worst. completed_at and cancelled_at
 // are cleared so the cron's mark-sent path can set completed_at correctly
 // when the drain finishes.
-export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
+export async function resumeCampaign(campaignId, tenantId, resumedBy = null, options = {}) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -752,13 +768,17 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
   try {
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, status, name, from_email, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
+      .select('id, status, updated_at, name, from_email, completed_at, cancelled_at, category_review_required, target_type, target_ids, target_audiences')
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .single();
 
     if (fetchError || !campaign) {
       return { success: false, error: 'Campaign not found' };
+    }
+    if ((Object.hasOwn(options, 'expectedStatus') && campaign.status !== options.expectedStatus) ||
+        (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt)) {
+      return campaignConflict();
     }
     if (campaign.category_review_required) {
       return { success: false, error: 'Campaign requires audience and category review before it can resume.' };
@@ -791,11 +811,11 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
       return { success: false, error: 'Nothing to resume — there are no pending or processing recipients for this campaign.' };
     }
 
-    const resumedAt = new Date().toISOString();
+    const resumedAt = nextCampaignUpdatedAt(campaign.updated_at);
     // Atomic flip: only proceed if the status is still what we read above.
     // Clear completed_at + cancelled_at so the cron's completion path will
     // set them correctly when the drain actually finishes.
-    const { data: updatedRows, error: updateError } = await supabase
+    let resumeQuery = supabase
       .from('email_campaign')
       .update({
         status: 'sending',
@@ -807,13 +827,16 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
       .eq('status', campaign.status)
-      .eq('category_review_required', false)
-      .select('id');
+      .eq('category_review_required', false);
+    resumeQuery = campaign.updated_at == null
+      ? resumeQuery.is('updated_at', null)
+      : resumeQuery.eq('updated_at', campaign.updated_at);
+    const { data: updatedRows, error: updateError } = await resumeQuery.select('id');
 
     if (updateError) throw updateError;
 
     if (!updatedRows || updatedRows.length === 0) {
-      return { success: false, error: `Campaign status changed before resume could be applied. Current status was: ${campaign.status}` };
+      return campaignConflict();
     }
 
     // If the operator is resuming cancelled rows back to pending? No — only
@@ -840,12 +863,47 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
   }
 }
 
-export async function deleteCampaign(campaignId, tenantId) {
+export async function returnScheduledCampaignToDraft(campaignId, tenantId) {
+  if (!supabase) return { success: false, error: 'Database not configured' };
+  try {
+    const { data: existing, error: readError } = await supabase.from('email_campaign')
+      .select('updated_at').eq('id', campaignId).eq('tenant_id', tenantId)
+      .eq('status', 'scheduled').maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return campaignConflict();
+    // One atomic transition: a send claim and this update cannot both win.
+    let query = supabase.from('email_campaign')
+      .update({ status: 'draft', scheduled_at: null, updated_at: nextCampaignUpdatedAt(existing.updated_at) })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'scheduled');
+    query = matchCampaignValue(query, 'updated_at', existing.updated_at);
+    const { data, error } = await query.select().maybeSingle();
+    if (error) throw error;
+    return data ? { success: true, campaign: data } : campaignConflict();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function deleteCampaign(campaignId, tenantId, options = {}) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
 
   try {
+    if (options.expectedStatus) {
+      // Recipient and tracking FKs cascade. Never delete children before the
+      // guarded parent delete: a competing send may have claimed the row.
+      const { data, error } = await supabase.from('email_campaign').delete()
+        .eq('id', campaignId)
+        .eq('tenant_id', tenantId)
+        .eq('status', options.expectedStatus)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      return data ? { success: true } : campaignConflict();
+    }
     const BATCH_SIZE = 200;
     let deletedTotal = 0;
     let hasMore = true;
@@ -2654,7 +2712,7 @@ export function validateCampaignSenderEmail(fromEmail) {
   };
 }
 
-export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
+export async function scheduleCampaign(campaignId, tenantId, scheduledAt, options = {}) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -2663,6 +2721,9 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
     const { success, campaign, error } = await getCampaign(campaignId, tenantId);
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
+    }
+    if (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt) {
+      return campaignConflict();
     }
 
     const senderValidation = validateCampaignSenderEmail(campaign.from_email);
@@ -2685,23 +2746,26 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
       return { success: false, error: targetingValidation.reason };
     }
 
-    const { data: scheduledRows, error: updateError } = await supabase
+    let scheduleQuery = supabase
       .from('email_campaign')
       .update({ 
         status: 'scheduled', 
         scheduled_at: scheduledAt.toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: nextCampaignUpdatedAt(campaign.updated_at)
       })
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
-      .eq('category_review_required', false)
-      .select('id');
+      .eq('status', options.expectedStatus || 'draft')
+      .eq('category_review_required', false);
+    scheduleQuery = matchCampaignValue(scheduleQuery, 'updated_at',
+      Object.hasOwn(options, 'expectedUpdatedAt') ? options.expectedUpdatedAt : campaign.updated_at);
+    const { data: scheduledRows, error: updateError } = await scheduleQuery.select('id');
 
     if (updateError) {
       throw updateError;
     }
     if (!scheduledRows || scheduledRows.length !== 1) {
-      return { success: false, error: 'Campaign requires audience and category review before it can be scheduled.' };
+      return campaignConflict();
     }
 
     console.log(`[Campaign Service] Campaign ${campaignId} scheduled for ${scheduledAt.toISOString()}`);
@@ -2727,7 +2791,7 @@ export async function processScheduledCampaigns() {
     // Find all scheduled campaigns that are due
     const { data: dueCampaigns, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, tenant_id, name')
+      .select('id, tenant_id, name, scheduled_at, updated_at')
       .eq('status', 'scheduled')
       .eq('category_review_required', false)
       .lte('scheduled_at', now);
@@ -2740,7 +2804,11 @@ export async function processScheduledCampaigns() {
     if (dueCampaigns && dueCampaigns.length > 0) {
       for (const campaign of dueCampaigns) {
         console.log(`[Campaign Service] Processing scheduled campaign: ${campaign.id} (${campaign.name})`);
-        const result = await sendCampaign(campaign.id, campaign.tenant_id);
+        const result = await sendCampaign(campaign.id, campaign.tenant_id, null, {
+          expectedStatus: 'scheduled',
+          expectedScheduledAt: campaign.scheduled_at,
+          expectedUpdatedAt: campaign.updated_at,
+        });
         scheduledResults.push({
           campaignId: campaign.id,
           name: campaign.name,
@@ -3796,15 +3864,49 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
 //      'sent' if no recipient rows exist at all for that campaign id.
 // Do not undo either of these protections without replacing them with an
 // equivalent guard.
-export async function sendCampaign(campaignId, tenantId, requestHost = null) {
+export async function sendCampaign(campaignId, tenantId, requestHost = null, options = {}) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
 
+  let claimed = false;
+  let ownedStatus = 'preparing';
+  let ownedVersion;
+  let preparedRecipientIds = [];
+  const updateOwnedPreparation = async (updates) => {
+    const { data, error } = await matchCampaignValue(
+      supabase.from('email_campaign')
+        .update({ ...updates, updated_at: nextCampaignUpdatedAt(ownedVersion) })
+        .eq('id', campaignId).eq('tenant_id', tenantId).eq('status', 'preparing'),
+      'updated_at', ownedVersion,
+    ).select().maybeSingle();
+    if (error) throw error;
+    if (data) ownedVersion = data.updated_at;
+    return data;
+  };
+  const stopPreparation = async (insertedIds = []) => {
+    const { data: current, error } = await supabase.from('email_campaign')
+      .select('status').eq('id', campaignId).eq('tenant_id', tenantId).maybeSingle();
+    if (error) throw error;
+    // Cancellation may have swept recipients BEFORE this preparation inserted
+    // them. Reconcile just our new rows; paused rows stay pending for resume.
+    if (current?.status === 'cancelled' && insertedIds.length) {
+      const { error: cleanupError } = await supabase.from('email_campaign_recipient')
+        .update({ status: 'cancelled' }).eq('campaign_id', campaignId)
+        .in('id', insertedIds).eq('status', 'pending');
+      if (cleanupError) throw cleanupError;
+    }
+    return { ...campaignConflict(), status: current?.status };
+  };
   try {
-    const { success, campaign, error } = await getCampaign(campaignId, tenantId);
+    const { success, campaign: loadedCampaign, error } = await getCampaign(campaignId, tenantId);
+    let campaign = loadedCampaign;
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
+    }
+    if (options.expectedStatus && campaign.status !== options.expectedStatus) return campaignConflict();
+    if (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt) {
+      return campaignConflict();
     }
 
     // This must remain before the atomic status claim and audience preparation:
@@ -3824,9 +3926,9 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     if (!listValidation.valid) return { success: false, error: listValidation.reason };
 
     // Atomic claim into the interim 'preparing' status. This prevents
-    // double-send (a second caller will fail the .in() filter) AND keeps
+    // double-send (a second caller will fail the status filter) AND keeps
     // the campaign invisible to the cron until recipients are inserted.
-    const { data: claimedCampaign, error: claimError } = await supabase
+    let claimQuery = supabase
       .from('email_campaign')
       .update({
         status: 'preparing',
@@ -3836,19 +3938,34 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       })
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
-      .in('status', ['draft', 'scheduled'])
-      .eq('category_review_required', false)
-      .select()
-      .single();
+      .eq('status', options.expectedStatus || campaign.status)
+      .eq('category_review_required', false);
+    claimQuery = matchCampaignValue(claimQuery, 'updated_at',
+      Object.hasOwn(options, 'expectedUpdatedAt') ? options.expectedUpdatedAt : campaign.updated_at);
+    claimQuery = matchCampaignValue(claimQuery, 'scheduled_at',
+      Object.hasOwn(options, 'expectedScheduledAt') ? options.expectedScheduledAt : campaign.scheduled_at);
+    const { data: claimedCampaign, error: claimError } = await claimQuery.select().maybeSingle();
 
     if (claimError || !claimedCampaign) {
-      return { success: false, error: 'Campaign is already being sent or has been sent' };
+      if (claimError) return { success: false, error: claimError.message };
+      return campaignConflict();
+    }
+    claimed = true;
+    ownedVersion = claimedCampaign.updated_at;
+    // Use the row actually claimed, not the pre-claim read. Even two edits
+    // sharing timestamp precision must never send an obsolete content snapshot.
+    campaign = claimedCampaign;
+    const claimedSender = validateCampaignSenderEmail(campaign.from_email);
+    const claimedLists = await validateCampaignAudienceLists(campaign, tenantId);
+    if (!claimedSender.valid || !claimedLists.valid) {
+      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
+      return { success: false, error: claimedSender.error || claimedLists.reason };
     }
 
     const targetingValidation = validateCampaignTargeting(campaign);
     if (!targetingValidation.valid) {
       console.error(`[Campaign Service] BLOCKED SEND: Campaign ${campaignId} - ${targetingValidation.reason}`);
-      await updateCampaign(campaignId, { status: 'draft' }, tenantId).catch(() => {});
+      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
       return { success: false, error: targetingValidation.reason };
     }
 
@@ -3856,18 +3973,18 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     try {
       recipientsResult = await getTargetRecipients(campaign, tenantId);
     } catch (recipientErr) {
-      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
+      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
       return { success: false, error: recipientErr.message || 'Failed to resolve recipients' };
     }
 
     if (!recipientsResult.success) {
-      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
+      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
       return recipientsResult;
     }
 
     const recipients = recipientsResult.recipients;
     if (recipients.length === 0) {
-      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
+      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
       return { success: false, error: 'No recipients found for this campaign' };
     }
 
@@ -3877,16 +3994,13 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     // returns ok:false with a 503-shaped body and we abort the send.
     const quotaCheck = await checkEmailQuota(tenantId, { addingCount: recipients.length });
     if (!quotaCheck.ok) {
-      await updateCampaign(campaignId, { status: 'draft' }, tenantId).catch(() => {});
+      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
       console.warn(`[Campaign Service] Plan quota blocked send for campaign ${campaignId}:`, quotaCheck.body?.code);
       return { success: false, error: quotaCheck.body?.error || 'Plan email quota exceeded', quota: quotaCheck.body?.quota };
     }
 
-    await updateCampaign(campaignId, {
-      total_recipients: recipients.length
-    }, tenantId);
-
     const recipientRecords = recipients.map(r => ({
+      id: crypto.randomUUID(),
       campaign_id: campaignId,
       member_id: r.member_id !== undefined ? r.member_id : r.id,
       email: r.email,
@@ -3894,6 +4008,9 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       last_name: r.last_name,
       status: 'pending'
     }));
+    // Keep IDs even if the insert commits but its response fails, so a
+    // concurrent cancellation can still reconcile this request's rows.
+    preparedRecipientIds = recipientRecords.map(row => row.id);
 
     const { error: insertError } = await supabase
       .from('email_campaign_recipient')
@@ -3904,7 +4021,9 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     // Only NOW that recipient rows are durably inserted, flip from
     // 'preparing' to 'sending' so the cron worker can safely take over
     // if this request times out.
-    await updateCampaign(campaignId, { status: 'sending' }, tenantId);
+    const promoted = await updateOwnedPreparation({ status: 'sending', total_recipients: recipients.length });
+    if (!promoted) return await stopPreparation(preparedRecipientIds);
+    ownedStatus = 'sending';
 
     const { data: tenant } = await supabase
       .from('tenant')
@@ -4014,12 +4133,19 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     };
   } catch (err) {
     console.error('[Campaign Service] Error sending campaign:', err);
+    if (claimed && preparedRecipientIds.length) {
+      try {
+        await stopPreparation(preparedRecipientIds);
+      } catch (cleanupError) {
+        return { success: false, error: `${err.message}. Failed to reconcile prepared recipients: ${cleanupError.message}` };
+      }
+    }
     // Do not overwrite an operator pause/cancellation that raced this error.
     try {
-      await supabase.from('email_campaign').update({ status: 'failed' })
+      if (claimed) await matchCampaignValue(supabase.from('email_campaign').update({ status: 'failed' })
         .eq('id', campaignId)
         .eq('tenant_id', tenantId)
-        .in('status', ['preparing', 'sending']);
+        .eq('status', ownedStatus), 'updated_at', ownedVersion);
     } catch {
       // Preserve the original, actionable send error.
     }

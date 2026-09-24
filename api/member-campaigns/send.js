@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getCallerEmsAccess, requireGroupAccess } from '../_lib/memberGroupEmsAccess.js';
-import { sendCampaign, getTargetRecipients, getCampaign, scheduleCampaign } from '../_lib/campaignService.js';
+import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, validateStoredMemberCampaign } from '../_lib/memberGroupEmsAccess.js';
+import { sendCampaign, getTargetRecipients, scheduleCampaign } from '../_lib/campaignService.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 
 /**
@@ -15,8 +15,8 @@ import { getHostFromRequest } from '../_lib/tenantResolver.js';
  *  - body { campaignId, scheduledAt }: schedule a draft.
  *  - body { campaignId }: send immediately.
  *
- * The audience is ALWAYS overridden server-side to the caller's group; the
- * client cannot widen it.
+ * Ad-hoc audiences are pinned to the group. Stored audiences, sender and
+ * template policy are validated and rejected if they no longer qualify.
  */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -36,11 +36,9 @@ export default async function handler(req, res) {
     if (!group) return res.status(403).json({ error: 'You do not have access to this group.' });
 
     const segment = { type: 'member_group', ids: [group.groupId] };
-    if (Array.isArray(audienceRoles) && audienceRoles.length > 0) {
-      const allowed = new Set(group.allRoles || []);
-      const filtered = audienceRoles.filter((r) => typeof r === 'string' && allowed.has(r));
-      if (filtered.length > 0) segment.roles = filtered;
-    }
+    const roles = normalizeAudienceRoles(group, audienceRoles);
+    if (roles === null) return res.status(400).json({ error: 'audienceRoles must be a subset of the group roles.' });
+    if (roles.length > 0) segment.roles = roles;
 
     const fakeCampaign = { target_audiences: [segment] };
     const result = await getTargetRecipients(fakeCampaign, access.tenantContext.tenantId, false, previewList === true);
@@ -61,49 +59,23 @@ export default async function handler(req, res) {
 
   if (!campaignId) return res.status(400).json({ error: 'Campaign ID required' });
 
-  // Verify ownership of the stored campaign.
+  // Verify tenant scope and current group-admin access.
   const { data: row, error: rowErr } = await supabase
     .from('email_campaign')
-    .select('id, tenant_id, created_by_member_id, member_group_id, status, email_template_id')
+    .select('*')
     .eq('id', campaignId)
     .eq('tenant_id', access.tenantContext.tenantId)
     .single();
   if (rowErr || !row) return res.status(404).json({ error: 'Campaign not found' });
-  if (row.created_by_member_id !== access.memberId) return res.status(404).json({ error: 'Campaign not found' });
   const ownedGroup = requireGroupAccess(access.groups, row.member_group_id);
   if (!ownedGroup) return res.status(403).json({ error: 'You do not have access to this campaign.' });
 
-  // Revalidate template opt-in eligibility at send/preview/schedule time.
-  // This catches the case where the template policy changed after the draft was saved.
-  if (row.email_template_id) {
-    const { data: tpl } = await supabase
-      .from('email_template')
-      .select('id, member_group_opt_in, member_group_classification_ids')
-      .eq('id', row.email_template_id)
-      .eq('tenant_id', access.tenantContext.tenantId)
-      .single();
-
-    if (!tpl || !tpl.member_group_opt_in) {
-      return res.status(403).json({ error: 'The template used by this campaign is no longer available for member group use.' });
-    }
-
-    const allowedClassIds = Array.isArray(tpl.member_group_classification_ids)
-      ? tpl.member_group_classification_ids.filter(Boolean)
-      : [];
-    if (allowedClassIds.length > 0) {
-      const groupClassId = ownedGroup.classificationId ? String(ownedGroup.classificationId) : null;
-      if (!groupClassId || !allowedClassIds.includes(groupClassId)) {
-        return res.status(403).json({ error: 'The template used by this campaign is not permitted for this group.' });
-      }
-    }
-  }
+  const validation = await validateStoredMemberCampaign(row, access.tenantContext.tenantId, ownedGroup);
+  if (!validation.ok) return res.status(validation.status).json({ error: validation.error });
 
   // ---- Preview a stored campaign ----
   if (preview === true) {
-    const campaignResult = await getCampaign(campaignId, access.tenantContext.tenantId);
-    if (!campaignResult.success) return res.status(404).json({ error: campaignResult.error });
-
-    const recipientsResult = await getTargetRecipients(campaignResult.campaign, access.tenantContext.tenantId);
+    const recipientsResult = await getTargetRecipients(row, access.tenantContext.tenantId);
     if (!recipientsResult.success) return res.status(500).json({ error: recipientsResult.error });
 
     return res.json({
@@ -116,24 +88,26 @@ export default async function handler(req, res) {
     });
   }
 
+  if (row.status !== 'draft') return res.status(400).json({ error: 'Only draft campaigns can be sent or scheduled.' });
+
   // ---- Schedule ----
   if (scheduledAt) {
     const scheduleDate = new Date(scheduledAt);
     if (isNaN(scheduleDate.getTime())) return res.status(400).json({ error: 'Invalid schedule date' });
     if (scheduleDate <= new Date()) return res.status(400).json({ error: 'Schedule date must be in the future' });
-    const result = await scheduleCampaign(campaignId, access.tenantContext.tenantId, scheduleDate);
-    if (!result.success) return res.status(500).json({ error: result.error });
+    const result = await scheduleCampaign(campaignId, access.tenantContext.tenantId, scheduleDate, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at });
+    if (!result.success) return res.status(result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : Number.isInteger(result.status) ? result.status : 500).json({ error: result.error, code: result.code });
     return res.json(result);
   }
 
   // ---- Send immediately ---- (plan quota enforced inside sendCampaign())
   const requestHost = getHostFromRequest(req);
-  const result = await sendCampaign(campaignId, access.tenantContext.tenantId, requestHost);
+  const result = await sendCampaign(campaignId, access.tenantContext.tenantId, requestHost, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at });
   if (!result.success) {
     if (result.quota) {
       return res.status(402).json({ error: result.error, code: 'PLAN_QUOTA_EXCEEDED', quota: result.quota });
     }
-    return res.status(500).json({ error: result.error });
+    return res.status(result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : Number.isInteger(result.status) ? result.status : 500).json({ error: result.error, code: result.code });
   }
   return res.json(result);
 }

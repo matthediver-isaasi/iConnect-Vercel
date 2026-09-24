@@ -150,3 +150,4 @@
 - [Form applicant authority](form-applicant-authority.md) — bare-ID application links need scoped server-issued authority; drafts and submitted emails never imply ownership.
 - [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
+- [Group campaign claims](group-campaign-claims.md) — bind validated delivery snapshots and scheduled-worker selections to the atomic claim; draft status alone is insufficient.

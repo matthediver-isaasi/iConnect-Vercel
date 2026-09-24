@@ -43,6 +43,7 @@ import {
   Users,
   FileText,
   MousePointerClick,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -191,9 +192,18 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
   const [testEmails, setTestEmails] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [statsCampaign, setStatsCampaign] = useState(null);
+  const [campaignAction, setCampaignAction] = useState(null);
   const previewDebounceRef = useRef(null);
+  const activeGroupIdRef = useRef(activeGroupId);
+  activeGroupIdRef.current = activeGroupId;
 
-  const { data: campaigns = [], isLoading: loadingCampaigns, refetch: refetchCampaigns } = useQuery({
+  const {
+    data: campaigns = [],
+    isLoading: loadingCampaigns,
+    isError: campaignsError,
+    error: campaignsLoadError,
+    refetch: refetchCampaigns,
+  } = useQuery({
     queryKey: ["member-campaigns", "list", activeGroupId],
     queryFn: async () => {
       const res = await fetch(`/api/member-campaigns?groupId=${activeGroupId}`, { credentials: "include" });
@@ -210,6 +220,24 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
       return false;
     },
   });
+
+  // This component is shared by a selectable page and an embedded group page.
+  // Clear every group-specific dialog/input when its scope changes so a draft,
+  // recipient count, or stats selection can never appear under another group.
+  useEffect(() => {
+    setComposeOpen(false);
+    setCompose(blankComposeState());
+    setRecipientPreview(null);
+    setPreviewLoading(false);
+    setSending(false);
+    setScheduling(false);
+    setScheduledAt("");
+    setTestDialogOpen(false);
+    setTestEmails("");
+    setTestSending(false);
+    setStatsCampaign(null);
+    setCampaignAction(null);
+  }, [activeGroupId]);
 
   const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({
     queryKey: ["email-templates", "for-group-email"],
@@ -262,25 +290,32 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
     }));
   };
 
-  const openCompose = async (campaign = null) => {
+  const openCompose = async (campaign = null, action = "edit") => {
     if (campaign) {
       // The list endpoint only returns summary fields, so hydrate the full
       // editable record (html_content, design_json, from_name, preheader,
       // target_audiences) before opening the editor — otherwise a save
       // would clobber those fields with empty strings.
+      const requestedGroupId = activeGroupId;
+      setCampaignAction({ id: campaign.id, action });
       let full = campaign;
       try {
         const res = await fetch(`/api/member-campaigns/${campaign.id}`, { credentials: "include" });
         if (res.ok) {
           full = await res.json();
         } else {
-          toast.error("Failed to load draft for editing");
+          toast.error(action === "duplicate" ? "The copy was created, but could not be opened." : "Failed to load draft for editing");
           return;
         }
       } catch (_e) {
-        toast.error("Failed to load draft for editing");
+        toast.error(action === "duplicate" ? "The copy was created, but could not be opened." : "Failed to load draft for editing");
         return;
+      } finally {
+        setCampaignAction((current) =>
+          current?.id === campaign.id && current?.action === action ? null : current
+        );
       }
+      if (requestedGroupId !== activeGroupIdRef.current) return;
 
       const segment = Array.isArray(full.target_audiences) ? full.target_audiences[0] : null;
       const design = normalizeDesign(full.design_json);
@@ -524,14 +559,73 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
 
   const handleDelete = async (campaign) => {
     if (!confirm(`Delete draft "${campaign.name}"?`)) return;
-    const res = await fetch(`/api/member-campaigns/${campaign.id}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast.error(err.error || "Failed to delete");
-      return;
+    setCampaignAction({ id: campaign.id, action: "delete" });
+    try {
+      const res = await fetch(`/api/member-campaigns/${campaign.id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to delete");
+      }
+      toast.success("Draft deleted");
+      await refetchCampaigns();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCampaignAction((current) =>
+        current?.id === campaign.id && current?.action === "delete" ? null : current
+      );
     }
-    toast.success("Deleted");
-    refetchCampaigns();
+  };
+
+  const handleEditScheduled = async (campaign) => {
+    const accepted = confirm(
+      `Edit scheduled campaign "${campaign.name}"?\n\nThis will return it to draft and remove its schedule. You must schedule or send it again.`
+    );
+    if (!accepted) return;
+
+    setCampaignAction({ id: campaign.id, action: "edit-scheduled" });
+    try {
+      const res = await fetch(`/api/member-campaigns/${campaign.id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "edit-scheduled" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to return scheduled campaign to draft");
+      await queryClient.invalidateQueries({ queryKey: ["member-campaigns", "list", activeGroupId] });
+      await openCompose(data.campaign || data, "edit-scheduled");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCampaignAction((current) =>
+        current?.id === campaign.id && current?.action === "edit-scheduled" ? null : current
+      );
+    }
+  };
+
+  const handleDuplicate = async (campaign) => {
+    setCampaignAction({ id: campaign.id, action: "duplicate" });
+    try {
+      const res = await fetch(`/api/member-campaigns/${campaign.id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "duplicate" }),
+      });
+      const copy = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(copy.error || "Failed to duplicate campaign");
+      if (!copy.id && !copy.campaign?.id) throw new Error("The campaign was copied, but the new draft could not be opened.");
+      await queryClient.invalidateQueries({ queryKey: ["member-campaigns", "list", activeGroupId] });
+      toast.success("Campaign duplicated");
+      await openCompose(copy.campaign || copy, "duplicate");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCampaignAction((current) =>
+        current?.id === campaign.id && current?.action === "duplicate" ? null : current
+      );
+    }
   };
 
   const toggleAudienceRole = (role) => {
@@ -575,15 +669,20 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
 
   return (
     <div className="space-y-4" data-testid="group-email-manager">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Mail className="w-5 h-5 text-slate-600" />
-          <h2 className="text-lg font-semibold text-slate-900" data-testid="text-group-email-heading">
-            {heading}
-          </h2>
-          {showRoleBadge && activeGroup?.callerRole && (
-            <Badge variant="outline" data-testid="badge-caller-role">{activeGroup.callerRole}</Badge>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Mail className="w-5 h-5 text-slate-600" />
+            <h2 className="text-lg font-semibold text-slate-900" data-testid="text-group-email-heading">
+              {heading}
+            </h2>
+            {showRoleBadge && activeGroup?.callerRole && (
+              <Badge variant="outline" data-testid="badge-caller-role">{activeGroup.callerRole}</Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            Campaigns are shared with eligible email admins for this group.
+          </p>
         </div>
         <Button onClick={() => openCompose(null)} data-testid="button-new-campaign">
           <Plus className="w-4 h-4 mr-2" /> New campaign
@@ -592,6 +691,15 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
 
       {loadingCampaigns ? (
         <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+      ) : campaignsError ? (
+        <div className="py-10 text-center space-y-3" data-testid="error-campaigns">
+          <p className="text-sm text-destructive">
+            {campaignsLoadError?.message || "Failed to load campaigns"}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetchCampaigns()} data-testid="button-retry-campaigns">
+            Try again
+          </Button>
+        </div>
       ) : campaigns.length === 0 ? (
         <div className="py-10 text-center text-sm text-muted-foreground" data-testid="empty-campaigns">
           No campaigns yet. Click "New campaign" to compose one.
@@ -635,14 +743,29 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                   <div className="flex items-center justify-end gap-1 flex-wrap">
                     {c.status === "draft" && (
                       <>
-                        <Button size="sm" variant="ghost" onClick={() => openCompose(c)} data-testid={`button-edit-${c.id}`}>
+                        <Button size="sm" variant="ghost" onClick={() => openCompose(c)} disabled={campaignAction?.id === c.id} data-testid={`button-edit-${c.id}`}>
+                          {campaignAction?.id === c.id && campaignAction.action === "edit" && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                           Edit
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => handleDelete(c)} data-testid={`button-delete-${c.id}`}>
-                          <Trash2 className="w-4 h-4" />
+                        <Button size="icon" variant="ghost" onClick={() => handleDelete(c)} disabled={campaignAction?.id === c.id} aria-label={`Delete ${c.name}`} data-testid={`button-delete-${c.id}`}>
+                          {campaignAction?.id === c.id && campaignAction.action === "delete"
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Trash2 className="w-4 h-4" />}
                         </Button>
                       </>
                     )}
+                    {c.status === "scheduled" && (
+                      <Button size="sm" variant="ghost" onClick={() => handleEditScheduled(c)} disabled={campaignAction?.id === c.id} data-testid={`button-edit-scheduled-${c.id}`}>
+                        {campaignAction?.id === c.id && campaignAction.action === "edit-scheduled" && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                        Edit
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => handleDuplicate(c)} disabled={campaignAction?.id === c.id} data-testid={`button-duplicate-${c.id}`}>
+                      {campaignAction?.id === c.id && campaignAction.action === "duplicate"
+                        ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        : <Copy className="w-4 h-4 mr-1" />}
+                      Duplicate
+                    </Button>
                     {(c.status === "sent" || c.status === "sending") && (
                       <Button size="sm" variant="ghost" onClick={() => setStatsCampaign(c)} data-testid={`button-stats-${c.id}`}>
                         <BarChart3 className="w-4 h-4 mr-1" /> Stats

@@ -1,7 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getCallerEmsAccess, requireGroupAccess } from '../_lib/memberGroupEmsAccess.js';
+import { getCallerEmsAccess, requireGroupAccess, validateStoredMemberCampaign } from '../_lib/memberGroupEmsAccess.js';
 import {
-  getCampaign,
   generateTrackingToken,
   rewriteLinksForTracking,
   getTenantBaseUrl,
@@ -59,15 +58,14 @@ export default async function handler(req, res) {
   const { campaignId, testEmail, testEmails } = req.body || {};
   if (!campaignId) return res.status(400).json({ error: 'Campaign ID required' });
 
-  // Verify ownership.
+  // Verify tenant scope and current group-admin access.
   const { data: row, error: rowErr } = await supabase
     .from('email_campaign')
-    .select('id, created_by_member_id, member_group_id, tenant_id')
+    .select('*')
     .eq('id', campaignId)
     .eq('tenant_id', access.tenantContext.tenantId)
     .single();
   if (rowErr || !row) return res.status(404).json({ error: 'Campaign not found' });
-  if (row.created_by_member_id !== access.memberId) return res.status(404).json({ error: 'Campaign not found' });
   if (!requireGroupAccess(access.groups, row.member_group_id)) {
     return res.status(403).json({ error: 'You do not have access to this campaign.' });
   }
@@ -94,8 +92,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { success, campaign, error } = await getCampaign(campaignId, tenantContext.tenantId);
-    if (!success || !campaign) return res.status(404).json({ error: error || 'Campaign not found' });
+    const campaign = row;
+    const validation = await validateStoredMemberCampaign(campaign, tenantContext.tenantId, requireGroupAccess(access.groups, row.member_group_id));
+    if (!validation.ok) return res.status(validation.status).json({ error: validation.error });
 
     const senderValidation = validateCampaignSenderEmail(campaign.from_email);
     if (!senderValidation.valid) {

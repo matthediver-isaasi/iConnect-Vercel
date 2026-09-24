@@ -3046,7 +3046,11 @@ export default function MemberGroupDetailPage() {
         {emailGroup && (
           <Card className="mt-6" data-testid="card-group-email">
             <CardContent className="p-6">
-              <GroupEmailManager group={emailGroup} heading="Email campaigns" />
+              <GroupEmailManager
+                key={emailGroup.id}
+                group={emailGroup}
+                heading="Shared group email campaigns"
+              />
             </CardContent>
           </Card>
         )}

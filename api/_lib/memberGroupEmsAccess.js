@@ -48,7 +48,8 @@ export async function getCallerEmsAccess(req) {
   const liveAssignments = (assignments || []).filter((a) => {
     if (!a.group_id || !a.group_role) return false;
     if (!a.expires_at) return true;
-    return new Date(a.expires_at).toISOString() > nowIso;
+    const expiry = new Date(a.expires_at).getTime();
+    return Number.isFinite(expiry) && expiry > Date.parse(nowIso);
   });
 
   if (liveAssignments.length === 0) {
@@ -70,7 +71,7 @@ export async function getCallerEmsAccess(req) {
 
   const activeGroups = new Map();
   (groupRows || []).forEach((g) => {
-    if (g.is_active === false) return;
+    if (g.is_active !== true) return;
     activeGroups.set(g.id, g);
   });
 
@@ -128,7 +129,9 @@ export async function resolveMemberCampaignSender(tenantId, group, requestedFrom
 }
 
 export function normalizeAudienceRoles(group, roles) {
-  if (!Array.isArray(roles) || roles.length === 0) return [];
+  if (roles === undefined || roles === null) return [];
+  if (!Array.isArray(roles)) return null;
+  if (roles.length === 0) return [];
   const allowed = new Set(group.allRoles || []);
   const out = [];
   const seen = new Set();
@@ -140,4 +143,46 @@ export function normalizeAudienceRoles(group, roles) {
     out.push(r);
   }
   return out;
+}
+
+/**
+ * Stored campaigns may have been created outside the member editor. Fail closed
+ * rather than silently converting a legacy audience, sender or template policy.
+ * Call before recipient previews, scheduling, real sends and test sends.
+ */
+export async function validateStoredMemberCampaign(campaign, tenantId, group) {
+  const audiences = campaign.target_audiences;
+  const segment = Array.isArray(audiences) && audiences.length === 1 ? audiences[0] : null;
+  const ownsIds = ids => Array.isArray(ids) && ids.length === 1 && ids[0] === group.groupId;
+  if (campaign.tenant_id !== tenantId || campaign.member_group_id !== group.groupId ||
+      !segment || segment.type !== 'member_group' || !ownsIds(segment.ids) ||
+      normalizeAudienceRoles(group, segment.roles) === null ||
+      (campaign.target_type != null && campaign.target_type !== 'member_group') ||
+      (campaign.target_ids != null && !ownsIds(campaign.target_ids)) ||
+      campaign.communication_category_id != null || campaign.ignore_opt_outs === true) {
+    return { error: 'Campaign targeting is not valid for this group. Edit the draft before sending.', status: 400 };
+  }
+  if (!campaign.email_template_id) {
+    return { error: 'A currently permitted group email template is required.', status: 403 };
+  }
+  const { data: template, error } = await supabase.from('email_template')
+    .select('id, member_group_opt_in, member_group_classification_ids')
+    .eq('id', campaign.email_template_id)
+    .eq('tenant_id', tenantId)
+    .single();
+  if (error || !template || template.member_group_opt_in !== true) {
+    return { error: 'The template used by this campaign is no longer available for member group use.', status: 403 };
+  }
+  const classes = template.member_group_classification_ids;
+  if (classes != null && (!Array.isArray(classes) ||
+      (classes.length > 0 && (!group.classificationId || !classes.includes(String(group.classificationId)))))) {
+    return { error: 'The template used by this campaign is not permitted for this group.', status: 403 };
+  }
+  const sender = await resolveMemberCampaignSender(tenantId, group, campaign.from_name);
+  if (sender.error) return { error: sender.error, status: 400 };
+  if (typeof campaign.from_email !== 'string' ||
+      campaign.from_email.trim().toLowerCase() !== sender.fromEmail.trim().toLowerCase()) {
+    return { error: 'Campaign sender no longer matches the tenant sender. Edit the draft before sending.', status: 400 };
+  }
+  return { ok: true };
 }

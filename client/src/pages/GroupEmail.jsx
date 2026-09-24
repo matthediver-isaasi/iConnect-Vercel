@@ -95,7 +95,7 @@ export default function GroupEmailPage() {
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <Mail className="w-5 h-5" /> Group Email
           </h1>
-          <p className="text-sm text-muted-foreground">Email the members of your group.</p>
+          <p className="text-sm text-muted-foreground">Create and manage campaigns shared with your group's eligible email admins.</p>
         </div>
         {qualifying.length > 1 && (
           <Select value={activeGroupId || ""} onValueChange={setActiveGroupId}>
@@ -116,11 +116,12 @@ export default function GroupEmailPage() {
       <Card>
         <CardContent className="p-6">
           <GroupEmailManager
+            key={activeGroup?.id || "no-group"}
             group={activeGroup}
             heading={
               <>
                 {activeGroup ? activeGroup.name : "Campaigns"}{" "}
-                <span className="text-xs text-muted-foreground font-normal">— your campaigns only</span>
+                <span className="text-xs text-muted-foreground font-normal">— shared group campaigns</span>
               </>
             }
           />

@@ -4,9 +4,7 @@ import { createCampaign, resolveMemberCampaignTemplateContent } from '../_lib/ca
 
 /**
  * /api/member-campaigns
- *  - GET: list campaigns owned by the calling member, scoped to groups they
- *    qualify for. Tenant-admin campaigns (created_by_member_id IS NULL) are
- *    NEVER returned here.
+ *  - GET: list tenant campaigns belonging to groups the caller administers.
  *  - POST: create a draft campaign locked to one of the caller's groups. The
  *    server forces created_by_member_id, member_group_id and target_audiences
  *    so the client cannot widen its own audience.
@@ -36,7 +34,6 @@ export default async function handler(req, res) {
       .from('email_campaign')
       .select('id, name, subject, status, scheduled_at, sent_at, created_at, updated_at, total_recipients, sent_count, delivered_count, opened_count, clicked_count, bounced_count, member_group_id, target_audiences')
       .eq('tenant_id', access.tenantContext.tenantId)
-      .eq('created_by_member_id', access.memberId)
       .in('member_group_id', scopedGroupIds)
       .order('created_at', { ascending: false });
 
@@ -64,7 +61,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'name and subject are required' });
     }
 
-    const roles = normalizeAudienceRoles(group, audience_roles || []);
+    const roles = normalizeAudienceRoles(group, audience_roles);
     if (roles === null) {
       return res.status(400).json({ error: 'audience_roles must be a subset of the group roles.' });
     }
