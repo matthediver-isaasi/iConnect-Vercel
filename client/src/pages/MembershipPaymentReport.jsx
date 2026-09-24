@@ -23,6 +23,7 @@ const FALLBACK_METHODS = [
   { value: "monthly_card", label: "Monthly card" },
   { value: "direct_debit", label: "Direct Debit" },
   { value: "monthly_direct_debit", label: "Monthly Direct Debit" },
+  { value: "upfront", label: "Upfront" },
   { value: "invoice", label: "Invoice" },
   { value: "bank_transfer", label: "Bank transfer" },
   { value: "other", label: "Other" },
@@ -98,6 +99,10 @@ export default function MembershipPaymentReport() {
     }
     return [...byValue.values()];
   }, [query.data?.methods]);
+  const methodLabels = useMemo(
+    () => new Map(methods.map((method) => [method.value, method.label])),
+    [methods],
+  );
 
   const rows = Array.isArray(query.data?.rows) ? query.data.rows : [];
   const total = Number(query.data?.total) || 0;
@@ -253,7 +258,9 @@ export default function MembershipPaymentReport() {
                         <td className="px-3 py-2">{row.email || "Unknown"}</td>
                         <td className="px-3 py-2">{row.tier || "Unknown"}</td>
                         <td className="px-3 py-2"><Badge variant="outline">{humanise(row.status)}</Badge></td>
-                        <td className="px-3 py-2">{humanise(row.paymentMethod)}</td>
+                        <td className="px-3 py-2">
+                          {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
+                        </td>
                         <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
                         <td className="px-3 py-2">{humanise(row.scheduleState)}</td>
                       </tr>

@@ -43,6 +43,16 @@ const ROWS = [
     nextPaymentDate: null,
     scheduleState: "unavailable",
   },
+  {
+    memberId: "member-upfront",
+    name: "Uma Upfront",
+    email: "uma@example.invalid",
+    tier: "Associate",
+    status: "active",
+    paymentMethod: "upfront",
+    nextPaymentDate: null,
+    scheduleState: "not_scheduled",
+  },
 ];
 
 const METHODS = [
@@ -51,6 +61,7 @@ const METHODS = [
   { value: "monthly_card", label: "Monthly card" },
   { value: "direct_debit", label: "Direct Debit" },
   { value: "monthly_direct_debit", label: "Monthly Direct Debit" },
+  { value: "upfront", label: "Upfront" },
   { value: "invoice", label: "Invoice" },
   { value: "bank_transfer", label: "Bank transfer" },
   { value: "other", label: "Other" },
@@ -314,6 +325,14 @@ test("pagination and method filtering send server-side query parameters and rese
   expect(state.reportRequests.at(-1)).toEqual({ method: "all", page: "2", pageSize: "25" });
 
   await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Not Scheduled");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Unknown");
+  await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
+  expect(state.reportRequests.at(-1)).toEqual({ method: "upfront", page: "1", pageSize: "25" });
+
+  await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
   await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
@@ -333,26 +352,26 @@ test("downloads the selected full-report CSV with the server filename and leaves
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByText("Page 2 of 2", { exact: true })).toBeVisible();
   await page.getByTestId("select-payment-method").click();
-  await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
-  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByTestId("button-download-payment-report").click();
   const download = await downloadPromise;
 
-  expect(download.suggestedFilename()).toBe("individual-membership-payments-direct_debit.csv");
+  expect(download.suggestedFilename()).toBe("individual-membership-payments-upfront.csv");
   expect(state.csvRequests).toEqual([{
     format: "csv",
-    method: "direct_debit",
+    method: "upfront",
     page: null,
     pageSize: null,
   }]);
   expect(state.reportRequests.at(-1)).toEqual({
-    method: "direct_debit",
+    method: "upfront",
     page: "1",
     pageSize: "25",
   });
-  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
 });
 
 test("prevents duplicate exports while pending and reports JSON export failures without hiding the report", async ({ page }) => {

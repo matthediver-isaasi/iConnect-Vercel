@@ -99,7 +99,7 @@ function database(tables = {}, calls = []) {
   return { from(table) {
     const filters = [];
     return {
-      select() { return this; },
+      select(columns) { this.columns = columns; return this; },
       eq(key, value) { filters.push(row => row[key] === value); return this; },
       is(key, value) { filters.push(row => (row[key] ?? null) === value); return this; },
       in(key, values) { filters.push(row => values.includes(row[key])); return this; },
@@ -107,7 +107,8 @@ function database(tables = {}, calls = []) {
       order(key) { assert.equal(key, 'id'); return this; },
       range(start, end) { calls.push({ table, start, end }); return Promise.resolve({
         data: (tables[table] || []).filter(row => filters.every(filter => filter(row)))
-          .sort((a, b) => a.id.localeCompare(b.id)).slice(start, end + 1), error: null,
+          .sort((a, b) => a.id.localeCompare(b.id)).slice(start, end + 1)
+          .map(row => this.columns === '*' ? row : Object.fromEntries(this.columns.split(',').map(key => [key, row[key]]))), error: null,
       }); },
     };
   } };
@@ -360,4 +361,79 @@ test('CSV enforces authorization before any reads and failures never send attach
   }
   assert.equal((await request({}, { format: ['csv'] })).code, 400);
   assert.equal((await request({}, { format: 'pdf' })).code, 400);
+});
+
+const bnms = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const upfront = { ...history, tenant_id: bnms, payment_method: 'upfront', billing_period: 'annual',
+  term_start_date: null, membership_renewal_date: null, term_key: null, billing_agreement_id: null,
+  membership_year: '2025/2026', payment_status: 'paid', currency: 'GBP', config_id: null,
+  term_duration_months: null, commitment_snapshot: null, final_cost: null, total_with_vat: null,
+  notes: JSON.stringify({ source: 'bnms_non_dd_current_backfill' }) };
+const legacyFixture = overrides => fixture({ tenantId: bnms, members: [{ ...member, tenant_id: bnms }],
+  history: [upfront], ...overrides });
+
+test('reviewed upfront records preserve unknown dates/amounts and never request providers', async () => {
+  for (const cost of [null, 109]) {
+    const input = legacyFixture({ history: [{ ...upfront, final_cost: cost, total_with_vat: cost }] });
+    let calls = 0;
+    const schedules = await createReportScheduleResolver({ load: async () => { calls++; } })(input);
+    const [row] = project({ ...input, providerSchedules: schedules });
+    assert.equal(row.paymentMethod, 'upfront');
+    assert.equal(row.nextPaymentDate, null);
+    assert.equal(row.scheduleState, 'not_scheduled');
+    assert.equal(calls, 0);
+    assert.equal(project({ ...input, today: '2026-12-31' }).length, 1);
+    assert.equal(project({ ...input, today: '2027-01-01' }).length, 0);
+  }
+});
+
+test('legacy fallback rejects invalid evidence, foreign tenants, organisations and deleted identities', () => {
+  for (const patch of [{ notes: null }, { notes: '{invalid' }, { notes: '{"source":"unreviewed"}' },
+    { payment_status: 'unpaid' }, { status: 'expired' }, { status: 'cancelled' },
+    { membership_year: '2026/2027' }, { currency: 'EUR' }, { tier_label: '' },
+    { config_id: 'config' }, { term_duration_months: 12 }, { commitment_snapshot: {} },
+    { billing_agreement_id: 'a' }, { term_end_date: '2026-02-30' },
+    { term_end_date: '2025-12-31' }, { term_end_date: '2027-01-01' },
+    { final_cost: 100 }, { final_cost: -1, total_with_vat: -1 },
+    { organization_id: 'org' }, { membership_source: 'organisation' }, { tenant_id: 'foreign' }]) {
+    assert.equal(project(legacyFixture({ history: [{ ...upfront, ...patch }] })).length, 0, JSON.stringify(patch));
+  }
+  assert.equal(project(fixture({ history: [{ ...upfront, tenant_id: 't' }] })).length, 0);
+  assert.equal(project(legacyFixture({ members: [{ ...member, tenant_id: bnms, email: 'deleted_m@deleted.local' }] })).length, 0);
+});
+
+test('current and scheduled terms beat legacy fallback; duplicate legacy choice is deterministic', () => {
+  const other = { ...upfront, id: 'a', tier_label: 'Chosen' };
+  for (const histories of [[upfront, other], [other, upfront]]) {
+    assert.equal(project(legacyFixture({ history: histories }))[0].tier, 'Chosen');
+    for (const status of ['active', 'scheduled']) {
+      const term = { ...history, tenant_id: bnms, status, payment_method: 'invoice', billing_agreement_id: null };
+      const rows = project(legacyFixture({ history: [...histories, term] }));
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].paymentMethod, 'invoice');
+    }
+  }
+});
+
+test('endpoint selects legacy evidence and uses one full dataset for totals, filters, pages and CSV', async () => {
+  const members = Array.from({ length: 1003 }, (_, i) => ({ ...member, tenant_id: bnms,
+    id: `m${String(i).padStart(4, '0')}`, first_name: `Person ${String(i).padStart(4, '0')}` }));
+  const histories = members.map((m, i) => ({ ...(i < 1000 ? upfront : history), tenant_id: bnms,
+    member_id: m.id, id: `h${m.id}`, ...(i < 1000 ? {} : {
+      payment_method: ['card', 'invoice', 'gocardless'][i - 1000], billing_agreement_id: null }) }));
+  const db = database({ member: members, member_membership_history: histories });
+  const deps = { db, resolveSchedules: async () => new Map(),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: bnms, roleId: 'r' }) };
+  const all = await request(deps);
+  assert.equal(all.body.total, 1003);
+  assert.ok(all.body.methods.some(m => m.value === 'upfront' && m.label === 'Upfront'));
+  const filtered = await request(deps, { method: 'upfront', page: '2', pageSize: '100' });
+  assert.equal(filtered.body.total, 1000);
+  assert.equal(filtered.body.rows.length, 100);
+  assert.equal(filtered.body.rows[0].memberId, 'm0100');
+  const csv = await request(deps, { method: 'upfront', format: 'csv', pageSize: '1' });
+  const lines = csv.body.trimEnd().split('\r\n');
+  assert.equal(lines.length, 1001);
+  assert.match(lines[1], /,Upfront,Unknown,Not Scheduled$/);
+  assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), filtered.body.rows.map(row => row.name));
 });

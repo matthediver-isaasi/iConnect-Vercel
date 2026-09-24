@@ -1,5 +1,6 @@
 import { selectCanvasCommitment, buildCanvasSummary } from '../membership/canvas-summary.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+import { shapeLegacyCurrentMembership } from '../membership/member-membership.js';
 
 export const isEligiblePaymentReportMember = (row, tenantId) =>
   row?.tenant_id === tenantId && !isDeletedRelationshipMember(row);
@@ -7,7 +8,7 @@ export const isEligiblePaymentReportMember = (row, tenantId) =>
 export const PAYMENT_REPORT_METHODS = [
   ['card', 'Card'], ['monthly_card', 'Monthly card'],
   ['direct_debit', 'Direct Debit'], ['monthly_direct_debit', 'Monthly Direct Debit'],
-  ['invoice', 'Invoice'], ['bank_transfer', 'Bank transfer'], ['other', 'Unknown / other'],
+  ['invoice', 'Invoice'], ['bank_transfer', 'Bank transfer'], ['upfront', 'Upfront'], ['other', 'Unknown / other'],
 ].map(([value, label]) => ({ value, label }));
 
 const stopped = new Set(['paused', 'cancelled', 'canceled', 'completed', 'expired', 'suspended', 'restricted']);
@@ -129,12 +130,34 @@ export function projectMembershipPaymentReport({
     if (!candidates.has(member.id)) candidates.set(member.id, []);
     candidates.get(member.id).push({ row, selected });
   }
-  return [...candidates.values()].map(items => items.sort((a, b) =>
+  const rows = [...candidates.values()].map(items => items.sort((a, b) =>
     comparePaymentReportRows(a.row, b.row)
     || (a.selected.lifecycle === 'current' ? 0 : 1) - (b.selected.lifecycle === 'current' ? 0 : 1)
     || (a.selected.lifecycle === 'current'
       ? (b.selected.start || '').localeCompare(a.selected.start || '')
       : (a.selected.start || '').localeCompare(b.selected.start || ''))
-    || String(a.selected.record.id).localeCompare(String(b.selected.record.id)))[0].row)
-    .sort(comparePaymentReportRows);
+    || String(a.selected.record.id).localeCompare(String(b.selected.record.id)))[0].row);
+  // Legacy recognition is display evidence only, never a rolling commitment or
+  // collection request. Existing current/scheduled candidates always win.
+  const included = new Set(rows.map(row => row.memberId));
+  for (const record of [...history].sort((a, b) => String(a.id).localeCompare(String(b.id)))) {
+    const member = memberMap.get(record.member_id);
+    if (!member || included.has(member.id) || record.organization_id
+      || record.membership_source === 'organisation') continue;
+    const legacy = shapeLegacyCurrentMembership(
+      { ...record, membership_source: 'personal' }, tenantId, new Date(`${today}T00:00:00Z`));
+    if (!legacy) continue;
+    rows.push({
+      memberId: member.id,
+      name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || 'Unnamed member',
+      email: member.email || null,
+      tier: legacy.tierLabel,
+      status: member.membership_paused ? 'paused' : 'active',
+      paymentMethod: 'upfront',
+      nextPaymentDate: null,
+      scheduleState: 'not_scheduled',
+    });
+    included.add(member.id);
+  }
+  return rows.sort(comparePaymentReportRows);
 }
