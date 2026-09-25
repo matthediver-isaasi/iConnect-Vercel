@@ -14,6 +14,7 @@
     "test:monthly-membership-activation": "node scripts/run-regression-suite.mjs monthly-membership-activation",
     "test:department-current-set": "node scripts/run-regression-suite.mjs department-current-set",
     "test:form-processing": "node scripts/run-isolated-tests.mjs --shell \"node --test api/forms/processApplication*.test.mjs api/forms/process-application.current-set.test.mjs\"",
+    "test:duplicate-fields:browser": "playwright test --config=playwright.task4782.config.mjs",
     "test:safety-boundaries": "node scripts/run-isolated-tests.mjs --shell \"node --test scripts/testIsolationBoundary.test.mjs scripts/testStartupModes.test.mjs scripts/productionRelationshipVerification.test.mjs\"",
     "verify:production:relationships": "node scripts/verify-custom-object-relationship-list-live.mjs",
     "test:rolling-memberships": "node scripts/test-rolling-memberships.mjs",

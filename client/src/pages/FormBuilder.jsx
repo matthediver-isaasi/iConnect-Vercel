@@ -42,6 +42,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isProtectedDepartmentForm } from "@shared/protectedDepartmentForm.js";
+import { duplicateFormField } from "../../../shared/formFieldDuplication.js";
 import { protectedFormUpdateHeaders } from "@/lib/protectedFormActions";
 import { formRoleValidationError, unavailableRoleLabel } from "@/lib/formRoleValidationError";
 import ReactQuill from 'react-quill';
@@ -7414,6 +7415,8 @@ function FieldCard({
   originalIndex, 
   updateField, 
   removeField, 
+  duplicateField,
+  duplicateRestriction,
   FIELD_TYPES, 
   categories = [],
   communicationCategories = [],
@@ -7617,6 +7620,7 @@ function FieldCard({
               size="icon"
               onClick={onOpenDrawer}
               className="h-8 w-8 text-slate-500 hover:text-slate-700"
+              aria-label={`Configure ${field.label || 'Untitled Field'}`}
               data-testid={`button-configure-field-${field.id}`}
             >
               <Settings2 className="w-4 h-4" />
@@ -7624,12 +7628,27 @@ function FieldCard({
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => duplicateField(field.id)}
+              className="h-8 w-8 text-slate-500 hover:text-slate-700"
+              aria-label={`Duplicate field: ${field.label || 'Untitled Field'}`}
+              aria-disabled={!!duplicateRestriction}
+              aria-describedby={duplicateRestriction ? `duplicate-restriction-${field.id}` : undefined}
+              title={duplicateRestriction || 'Duplicate field'}
+              data-testid={`button-duplicate-field-${field.id}`}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => removeField(originalIndex)}
               className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+              aria-label={`Delete ${field.label || 'Untitled Field'}`}
               data-testid={`button-delete-field-${field.id}`}
             >
               <Trash2 className="w-4 h-4" />
             </Button>
+            {duplicateRestriction && <span id={`duplicate-restriction-${field.id}`} className="sr-only">{duplicateRestriction}</span>}
           </div>
 
           {/* Field Configuration Drawer */}
@@ -10728,6 +10747,15 @@ export default function FormBuilderPage() {
   
   // Track which field's configuration drawer is open
   const [editingFieldId, setEditingFieldId] = useState(null);
+  const pendingDuplicatedFieldId = useRef(null);
+
+  useEffect(() => {
+    const duplicatedId = pendingDuplicatedFieldId.current;
+    if (duplicatedId && formData.fields.some(field => field.id === duplicatedId)) {
+      pendingDuplicatedFieldId.current = null;
+      setEditingFieldId(duplicatedId);
+    }
+  }, [formData]);
 
   // Controlled tab state (survey validation links jump back to the builder)
   const [activeTab, setActiveTab] = useState('builder');
@@ -11474,6 +11502,44 @@ export default function FormBuilderPage() {
       column_index: columnIndex
     };
     setFormData({ ...formData, fields: [...formData.fields, newField] });
+  };
+
+  const duplicateRestrictionFor = (field, currentForm = formData) => {
+    if (field.type === 'payment') {
+      return 'A form can contain only one Payment field. Configure the existing Payment field instead.';
+    }
+    if (field.type === 'score' && currentForm.form_type !== 'survey') {
+      return 'Score fields can only be added to surveys.';
+    }
+    if (field.type === 'score' && hasResponses && currentForm.form_type === 'survey') {
+      return 'This survey already has responses — scoring settings are locked. Use "Duplicate as New Version" to make scoring changes.';
+    }
+    if (field.type === 'address_lookup' && !idealPostcodesAvailable) {
+      return 'Enable the Ideal Postcodes integration before duplicating an address lookup field.';
+    }
+    return null;
+  };
+
+  const duplicateField = (sourceId) => {
+    const source = formData.fields.find(field => field.id === sourceId);
+    if (!source) {
+      toast.error('Field no longer exists. Refresh the form and try again.');
+      return;
+    }
+    const restriction = duplicateRestrictionFor(source);
+    if (restriction) {
+      toast.error(restriction);
+      return;
+    }
+    // Functional update ensures consecutive clicks use the newest field list rather
+    // than overwriting each other with the render's captured formData snapshot.
+    setFormData(current => {
+      const latestSource = current.fields.find(field => field.id === sourceId);
+      if (!latestSource || duplicateRestrictionFor(latestSource, current)) return current;
+      const { form, field } = duplicateFormField(current, sourceId);
+      pendingDuplicatedFieldId.current = field.id;
+      return form;
+    });
   };
 
   const addAddressLookupField = (pageId = null, columnIndex = 0) => {
@@ -14447,6 +14513,8 @@ export default function FormBuilderPage() {
                                       originalIndex={originalIndex}
                                       updateField={updateField}
                                       removeField={removeField}
+                                      duplicateField={duplicateField}
+                                      duplicateRestriction={duplicateRestrictionFor(field)}
                                       FIELD_TYPES={FIELD_TYPES}
                                       categories={categories}
                                       communicationCategories={communicationCategories}
@@ -14601,6 +14669,8 @@ export default function FormBuilderPage() {
                                                   originalIndex={originalIndex}
                                                   updateField={updateField}
                                                   removeField={removeField}
+                                                  duplicateField={duplicateField}
+                                                  duplicateRestriction={duplicateRestrictionFor(field)}
                                                   FIELD_TYPES={FIELD_TYPES}
                                                   categories={categories}
                                                   communicationCategories={communicationCategories}
@@ -14671,6 +14741,8 @@ export default function FormBuilderPage() {
                               originalIndex={index}
                               updateField={updateField}
                               removeField={removeField}
+                              duplicateField={duplicateField}
+                              duplicateRestriction={duplicateRestrictionFor(field)}
                               FIELD_TYPES={FIELD_TYPES}
                               categories={categories}
                               communicationCategories={communicationCategories}
