@@ -66,6 +66,7 @@ export default function MembershipPaymentReport() {
   const { isFeatureExcluded, isAccessReady, sessionValidated } = useMemberAccess();
   const [page, setPage] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("all");
+  const [sort, setSort] = useState(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -91,7 +92,7 @@ export default function MembershipPaymentReport() {
   useEffect(() => () => exportController.current?.abort(), []);
 
   const query = useQuery({
-    queryKey: ["membership-payment-report", page, paymentMethod, debouncedSearch],
+    queryKey: ["membership-payment-report", page, paymentMethod, debouncedSearch, sort],
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         method: paymentMethod,
@@ -99,6 +100,10 @@ export default function MembershipPaymentReport() {
         pageSize: String(PAGE_SIZE),
       });
       if (debouncedSearch) params.set("search", debouncedSearch);
+      if (sort) {
+        params.set("sortBy", sort.field);
+        params.set("sortDirection", sort.direction);
+      }
       const response = await fetch(`/api/admin/membership-payment-report?${params}`, {
         credentials: "include",
         signal,
@@ -132,6 +137,8 @@ export default function MembershipPaymentReport() {
   const isDebouncing = normaliseSearch(search) !== debouncedSearch;
   const isLoadingResults = isDebouncing || query.isLoading || query.isFetching;
   const upfrontView = paymentMethod === "upfront";
+  const directDebitView = ["direct_debit", "monthly_direct_debit"].includes(paymentMethod);
+  const showCollectionAmount = directDebitView || paymentMethod === "all";
 
   const cancelExport = () => {
     exportRequestId.current += 1;
@@ -145,6 +152,16 @@ export default function MembershipPaymentReport() {
   const changeMethod = (value) => {
     cancelExport();
     setPaymentMethod(value);
+    setSort(null);
+    setPage(1);
+  };
+
+  const changeSort = (field) => {
+    cancelExport();
+    setSort((current) => ({
+      field,
+      direction: current?.field === field && current.direction === "asc" ? "desc" : "asc",
+    }));
     setPage(1);
   };
 
@@ -172,6 +189,10 @@ export default function MembershipPaymentReport() {
     try {
       const params = new URLSearchParams({ format: "csv", method: paymentMethod });
       if (debouncedSearch) params.set("search", debouncedSearch);
+      if (sort) {
+        params.set("sortBy", sort.field);
+        params.set("sortDirection", sort.direction);
+      }
       const response = await fetch(`/api/admin/membership-payment-report?${params}`, {
         credentials: "include",
         signal: controller.signal,
@@ -333,13 +354,28 @@ export default function MembershipPaymentReport() {
                       <th className="px-3 py-2 font-medium">Payment method</th>
                       {!upfrontView && (
                         <>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">Next payment</th>
+                          <th className="px-3 py-2 font-medium whitespace-nowrap"
+                            aria-sort={directDebitView ? (sort?.field === "nextPaymentDate" ? (sort.direction === "asc" ? "ascending" : "descending") : "none") : undefined}>
+                            {directDebitView ? <button type="button" onClick={() => changeSort("nextPaymentDate")}
+                              className="rounded text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              aria-label={`Sort by next payment date ${sort?.field === "nextPaymentDate" && sort.direction === "asc" ? "descending" : "ascending"}`}>
+                              Next payment <span aria-hidden="true">{sort?.field === "nextPaymentDate" ? sort.direction === "asc" ? "↑" : "↓" : "↕"}</span>
+                            </button> : "Next payment"}
+                          </th>
                           <th className="px-3 py-2 font-medium">Schedule</th>
-                          <th className="px-3 py-2 font-medium">Current expiry</th>
+                          {!directDebitView && <th className="px-3 py-2 font-medium">Current expiry</th>}
                         </>
                       )}
-                      <th className="px-3 py-2 font-medium">Membership renewal</th>
-                      <th className="px-3 py-2 font-medium">Next structure</th>
+                       {!directDebitView && <th className="px-3 py-2 font-medium"
+                         aria-sort={upfrontView ? (sort?.field === "renewalDate" ? (sort.direction === "asc" ? "ascending" : "descending") : "none") : undefined}>
+                         {upfrontView ? <button type="button" onClick={() => changeSort("renewalDate")}
+                           className="rounded text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                           aria-label={`Sort by membership renewal date ${sort?.field === "renewalDate" && sort.direction === "asc" ? "descending" : "ascending"}`}>
+                           Membership renewal <span aria-hidden="true">{sort?.field === "renewalDate" ? sort.direction === "asc" ? "↑" : "↓" : "↕"}</span>
+                         </button> : "Membership renewal"}
+                       </th>}
+                      <th className="px-3 py-2 font-medium">{directDebitView ? "Collection structure" : "Next structure"}</th>
+                      {showCollectionAmount && <th className="px-3 py-2 font-medium">Next payment amount</th>}
                       {upfrontView && <th className="px-3 py-2 font-medium" title="Projected renewal amount including applicable VAT; not a commitment or scheduled payment">Next renewal amount (projected)</th>}
                     </tr>
                   </thead>
@@ -355,7 +391,7 @@ export default function MembershipPaymentReport() {
                         </td>
                         <td className="px-3 py-2">{row.email || "Unknown"}</td>
                         <td className="px-3 py-2">{row.tier || "Unknown"}</td>
-                        <td className="px-3 py-2"><Badge variant="outline">{humanise(row.status)}</Badge></td>
+                        <td className="px-3 py-2"><Badge variant="outline">{row.statusLabel || humanise(row.status)}</Badge></td>
                         <td className="px-3 py-2">
                           {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
                         </td>
@@ -363,10 +399,10 @@ export default function MembershipPaymentReport() {
                           <>
                             <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
                             <td className="px-3 py-2">{row.paymentArrangement || humanise(row.scheduleState)}</td>
-                            <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>
+                            {!directDebitView && <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>}
                           </>
                         )}
-                        <td className="px-3 py-2">
+                        {!directDebitView && <td className="px-3 py-2">
                           {row.renewalDate && <div className="whitespace-nowrap">{formatDate(row.renewalDate)}</div>}
                           {row.paymentMethod === "upfront"
                             ? !row.renewalDate && (row.renewalLabel || "Renewal date missing")
@@ -374,13 +410,19 @@ export default function MembershipPaymentReport() {
                                 <div className="text-xs text-muted-foreground">{row.renewalLabel || "—"}</div>
                                 {row.renewalLabel && <div className="text-xs text-muted-foreground">Reporting only; subject to membership status. No renewal or payment is booked.</div>}
                               </>}
-                        </td>
+                        </td>}
                         <td className="px-3 py-2">
                           {row.nextStructureName && <div>{row.nextStructureName}</div>}
                           {row.paymentMethod === "upfront"
                             ? row.nextStructureState?.startsWith("Review required") && <div>{row.nextStructureState}</div>
                             : <div className="text-xs text-muted-foreground">{row.nextStructureState || "—"}</div>}
                         </td>
+                        {showCollectionAmount && <td className="px-3 py-2">
+                          {Number.isFinite(row.nextPaymentAmount) && row.nextPaymentCurrency
+                            ? new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextPaymentCurrency }).format(row.nextPaymentAmount)
+                            : ["direct_debit", "monthly_direct_debit"].includes(row.paymentMethod) ? row.nextPaymentAmountState || "Unavailable" : "—"}
+                          {Number.isFinite(row.nextPaymentAmount) && <div className="text-xs text-muted-foreground">{row.nextPaymentAmountState}</div>}
+                        </td>}
                         {upfrontView && <td className="px-3 py-2" title={row.nextRenewalAmountState}>
                           {Number.isFinite(row.nextRenewalAmount) && row.nextRenewalCurrency
                             ? new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextRenewalCurrency }).format(row.nextRenewalAmount)

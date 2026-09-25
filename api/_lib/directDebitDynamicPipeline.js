@@ -31,7 +31,7 @@ export function dynamicCollectionDate(firstDate, number) {
   return day(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + number - 1, Math.min(start.getUTCDate(), last))));
 }
 
-export async function resolveDynamicCollectionPrice(agreement, intendedDate, { db } = {}) {
+export async function resolveDynamicCollectionPrice(agreement, intendedDate, { db, configRows, bandRows, vatRows } = {}) {
   const terms = agreement?.metadata?.dd;
   const commitment = terms?.commitment;
   const purchased = commitment?.commitment_snapshot?.config;
@@ -39,7 +39,13 @@ export async function resolveDynamicCollectionPrice(agreement, intendedDate, { d
     || !purchased || !commitment.term_key) {
     throw new Error('Dynamic collection requires explicit consent, per-instalment invoicing and a trusted purchased scope');
   }
-  const configs = checked(await db.from('membership_tier_config').select('*')
+  // Reports may supply their complete tenant-scoped read snapshot to avoid
+  // repeating identical structure reads for every plan. Collection callers
+  // retain the ordinary database path; both paths use the same pricing logic.
+  const configs = configRows ? configRows.filter(config => config.tenant_id === agreement.tenant_id
+    && (!config.effective_from || config.effective_from <= intendedDate)
+    && (!config.effective_to || config.effective_to >= intendedDate))
+    : checked(await db.from('membership_tier_config').select('*')
     .eq('tenant_id', agreement.tenant_id)
     .or(`effective_from.is.null,effective_from.lte.${intendedDate}`)
     .or(`effective_to.is.null,effective_to.gte.${intendedDate}`), 'Resolve collection structure');
@@ -56,7 +62,8 @@ export async function resolveDynamicCollectionPrice(agreement, intendedDate, { d
   if ((config.pricing_model || 'tiered') !== 'flat') {
     if (!equal(config.field_id, purchased.field_id) || !equal(config.field_source, purchased.field_source)
       || !equal(config.field_name, purchased.field_name)) throw new Error('Dynamic collection pricing basis changed; review required');
-    const bands = checked(await db.from('membership_tier_band').select('*')
+    const bands = bandRows ? bandRows.filter(b => b.tenant_id === agreement.tenant_id && b.config_id === config.id)
+      : checked(await db.from('membership_tier_band').select('*')
       .eq('tenant_id', agreement.tenant_id).eq('config_id', config.id), 'Resolve collection bands');
     const basis = commitment.commitment_snapshot?.pricing?.field_value ?? terms.field_value;
     const purchasedBand = commitment.commitment_snapshot?.pricing?.band;
@@ -69,7 +76,9 @@ export async function resolveDynamicCollectionPrice(agreement, intendedDate, { d
   const value = Number(band ? band.dd_monthly_amount : config.dd_monthly_amount);
   const minor = Math.round(value * 100);
   if (!Number.isFinite(value) || !Number.isSafeInteger(minor) || minor <= 0) throw new Error('Active structure has no positive monthly collection price');
-  const overrides = checked(await db.from('membership_tier_vat_override').select('*')
+  const overrides = vatRows ? vatRows.filter(r => r.tenant_id === agreement.tenant_id && r.config_id === config.id)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    : checked(await db.from('membership_tier_vat_override').select('*')
     .eq('tenant_id', agreement.tenant_id).eq('config_id', config.id)
     .order('sort_order', { ascending: true }), 'Resolve collection VAT overrides');
   const ownerType = agreement.member_id ? 'member' : 'organization';

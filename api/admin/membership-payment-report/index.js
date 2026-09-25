@@ -1,9 +1,10 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
-import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport, isEligiblePaymentReportMember } from '../../_lib/membershipPaymentReport.js';
+import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport, isEligiblePaymentReportMember, sortPaymentReportRows } from '../../_lib/membershipPaymentReport.js';
 import { resolvePaymentReportSchedules } from '../../_lib/membershipPaymentReportSchedules.js';
 import { membershipPaymentReportCsv } from '../../_lib/membershipPaymentReportCsv.js';
 import { projectUpfrontRenewalAmount } from '../../_lib/membershipPaymentReportAmount.js';
+import { loadPaymentReportDirectDebit } from '../../_lib/membershipPaymentReportDirectDebit.js';
 
 const FEATURE = 'commerce.membership-payment-report';
 const BATCH = 1000;
@@ -74,6 +75,8 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const method = req.query?.method ?? 'all';
       const format = req.query?.format ?? 'json';
+      const sortBy = req.query?.sortBy ?? '';
+      const sortDirection = req.query?.sortDirection ?? 'asc';
       const rawSearch = req.query?.search ?? '';
       if (typeof rawSearch !== 'string' || rawSearch.length > 200) {
         return res.status(400).json({ error: 'Search must be text of at most 200 characters' });
@@ -87,6 +90,13 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       if (!page || !pageSize || !['all', ...PAYMENT_REPORT_METHODS.map(item => item.value)].includes(method)) {
         return res.status(400).json({ error: 'Invalid method, page or pageSize (maximum 100)' });
       }
+      if ((sortBy !== '' && !(
+        (method === 'upfront' && sortBy === 'renewalDate')
+        || (['direct_debit', 'monthly_direct_debit'].includes(method) && sortBy === 'nextPaymentDate')
+      )) || !['asc', 'desc'].includes(sortDirection)
+        || (!sortBy && req.query?.sortDirection !== undefined)) {
+        return res.status(400).json({ error: 'Invalid sort for payment method' });
+      }
       const tenantId = ctx.tenantId;
       const read = (table, columns, refine) => fetchPaymentReportRows(db, table, columns, tenantId, refine);
       const [members, history, agreements, plans, payments, configs, fields, bands, overrides, vatRules, settings] = await Promise.all([
@@ -95,9 +105,9 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,term_duration_months,notes,final_cost,total_with_vat'),
         read('membership_billing_agreements', 'id,tenant_id,member_id,organization_id,provider,environment,status,gocardless_mandate_id,stripe_subscription_id,stripe_customer_id,metadata',
           query => query.is('organization_id', null)),
-        read('membership_payment_plans', 'id,tenant_id,member_id,organization_id,billing_agreement_id,provider,environment,status,interval_unit,created_at,gocardless_mandate_id,gocardless_subscription_id,stripe_subscription_id,collection_stopped_at,dynamic_next_collection_date,metadata',
+        read('membership_payment_plans', 'id,tenant_id,member_id,organization_id,billing_agreement_id,provider,environment,status,interval_unit,created_at,gocardless_mandate_id,gocardless_subscription_id,stripe_subscription_id,collection_stopped_at,dynamic_next_collection_date,metadata,amount_minor,currency',
           query => query.is('organization_id', null)),
-        read('gocardless_payments', 'id,tenant_id,plan_id,environment,status,charge_date,gocardless_mandate_id,gocardless_subscription_id',
+        read('gocardless_payments', 'id,tenant_id,plan_id,environment,status,charge_date,gocardless_mandate_id,gocardless_subscription_id,gocardless_payment_id,amount_minor,currency',
           query => query.in('status', ['pending_customer_approval', 'pending_submission', 'submitted'])
             .gte('charge_date', (deps.today || new Date().toISOString().slice(0, 10)))),
         read('membership_tier_config', '*'),
@@ -109,9 +119,14 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       ]);
       const preferences = await fetchPaymentReportPreferences(db, tenantId, members, configs, fields, vatRules);
       const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
-        history, agreements, plans, payments, configs, preferences, today: deps.today };
+        history, agreements, plans, payments, configs, bands, vatRules, preferences, today: deps.today };
+      const includeDirectDebit = ['all', 'direct_debit', 'monthly_direct_debit'].includes(method);
+      const reservations = includeDirectDebit && plans.some(p => p.provider === 'gocardless' && p.metadata?.collection_mode === 'dynamic')
+        ? await read('gocardless_collection_reservations', '*') : [];
+      const directDebitDetails = includeDirectDebit
+        ? await (deps.loadDirectDebit || loadPaymentReportDirectDebit)({ ...input, reservations }, { db }) : new Map();
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
-      const rows = projectMembershipPaymentReport({ ...input, providerSchedules })
+      const rows = projectMembershipPaymentReport({ ...input, providerSchedules, directDebitDetails })
         .map(row => row.paymentMethod !== 'upfront' ? row : {
           ...row, ...projectUpfrontRenewalAmount({ row,
             member: members.find(member => member.id === row.memberId && member.tenant_id === tenantId),
@@ -122,6 +137,7 @@ export function createMembershipPaymentReportHandler(deps = {}) {
           // Apply once to the complete projection for JSON totals, pages and CSV.
           && (!search || row.name.toLowerCase().includes(search)
             || (row.email || '').toLowerCase().includes(search)));
+      sortPaymentReportRows(rows, sortBy, sortDirection);
       if (format === 'csv') {
         const csv = membershipPaymentReportCsv(rows, method);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');

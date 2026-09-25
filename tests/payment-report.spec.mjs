@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { membershipPaymentReportCsv } from "../api/_lib/membershipPaymentReportCsv.js";
+import { sortPaymentReportRows } from "../api/_lib/membershipPaymentReport.js";
 import { readFile } from "node:fs/promises";
 
 /*
@@ -203,6 +204,10 @@ async function installFixture(page, {
           search: url.searchParams.get("search"),
           page: url.searchParams.get("page"),
           pageSize: url.searchParams.get("pageSize"),
+          ...(url.searchParams.has("sortBy") ? {
+            sortBy: url.searchParams.get("sortBy"),
+            sortDirection: url.searchParams.get("sortDirection"),
+          } : {}),
         });
         await csvGate.promise;
         const status = state.csvStatuses.shift() ?? 200;
@@ -222,7 +227,10 @@ async function installFixture(page, {
             "Content-Disposition": `attachment; filename="individual-membership-payments-${selectedMethod}.csv"`,
           },
           body: membershipPaymentReportCsv(
-            fixtureRows.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod),
+            sortPaymentReportRows(
+              fixtureRows.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod),
+              url.searchParams.get("sortBy"), url.searchParams.get("sortDirection"),
+            ),
             selectedMethod,
           ),
         });
@@ -232,6 +240,10 @@ async function installFixture(page, {
         search: url.searchParams.get("search"),
         page: url.searchParams.get("page"),
         pageSize: url.searchParams.get("pageSize"),
+        ...(url.searchParams.has("sortBy") ? {
+          sortBy: url.searchParams.get("sortBy"),
+          sortDirection: url.searchParams.get("sortDirection"),
+        } : {}),
       });
       await gate.promise;
       const status = state.reportStatuses.shift() ?? 200;
@@ -251,10 +263,12 @@ async function installFixture(page, {
       const filtered = selectedSearch
         ? methodFiltered.filter((row) => `${row.name} ${row.email}`.toLocaleLowerCase().includes(selectedSearch))
         : methodFiltered;
+      const ordered = sortPaymentReportRows([...filtered],
+        url.searchParams.get("sortBy"), url.searchParams.get("sortDirection"));
       // Keep more than one page for the unfiltered view without manufacturing
       // additional personally identifying row data.
       const total = selectedMethod === "all" && !selectedSearch ? 27 : filtered.length;
-      const rows = requestedPage === 1 ? filtered : [{
+      const rows = requestedPage === 1 ? ordered : [{
          ...fixtureRows[0],
         memberId: "member-page-two",
         name: "Casey Second Page",
@@ -396,13 +410,13 @@ test("Upfront view trims only irrelevant columns and helper copy, retains review
   const headers = page.locator("table thead th");
   const fullHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
     "Next payment", "Schedule", "Current expiry", "Membership renewal", "Next structure"];
-  await expect(headers).toHaveText(fullHeaders);
-  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length);
+  await expect(headers).toHaveText([...fullHeaders, "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length + 1);
 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
   const upfrontHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
-    "Membership renewal", "Next structure", "Next renewal amount (projected)"];
+    "Membership renewal ↕", "Next structure", "Next renewal amount (projected)"];
   await expect(headers).toHaveText(upfrontHeaders);
   const upfrontCells = page.getByTestId("row-payment-member-upfront").locator("td");
   await expect(upfrontCells).toHaveCount(upfrontHeaders.length);
@@ -421,14 +435,59 @@ test("Upfront view trims only irrelevant columns and helper copy, retains review
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
-  await expect(headers).toHaveText(fullHeaders);
-  await expect(page.getByTestId("row-payment-member-billie").locator("td")).toHaveCount(fullHeaders.length);
+  await expect(headers).toHaveText([...fullHeaders.slice(0, 5), "Next payment ↕", "Schedule", "Collection structure", "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-billie").locator("td")).toHaveCount(9);
 
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "All payment methods", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
-  await expect(headers).toHaveText(fullHeaders);
-  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length);
+  await expect(headers).toHaveText([...fullHeaders, "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length + 1);
+});
+
+test("Monthly Direct Debit shows Current, collection amount and structure with CSV parity", async ({ page }) => {
+  const debit = { ...ROWS[1], paymentMethod: "monthly_direct_debit", status: "current",
+    nextPaymentDate: "2026-10-01", scheduleState: "planned",
+    nextPaymentAmount: 24, nextPaymentCurrency: "GBP",
+    nextPaymentAmountState: "Projected collection amount — not yet bank scheduled",
+    nextStructureName: "October personal structure", nextStructureState: "Structure effective on planned collection date" };
+  const held = { ...debit, memberId: "held", name: "Harper Held", nextPaymentDate: null,
+    paymentArrangement: "Collection held — not scheduled", nextPaymentAmountState: "Configured amount — collection held" };
+  const review = { ...debit, memberId: "review", name: "Rae Review", status: "membership_unverified",
+    statusLabel: "Membership status unverified",
+    nextPaymentAmount: null, nextStructureName: null,
+    nextPaymentAmountState: "Review required — collection pricing could not be resolved",
+    nextStructureState: "Review required — collection structure unavailable" };
+  const state = await installFixture(page, { fixtureRows: [debit, held, review, ROWS[2]] });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  const row = page.getByTestId("row-payment-member-billie");
+  await expect(row).toContainText("Current");
+  await expect(row).not.toContainText("Pending Payment Setup");
+  await expect(row).toContainText("£24.00");
+  await expect(row).toContainText("October personal structure");
+  await expect(row).toContainText("not yet bank scheduled");
+  await expect(page.getByRole("columnheader", { name: "Collection structure", exact: true })).toBeVisible();
+  const count = await page.locator("table thead th").count();
+  await expect(row.locator("td")).toHaveCount(count);
+  await expect(page.getByTestId("row-payment-held")).toContainText("Collection held — not scheduled");
+  await expect(page.getByTestId("row-payment-review")).toContainText("Review required");
+  await expect(page.getByTestId("row-payment-review")).toContainText("Membership status unverified");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("button-download-payment-report").click();
+  const download = await downloadPromise;
+  const csv = await readFile(await download.path(), "utf8");
+  expect(csv).toContain("Next payment amount,Currency,Payment amount basis");
+  expect(csv).toContain("24.00,GBP,Projected collection amount");
+  expect(csv).toContain("Current,Monthly Direct Debit");
+  await page.screenshot({ path: "/tmp/membership-payment-monthly-dd.png", fullPage: true });
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "Next payment amount", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("£150.00");
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
 });
 
 test("debounces trimmed member search, resets pagination, hides stale results, and clears accessibly", async ({ page }) => {
@@ -604,4 +663,60 @@ test("excluded users are redirected before any report request is made", async ({
     name: "Individual Membership Payment Report",
     exact: true,
   })).toHaveCount(0);
+});
+
+test("renewal header toggles sort, resets page, and CSV uses the selected direction", async ({ page }) => {
+  const fixtureRows = [
+    { ...ROWS[2], memberId: "late", name: "Late Renewal", renewalDate: "2027-02-01" },
+    { ...ROWS[2], memberId: "early", name: "Early Renewal", renewalDate: "2026-08-01" },
+    { ...ROWS[2], memberId: "unknown", name: "Unknown Renewal", renewalDate: null },
+  ];
+  const state = await installFixture(page, { fixtureRows });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-late")).toBeVisible();
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const header = page.getByRole("columnheader").filter({
+    has: page.getByRole("button", { name: /Sort by membership renewal date/ }),
+  });
+  await expect(header).toHaveAttribute("aria-sort", "none");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-early");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-late");
+  await page.getByTestId("button-download-payment-report").click();
+  await expect.poll(() => state.csvRequests.length).toBe(1);
+  expect(state.csvRequests[0]).toMatchObject({ method: "upfront", sortBy: "renewalDate", sortDirection: "desc" });
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  expect(state.reportRequests.at(-1)).toMatchObject({ method: "monthly_direct_debit", page: "1" });
+  expect(state.reportRequests.at(-1)).not.toHaveProperty("sortBy");
+});
+
+test("Direct Debit payment date toggles and search resets page without losing sort", async ({ page }) => {
+  const fixtureRows = [
+    { ...ROWS[1], memberId: "dd-late", name: "Late Debit", paymentMethod: "monthly_direct_debit", nextPaymentDate: "2026-12-01" },
+    { ...ROWS[1], memberId: "dd-soon", name: "Soon Debit", paymentMethod: "monthly_direct_debit", nextPaymentDate: "2026-08-01" },
+    { ...ROWS[1], memberId: "dd-unknown", name: "Unknown Debit", paymentMethod: "monthly_direct_debit" },
+  ];
+  const state = await installFixture(page, { fixtureRows });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  const header = page.getByRole("columnheader").filter({
+    has: page.getByRole("button", { name: /Sort by next payment date/ }),
+  });
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-dd-soon");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-dd-late");
+  await page.getByLabel("Find member").fill("Debit");
+  await expect.poll(() => state.reportRequests.at(-1)).toMatchObject({
+    method: "monthly_direct_debit", search: "Debit", page: "1",
+    sortBy: "nextPaymentDate", sortDirection: "desc",
+  });
 });

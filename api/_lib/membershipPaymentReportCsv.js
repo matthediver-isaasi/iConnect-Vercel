@@ -32,17 +32,23 @@ export function membershipPaymentReportCsv(rows, method = 'all') {
     ];
     return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;
   }
+  const dd = ['all', 'direct_debit', 'monthly_direct_debit'].includes(method);
+  const ddOnly = ['direct_debit', 'monthly_direct_debit'].includes(method);
   const cells = [
     ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Next payment', 'Schedule',
-      'Current expiry', 'Renewal date', 'Renewal basis', 'Payment arrangement', 'Next structure', 'Structure review'],
+      ...(!ddOnly ? ['Current expiry', 'Renewal date', 'Renewal basis'] : []),
+      'Payment arrangement', ddOnly ? 'Collection structure' : 'Next structure', 'Structure review',
+      ...(dd ? ['Next payment amount', 'Currency', 'Payment amount basis'] : [])],
     ...rows.map(row => [
       row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
-      humanise(row.status),
+      row.statusLabel || humanise(row.status),
       PAYMENT_REPORT_METHODS.find(method => method.value === row.paymentMethod)?.label || humanise(row.paymentMethod),
       formatDate(row.nextPaymentDate), humanise(row.scheduleState),
-      row.renewalLabel ? formatDate(row.currentExpiryDate) : '',
-      row.renewalLabel ? formatDate(row.renewalDate) : '',
-      row.renewalLabel || '', row.paymentArrangement || '', row.nextStructureName || '', row.nextStructureState || '',
+      ...(!ddOnly ? [row.renewalLabel ? formatDate(row.currentExpiryDate) : '',
+        row.renewalLabel ? formatDate(row.renewalDate) : '', row.renewalLabel || ''] : []),
+      row.paymentArrangement || '', row.nextStructureName || '', row.nextStructureState || '',
+      ...(dd ? [Number.isFinite(row.nextPaymentAmount) ? row.nextPaymentAmount.toFixed(2) : '',
+        row.nextPaymentCurrency || '', row.nextPaymentAmountState || ''] : []),
     ]),
   ];
   return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;

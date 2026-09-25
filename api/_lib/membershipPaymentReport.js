@@ -120,10 +120,26 @@ export function comparePaymentReportRows(a, b) {
     || a.name.localeCompare(b.name) || a.memberId.localeCompare(b.memberId);
 }
 
+// Sort the complete filtered report, before pagination or CSV rendering. An
+// unavailable/invalid date never precedes an evidenced date in either direction.
+export function sortPaymentReportRows(rows, sortBy, sortDirection = 'asc') {
+  const tie = (a, b) => a.name.localeCompare(b.name) || a.memberId.localeCompare(b.memberId);
+  if (!sortBy) return rows.sort(tie);
+  const key = sortBy === 'renewalDate' ? 'renewalDate' : 'nextPaymentDate';
+  const sign = sortDirection === 'desc' ? -1 : 1;
+  return rows.sort((a, b) => {
+    const first = dateOnly(a[key]);
+    const second = dateOnly(b[key]);
+    return (first === null) - (second === null)
+      || (first && second ? sign * first.localeCompare(second) : 0)
+      || tie(a, b);
+  });
+}
+
 /** Complete personal dataset first; choose one commitment before method filtering. */
 export function projectMembershipPaymentReport({
   tenantId, members, history, agreements = [], plans = [], payments = [], today = new Date().toISOString().slice(0, 10),
-  providerSchedules = new Map(), collectScheduleRequest, configs = [], preferences = [],
+  providerSchedules = new Map(), collectScheduleRequest, configs = [], preferences = [], directDebitDetails = new Map(),
 }) {
   const memberMap = new Map(members.filter(row => isEligiblePaymentReportMember(row, tenantId)).map(row => [row.id, row]));
   const agreementMap = new Map(agreements.filter(row => row.tenant_id === tenantId).map(row => [row.id, row]));
@@ -165,6 +181,7 @@ export function projectMembershipPaymentReport({
         payments: paymentsByPlan.get(plan?.id) || [], paused: member.membership_paused, method, today,
         providerSchedule: providerSchedules.get(plan?.id) }),
       ...(upfront ? upfrontRenewalProjection({ record, member, tenantId, configs, preferences }) : {}),
+      ...(['direct_debit', 'monthly_direct_debit'].includes(method) && plan ? directDebitDetails.get(plan.id) : {}),
     };
     if (row.scheduleState === 'unavailable' && plan && !member.membership_paused
       && !stopped.has(record.status) && !plan.collection_stopped_at

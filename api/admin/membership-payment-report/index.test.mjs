@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { projectMembershipPaymentReport as project, upfrontRenewalProjection } from '../../_lib/membershipPaymentReport.js';
+import { projectMembershipPaymentReport as project, upfrontRenewalProjection, sortPaymentReportRows } from '../../_lib/membershipPaymentReport.js';
 import { createMembershipPaymentReportHandler, fetchPaymentReportRows } from './index.js';
 import { createReportScheduleResolver, readPaymentReportSchedule } from '../../_lib/membershipPaymentReportSchedules.js';
 import { loadStripeCollectionSchedule } from '../../_lib/membershipCollectionSchedule.js';
@@ -120,6 +120,9 @@ function database(tables = {}, calls = []) {
         filters.push(row => row[key] >= value); return this;
       },
       order(key) { assert.equal(key, 'id'); return this; },
+      then(resolve, reject) {
+        return Promise.resolve({ data: (tables[table] || []).filter(row => filters.every(filter => filter(row))), error: null }).then(resolve, reject);
+      },
       range(start, end) { calls.push({ table, start, end }); return Promise.resolve({
         data: (tables[table] || []).filter(row => filters.every(filter => filter(row)))
           .sort((a, b) => a.id.localeCompare(b.id)).slice(start, end + 1)
@@ -155,6 +158,80 @@ test('direct endpoint enforces authentication, tenant, admin, feature and member
   for (const query of [{ method: 'bogus' }, { method: ['card'] }, { page: '0' }, { pageSize: '101' }]) {
     assert.equal((await request({}, query)).code, 400);
   }
+  for (const query of [
+    { method: 'upfront', sortBy: 'nextPaymentDate' },
+    { method: 'all', sortBy: 'renewalDate' },
+    { method: 'monthly_direct_debit', sortBy: 'renewalDate' },
+    { method: 'direct_debit', sortBy: ['nextPaymentDate'] },
+    { method: 'upfront', sortBy: 'renewalDate', sortDirection: 'down' },
+    { sortDirection: 'desc' },
+  ]) assert.equal((await request({}, query)).code, 400, JSON.stringify(query));
+});
+
+test('date sorting keeps invalid and missing dates last in both directions, with stable name/id ties', () => {
+  const rows = [
+    { name: 'Zoe', memberId: 'z', renewalDate: '2026-07-01', nextPaymentDate: '2026-08-01' },
+    { name: 'Ada', memberId: 'a2', renewalDate: '2026-06-01', nextPaymentDate: '2026-07-01' },
+    { name: 'Ada', memberId: 'a1', renewalDate: '2026-06-01', nextPaymentDate: '2026-07-01' },
+    { name: 'Bad', memberId: 'bad', renewalDate: '2026-02-30', nextPaymentDate: 'not-a-date' },
+    { name: 'Missing', memberId: 'missing', renewalDate: null, nextPaymentDate: null },
+  ];
+  assert.deepEqual(sortPaymentReportRows([...rows], 'renewalDate').map(r => r.memberId), ['a1', 'a2', 'z', 'bad', 'missing']);
+  assert.deepEqual(sortPaymentReportRows([...rows], 'renewalDate', 'desc').map(r => r.memberId), ['z', 'a1', 'a2', 'bad', 'missing']);
+  assert.deepEqual(sortPaymentReportRows([...rows], 'nextPaymentDate', 'desc').map(r => r.memberId), ['z', 'a1', 'a2', 'bad', 'missing']);
+  assert.deepEqual(sortPaymentReportRows([...rows]).map(r => r.memberId), ['a1', 'a2', 'bad', 'missing', 'z']);
+});
+
+test('upfront sorting filters then sorts entire result before page, CSV follows selected direction', async () => {
+  const specs = [
+    ['z', 'Zoe', '2027-01-01'], ['a2', 'Ada', '2026-09-01'],
+    ['a1', 'Ada', '2026-09-01'], ['n', 'NoDate', '2028-01-01'],
+  ];
+  const db = database({
+    member: specs.map(([id, first_name]) => ({ ...member, id, first_name })),
+    member_membership_history: specs.map(([id, , membership_renewal_date]) => ({
+      ...history, id: `h-${id}`, member_id: id, payment_method: 'upfront',
+      billing_agreement_id: null, billing_period: 'annual', membership_renewal_date,
+      term_end_date: null,
+    })),
+  });
+  const options = { method: 'upfront', sortBy: 'renewalDate', pageSize: '2' };
+  const asc = await request({ db }, { ...options, page: '2', sortDirection: 'asc' });
+  assert.deepEqual(asc.body.rows.map(r => r.memberId), ['z', 'n']);
+  assert.equal(asc.body.total, 4);
+  const desc = await request({ db }, { ...options, page: '1', sortDirection: 'desc' });
+  assert.deepEqual(desc.body.rows.map(r => r.memberId), ['n', 'z']);
+  const csv = await request({ db }, { ...options, page: '2', format: 'csv', sortDirection: 'desc' });
+  assert.equal(csv.code, 200);
+  assert.deepEqual([...csv.body.matchAll(/^(Zoe|Ada|NoDate),/gm)].map(match => match[1]),
+    ['NoDate', 'Zoe', 'Ada', 'Ada']);
+  const defaultOrder = await request({ db }, { method: 'upfront' });
+  assert.deepEqual(defaultOrder.body.rows.map(r => r.memberId), ['a1', 'a2', 'n', 'z']);
+});
+
+test('monthly DD next payment sorting spans pages and sends CSV in same order', async () => {
+  const specs = [['late', 'Zoe', '2026-07-01'], ['soon', 'Ada', '2026-06-10'],
+    ['none', 'NoDate', null]];
+  const db = database({
+    member: specs.map(([id, first_name]) => ({ ...member, id, first_name })),
+    member_membership_history: specs.map(([id]) => ({
+      ...history, id: `h-${id}`, member_id: id, billing_agreement_id: `a-${id}`,
+    })),
+    membership_billing_agreements: specs.map(([id]) => ({ ...agreement, id: `a-${id}`, member_id: id })),
+    membership_payment_plans: specs.map(([id]) => ({ ...plan, id: `p-${id}`, member_id: id, billing_agreement_id: `a-${id}` })),
+    gocardless_payments: specs.filter(([, , date]) => date).map(([id, , charge_date]) => ({
+      ...payment, id: `pay-${id}`, plan_id: `p-${id}`, charge_date,
+    })),
+  });
+  const deps = { db, resolveSchedules: async () => new Map(), loadDirectDebit: async () => new Map() };
+  const options = { method: 'monthly_direct_debit', sortBy: 'nextPaymentDate' };
+  const asc = await request(deps, { ...options, sortDirection: 'asc', pageSize: '1', page: '2' });
+  assert.deepEqual(asc.body.rows.map(r => r.memberId), ['late']);
+  const desc = await request(deps, { ...options, sortDirection: 'desc' });
+  assert.deepEqual(desc.body.rows.map(r => r.memberId), ['late', 'soon', 'none']);
+  const csv = await request(deps, { ...options, format: 'csv', sortDirection: 'desc' });
+  assert.deepEqual([...csv.body.matchAll(/^(Zoe|Ada|NoDate),/gm)].map(match => match[1]),
+    ['Zoe', 'Ada', 'NoDate']);
 });
 
 test('full dataset exceeds 1000, filters before paging, deterministic unknown dates last', async () => {
@@ -296,7 +373,7 @@ test('deleted identities are excluded before projection and provider requests, n
   assert.equal(json.body.total, 0);
   assert.deepEqual(json.body.rows, []);
   const csv = await request({ db, resolveSchedules }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review\r\n');
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis\r\n');
 });
 
 test('CSV exports full filtered batches in JSON order, excluding deleted and foreign identities', async () => {
@@ -340,17 +417,17 @@ test('CSV uses readable dates, preserves accents, escapes quotes/newlines and ne
     membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment],
   });
   const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review\r\n'
-    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Active,Monthly Direct Debit,10 Jun 2026,Confirmed,,,,,,\r\n`);
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis\r\n'
+    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Current,Monthly Direct Debit,10 Jun 2026,Confirmed,,,,,,Review required — collection structure unavailable,,,Review required — next amount unavailable\r\n`);
 });
 
-test('CSV preserves next-payment ordering ahead of alphabetical unknown schedules', async () => {
+test('CSV defaults to alphabetical order when no date sort is requested', async () => {
   const members = [{ ...member, first_name: 'Zed' }, { ...member, id: 'n', first_name: 'Alpha' }];
   const db = database({ member: members,
     member_membership_history: [history, { ...history, id: 'hn', member_id: 'n', billing_agreement_id: null, payment_method: 'invoice' }],
     membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment] });
   const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
-  assert.deepEqual(csv.body.split('\r\n').slice(1, 3).map(line => line.split(',')[0]), ['Zed', 'Alpha']);
+  assert.deepEqual(csv.body.split('\r\n').slice(1, 3).map(line => line.split(',')[0]), ['Alpha', 'Zed']);
 });
 
 test('CSV enforces authorization before any reads and failures never send attachment headers', async () => {
