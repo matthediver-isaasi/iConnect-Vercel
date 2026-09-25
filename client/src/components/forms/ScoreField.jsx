@@ -61,7 +61,7 @@ export default function ScoreField({ field, value, onChange, disabled = false, q
     return (
       <label
         key={String(v)}
-        className={`relative flex flex-col items-center gap-1 cursor-pointer select-none ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${extraClass}`}
+        className={`relative flex flex-col min-w-0 max-w-full gap-1 cursor-pointer select-none ${v === 'na' ? 'items-start w-fit' : 'items-center'} ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${extraClass}`}
         data-testid={`score-option-${field.id}-${v}`}
       >
         <input
@@ -137,7 +137,7 @@ export default function ScoreField({ field, value, onChange, disabled = false, q
           {values.map((v) =>
             radio(v, (isSelected) => (
               <span
-                className={`min-w-[3.5rem] px-3 py-2 flex flex-col items-center justify-center rounded-md border text-center transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500 ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700 hover:border-blue-400'}`}
+                className={`min-w-[3.5rem] max-w-full [overflow-wrap:anywhere] px-3 py-2 flex flex-col items-center justify-center rounded-md border text-center transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500 ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700 hover:border-blue-400'}`}
                 aria-hidden="true"
               >
                 <span className="text-sm font-semibold">{v}</span>
@@ -167,12 +167,12 @@ export default function ScoreField({ field, value, onChange, disabled = false, q
           aria-valuetext={selected === null || selected === 'na' ? 'No score selected' : optionAria(sliderValue)}
           data-testid={`score-slider-${field.id}`}
         />
-        <div className="flex justify-between text-xs text-slate-500 mt-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 text-xs text-slate-500 mt-1 [overflow-wrap:anywhere]">
           <span>{min}{lowLabel ? ` — ${lowLabel}` : ''}</span>
           <span className="font-semibold text-slate-800" aria-live="polite">
             {selected === null || selected === 'na' ? '–' : selected}
           </span>
-          <span>{max}{highLabel ? ` — ${highLabel}` : ''}</span>
+          <span className="text-right">{max}{highLabel ? ` — ${highLabel}` : ''}</span>
         </div>
       </div>
     );
@@ -180,30 +180,33 @@ export default function ScoreField({ field, value, onChange, disabled = false, q
 
   return (
     <fieldset
-      className="border-0 p-0 m-0"
+      className="border-0 p-0 m-0 min-w-0 max-w-full"
       aria-required={field.required || undefined}
       data-testid={`score-field-${field.id}`}
     >
       <legend className="sr-only">
         {(questionNumber ? `Question ${questionNumber}. ` : '') + (field.label || 'Score')}
       </legend>
-      {renderOptions()}
-      {(lowLabel || highLabel) && style !== 'slider' && (
-        <div className="flex justify-between text-xs text-slate-500 mt-1 max-w-md">
-          <span>{lowLabel}</span>
-          <span>{highLabel}</span>
-        </div>
-      )}
+      <div className={style === 'slider' ? 'w-full max-w-md' : 'w-max max-w-full'} data-testid={`score-scale-${field.id}`}>
+        {renderOptions()}
+        {(lowLabel || highLabel) && style !== 'slider' && (
+          // Labels wrap within the options' width without contributing to its intrinsic size.
+          <div className="w-0 min-w-full grid grid-cols-2 gap-2 text-xs text-slate-500 mt-1 [overflow-wrap:anywhere]" data-testid={`score-endpoints-${field.id}`}>
+            <span>{lowLabel}</span>
+            <span className="text-right">{highLabel}</span>
+          </div>
+        )}
+      </div>
       {field.allow_na === true && (
         <div className="mt-2">
           {radio('na', (isSelected) => (
             <span
-              className={`inline-flex px-3 py-1.5 rounded-md border text-xs transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500 ${isSelected ? 'bg-slate-700 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'}`}
+              className={`inline-flex max-w-full [overflow-wrap:anywhere] px-3 py-1.5 rounded-md border text-xs transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500 ${isSelected ? 'bg-slate-700 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'}`}
               aria-hidden="true"
             >
               {field.na_label || 'Not applicable'}
             </span>
-          ), 'items-start')}
+          ))}
         </div>
       )}
     </fieldset>

@@ -19,6 +19,7 @@
     "test:rolling-memberships": "node scripts/test-rolling-memberships.mjs",
     "test:rolling-memberships:browser": "playwright test --config=tests/member-detail-rolling-commitments.config.mjs",
     "test:file-upload-layout:browser": "playwright test --config=tests/file-upload-layout.config.mjs",
+    "test:score-field-layout:browser": "playwright test --config=tests/score-field-layout.task4781.config.mjs",
     "test:session-leader-layout:browser": "playwright test --config=tests/session-leader-layout.config.mjs",
     "test:mobile-header-height": "node scripts/run-isolated-tests.mjs node --test shared/mobileHeaderHeight.test.mjs api/_lib/tenantBranding.mobileHeaderHeight.test.mjs api/admin/tenant-branding.mobileHeaderHeight.test.mjs",
     "test:mobile-header-height:browser": "playwright test --config=tests/mobile-header-height.task4602.config.mjs",
