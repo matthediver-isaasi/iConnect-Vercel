@@ -18,6 +18,21 @@ test('payment wording avoids first-ever-payment claims for migrated members', ()
   assert.equal(normalized.payment.state, 'first_payment_pending');
 });
 
+test('current Direct Debit support retires exact saved stock copy without changing custom copy', () => {
+  const stock = 'Your membership is current. Payment collection is shown separately.';
+  for (const supporting of [undefined, stock, '', 'Please contact us with payment questions.', `${stock} Contact us.`]) {
+    const content = { states: { current_direct_debit: { supporting } } };
+    const normalized = normalizeCanvasMembershipContent(content, 'payment-details');
+    assert.equal(normalized.states.current_direct_debit.supporting,
+      supporting === undefined || supporting === stock ? '' : supporting);
+    assert.deepEqual(normalizeCanvasMembershipContent(normalized, 'payment-details'), normalized);
+    assert.equal(content.states.current_direct_debit.supporting, supporting);
+  }
+  assert.equal(normalizeCanvasMembershipContent({
+    states: { active: { supporting: stock } },
+  }).states.active.supporting, stock);
+});
+
 test('payment facts preserve zero, validate currency and keep planned dates unconfirmed', () => {
   const data = normalizeCanvasMembershipSummary({
     membership: { state: 'active', paymentHistoryFrom: '2021-03-01' },

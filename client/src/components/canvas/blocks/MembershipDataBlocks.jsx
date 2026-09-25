@@ -114,6 +114,13 @@ export function MembershipDataView({
     : summary.payment.collectionBasis === 'held' ? content.fields.configuredAmount : content.fields.amount;
   const confirmedAmount = formatMembershipAmount(confirmedPayment?.amount, confirmedPayment?.currency)
     || content.messages.amountUnknown;
+  // Retire only these stock explanations in the portal, not actionable notices
+  // or the shared report/API wording.
+  const collectionNotice = summary.payment.collectionNotice === 'Projected collection amount — not yet bank scheduled'
+    ? '' : summary.payment.collectionNotice;
+  const structureNotice = summary.payment.structureNotice === 'Structure effective on planned collection date'
+    ? '' : summary.payment.structureNotice;
+  const collectionStructure = summary.payment.collectionStructure || structureNotice;
   const values = {
     memberSince: formatMembershipDate(summary.membership.memberSince, true) || content.messages.joinDateNotRecorded,
     amount: nextPaymentAmount,
@@ -193,13 +200,13 @@ export function MembershipDataView({
               <dd {...role('value', { color: stateColors[state] })}>{summary.payment.mandateStatus}</dd>
             </div>}
           </dl>
-          {summary.payment.collectionBasis && <div style={{ marginTop: 16 }}>
-            <p {...role('supporting')}>{summary.payment.collectionNotice}</p>
-            <dl style={{ marginTop: 16 }}>
+          {summary.payment.collectionBasis && (collectionNotice?.trim() || collectionStructure?.trim()) && <div style={{ marginTop: 16 }}>
+            {collectionNotice?.trim() && <p {...role('supporting')}>{collectionNotice}</p>}
+            {collectionStructure?.trim() && <dl style={{ margin: collectionNotice?.trim() ? '16px 0 0' : 0 }}>
               <dt {...role('fieldLabel')}>{content.fields.collectionStructure}</dt>
-              <dd {...role('value')}>{summary.payment.collectionStructure || summary.payment.structureNotice}</dd>
-            </dl>
-            {summary.payment.collectionStructure && <p {...role('supporting', { marginTop: 8 })}>{summary.payment.structureNotice}</p>}
+              <dd {...role('value')}>{collectionStructure}</dd>
+            </dl>}
+            {summary.payment.collectionStructure && structureNotice?.trim() && <p {...role('supporting', { marginTop: 8 })}>{structureNotice}</p>}
           </div>}
           {summary.membership.expiryDate && <dl style={{ marginTop: 16 }}>
             <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
@@ -209,7 +216,7 @@ export function MembershipDataView({
             <dt {...role('fieldLabel')}>{content.fields.method}</dt>
             <dd {...role('value')}>{displayMethod}</dd>
           </dl>}
-          <p {...role('supporting', { marginTop: 16 })}>{copy.supporting}</p>
+          {copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>{copy.supporting}</p>}
         </div>
       ) : (
         <>

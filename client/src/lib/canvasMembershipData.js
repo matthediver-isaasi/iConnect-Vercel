@@ -29,7 +29,7 @@ const paymentHeadings = {
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
-  current_direct_debit: 'Your membership is current. Payment collection is shown separately.',
+  current_direct_debit: '',
   first_payment_pending: 'Your payment is awaiting confirmation.',
   active: 'Your payment arrangement is active.',
   paid: 'Your current membership has been paid in full.',
@@ -115,6 +115,9 @@ const legacyGenerated = {
     none: { heading: 'No current membership', supporting: 'There is no current membership to display.' },
   },
   payment: {
+    current_direct_debit: {
+      supporting: 'Your membership is current. Payment collection is shown separately.',
+    },
     first_payment_pending: {
       heading: 'Direct Debit mandate active',
       supporting: 'Your existing Direct Debit mandate is active. This membership term is awaiting its first payment. The mandate alone does not establish membership entitlement.',

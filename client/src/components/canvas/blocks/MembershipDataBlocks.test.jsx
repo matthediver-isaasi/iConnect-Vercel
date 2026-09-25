@@ -10,6 +10,15 @@ globalThis.getComputedStyle = dom.window.getComputedStyle;
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 window.ResizeObserver = globalThis.ResizeObserver;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// Inspector typography discovery is unrelated to these presentation tests.
+// Keep it local even when cached options trigger a background refresh.
+globalThis.fetch = async input => {
+  const url = String(input);
+  if (url.includes('/TypographyStyle') || url.startsWith('/api/public/typography-styles')) {
+    return new Response(JSON.stringify([]), { headers: { 'Content-Type': 'application/json' } });
+  }
+  throw new Error(`Unexpected presentation-test request: ${url}`);
+};
 const React = (await import('react')).default;
 globalThis.React = React;
 const { act } = await import('react');
@@ -74,8 +83,7 @@ test('current dynamic DD shows projected amount, planned date and structure with
   assert.match(html, /Planned payment date/);
   assert.match(html, /1 October 2026/);
   assert.match(html, /2026-2027 Full member with NMC/);
-  assert.match(html, /Your membership is current/);
-  assert.match(html, /not yet bank scheduled/);
+   assert.doesNotMatch(html, /Your membership is current|not yet bank scheduled|Structure effective on planned collection date/);
   assert.doesNotMatch(html, /awaiting confirmation|paid in full|Confirmed payment date/);
   const held = render({ type: 'payment-details', result: { status: 'ready', data: {
     ...data, payment: { ...data.payment, state: 'paused', collectionBasis: 'held',
@@ -100,6 +108,53 @@ test('summary semantic labels, values, responsive grid and sample boundary', () 
   assert.match(html, /@container \(max-width:380px\)/);
   assert.doesNotMatch(html, /sample data/);
   assert.match(render({ asEditor: true, result: { status: 'ready', data: live, isSample: true } }), /sample data, not a member record/);
+});
+
+test('saved DD stock copy disappears in public and editor layouts without empty paragraphs or notice gaps', () => {
+  const data = {
+    membership: { state: 'active', expiryDate: '2027-09-30' },
+    payment: {
+      state: 'current_direct_debit', method: 'monthly_direct_debit', amount: 13, currency: 'GBP',
+      mandateStatus: 'active', collectionBasis: 'projected',
+      nextCollection: { date: '2026-10-01', status: 'planned' },
+      collectionNotice: 'Projected collection amount — not yet bank scheduled',
+      collectionStructure: '2026-2027 Full member with NMC',
+      structureNotice: 'Structure effective on planned collection date',
+    },
+  };
+  for (const breakpoint of ['desktop', 'mobile']) {
+    for (const asEditor of [false, true]) {
+      const html = render({ type: 'payment-details', breakpoint, asEditor,
+        block: { id: 'saved-payment', content: { states: { current_direct_debit: {
+          supporting: 'Your membership is current. Payment collection is shown separately.',
+        } } } }, result: { status: 'ready', data, isSample: asEditor } });
+      const doc = new JSDOM(html).window.document;
+      const panel = doc.querySelector('[data-testid="membership-payment-panel"]');
+      assert.equal(panel.querySelectorAll('p').length, 0);
+      assert.equal(panel.querySelector('div > dl:not(.membership-fields)').style.margin, '0px');
+      for (const fact of ['£13.00', 'Projected next payment amount', 'Planned payment date', '1 October 2026',
+        'Collection structure', '2026-2027 Full member with NMC', 'Monthly Direct Debit', 'Direct Debit status',
+        'active', 'Membership valid until', '30 September 2027']) assert.ok(panel.textContent.includes(fact), fact);
+    }
+  }
+});
+
+test('payment details retain held, review, failed and authored notices', () => {
+  for (const [state, collectionNotice, structureNotice, collectionStructure] of [
+    ['paused', 'Configured amount — collection held', 'Review required — structure name missing', null],
+    ['failed', 'Review required — collection pricing could not be resolved', 'Review required — collection structure unavailable', null],
+    ['current_direct_debit', 'Please check your bank details.', 'Agreed plan structure', 'Member plan'],
+  ]) {
+    const html = render({ type: 'payment-details',
+      block: { id: 'custom', content: { states: { current_direct_debit: { supporting: 'Contact the membership team.' } } } },
+      result: { status: 'ready', data: { ...live, payment: {
+        ...live.payment, state, collectionBasis: 'held', collectionNotice, structureNotice, collectionStructure,
+      } } } });
+    for (const notice of [collectionNotice, structureNotice]) assert.ok(html.includes(notice));
+    if (state === 'failed') assert.match(html, /Your payment could not be completed/);
+    if (state === 'current_direct_debit') assert.match(html, /Contact the membership team/);
+    assert.doesNotMatch(html, /<p[^>]*>\s*<\/p>/);
+  }
 });
 
 test('responsive outer minimum height subtracts wrapper chrome and keeps Auto content-sized', () => {

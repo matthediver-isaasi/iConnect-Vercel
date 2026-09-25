@@ -812,6 +812,44 @@ test("isolated viewer identities, guest, denied, errors and no-membership states
   }
 });
 
+test("simplified payment details preserve facts at desktop and mobile sizes", async ({ page }, testInfo) => {
+  const fixture = await installFixtures(page, {
+    version: 2, viewer: "alpha",
+    summaryOverride: {
+      membership: { state: "active", expiryDate: "2027-09-30" },
+      payment: {
+        state: "current_direct_debit", method: "monthly_direct_debit",
+        amount: 13, currency: "GBP", mandateStatus: "active", collectionBasis: "projected",
+        collectionStatus: "planned", nextCollection: { date: "2026-10-01", status: "planned" },
+        collectionNotice: "Projected collection amount — not yet bank scheduled",
+        collectionStructure: "2026-2027 Full member with NMC",
+        structureNotice: "Structure effective on planned collection date",
+      },
+    },
+  });
+  const origin = new URL(testInfo.project.use.baseURL).origin;
+  await page.route("**/*", route => new URL(route.request().url()).origin === origin
+    ? route.fallback() : route.abort());
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await openPublished(page, fixture);
+    const payment = page.getByTestId("canvas-payment-details");
+    await expect(payment).toContainText("2026-2027 Full member with NMC");
+    for (const text of ["£13.00", "Projected next payment amount", "Planned payment date",
+      "1 October 2026", "Monthly Direct Debit", "Direct Debit status", "30 September 2027"]) {
+      await expect(payment).toContainText(text);
+    }
+    await expect(payment).not.toContainText("not yet bank scheduled");
+    await expect(payment).not.toContainText("Structure effective on planned collection date");
+    await expect(payment).not.toContainText("Your membership is current.");
+    await expect(payment.locator('[data-testid="membership-payment-panel"] p')).toHaveCount(0);
+    const bounds = await payment.boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+    await payment.screenshot({ path: testInfo.outputPath(`simplified-payment-${width}.png`) });
+  }
+});
+
 test("isolated administrative recognition shows current membership with collections still held", async ({ page }, testInfo) => {
   const fixture = await installFixtures(page, {
     version: 2, viewer: "alpha",

@@ -9,6 +9,12 @@ For private import inputs, check both the Git index and inherited history before
 
 **How to apply:** Add narrowly scoped ignore rules early, remove private inputs from the index while retaining local bytes, and verify the source hash. If a shared base already contains the input, disclose the historical caveat; do not rewrite shared refs or claim historical purging without separate authorization and an assessment of affected branches/caches.
 
+Completion itself can capture an unrelated untracked private upload before its code review runs. Check untracked uploads before completion, not just before manual commits.
+
+**Why:** A presentation-only change acquired an unrelated member spreadsheet during completion despite no intentional staging of that file.
+
+**How to apply:** Ignore private inputs before invoking completion. Amending the task branch removes an accidental inclusion from that branch's history, but does not prove backup refs, checkpoints, or other retained copies are purged.
+
 Completion checkpoints can include pre-existing edits; completion can also rebase onto newer shared commits before validation.
 
 **Why:** Tests passing on a locally isolated tree do not prove the subsequently rebased tree passes, and a diff against an old base can misattribute upstream work.
