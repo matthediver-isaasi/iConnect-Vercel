@@ -340,6 +340,7 @@ export default function MembershipPaymentReport() {
                       )}
                       <th className="px-3 py-2 font-medium">Membership renewal</th>
                       <th className="px-3 py-2 font-medium">Next structure</th>
+                      {upfrontView && <th className="px-3 py-2 font-medium" title="Projected renewal amount including applicable VAT; not a commitment or scheduled payment">Next renewal amount (projected)</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -380,6 +381,11 @@ export default function MembershipPaymentReport() {
                             ? row.nextStructureState?.startsWith("Review required") && <div>{row.nextStructureState}</div>
                             : <div className="text-xs text-muted-foreground">{row.nextStructureState || "—"}</div>}
                         </td>
+                        {upfrontView && <td className="px-3 py-2" title={row.nextRenewalAmountState}>
+                          {Number.isFinite(row.nextRenewalAmount) && row.nextRenewalCurrency
+                            ? new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextRenewalCurrency }).format(row.nextRenewalAmount)
+                            : row.nextRenewalAmountState || "Review required"}
+                        </td>}
                       </tr>
                     ))}
                   </tbody>

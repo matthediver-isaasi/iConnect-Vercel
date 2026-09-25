@@ -60,6 +60,9 @@ const ROWS = [
     paymentArrangement: "Upfront — no automatic collection scheduled",
     nextStructureName: "Future personal",
     nextStructureState: "Expected structure — not a commitment",
+    nextRenewalAmount: 150,
+    nextRenewalCurrency: "GBP",
+    nextRenewalAmountState: "Projected renewal amount including applicable VAT — not a commitment",
   },
 ];
 
@@ -381,8 +384,12 @@ test("Upfront view trims only irrelevant columns and helper copy, retains review
     renewalLabel: "Renewal date missing",
     nextStructureName: null,
     nextStructureState: "Review required — renewal date missing",
+    nextRenewalAmount: null,
+    nextRenewalAmountState: "Review required — next structure unresolved",
   };
-  await installFixture(page, { fixtureRows: [...ROWS, review] });
+  const free = { ...ROWS[2], memberId: "member-free", name: "Fran Free",
+    nextRenewalAmount: 0, nextRenewalCurrency: "EUR" };
+  await installFixture(page, { fixtureRows: [...ROWS, review, free] });
   await page.goto("/MembershipPaymentReport");
   await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
 
@@ -395,16 +402,18 @@ test("Upfront view trims only irrelevant columns and helper copy, retains review
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
   const upfrontHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
-    "Membership renewal", "Next structure"];
+    "Membership renewal", "Next structure", "Next renewal amount (projected)"];
   await expect(headers).toHaveText(upfrontHeaders);
   const upfrontCells = page.getByTestId("row-payment-member-upfront").locator("td");
   await expect(upfrontCells).toHaveCount(upfrontHeaders.length);
   await expect(upfrontCells).toHaveText(["Uma Upfront", "uma@example.invalid", "Associate",
-    "Active", "Upfront", "10 Dec 2026", "Future personal"]);
+    "Active", "Upfront", "10 Dec 2026", "Future personal", "£150.00"]);
   const reviewCells = page.getByTestId("row-payment-member-review").locator("td");
   await expect(reviewCells).toHaveCount(upfrontHeaders.length);
   await expect(reviewCells.nth(5)).toHaveText("Renewal date missing");
   await expect(reviewCells.nth(6)).toHaveText("Review required — renewal date missing");
+  await expect(reviewCells.nth(7)).toHaveText("Review required — next structure unresolved");
+  await expect(page.getByTestId("row-payment-member-free").locator("td").nth(7)).toHaveText("€0.00");
   await expect(page.getByText("Expected renewal", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Reporting only; subject to membership status. No renewal or payment is booked.")).toHaveCount(0);
   await page.screenshot({ path: "/tmp/membership-payment-upfront.png", fullPage: true });
@@ -489,8 +498,8 @@ test("downloads the selected full-report CSV with the server filename and leaves
 
   expect(download.suggestedFilename()).toBe("individual-membership-payments-upfront.csv");
   expect(await readFile(await download.path(), "utf8")).toBe(
-    "\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure\r\n"
-    + "Uma Upfront,uma@example.invalid,Associate,Active,Upfront,10 Dec 2026,Future personal\r\n",
+    '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency\r\n'
+    + "Uma Upfront,uma@example.invalid,Associate,Active,Upfront,10 Dec 2026,Future personal,150.00,GBP\r\n",
   );
   expect(state.csvRequests).toEqual([{
     format: "csv",

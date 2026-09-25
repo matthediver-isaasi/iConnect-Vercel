@@ -18,7 +18,7 @@ function formatDate(value) {
 export function membershipPaymentReportCsv(rows, method = 'all') {
   if (method === 'upfront') {
     const cells = [
-      ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Membership renewal', 'Next structure'],
+      ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Membership renewal', 'Next structure', 'Next renewal amount (projected, incl. VAT)', 'Currency'],
       ...rows.map(row => [
         row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
         humanise(row.status),
@@ -26,6 +26,8 @@ export function membershipPaymentReportCsv(rows, method = 'all') {
         row.renewalDate ? formatDate(row.renewalDate) : row.renewalLabel || 'Renewal date missing',
         row.nextStructureState?.startsWith('Review required')
           ? row.nextStructureState : row.nextStructureName || 'Review required — no uniquely named applicable structure',
+        Number.isFinite(row.nextRenewalAmount) ? row.nextRenewalAmount.toFixed(2) : row.nextRenewalAmountState || 'Review required',
+        row.nextRenewalCurrency || '',
       ]),
     ];
     return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;

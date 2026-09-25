@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/t
 import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport, isEligiblePaymentReportMember } from '../../_lib/membershipPaymentReport.js';
 import { resolvePaymentReportSchedules } from '../../_lib/membershipPaymentReportSchedules.js';
 import { membershipPaymentReportCsv } from '../../_lib/membershipPaymentReportCsv.js';
+import { projectUpfrontRenewalAmount } from '../../_lib/membershipPaymentReportAmount.js';
 
 const FEATURE = 'commerce.membership-payment-report';
 const BATCH = 1000;
@@ -27,12 +28,13 @@ function integer(value, fallback, max) {
 
 // Preference values have no tenant_id. Both sides of this join must be scoped
 // before fetching them; enrich only validated results for the projection contract.
-export async function fetchPaymentReportPreferences(db, tenantId, members, configs, fields) {
+export async function fetchPaymentReportPreferences(db, tenantId, members, configs, fields, vatRules = []) {
   const memberIds = [...new Set(members.filter(row => isEligiblePaymentReportMember(row, tenantId)).map(row => row.id))];
   const ownedFields = new Set(fields.filter(row => row.tenant_id === tenantId).map(row => row.id));
-  const fieldIds = [...new Set(configs.filter(row => row.tenant_id === tenantId
-    && row.structure_scope_type === 'member' && ownedFields.has(row.structure_field_id))
-    .map(row => row.structure_field_id))];
+  const requestedFields = configs.filter(row => row.tenant_id === tenantId && row.structure_scope_type === 'member')
+    .flatMap(row => [row.structure_field_id, row.field_id]);
+  requestedFields.push(...vatRules.filter(row => row.tenant_id === tenantId).map(row => row.field_id));
+  const fieldIds = [...new Set(requestedFields.filter(id => ownedFields.has(id)))];
   const rows = [];
   // Small IN batches avoid oversized PostgREST URLs; each batch is independently paginated.
   for (let m = 0; m < memberIds.length && fieldIds.length; m += 100) {
@@ -87,7 +89,7 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const tenantId = ctx.tenantId;
       const read = (table, columns, refine) => fetchPaymentReportRows(db, table, columns, tenantId, refine);
-      const [members, history, agreements, plans, payments, configs, fields] = await Promise.all([
+      const [members, history, agreements, plans, payments, configs, fields, bands, overrides, vatRules, settings] = await Promise.all([
         // Core selectors vary by tenant configuration; only projected public fields leave the API.
         read('member', '*'),
         read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,term_duration_months,notes,final_cost,total_with_vat'),
@@ -98,14 +100,23 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         read('gocardless_payments', 'id,tenant_id,plan_id,environment,status,charge_date,gocardless_mandate_id,gocardless_subscription_id',
           query => query.in('status', ['pending_customer_approval', 'pending_submission', 'submitted'])
             .gte('charge_date', (deps.today || new Date().toISOString().slice(0, 10)))),
-        read('membership_tier_config', 'id,tenant_id,name,is_active,structure_scope_type,structure_field_id,structure_match_value,effective_from,effective_to'),
+        read('membership_tier_config', '*'),
         read('preference_field', 'id,tenant_id'),
+        read('membership_tier_band', '*'),
+        read('member_membership_override', '*'),
+        read('membership_tier_vat_override', '*'),
+        read('system_settings', '*', query => query.eq('setting_key', `xero_vat_rates_${tenantId}`)),
       ]);
-      const preferences = await fetchPaymentReportPreferences(db, tenantId, members, configs, fields);
+      const preferences = await fetchPaymentReportPreferences(db, tenantId, members, configs, fields, vatRules);
       const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
         history, agreements, plans, payments, configs, preferences, today: deps.today };
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules })
+        .map(row => row.paymentMethod !== 'upfront' ? row : {
+          ...row, ...projectUpfrontRenewalAmount({ row,
+            member: members.find(member => member.id === row.memberId && member.tenant_id === tenantId),
+            tenantId, configs, preferences, bands, overrides, vatRules, settings }),
+        })
         .filter(row => (method === 'all' || row.paymentMethod === method)
           // Literal substring matching avoids SQL/PostgREST wildcard semantics.
           // Apply once to the complete projection for JSON totals, pages and CSV.

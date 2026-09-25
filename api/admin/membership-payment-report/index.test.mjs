@@ -514,8 +514,8 @@ test('endpoint selects legacy evidence and uses one full dataset for totals, fil
   const csv = await request(deps, { method: 'upfront', format: 'csv', pageSize: '1' });
   const lines = csv.body.trimEnd().split('\r\n');
   assert.equal(lines.length, 1001);
-  assert.equal(lines[0], '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure');
-  assert.match(lines[1], /,Upfront,01 Jan 2027,Review required — no uniquely named applicable structure$/);
+  assert.equal(lines[0], '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency');
+  assert.match(lines[1], /,Upfront,01 Jan 2027,Review required — no uniquely named applicable structure,Review required — next structure unresolved,$/);
   assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), filtered.body.rows.map(row => row.name));
 });
 
@@ -579,7 +579,8 @@ test('endpoint and CSV expose expected upfront dates without provider collection
     member: [{ ...member, tenant_id: bnms, membership_paused: true }],
     member_membership_history: [{ ...upfront, term_end_date: '2026-12-09' }],
     membership_tier_config: [{ id: 'future', tenant_id: bnms, name: 'Future personal',
-      structure_scope_type: 'member', effective_from: '2026-12-10' }],
+      structure_scope_type: 'member', effective_from: '2026-12-10',
+      currency: 'GBP', pricing_model: 'flat', flat_cost: 125, flat_vat_rate: '20% VAT' }],
   }), getTenantContext: async () => ({ isAuthenticated: true, tenantId: bnms, roleId: 'r' }),
   resolveSchedules: async () => new Map() };
   const result = await request(deps, { method: 'upfront' });
@@ -589,7 +590,9 @@ test('endpoint and CSV expose expected upfront dates without provider collection
   assert.equal(row.renewalDate, '2026-12-10');
   assert.equal(row.nextPaymentDate, null);
   assert.equal(row.nextStructureName, 'Future personal');
+  assert.equal(row.nextRenewalAmount, 150);
+  assert.equal(row.nextRenewalCurrency, 'GBP');
   const csv = await request(deps, { method: 'upfront', format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure\r\n'
-    + 'Ada,ada@example.org,Personal,Paused,Upfront,10 Dec 2026,Future personal\r\n');
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency\r\n'
+    + 'Ada,ada@example.org,Personal,Paused,Upfront,10 Dec 2026,Future personal,150.00,GBP\r\n');
 });
