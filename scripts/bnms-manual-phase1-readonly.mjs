@@ -22,6 +22,11 @@ try {
   await c.connect();
   const snapshot=await snapshotDestination(c);
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  await c.query("SET LOCAL TIME ZONE 'UTC'");
+  // Match the apply CAS codec exactly; pg SELECT * decodes dates and numeric
+  // columns differently and truncates timestamp precision through JS Date.
+  snapshot.members=(await c.query('SELECT to_jsonb(t) row FROM member t WHERE tenant_id=$1',[TENANT_ID])).rows.map(r=>r.row);
+  snapshot.structures=(await c.query('SELECT to_jsonb(t) row FROM membership_tier_config t WHERE tenant_id=$1',[TENANT_ID])).rows.map(r=>r.row);
   for(const table of ['bnms_dd_alpha_adoption','bnms_dd_pilot_adoption','membership_group','gocardless_collection_reservations','gocardless_customers','gocardless_mandates','membership_tier_vat_override']){
     const exists=(await c.query('SELECT to_regclass($1) present',[`public.${table}`])).rows[0].present;
     if(exists) snapshot[table]=(await c.query(`SELECT to_jsonb(t) row FROM ${table} t WHERE tenant_id=$1`,[TENANT_ID])).rows.map(r=>r.row);

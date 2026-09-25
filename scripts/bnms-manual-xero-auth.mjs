@@ -1,6 +1,10 @@
 // Only the application's normal OAuth helper may rotate/save credentials.
 // No contact, invoice, account or financial provider operation runs here.
 import {writeFile} from 'node:fs/promises';
+const args=process.argv.slice(2);
+if(args.length>1||(args.length&&!/^--out=exports\/private-bnms-manual-phase2-refresh-[a-zA-Z0-9-]+\/auth-status\.json$/.test(args[0])))
+ throw Error('Only a private refresh auth-status output is supported');
+const output=args[0]?.slice('--out='.length)||'exports/private-bnms-manual-phase2/auth-status.json';
 import {destinationTarget} from './apply-custom-object-relationship-deleted-members-migration.mjs';
 destinationTarget(process.env);
 process.env.SUPABASE_URL=process.env.DEST_SUPABASE_URL;
@@ -38,6 +42,6 @@ try{
 }finally{
  if(locked)await c.query("SELECT pg_advisory_unlock(hashtextextended('bnms-manual-xero-auth',0))");
  await c.end();
- await writeFile('exports/private-bnms-manual-phase2/auth-status.json',JSON.stringify(report,null,2),{mode:0o600});
+ await writeFile(output,JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});
  console.log(JSON.stringify(report));
 }

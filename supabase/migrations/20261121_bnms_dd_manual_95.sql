@@ -137,10 +137,26 @@ BEGIN
  THEN RAISE EXCEPTION 'Manual cohort duplicate canonical identity'; END IF;
  RETURN NEW;
 END $$;
+-- The immutable, unique manifest is the one full-cohort validation event.
+-- It cannot commit without all 95 exact adoptions/releases. Their FKs prevent
+-- adoption without that event. Once committed, immutable rows plus these exact
+-- cardinality guards forbid any additional adoption/release in any transaction.
+-- Do not cache validation in a GUC or skip events: repeated SET CONSTRAINTS,
+-- savepoint rollback and concurrent inserts must still observe actual SQL rows.
+CREATE FUNCTION public.bnms_manual_complete_cardinality() RETURNS trigger
+ LANGUAGE plpgsql SET search_path=public,pg_temp AS $$
+BEGIN
+ IF (SELECT count(*) FROM bnms_dd_manual_manifest)<>1
+   OR (SELECT count(*) FROM bnms_dd_manual_adoption)<>95
+   OR (SELECT count(*) FROM bnms_dd_manual_release)<>95 THEN
+   RAISE EXCEPTION 'Exact 95-person atomic manual scope and approved total required';
+ END IF;
+ RETURN NEW;
+END $$;
 CREATE CONSTRAINT TRIGGER bnms_manual_complete_adoption AFTER INSERT ON public.bnms_dd_manual_adoption
- DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_complete_scope();
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_complete_cardinality();
 CREATE CONSTRAINT TRIGGER bnms_manual_complete_release AFTER INSERT ON public.bnms_dd_manual_release
- DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_complete_scope();
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_complete_cardinality();
 CREATE CONSTRAINT TRIGGER bnms_manual_complete_manifest AFTER INSERT ON public.bnms_dd_manual_manifest
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_complete_scope();
 
@@ -255,6 +271,6 @@ BEGIN
 END $$;
 CREATE TRIGGER bnms_manual_payment_guard BEFORE INSERT OR UPDATE ON public.gocardless_payments
  FOR EACH ROW EXECUTE FUNCTION public.bnms_manual_payment_guard();
-REVOKE ALL ON FUNCTION public.bnms_manual_immutable(),public.bnms_manual_complete_scope(),
+REVOKE ALL ON FUNCTION public.bnms_manual_immutable(),public.bnms_manual_complete_scope(),public.bnms_manual_complete_cardinality(),
  public.bnms_manual_reservation_gate(),public.bnms_manual_canonical_guard(),public.bnms_manual_duplicate_owner_guard(),
  public.bnms_manual_payment_guard() FROM PUBLIC,anon,authenticated,service_role;

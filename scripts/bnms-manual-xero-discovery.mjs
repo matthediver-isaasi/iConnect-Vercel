@@ -2,7 +2,9 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {destinationConnection} from './run-bnms-dd-pilot-history.mjs';
 import {TENANT_ID,hash} from './bnms-dd-beta-invoices.mjs';
-const dir='exports/private-bnms-manual-phase2';
+const args=process.argv.slice(2);
+if(args.length>1||(args.length&&!/^--out-dir=exports\/private-bnms-manual-phase2-refresh-[a-zA-Z0-9-]+$/.test(args[0])))throw Error('Private refresh directory required');
+const dir=args[0]?.slice('--out-dir='.length)||'exports/private-bnms-manual-phase2';
 const evidence=JSON.parse(await readFile(`${dir}/accounting-review.json`,'utf8')).report;
 const {snapshot:s}=JSON.parse(await readFile(`${dir}/destination.json`,'utf8'));
 const {discovery:p}=JSON.parse(await readFile(`${dir}/gocardless.json`,'utf8'));
@@ -14,7 +16,7 @@ const emails=[...new Set(evidence.members.flatMap(m=>[
 const batches=Array.from({length:Math.ceil(emails.length/15)},(_,i)=>emails.slice(i*15,i*15+15));
 console.log(JSON.stringify({mode:'readonly_budget',estimatedRequests:2+batches.length,maxRequests:20,paceMs:1500,invoiceEndpointsForbidden:true}));
 const report={observedAt:new Date().toISOString(),requests:0,contacts:[],connections:[],accounts:[],complete:false};
-const save=async()=>writeFile(`${dir}/xero-contacts-accounts.json`,JSON.stringify(report,null,2),{mode:0o600});
+const save=async()=>writeFile(`${dir}/xero-contacts-accounts.json`,JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});
 const c=await destinationConnection();
 try{
  await c.connect();await c.query('BEGIN READ ONLY');

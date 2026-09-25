@@ -7,6 +7,7 @@ import pg from 'pg';
 import {createLocalPostgresHarness} from './test-support/local-postgres-harness.mjs';
 import {canonicalRows,scopeHash,stableId,assertExecutableManifest,SCOPE_SHA,MIGRATION,INVOICE_MIGRATION} from './bnms-dd-manual-cohort.mjs';
 import {MANUAL_TENANT as tenant,MANUAL_WORKBOOK,MANUAL_GATE} from '../api/_lib/bnmsManualCohort.js';
+import {hash} from './bnms-dd-beta-invoices.mjs';
 
 test('manual scope is independent, deterministic, and incomplete contact evidence cannot authorize execution',()=>{
  assert.equal(stableId('plan','test'),stableId('plan','test'));
@@ -35,6 +36,33 @@ test('manual 95 disposable SQL: atomic scope, ownership, unforgeable entitlement
   run('pg_ctl',['-D',h.data,'-l',path.join(h.root,'postgres.log'),'-o',`-F -k ${h.socket} -c listen_addresses= -p ${h.port}`,'-w','start']);started=true;
   c=new pg.Client({host:h.socket,port:h.port,user:'postgres',database:'postgres'});await c.connect();
   other=new pg.Client({host:h.socket,port:h.port,user:'postgres',database:'postgres'});await other.connect();
+  // Capture and CAS both use PostgreSQL JSON under UTC, retaining sub-ms
+  // timestamps, nulls, dates and numeric values without JS Date coercion.
+  await c.query(`CREATE TEMP TABLE codec_guard (
+    stamp timestamptz, local_stamp timestamp, day date, amount numeric, optional text);
+    INSERT INTO codec_guard VALUES ('2026-09-25T12:34:56.123456+01:00',
+    '2026-09-25T12:34:56.123456','2026-10-01',13.00,NULL)`);
+  await c.query("SET TIME ZONE 'Europe/London'");
+  await c.query('BEGIN');
+  await c.query("SET LOCAL TIME ZONE 'UTC'");
+  const captured=(await c.query('SELECT to_jsonb(t) row FROM codec_guard t')).rows[0].row;
+  const decoded=JSON.parse(JSON.stringify((await c.query('SELECT * FROM codec_guard')).rows[0]));
+  assert.notEqual(hash(captured),hash(decoded));
+  assert.equal(captured.stamp,'2026-09-25T11:34:56.123456+00:00');
+  assert.equal(captured.optional,null);
+  await c.query('COMMIT');
+  await c.query("SET TIME ZONE 'America/New_York'");
+  await c.query('BEGIN');
+  await c.query("SET LOCAL TIME ZONE 'UTC'");
+  assert.equal(hash(captured),hash((await c.query('SELECT to_jsonb(t) row FROM codec_guard t')).rows[0].row));
+  for(const mutation of ["stamp=stamp+interval '1 microsecond'","amount=amount+0.01",
+    "optional=''","day=day+1","local_stamp=local_stamp+interval '1 microsecond'"]){
+    await c.query('SAVEPOINT mutation');
+    await c.query(`UPDATE codec_guard SET ${mutation}`);
+    assert.notEqual(hash(captured),hash((await c.query('SELECT to_jsonb(t) row FROM codec_guard t')).rows[0].row));
+    await c.query('ROLLBACK TO mutation');
+  }
+  await c.query('ROLLBACK');
   await q(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;
    CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,status text,membership_paused boolean);
    CREATE TABLE membership_billing_agreements(id uuid PRIMARY KEY,tenant_id uuid,member_id uuid,gocardless_customer_id text,
@@ -57,9 +85,10 @@ test('manual 95 disposable SQL: atomic scope, ownership, unforgeable entitlement
   await q('ROLLBACK');
   assert.equal(Number((await q('SELECT count(*) n FROM bnms_dd_manual_manifest')).rows[0].n),0);
   // Fixture-only replacement of exact identity digest, never production migration/source.
-  const body=schema.slice(schema.indexOf('CREATE FUNCTION public.bnms_manual_complete_scope()'),schema.indexOf('CREATE CONSTRAINT TRIGGER bnms_manual_complete_adoption'))
+  const body=schema.slice(schema.indexOf('CREATE FUNCTION public.bnms_manual_complete_scope()'),schema.indexOf('-- The immutable, unique manifest'))
    .replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION').replace(SCOPE_SHA,fixtureScope);
   await q(body);
+  for(const scenario of ['tampered-source','missing-release','changed-economics','extra-member','valid']){
   await q('BEGIN');
   await q(`SELECT pg_advisory_xact_lock(hashtextextended('bnms-manual-95:ddbc1a3d',0))`);
   assert.equal((await other.query(`SELECT pg_try_advisory_xact_lock(hashtextextended('bnms-manual-95:ddbc1a3d',0)) locked`)).rows[0].locked,false);
@@ -67,25 +96,46 @@ test('manual 95 disposable SQL: atomic scope, ownership, unforgeable entitlement
    ['a'.repeat(64),tenant,MANUAL_WORKBOOK,{members:people.map(evidenceFor),approval:{
     legacyCollectorHandover:'user_confirmed_all_95_disabled_no_other_collections',invoicePreflight:'explicit_user_no_invoice_retrieval',
     recognitionFrom:'2026-09-24',recognitionUntil:'2027-10-01'}}]);
-  for(let i=0;i<95;i++){
-   const m=people[i],agreement=id(101+i),plan=id(201+i),history=id(301+i),adoption=id(401+i);
+  const cohort=scenario==='extra-member'?[...people,{memberId:id(96),customerId:'CU96',mandateId:'MD96',monthlyQuoteMinor:1300}]:people;
+  const releases=[];
+  for(let i=0;i<cohort.length;i++){
+   const m=cohort[i],agreement=id(101+i),plan=id(201+i),history=id(301+i),adoption=id(401+i);
    const dd={accepted_at:null,billing_request_mode:'migration_existing_mandate',collection_policy:{pricing_policy:'dynamic'},invoicing_mode:'per_instalment'};
    const metadata={dd,collection_mode:'dynamic',dynamic_first_date:'2026-10-01',bnms_manual_cohort:MANUAL_WORKBOOK};
    const evidence=evidenceFor(m,i);
+   if(i===0&&scenario==='tampered-source')evidence.sourceTampered=true;
+   if(i===0&&scenario==='changed-economics')evidence.monthlyQuoteMinor++;
    await q('INSERT INTO member VALUES($1,$2,$3,false)',[m.memberId,tenant,'active']);
    await q("INSERT INTO membership_billing_agreements VALUES($1,$2,$3,$4,$5,'gocardless','live','first_payment_pending',$6,'{}')",[agreement,tenant,m.memberId,m.customerId,m.mandateId,metadata]);
    await q("INSERT INTO membership_payment_plans VALUES($1,$2,$3,$4,$5,NULL,'gocardless','live','first_payment_pending',$6,$7,'2026-10-01',NULL,$8,'GBP')",[plan,tenant,m.memberId,agreement,m.mandateId,metadata,MANUAL_GATE,m.monthlyQuoteMinor]);
    await q("INSERT INTO member_membership_history VALUES($1,$2,$3,$4,'pending_payment_setup','unpaid',NULL,'2026-10-01','2027-09-30','{}')",[history,tenant,m.memberId,agreement]);
    await q('INSERT INTO bnms_dd_manual_adoption(id,tenant_id,member_id,customer_id,mandate_id,agreement_id,plan_id,history_id,workbook_sha256,manifest_sha256,evidence_sha256,evidence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
     [adoption,tenant,m.memberId,m.customerId,m.mandateId,agreement,plan,history,MANUAL_WORKBOOK,'a'.repeat(64),'b'.repeat(64),evidence]);
-   await q('INSERT INTO bnms_dd_manual_release(id,tenant_id,member_id,adoption_id,plan_id,manifest_sha256,processing_not_before) VALUES($1,$2,$3,$4,$5,$6,$7)',
-    [id(601+i),tenant,m.memberId,adoption,plan,'a'.repeat(64),MANUAL_GATE]);
+   if(!(scenario==='missing-release'&&i===94))releases.push({id:id(601+i),tenant_id:tenant,
+    member_id:m.memberId,adoption_id:adoption,plan_id:plan,manifest_sha256:'a'.repeat(64),processing_not_before:MANUAL_GATE});
+  }
+  // A single multi-row statement must have the same deferred safety contract.
+  await q(`INSERT INTO bnms_dd_manual_release(id,tenant_id,member_id,adoption_id,plan_id,manifest_sha256,processing_not_before)
+   SELECT id,tenant_id,member_id,adoption_id,plan_id,manifest_sha256,processing_not_before
+   FROM jsonb_to_recordset($1::jsonb) AS r(id uuid,tenant_id uuid,member_id uuid,adoption_id uuid,plan_id uuid,manifest_sha256 text,processing_not_before timestamptz)`,
+   [JSON.stringify(releases)]);
+  if(scenario!=='valid'){
+   await assert.rejects(q('SET CONSTRAINTS ALL IMMEDIATE'),scenario==='tampered-source'?/manifest authority/:/Exact 95-person/);
+   await q('ROLLBACK');
+   assert.equal(Number((await q('SELECT count(*) n FROM bnms_dd_manual_manifest')).rows[0].n),0);
+   continue;
   }
   await q('SET CONSTRAINTS ALL IMMEDIATE');
+  // Rechecking does not use a forgeable session flag or create writes.
+  await q('SET CONSTRAINTS ALL DEFERRED');
+  await q('SET CONSTRAINTS ALL IMMEDIATE');
   await q('COMMIT');
+  }
   assert.equal(Number((await q('SELECT count(*) n FROM bnms_dd_manual_membership_recognition')).rows[0].n),95);
   await q('BEGIN');
   await rejected('DELETE FROM bnms_dd_manual_release',[],/immutable/);
+  await rejected("UPDATE bnms_dd_manual_manifest SET evidence='{}'",[],/immutable/);
+  await rejected('INSERT INTO bnms_dd_manual_release SELECT * FROM bnms_dd_manual_release LIMIT 1',[],/duplicate key/);
   await rejected("UPDATE member_membership_history SET payment_status='paid'",[],/first managed/);
   await rejected("UPDATE membership_billing_agreements SET metadata='{}'",[],/terms/);
   await rejected('UPDATE membership_payment_plans SET member_id=$1 WHERE id=$2',[id(2),id(201)],/owner/);

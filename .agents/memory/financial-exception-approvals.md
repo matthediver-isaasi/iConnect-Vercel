@@ -23,6 +23,18 @@ An old zero-blocker report can support a clearly labelled, non-authorizing econo
 
 Financial release approval must distinguish reviewed source code from evidence that the same safeguards are deployed.
 
+An explicitly accepted operator deployment-evidence exception may waive only missing deployment timestamps and scoped runtime attestation for one pinned cohort/runtime/deployment. Record unknown metadata as unknown, preserve the supplied report, and never label it independently verified.
+
+Capture full-row financial CAS evidence with the same database JSON codec and
+explicit transaction-local timezone used during application.
+
+**Why:** Driver-decoded `SELECT *` rows convert dates and numerics differently
+from PostgreSQL `to_jsonb`, producing false drift and losing sub-millisecond
+timestamp precision. Preserve every field; test real mutations rather than
+dropping timestamp or price guards.
+
+**Why:** Operator risk acceptance about deployment provenance does not establish financial identity or authorize bypassing current-state safeguards. Mandatory mandate/accounting identity, collision, freshness, exact economics, date gates, atomic rollback and replay checks remain enforced; any compare-and-swap failure stops release.
+
 **Why:** Existing scheduled processing may still run older accounting behavior after local source changes.
 
 **How to apply:** Bind independent deployment evidence to the reviewed release approval and fail closed when it is absent or stale. Release approval does not itself authorize publishing; avoid reacquiring short-lived provider evidence while deployment readiness is unresolved.

@@ -10,8 +10,8 @@ import {MANUAL_TENANT as TENANT,MANUAL_WORKBOOK} from '../api/_lib/bnmsManualCoh
 import {MANUAL_RUNTIME_PATHS,manualRuntimeHashes,assertManualRuntimeProof} from './bnms-manual-runtime-proof.mjs';
 const allowedTables=new Set(['gocardless_customers','gocardless_mandates','membership_billing_agreements',
  'membership_payment_plans','member_membership_history','bnms_dd_manual_manifest','bnms_dd_manual_adoption','bnms_dd_manual_release']);
-async function insert(c,table,row){
- if(!allowedTables.has(table)||Object.keys(row).some(k=>!/^[a-z_]+$/.test(k)))throw Error('Unsafe canonical insert');
+export async function insert(c,table,row){
+ if(!allowedTables.has(table)||!Object.keys(row).length||Object.keys(row).some(k=>!/^[a-z_][a-z0-9_]*$/.test(k)))throw Error('Unsafe canonical insert');
  const keys=Object.keys(row);
  await c.query(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map((_,i)=>`$${i+1}`).join(',')})`,Object.values(row));
 }
@@ -23,6 +23,7 @@ export async function applyManualManifest(c,manifest,{schemas,freshProvider,depl
  const manifestSha=hash(manifest);
  await c.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
  try{
+  await c.query("SET LOCAL TIME ZONE 'UTC'");
   await c.query("SELECT pg_advisory_xact_lock(hashtextextended('bnms-manual-95:ddbc1a3d',0))");
   const exists=(await c.query("SELECT to_regclass('public.bnms_dd_manual_manifest') present")).rows[0].present;
   if(exists){
@@ -89,14 +90,19 @@ export async function applyManualManifest(c,manifest,{schemas,freshProvider,depl
 }
 
 export async function main(args=process.argv.slice(2)){
- const dir='exports/private-bnms-manual-phase2';
+ const directoryArgs=args.filter(a=>a.startsWith('--evidence-dir='));
+ if(directoryArgs.length>1||(directoryArgs.length&&!/^--evidence-dir=exports\/private-bnms-manual-phase2-refresh-[a-zA-Z0-9-]+$/.test(directoryArgs[0])))
+  throw Error('Exact private refresh directory required');
+ const dir=directoryArgs[0]?.slice('--evidence-dir='.length)||'exports/private-bnms-manual-phase2';
+ args=args.filter(a=>!a.startsWith('--evidence-dir='));
  const load=async p=>JSON.parse(await readFile(p,'utf8'));
  if(args.length&&!(/^--reviewed-apply=[a-f0-9]{64}$/.test(args[0])&&args.length===1))throw Error('Only default dry-run or exact --reviewed-apply SHA supported');
  await mkdir(dir,{recursive:true,mode:0o700});await chmod(dir,0o700);
  const schemas=await Promise.all([MIGRATION,INVOICE_MIGRATION].map(p=>readFile(p,'utf8')));
  const schemaHashes=schemas.map(sqlHash);
  const runtimePaths=[...MANUAL_RUNTIME_PATHS,'scripts/bnms-manual-runtime-proof.mjs',
-  'scripts/bnms-dd-manual-cohort.mjs','scripts/run-bnms-dd-manual-cohort.mjs'];
+  'scripts/bnms-dd-manual-cohort.mjs','scripts/run-bnms-dd-manual-cohort.mjs',
+  'scripts/bnms-manual-phase1-readonly.mjs'];
  const runtimeHashes=Object.fromEntries(await Promise.all(runtimePaths.map(async p=>[p,sqlHash(await readFile(p))])));
  if(!args.length){
   let deploymentProof=null;
@@ -104,8 +110,8 @@ export async function main(args=process.argv.slice(2)){
   catch(error){if(error.code!=='ENOENT')throw error;}
   const manifest=prepareManualManifest({
    sheet:await load('exports/private-bnms-manual-phase1/spreadsheet.json'),
-   snapshot:(await load('exports/private-bnms-manual-phase2-refresh-20260924-0615/destination.json')).snapshot,
-   provider:await load('exports/private-bnms-manual-phase2-refresh-20260924-0615/gocardless.json'),
+   snapshot:(await load(`${directoryArgs.length?dir:'exports/private-bnms-manual-phase2-refresh-20260924-0615'}/destination.json`)).snapshot,
+   provider:await load(`${directoryArgs.length?dir:'exports/private-bnms-manual-phase2-refresh-20260924-0615'}/gocardless.json`),
    xero:await load(`${dir}/xero-exact-contact-bindings.json`),
    cachedAccounting:await load('exports/private-bnms-alpha-20260920-verified/accounting-evidence.json')});
   let deploymentBlocker=null;
@@ -116,7 +122,7 @@ export async function main(args=process.argv.slice(2)){
   const review={manifest,deploymentProof,deploymentBlocker,requiredRuntimeSourceHashes,
    requiredManualRuntimeSha256:hash(requiredRuntimeSourceHashes),schemaHashes,runtimeHashes,scope:'exact_separate_95',liveWrites:0};
   const reviewSha256=hash(review);
-  await writeFile(`${dir}/dry-run.json`,JSON.stringify({reviewSha256,review},null,2),{mode:0o600});
+  await writeFile(`${dir}/dry-run.json`,JSON.stringify({reviewSha256,review},null,2),{mode:0o600,flag:'wx'});
   console.log(JSON.stringify({mode:manifest.blockers.length?'blocked_dry_run':'review_ready',reviewSha256,
    members:95,alphaNoOps:10,monthlyTotalMinor:87174,blockers:manifest.blockers.length,writes:0}));
   return;
@@ -147,5 +153,14 @@ export async function main(args=process.argv.slice(2)){
   console.log(JSON.stringify(result));
  }finally{await c.end();}
 }
+export function safeManualFailure(error){
+ const safeMessages=new Set(['Live member drift','Live applicable price/terms drift',
+  'Unsafe canonical insert',
+  'Live member class/preference drift','Live provider mirror ownership collision','Live VAT override drift',
+  'Fresh GET evidence required before release; no timestamps may be renewed',
+  'Fresh provider stage expired before commit','Parent-reviewed manifest, runtime or schema hash differs']);
+ return {stage:'manual_cohort_guarded_execution',code:/^[0-9A-Z]{5}$/.test(error?.code||'')?error.code:'GUARD_STOP',
+  reason:safeMessages.has(error?.message)?error.message:'Restricted failure; inspect reviewed evidence without replaying apply'};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)
- main().catch(()=>{console.error('Manual cohort stopped; no authorization inferred. Review restricted evidence.');process.exitCode=1;});
+ main().catch(error=>{console.error(JSON.stringify(safeManualFailure(error)));process.exitCode=1;});

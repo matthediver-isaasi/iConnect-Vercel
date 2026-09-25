@@ -3,7 +3,9 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {destinationConnection} from './run-bnms-dd-pilot-history.mjs';
 import {hash,TENANT_ID} from './bnms-dd-beta-invoices.mjs';
-const dir='exports/private-bnms-manual-phase2';
+const args=process.argv.slice(2);
+if(args.length>1||(args.length&&!/^--out-dir=exports\/private-bnms-manual-phase2-refresh-[a-zA-Z0-9-]+$/.test(args[0])))throw Error('Private refresh directory required');
+const dir=args[0]?.slice('--out-dir='.length)||'exports/private-bnms-manual-phase2';
 const load=async p=>JSON.parse(await readFile(p,'utf8'));
 const xero=await load(`${dir}/xero-contacts-accounts.json`);
 const original=await load('exports/private-bnms-alpha-final-review-20260920/manifest.json');

@@ -2,6 +2,38 @@
 
 ## Outcome: verified unapplied; release blocked
 
+### Subsequent authorized release attempts — 25 September
+
+After correcting identifier validation and deferred-validator performance, the
+full persistence rehearsal passed with the three applicable legacy INSERT
+triggers, all 95 rows, and zero-write replay. The next independently reviewed
+live attempt started at 16:33:59 UTC but exceeded the 180-second execution
+timeout without an application result. A fresh read-only audit at 16:37:12 UTC
+confirmed the cohort remains unapplied: zero agreements/plans/history/adoptions/
+releases, no manual tables/functions, all ten no-op links intact, and the prior
+249 Alpha + 10 Beta + 1 pilot unchanged. No remaining manual-runner process or
+matching active database statement was found afterward. The timeout's exact
+SQL stage is unknown; do not report it as a successful release or retry blindly.
+Both required manual migrations remain outstanding. No cron or payment
+submission was invoked.
+
+The operator approved a narrowly scoped deployment-evidence exception for the
+missing independent deployment timestamp and scoped runtime attestation only.
+The supplied READY deployment/cron report and exact locally compared runtime
+were retained as operator evidence, not independent deployment verification.
+All financial identity, scope, economics, freshness, collision, date and atomic
+transaction safeguards remained enabled during these attempts.
+
+The corrected, independently reviewed atomic runner was attempted after resolving
+the snapshot/CAS codec mismatch. It still rolled back completely: its SQL column
+identifier allowlist incorrectly rejects digits in legitimate hash columns
+(`sha256`, `workbook_sha256`, `manifest_sha256`, `evidence_sha256`).
+No retry or relaxation was made after this failure. A fresh read-only audit at
+16:06 UTC confirmed zero manual adoptions/releases or canonical member rows,
+all manual tables/functions absent, and all ten no-op links and 260 prior-cohort
+adoptions intact. Both manual migrations remain outstanding. This is a runner
+identifier-validation defect, not a mandate or payment identity exception.
+
 No live adoption, schema, financial or provider writes were performed. No
 deployment, cron configuration or SOURCE database changes were made. This is a
 safe-stop report, **not** an executable approval or a claim of completed adoption.
