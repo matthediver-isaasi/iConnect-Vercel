@@ -25,6 +25,34 @@ function integer(value, fallback, max) {
   return Number.isSafeInteger(number) && number <= max ? number : null;
 }
 
+// Preference values have no tenant_id. Both sides of this join must be scoped
+// before fetching them; enrich only validated results for the projection contract.
+export async function fetchPaymentReportPreferences(db, tenantId, members, configs, fields) {
+  const memberIds = [...new Set(members.filter(row => isEligiblePaymentReportMember(row, tenantId)).map(row => row.id))];
+  const ownedFields = new Set(fields.filter(row => row.tenant_id === tenantId).map(row => row.id));
+  const fieldIds = [...new Set(configs.filter(row => row.tenant_id === tenantId
+    && row.structure_scope_type === 'member' && ownedFields.has(row.structure_field_id))
+    .map(row => row.structure_field_id))];
+  const rows = [];
+  // Small IN batches avoid oversized PostgREST URLs; each batch is independently paginated.
+  for (let m = 0; m < memberIds.length && fieldIds.length; m += 100) {
+    for (let f = 0; f < fieldIds.length; f += 100) {
+      const owners = memberIds.slice(m, m + 100);
+      const selectors = fieldIds.slice(f, f + 100);
+      for (let offset = 0; ; offset += BATCH) {
+        const { data, error } = await db.from('member_preference_value')
+          .select('id,member_id,field_id,value').in('member_id', owners).in('field_id', selectors)
+          .order('id', { ascending: true }).range(offset, offset + BATCH - 1);
+        if (error) throw error;
+        rows.push(...(data || []).filter(row => owners.includes(row.member_id) && selectors.includes(row.field_id))
+          .map(row => ({ ...row, tenant_id: tenantId })));
+        if (!data || data.length < BATCH) break;
+      }
+    }
+  }
+  return rows;
+}
+
 export function createMembershipPaymentReportHandler(deps = {}) {
   const db = deps.db === undefined ? supabase : deps.db;
   const getContext = deps.getTenantContext || getTenantContext;
@@ -59,7 +87,7 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const tenantId = ctx.tenantId;
       const read = (table, columns, refine) => fetchPaymentReportRows(db, table, columns, tenantId, refine);
-      const [members, history, agreements, plans, payments, configs, preferences] = await Promise.all([
+      const [members, history, agreements, plans, payments, configs, fields] = await Promise.all([
         // Core selectors vary by tenant configuration; only projected public fields leave the API.
         read('member', '*'),
         read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,term_duration_months,notes,final_cost,total_with_vat'),
@@ -71,8 +99,9 @@ export function createMembershipPaymentReportHandler(deps = {}) {
           query => query.in('status', ['pending_customer_approval', 'pending_submission', 'submitted'])
             .gte('charge_date', (deps.today || new Date().toISOString().slice(0, 10)))),
         read('membership_tier_config', 'id,tenant_id,name,is_active,structure_scope_type,structure_field_id,structure_match_value,effective_from,effective_to'),
-        read('member_preference_value', 'id,tenant_id,member_id,field_id,value'),
+        read('preference_field', 'id,tenant_id'),
       ]);
+      const preferences = await fetchPaymentReportPreferences(db, tenantId, members, configs, fields);
       const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
         history, agreements, plans, payments, configs, preferences, today: deps.today };
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);

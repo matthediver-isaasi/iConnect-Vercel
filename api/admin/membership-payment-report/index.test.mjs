@@ -99,11 +99,26 @@ function database(tables = {}, calls = []) {
   return { from(table) {
     const filters = [];
     return {
-      select(columns) { this.columns = columns; return this; },
-      eq(key, value) { filters.push(row => row[key] === value); return this; },
-      is(key, value) { filters.push(row => (row[key] ?? null) === value); return this; },
-      in(key, values) { filters.push(row => values.includes(row[key])); return this; },
-      gte(key, value) { filters.push(row => row[key] >= value); return this; },
+      select(columns) {
+        if (table === 'member_preference_value') assert.ok(!columns.split(',').includes('tenant_id'), 'preference values have no tenant_id column');
+        this.columns = columns; return this;
+      },
+      eq(key, value) {
+        if (table === 'member_preference_value') assert.notEqual(key, 'tenant_id');
+        filters.push(row => row[key] === value); return this;
+      },
+      is(key, value) {
+        if (table === 'member_preference_value') assert.notEqual(key, 'tenant_id');
+        filters.push(row => (row[key] ?? null) === value); return this;
+      },
+      in(key, values) {
+        if (table === 'member_preference_value') assert.notEqual(key, 'tenant_id');
+        filters.push(row => values.includes(row[key])); return this;
+      },
+      gte(key, value) {
+        if (table === 'member_preference_value') assert.notEqual(key, 'tenant_id');
+        filters.push(row => row[key] >= value); return this;
+      },
       order(key) { assert.equal(key, 'id'); return this; },
       range(start, end) { calls.push({ table, start, end }); return Promise.resolve({
         data: (tables[table] || []).filter(row => filters.every(filter => filter(row)))
@@ -525,6 +540,37 @@ test('renewal projection uses trusted ISO dates, rollover and unique dated selec
     assert.equal(upfrontRenewalProjection({ ...input, configs: [{ ...config, ...patch }] }).nextStructureId, null);
   }
   assert.match(upfrontRenewalProjection({ ...input, configs: [config, { ...config, id: 'overlap' }] }).nextStructureState, /overlapping/);
+});
+
+test('endpoint joins tenant-owned members and selector definitions without a preference tenant column', async () => {
+  const config = { id: 'c', tenant_id: bnms, name: 'Matched future', structure_scope_type: 'member',
+    structure_field_id: 'field', structure_match_value: 'Full' };
+  const tables = {
+    member: [{ ...member, tenant_id: bnms }, { ...member, id: 'foreign', tenant_id: 'other' }],
+    member_membership_history: [{ ...upfront, term_end_date: '2026-12-09' }],
+    membership_tier_config: [config],
+    preference_field: [{ id: 'field', tenant_id: bnms }],
+    member_preference_value: [
+      { id: 'v', member_id: 'm', field_id: 'field', value: 'Full' },
+      { id: 'foreign-value', member_id: 'foreign', field_id: 'field', value: 'Wrong' },
+    ],
+  };
+  const run = async overrides => request({ db: database({ ...tables, ...overrides }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: bnms, roleId: 'r' }),
+    resolveSchedules: async () => new Map() });
+  const matched = await run({});
+  assert.equal(matched.code, 200);
+  assert.equal(matched.body.rows[0].nextStructureName, 'Matched future');
+  for (const overrides of [
+    { preference_field: [{ id: 'field', tenant_id: 'other' }] },
+    { member_preference_value: [{ id: 'foreign-value', member_id: 'foreign', field_id: 'field', value: 'Full' }] },
+    { membership_tier_config: [{ ...config, tenant_id: 'other' }] },
+    { member_preference_value: [{ id: 'v', member_id: 'm', field_id: 'foreign-field', value: 'Full' }] },
+  ]) {
+    const result = await run(overrides);
+    assert.equal(result.code, 200);
+    assert.equal(result.body.rows[0].nextStructureId, null);
+  }
 });
 
 test('endpoint and CSV expose expected upfront dates without provider collection or commitments', async () => {

@@ -40,6 +40,8 @@ export function upfrontRenewalProjection({ record, member, tenantId, configs = [
     if (config.effective_to && (!dateOnly(config.effective_to) || config.effective_to < renewalDate)) return false;
     if (!config.structure_field_id) return !config.structure_match_value;
     const field = config.structure_field_id;
+    // tenant_id on preferences is trusted scope enrichment by the endpoint,
+    // not a column on member_preference_value.
     const values = field.startsWith('core:') ? [member[field.slice(5)]] : preferences
       .filter(p => p.tenant_id === tenantId && p.member_id === member.id && p.field_id === field).map(p => p.value);
     return values.length === 1 && !!normalize(values[0])
