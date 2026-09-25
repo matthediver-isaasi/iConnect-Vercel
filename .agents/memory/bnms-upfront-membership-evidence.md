@@ -23,3 +23,9 @@ annual commencement, add billing consent, or mint successor terms to make the UI
 show an existing membership. Continue excluding known DD evidence. Link only a
 verified matching invoice; an operator's paid assumption is not permission to
 relabel an unpaid provider invoice or associate an older invoice with a newer term.
+
+Do not reinterpret ambiguous legacy short expiry dates as UK dates solely because BNMS is a UK tenant.
+
+**Why:** The user confirmed that an investigated ambiguous legacy date was intentionally US month/day/year and that the corresponding December history expiry was correct.
+
+**How to apply:** Verify source-specific date conventions before proposing data repairs. A short slash-form custom value and a long-form history date may represent the same intended day; their visual difference alone is not evidence of corruption.
