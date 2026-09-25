@@ -330,6 +330,9 @@ export default function MembershipPaymentReport() {
                       <th className="px-3 py-2 font-medium">Payment method</th>
                       <th className="px-3 py-2 font-medium whitespace-nowrap">Next payment</th>
                       <th className="px-3 py-2 font-medium">Schedule</th>
+                      <th className="px-3 py-2 font-medium">Current expiry</th>
+                      <th className="px-3 py-2 font-medium">Membership renewal</th>
+                      <th className="px-3 py-2 font-medium">Next structure</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -349,7 +352,17 @@ export default function MembershipPaymentReport() {
                           {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
-                        <td className="px-3 py-2">{humanise(row.scheduleState)}</td>
+                        <td className="px-3 py-2">{row.paymentArrangement || humanise(row.scheduleState)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.renewalDate && <div className="whitespace-nowrap">{formatDate(row.renewalDate)}</div>}
+                          <div className="text-xs text-muted-foreground">{row.renewalLabel || "—"}</div>
+                          {row.renewalLabel && <div className="text-xs text-muted-foreground">Reporting only; subject to membership status. No renewal or payment is booked.</div>}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.nextStructureName && <div>{row.nextStructureName}</div>}
+                          <div className="text-xs text-muted-foreground">{row.nextStructureState || "—"}</div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

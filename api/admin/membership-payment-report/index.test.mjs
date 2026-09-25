@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { projectMembershipPaymentReport as project } from '../../_lib/membershipPaymentReport.js';
+import { projectMembershipPaymentReport as project, upfrontRenewalProjection } from '../../_lib/membershipPaymentReport.js';
 import { createMembershipPaymentReportHandler, fetchPaymentReportRows } from './index.js';
 import { createReportScheduleResolver, readPaymentReportSchedule } from '../../_lib/membershipPaymentReportSchedules.js';
 import { loadStripeCollectionSchedule } from '../../_lib/membershipCollectionSchedule.js';
@@ -281,7 +281,7 @@ test('deleted identities are excluded before projection and provider requests, n
   assert.equal(json.body.total, 0);
   assert.deepEqual(json.body.rows, []);
   const csv = await request({ db, resolveSchedules }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule\r\n');
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review\r\n');
 });
 
 test('CSV exports full filtered batches in JSON order, excluding deleted and foreign identities', async () => {
@@ -312,7 +312,7 @@ test('CSV exports full filtered batches in JSON order, excluding deleted and for
   assert.ok(calls.some(call => call.table === 'member_membership_history' && call.start === 1000));
   assert.doesNotMatch(csv.body, /deleted_|foreign|mandate|sandbox/);
   assert.match(lines[1], /^Person 0001,Unknown,/);
-  assert.match(lines[2], /,Paused,Card,Unknown,Not Scheduled$/);
+  assert.match(lines[2], /,Paused,Card,Unknown,Not Scheduled,/);
   const json = await request({ db, resolveSchedules }, { method: 'card', page: '2', pageSize: '100' });
   assert.equal(json.body.total, 1103);
   assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), json.body.rows.map(row => row.name));
@@ -325,8 +325,8 @@ test('CSV uses readable dates, preserves accents, escapes quotes/newlines and ne
     membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment],
   });
   const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule\r\n'
-    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Active,Monthly Direct Debit,10 Jun 2026,Confirmed\r\n`);
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review\r\n'
+    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Active,Monthly Direct Debit,10 Jun 2026,Confirmed,,,,,,\r\n`);
 });
 
 test('CSV preserves next-payment ordering ahead of alphabetical unknown schedules', async () => {
@@ -499,6 +499,49 @@ test('endpoint selects legacy evidence and uses one full dataset for totals, fil
   const csv = await request(deps, { method: 'upfront', format: 'csv', pageSize: '1' });
   const lines = csv.body.trimEnd().split('\r\n');
   assert.equal(lines.length, 1001);
-  assert.match(lines[1], /,Upfront,Unknown,Not Scheduled$/);
+  assert.match(lines[1], /,Upfront,Unknown,Not Scheduled,/);
   assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), filtered.body.rows.map(row => row.name));
+});
+
+test('renewal projection uses trusted ISO dates, rollover and unique dated selectors only', () => {
+  const config = { id: 'c', tenant_id: 't', name: 'Next structure', structure_scope_type: 'member',
+    structure_field_id: 'class', structure_match_value: 'Full', effective_from: '2026-12-10' };
+  const input = { tenantId: 't', member, record: { term_end_date: '2026-12-09' },
+    configs: [config], preferences: [{ tenant_id: 't', member_id: 'm', field_id: 'class', value: 'full' }] };
+  assert.equal(upfrontRenewalProjection(input).renewalDate, '2026-12-10');
+  assert.equal(upfrontRenewalProjection(input).renewalLabel, 'Expected renewal');
+  assert.equal(upfrontRenewalProjection(input).nextStructureId, 'c');
+  for (const record of [{ term_end_date: '12/9/26' }, { term_end_date: '2026-02-30' }, {}]) {
+    assert.equal(upfrontRenewalProjection({ ...input, record }).renewalLabel, 'Renewal date missing');
+  }
+  for (const [end, next] of [['2026-12-31', '2027-01-01'], ['2028-02-28', '2028-02-29']]) {
+    assert.equal(upfrontRenewalProjection({ ...input, record: { term_end_date: end } }).renewalDate, next);
+  }
+  assert.equal(upfrontRenewalProjection({ ...input, record: {
+    term_end_date: '2026-12-09', membership_renewal_date: '2026-12-15',
+  } }).renewalLabel, 'Saved renewal date');
+  for (const patch of [{ tenant_id: 'foreign' }, { effective_from: '2026-12-11' },
+    { effective_to: '2026-12-09' }, { structure_match_value: 'Other' }, { is_active: false }]) {
+    assert.equal(upfrontRenewalProjection({ ...input, configs: [{ ...config, ...patch }] }).nextStructureId, null);
+  }
+  assert.match(upfrontRenewalProjection({ ...input, configs: [config, { ...config, id: 'overlap' }] }).nextStructureState, /overlapping/);
+});
+
+test('endpoint and CSV expose expected upfront dates without provider collection or commitments', async () => {
+  const deps = { db: database({
+    member: [{ ...member, tenant_id: bnms, membership_paused: true }],
+    member_membership_history: [{ ...upfront, term_end_date: '2026-12-09' }],
+    membership_tier_config: [{ id: 'future', tenant_id: bnms, name: 'Future personal',
+      structure_scope_type: 'member', effective_from: '2026-12-10' }],
+  }), getTenantContext: async () => ({ isAuthenticated: true, tenantId: bnms, roleId: 'r' }),
+  resolveSchedules: async () => new Map() };
+  const result = await request(deps, { method: 'upfront' });
+  const row = result.body.rows[0];
+  assert.equal(row.status, 'paused');
+  assert.equal(row.currentExpiryDate, '2026-12-09');
+  assert.equal(row.renewalDate, '2026-12-10');
+  assert.equal(row.nextPaymentDate, null);
+  assert.equal(row.nextStructureName, 'Future personal');
+  const csv = await request(deps, { method: 'upfront', format: 'csv' });
+  assert.match(csv.body, /09 Dec 2026,10 Dec 2026,Expected renewal,Upfront — no automatic collection scheduled,Future personal/);
 });

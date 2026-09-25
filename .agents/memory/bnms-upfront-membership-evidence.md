@@ -29,3 +29,9 @@ Do not reinterpret ambiguous legacy short expiry dates as UK dates solely becaus
 **Why:** The user confirmed that an investigated ambiguous legacy date was intentionally US month/day/year and that the corresponding December history expiry was correct.
 
 **How to apply:** Verify source-specific date conventions before proposing data repairs. A short slash-form custom value and a long-form history date may represent the same intended day; their visual difference alone is not evidence of corruption.
+
+An expiry-only upfront record may support an explicitly labelled expected renewal date of expiry plus one day, without establishing a successor commitment.
+
+**Why:** The user approved this reporting projection even when the imported start date and historical structure are unknown. The earlier prohibition on inventing future commitments must not be misread as prohibiting clearly labelled read-only forecasts.
+
+**How to apply:** Prefer a saved renewal date; otherwise derive from trusted persisted expiry. Keep expected renewal and uniquely matched next-structure information separate from scheduled collection evidence. Never use the projection itself to authorise billing or create memberships.

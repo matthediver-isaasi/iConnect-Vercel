@@ -21,6 +21,46 @@ function dateOnly(value) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
 }
 
+// Reporting only: these dates do not authorise billing or create successor terms.
+export function upfrontRenewalProjection({ record, member, tenantId, configs = [], preferences = [] }) {
+  const currentExpiryDate = dateOnly(record.term_end_date);
+  let renewalDate = dateOnly(record.membership_renewal_date);
+  let renewalLabel = renewalDate ? 'Saved renewal date' : 'Renewal date missing';
+  if (!renewalDate && currentExpiryDate) {
+    const next = new Date(`${currentExpiryDate}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    renewalDate = dateOnly(next.toISOString().slice(0, 10));
+    if (renewalDate) renewalLabel = 'Expected renewal';
+  }
+  const normalize = value => typeof value === 'string' || typeof value === 'number'
+    ? String(value).trim().toLowerCase() : '';
+  const matches = renewalDate ? configs.filter(config => {
+    if (config.tenant_id !== tenantId || config.is_active === false || config.structure_scope_type !== 'member') return false;
+    if (config.effective_from && (!dateOnly(config.effective_from) || config.effective_from > renewalDate)) return false;
+    if (config.effective_to && (!dateOnly(config.effective_to) || config.effective_to < renewalDate)) return false;
+    if (!config.structure_field_id) return !config.structure_match_value;
+    const field = config.structure_field_id;
+    const values = field.startsWith('core:') ? [member[field.slice(5)]] : preferences
+      .filter(p => p.tenant_id === tenantId && p.member_id === member.id && p.field_id === field).map(p => p.value);
+    return values.length === 1 && !!normalize(values[0])
+      && normalize(values[0]) === normalize(config.structure_match_value);
+  }) : [];
+  // A matching scoped structure takes precedence over the member default.
+  const scoped = matches.filter(config => config.structure_field_id);
+  const eligible = scoped.length ? scoped : matches;
+  const nextStructure = eligible.length === 1 ? eligible[0] : null;
+  return {
+    currentExpiryDate, renewalDate, renewalLabel,
+    paymentArrangement: 'Upfront — no automatic collection scheduled',
+    nextStructureId: nextStructure?.id || null,
+    nextStructureName: nextStructure?.name || null,
+    nextStructureState: !renewalDate ? 'Review required — renewal date missing'
+      : eligible.length > 1 ? 'Review required — overlapping structures'
+        : !nextStructure?.name ? 'Review required — no uniquely named applicable structure'
+          : 'Expected structure — not a commitment',
+  };
+}
+
 function owned(row, tenantId, memberId) {
   return row?.tenant_id === tenantId && row.member_id === memberId && !row.organization_id;
 }
@@ -38,7 +78,7 @@ function schedule({ selected, agreement, plan, payments, paused, method, today, 
   const none = { nextPaymentDate: null, scheduleState: 'not_scheduled' };
   if (paused || stopped.has(selected.record.status)
     || stopped.has(plan?.status) || stopped.has(agreement?.status) || plan?.collection_stopped_at) return none;
-  if (['card', 'invoice', 'bank_transfer'].includes(method) && !selected.record.billing_agreement_id) return none;
+  if (['upfront', 'card', 'invoice', 'bank_transfer'].includes(method) && !selected.record.billing_agreement_id) return none;
   if (!plan || !live.has(plan.status) || !live.has(agreement.status)) return unavailable;
   const inTerm = value => {
     const date = dateOnly(value);
@@ -81,7 +121,7 @@ export function comparePaymentReportRows(a, b) {
 /** Complete personal dataset first; choose one commitment before method filtering. */
 export function projectMembershipPaymentReport({
   tenantId, members, history, agreements = [], plans = [], payments = [], today = new Date().toISOString().slice(0, 10),
-  providerSchedules = new Map(), collectScheduleRequest,
+  providerSchedules = new Map(), collectScheduleRequest, configs = [], preferences = [],
 }) {
   const memberMap = new Map(members.filter(row => isEligiblePaymentReportMember(row, tenantId)).map(row => [row.id, row]));
   const agreementMap = new Map(agreements.filter(row => row.tenant_id === tenantId).map(row => [row.id, row]));
@@ -107,7 +147,11 @@ export function projectMembershipPaymentReport({
     const plan = validPlan(record, agreement, candidatePlan, tenantId) ? candidatePlan : null;
     // Reuse the same method aliases and persisted commitment shaping as Canvas.
     const summary = buildCanvasSummary({ selected, plan, paused: member.membership_paused, today });
-    const method = summary.payment.method === 'unavailable' ? 'other' : summary.payment.method;
+    const method = record.payment_method === 'upfront' && !record.billing_agreement_id
+      ? 'upfront' : summary.payment.method === 'unavailable' ? 'other' : summary.payment.method;
+    const upfront = !record.billing_agreement_id && !plan
+      && (record.billing_period || selected.commitment?.billingPeriod) === 'annual'
+      && ['upfront', 'card', 'invoice', 'bank_transfer'].includes(method);
     const row = {
       memberId: member.id,
       name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || 'Unnamed member',
@@ -118,6 +162,7 @@ export function projectMembershipPaymentReport({
       ...schedule({ selected, agreement: plan ? agreement : null, plan,
         payments: paymentsByPlan.get(plan?.id) || [], paused: member.membership_paused, method, today,
         providerSchedule: providerSchedules.get(plan?.id) }),
+      ...(upfront ? upfrontRenewalProjection({ record, member, tenantId, configs, preferences }) : {}),
     };
     if (row.scheduleState === 'unavailable' && plan && !member.membership_paused
       && !stopped.has(record.status) && !plan.collection_stopped_at
@@ -156,6 +201,7 @@ export function projectMembershipPaymentReport({
       paymentMethod: 'upfront',
       nextPaymentDate: null,
       scheduleState: 'not_scheduled',
+      ...upfrontRenewalProjection({ record, member, tenantId, configs, preferences }),
     });
     included.add(member.id);
   }

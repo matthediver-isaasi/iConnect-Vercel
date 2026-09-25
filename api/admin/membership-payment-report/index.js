@@ -59,8 +59,9 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const tenantId = ctx.tenantId;
       const read = (table, columns, refine) => fetchPaymentReportRows(db, table, columns, tenantId, refine);
-      const [members, history, agreements, plans, payments] = await Promise.all([
-        read('member', 'id,tenant_id,first_name,last_name,email,membership_paused'),
+      const [members, history, agreements, plans, payments, configs, preferences] = await Promise.all([
+        // Core selectors vary by tenant configuration; only projected public fields leave the API.
+        read('member', '*'),
         read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,term_duration_months,notes,final_cost,total_with_vat'),
         read('membership_billing_agreements', 'id,tenant_id,member_id,organization_id,provider,environment,status,gocardless_mandate_id,stripe_subscription_id,stripe_customer_id,metadata',
           query => query.is('organization_id', null)),
@@ -69,9 +70,11 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         read('gocardless_payments', 'id,tenant_id,plan_id,environment,status,charge_date,gocardless_mandate_id,gocardless_subscription_id',
           query => query.in('status', ['pending_customer_approval', 'pending_submission', 'submitted'])
             .gte('charge_date', (deps.today || new Date().toISOString().slice(0, 10)))),
+        read('membership_tier_config', 'id,tenant_id,name,is_active,structure_scope_type,structure_field_id,structure_match_value,effective_from,effective_to'),
+        read('member_preference_value', 'id,tenant_id,member_id,field_id,value'),
       ]);
       const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
-        history, agreements, plans, payments, today: deps.today };
+        history, agreements, plans, payments, configs, preferences, today: deps.today };
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules })
         .filter(row => (method === 'all' || row.paymentMethod === method)

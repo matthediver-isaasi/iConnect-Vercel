@@ -17,12 +17,16 @@ function formatDate(value) {
 // return an error, never a partially successful download.
 export function membershipPaymentReportCsv(rows) {
   const cells = [
-    ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Next payment', 'Schedule'],
+    ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Next payment', 'Schedule',
+      'Current expiry', 'Renewal date', 'Renewal basis', 'Payment arrangement', 'Next structure', 'Structure review'],
     ...rows.map(row => [
       row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
       humanise(row.status),
       PAYMENT_REPORT_METHODS.find(method => method.value === row.paymentMethod)?.label || humanise(row.paymentMethod),
       formatDate(row.nextPaymentDate), humanise(row.scheduleState),
+      row.renewalLabel ? formatDate(row.currentExpiryDate) : '',
+      row.renewalLabel ? formatDate(row.renewalDate) : '',
+      row.renewalLabel || '', row.paymentArrangement || '', row.nextStructureName || '', row.nextStructureState || '',
     ]),
   ];
   return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;

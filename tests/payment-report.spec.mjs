@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { membershipPaymentReportCsv } from "../api/_lib/membershipPaymentReportCsv.js";
+import { readFile } from "node:fs/promises";
 
 /*
  * Task 4603 browser coverage is deliberately fixture-only. Every API and
@@ -52,6 +54,12 @@ const ROWS = [
     paymentMethod: "upfront",
     nextPaymentDate: null,
     scheduleState: "not_scheduled",
+    currentExpiryDate: "2026-12-09",
+    renewalDate: "2026-12-10",
+    renewalLabel: "Expected renewal",
+    paymentArrangement: "Upfront — no automatic collection scheduled",
+    nextStructureName: "Future personal",
+    nextStructureState: "Expected structure — not a commitment",
   },
 ];
 
@@ -209,7 +217,7 @@ async function installFixture(page, {
             "Cache-Control": "private, no-store",
             "Content-Disposition": `attachment; filename="individual-membership-payments-${selectedMethod}.csv"`,
           },
-          body: `Member,Payment method\r\nFixture member,${selectedMethod}\r\n`,
+          body: membershipPaymentReportCsv(ROWS.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod)),
         });
       }
       state.reportRequests.push({
@@ -337,7 +345,9 @@ test("pagination and method filtering send server-side query parameters and rese
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront");
-  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Not Scheduled");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront — no automatic collection scheduled");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Expected renewal");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Future personal");
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Unknown");
   await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
   expect(state.reportRequests.at(-1)).toEqual({
@@ -426,6 +436,7 @@ test("downloads the selected full-report CSV with the server filename and leaves
   const download = await downloadPromise;
 
   expect(download.suggestedFilename()).toBe("individual-membership-payments-upfront.csv");
+  expect(await readFile(await download.path(), "utf8")).toContain("09 Dec 2026,10 Dec 2026,Expected renewal");
   expect(state.csvRequests).toEqual([{
     format: "csv",
     method: "upfront",
