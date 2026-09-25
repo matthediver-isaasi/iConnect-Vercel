@@ -159,7 +159,9 @@ export function projectMembershipPaymentReport({
     if (!member || record.tenant_id !== tenantId || record.organization_id
       || record.membership_source === 'organisation' || ['cancelled', 'canceled', 'expired'].includes(record.status)) continue;
     const selected = selectCanvasCommitment([{ ...record, membership_source: 'personal' }], [], today);
-    if (!selected || !['current', 'scheduled'].includes(selected.lifecycle)) continue;
+    // Retain the report's existing legacy fallback priority below: a dated
+    // current/scheduled commitment must still win over an expiry-only import.
+    if (!selected || selected.legacy || !['current', 'scheduled'].includes(selected.lifecycle)) continue;
     const agreement = agreementMap.get(record.billing_agreement_id);
     const candidatePlan = plansByAgreement.get(agreement?.id);
     const plan = validPlan(record, agreement, candidatePlan, tenantId) ? candidatePlan : null;

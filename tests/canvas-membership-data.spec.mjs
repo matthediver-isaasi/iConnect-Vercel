@@ -443,6 +443,29 @@ async function dragPaletteBlock(page, type, targetY) {
 }
 
 for (const version of [1, 2]) {
+  test(`isolated V${version} attested upfront membership displays valid until without a renewal promise`, async ({ page }, testInfo) => {
+    const fixture = await installFixtures(page, { version, summaryOverride: {
+      membership: { state: "active", memberSince: null, membershipType: "Full Membership UK", expiryDate: "2026-10-16", renewalDate: null },
+      payment: { state: "paid", method: "upfront", amount: null, nextPayment: null },
+    } });
+    await openPublished(page, fixture);
+    const payment = page.getByTestId("canvas-payment-details").first();
+    const membership = page.getByTestId("canvas-membership-summary").first();
+    for (const card of [payment, membership]) {
+      await expect(card).toContainText("Membership valid until");
+      await expect(card).toContainText("16 October 2026");
+      await expect(card).not.toContainText("unavailable");
+      await expect(card).not.toContainText("Renewal date");
+      await expect(card).not.toContainText("Next payment amount");
+    }
+    await expect(payment).toContainText("Upfront");
+    await page.screenshot({ path: testInfo.outputPath(`attested-upfront-v${version}.png`), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(payment).toContainText("16 October 2026");
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
+
   test(`isolated V${version} paid upfront membership shows settlement and renewal, not an unavailable plan`, async ({ page }, testInfo) => {
     const fixture = await installFixtures(page, { version, summaryOverride: {
       membership: { state: "active", memberSince: "2026-09-18", membershipType: "Flat Rate", renewalDate: "2027-09-18" },

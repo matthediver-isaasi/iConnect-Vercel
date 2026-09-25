@@ -38,6 +38,24 @@ function render(overrides = {}) {
   />);
 }
 
+test('attested upfront membership shows known expiry and no invented payment or renewal', () => {
+  const data = {
+    membership: { state: 'active', membershipType: 'Full Membership UK',
+      expiryDate: '2026-10-16', memberSince: null, renewalDate: null },
+    payment: { state: 'paid', method: 'upfront', amount: null, nextPayment: null },
+  };
+  for (const type of ['membership-summary', 'payment-details']) {
+    const html = render({ type, result: { status: 'ready', data } });
+    assert.match(html, /Membership valid until/);
+    assert.match(html, /16 October 2026/);
+    assert.doesNotMatch(html, /Payment details unavailable|Renewal date|17 October|Next payment amount|£/);
+    if (type === 'payment-details') {
+      assert.match(html, /Upfront/);
+      assert.match(html, /Your current membership has been paid in full/);
+    }
+  }
+});
+
 test('summary semantic labels, values, responsive grid and sample boundary', () => {
   const html = render();
   assert.match(html, /Your membership/);

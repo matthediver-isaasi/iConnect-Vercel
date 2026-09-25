@@ -190,12 +190,24 @@ export function MembershipDataView({
               <dd {...role('value', { color: stateColors[state] })}>{summary.payment.mandateStatus}</dd>
             </div>}
           </dl>
+          {summary.membership.expiryDate && <dl style={{ marginTop: 16 }}>
+            <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
+            <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
+          </dl>}
+          {summary.payment.state === 'paid' && summary.payment.method === 'upfront' && <dl style={{ marginTop: 16 }}>
+            <dt {...role('fieldLabel')}>{content.fields.method}</dt>
+            <dd {...role('value')}>{displayMethod}</dd>
+          </dl>}
           <p {...role('supporting', { marginTop: 16 })}>{copy.supporting}</p>
         </div>
       ) : (
         <>
           <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>
           <dl className="membership-fields">
+            {summary.membership.expiryDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
+              <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
+            </div>}
             {fieldKeys.map(key => <div key={key} style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{key === 'nextPayment' ? paymentDateLabel : content.fields[key]}</dt>
               <dd {...role('value')}>{values[key]}</dd>

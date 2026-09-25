@@ -20,6 +20,68 @@ const summary = (personal, organisation = [], options = {}) => buildCanvasSummar
   selected: selectCanvasCommitment(personal, organisation, today), today, ...options,
 });
 
+const legacyTenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const legacyTerm = (patch = {}) => ({
+  id: 'legacy', tenant_id: legacyTenant, member_id: member.id, membership_source: 'personal',
+  membership_year: '2025/2026', tier_label: 'Full Membership UK',
+  status: 'active', payment_status: 'paid', payment_method: 'upfront',
+  billing_period: 'annual', currency: 'GBP', term_end_date: '2026-10-16',
+  notes: JSON.stringify({ source: 'bnms_non_dd_current_backfill', private: 'must-not-leak' }),
+  ...patch,
+});
+
+test('reviewed upfront evidence is current and paid without invented commencement or renewal', () => {
+  const value = summary([legacyTerm()]);
+  assert.equal(value.membership.state, 'active');
+  assert.equal(value.membership.expiryDate, '2026-10-16');
+  assert.equal(value.membership.memberSince, null);
+  assert.equal(value.membership.renewalDate, null);
+  assert.equal(value.payment.state, 'paid');
+  assert.equal(value.payment.method, 'upfront');
+  assert.equal(value.payment.nextPayment, null);
+  assert.equal(value.payment.amount, null);
+  assert.equal(value.payment.confirmedPayment, null);
+  assert.equal(summary([legacyTerm()], [], { paused: true }).membership.state, 'paused');
+  assert.equal(summary([legacyTerm()], [], { paused: true }).payment.state, 'paused');
+  assert.doesNotMatch(JSON.stringify(value), /must-not-leak|notes|snapshot/);
+});
+
+test('legacy recognition stays narrow and never revives stopped, expired or unrelated records', () => {
+  for (const patch of [
+    { notes: null }, { notes: '{invalid' }, { tenant_id: 'other' },
+    { membership_source: 'organisation' }, { term_end_date: '2026-09-17' },
+    { term_end_date: '2026-02-30' }, { status: 'cancelled' }, { status: 'paused' },
+    { status: 'expired' }, { payment_status: 'unpaid' }, { billing_period: 'monthly' },
+    { billing_agreement_id: 'agreement' }, { config_id: 'config' },
+    { final_cost: 10, total_with_vat: null },
+  ]) {
+    const value = summary([legacyTerm(patch)]);
+    assert.notEqual(value.membership.state, 'active', JSON.stringify(patch));
+    assert.notEqual(value.payment.state, 'paid', JSON.stringify(patch));
+    assert.equal(value.membership.expiryDate, undefined);
+  }
+});
+
+test('API selects server-only legacy provenance but returns only display evidence', async () => {
+  const owner = { ...member, tenant_id: legacyTenant };
+  const h = harness({
+    session: owner, context: { tenantId: legacyTenant },
+    rows: { member: [owner], member_membership_history: [legacyTerm()] },
+  });
+  const response = await h.request();
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.membership.state, 'active');
+  assert.equal(response.payload.membership.expiryDate, '2026-10-16');
+  assert.equal(response.payload.payment.state, 'paid');
+  assert.equal(response.payload.payment.method, 'upfront');
+  assert.doesNotMatch(JSON.stringify(response.payload), /must-not-leak|notes|snapshot|legacy/);
+  const otherOwner = await harness({
+    session: owner, context: { tenantId: legacyTenant },
+    rows: { member: [owner], member_membership_history: [legacyTerm({ member_id: 'other' })] },
+  }).request();
+  assert.equal(otherOwner.payload.membership.state, 'none');
+});
+
 test('existing migrated mandate is active while upcoming term remains unpaid and pending', () => {
   const history = term({ status: 'pending_payment_setup', payment_status: 'unpaid',
     term_start_date: '2026-10-01', payment_method: 'direct_debit', billing_period: 'monthly_direct_debit' });
@@ -344,7 +406,10 @@ test('history query projections respect each owner schema and avoid unsupported 
   const existingHistory = readFileSync(new URL('./member-history.js', import.meta.url), 'utf8');
   const personalSelect = existingHistory.match(/const PERSONAL_COLUMNS = \[([\s\S]*?)\]\.join/)[1];
   const orgSelect = existingHistory.match(/const ORGANISATION_COLUMNS = \[([\s\S]*?)\]\.join/)[1];
-  for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status'].includes(column))) {
+  // Server-only attestation fields are intentionally absent from the public
+  // history projection. The API regression above exercises their selection.
+  for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status',
+    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);

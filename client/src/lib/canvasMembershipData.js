@@ -2,7 +2,7 @@
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'flat_rate', 'unavailable'];
+export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'upfront', 'flat_rate', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
@@ -68,7 +68,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     fields: {
       memberSince: 'Member since', membershipType: '', amount: 'Next payment amount', method: 'Payment method',
       // nextPayment is retained only as a migration source for author wording.
-      nextPayment: 'Payment date', plannedPaymentDate: 'Planned payment date',
+      nextPayment: 'Payment date', expiryDate: 'Membership valid until', plannedPaymentDate: 'Planned payment date',
       confirmedPaymentDate: 'Confirmed payment date', renewalDate: 'Renewal date', paymentHistoryFrom: 'Payment history from',
       confirmedPayment: 'Confirmed payment', historicalPayment: 'Historical confirmed payment',
       confirmedPaymentAmount: 'Confirmed payment amount', plannedPayment: 'Planned payment',
@@ -77,7 +77,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     methods: {
       direct_debit: 'Direct Debit', monthly_direct_debit: 'Monthly Direct Debit',
       card: 'Card', monthly_card: 'Monthly card', bank_transfer: 'Bank transfer',
-      invoice: 'Invoice', flat_rate: 'Flat Rate', unavailable: 'Unavailable',
+      invoice: 'Invoice', upfront: 'Upfront', flat_rate: 'Flat Rate', unavailable: 'Unavailable',
     },
     messages: {
       loading: 'Loading your membership details…',
@@ -217,6 +217,7 @@ export function normalizeCanvasMembershipSummary(value) {
       memberSince: isoDate(membership.memberSince),
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,
       renewalDate: isoDate(membership.renewalDate),
+      ...(isoDate(membership.expiryDate) ? { expiryDate: isoDate(membership.expiryDate) } : {}),
       paymentHistoryFrom: isoDate(membership.paymentHistoryFrom),
     },
     payment: {
