@@ -75,6 +75,7 @@ import {
   resolveRepeatableOrganisationLabel,
 } from '../../../shared/repeatableFormRowsFormat.js';
 import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
+import { matchSubmissionSearch } from '@/lib/formSubmissionSearch';
 import {
   getFormSubmissionPaymentReview,
   isVisibleFormSubmission,
@@ -1015,6 +1016,16 @@ export default function FormSubmissionsPage() {
     return paid;
   }, [submissions, activeTab, ownedFormIds]);
 
+  const submissionSearchMatches = useMemo(() => new Map(scopedSubmissions.map(submission => [
+    submission.id,
+    matchSubmissionSearch(submission, formsById[submission.form_id], searchQuery, {
+      relationshipLabelsByRecordId, organisationNamesById, organisationGroupNamesById,
+      memberNamesById, roleNamesById, resourceCategoryNamesById, communicationCategoryNamesById, customFieldDefById,
+    }),
+  ])), [scopedSubmissions, formsById, searchQuery, relationshipLabelsByRecordId,
+    organisationNamesById, organisationGroupNamesById, memberNamesById, roleNamesById,
+    resourceCategoryNamesById, communicationCategoryNamesById, customFieldDefById]);
+
   const filteredSubmissions = useMemo(() => {
     let filtered = scopedSubmissions;
 
@@ -1041,17 +1052,20 @@ export default function FormSubmissionsPage() {
     }
 
     if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter(s => 
-        resolveFormName(s).toLowerCase().includes(searchLower) ||
-        s.submitted_by_email?.toLowerCase().includes(searchLower) ||
-        s.submitted_by_name?.toLowerCase().includes(searchLower) ||
-        JSON.stringify(s.submission_data).toLowerCase().includes(searchLower)
-      );
+      filtered = filtered.filter(s => submissionSearchMatches.get(s.id)?.matches);
     }
 
     return filtered;
-  }, [scopedSubmissions, selectedForm, assignmentFilter, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
+  }, [scopedSubmissions, selectedForm, assignmentFilter, selectedStatus, dateFrom, dateTo, searchQuery, submissionSearchMatches]);
+
+  // Do not leave hidden matches selected after a filter or label lookup changes.
+  useEffect(() => {
+    const visibleIds = new Set(filteredSubmissions.map(s => s.id));
+    setSelectedSubmissionIds(previous => {
+      const next = new Set([...previous].filter(id => visibleIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [filteredSubmissions]);
 
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const paginatedSubmissions = useMemo(() => {
@@ -2035,9 +2049,13 @@ export default function FormSubmissionsPage() {
                     setCurrentPage(1);
                   }}
                   className="pl-10"
+                  aria-describedby="submission-search-scope"
                   data-testid="input-search-submissions"
                 />
               </div>
+              <p id="submission-search-scope" className="text-xs text-slate-500">
+                Searches form names, submitter names/emails and readable answers, not internal IDs or metadata.
+              </p>
               {/* Row 2: Filters + exports — all vertically centred, wraps on narrow screens */}
               <div className="flex flex-wrap items-center gap-3">
                 <Select value={selectedForm} onValueChange={(val) => {
@@ -2439,6 +2457,12 @@ export default function FormSubmissionsPage() {
                       </div>
                       <div className="flex-1">
                         <CardTitle className="text-base mb-2">{resolveFormName(submission)}</CardTitle>
+                        {submissionSearchMatches.get(submission.id)?.excerpt && (
+                          <p className="text-sm text-slate-600 mb-2 break-words" data-testid={`submission-search-match-${submission.id}`}>
+                            <span className="font-medium">Answer match — {submissionSearchMatches.get(submission.id).excerpt.field}: </span>
+                            {submissionSearchMatches.get(submission.id).excerpt.value}
+                          </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-2 text-sm">
                           {getStatusBadge(submission.status)}
                           {submission.submitted_by_name && (
