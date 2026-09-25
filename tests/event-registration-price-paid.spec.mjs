@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import {
+  normalizeGroupPayment,
+  normalizeGroupPricePaid,
+  normalizeGroupTicketPrices,
+} from "../api/reports/_pricePaid.js";
 
 /*
  * Task 4733 browser coverage is fixture-only. Every API/Supabase request is
@@ -685,6 +690,90 @@ function financialCells(page, attendeeId) {
     pricePaid: cells.nth(12),
   };
 }
+
+test("explicit payment intentions and unavailable imported financial history survive table, totals and CSV", async ({ page }) => {
+  const specs = [
+    ["guest-import", "Guest Imported", "admin_import", null, true],
+    ["member-import", "Member Imported", "admin_import", null, false],
+    ["guest-free", "Guest Free", "free", 0, true],
+    ["member-free", "Member Free", "free", 0, false],
+    ["guest-paid", "Guest Paid", "card", 25, true],
+    ["member-invoice", "Member Invoice", "public_invoice_po", 40, false],
+    ["guest-unknown", "Guest Unknown", null, 0, true],
+    ["member-account", "Member Account", "account", 10, false],
+    ["member-voucher", "Member Voucher", "voucher", 0, false],
+    ["guest-fund", "Guest Fund", "training_fund", 0, true],
+  ];
+  const groups = specs.map(([id, name, method, amount, guest]) => {
+    const row = attendee({
+      id, firstName: name.split(" ")[0], lastName: name.split(" ")[1],
+      email: `${id}@example.invalid`, ticketPrice: amount,
+      pricePaid: amount, pricePaidStatus: amount === null ? "unavailable" : "net",
+      paymentMethod: method,
+    });
+    row.is_guest_booking = guest;
+    if (amount === null) row.ticket_price_status = "unavailable_import_financials";
+    const group = bookingGroup(row);
+    // Derive imported canonical fields from the same helper used by the API,
+    // while preserving the API's separately recorded in-app allocation zeros.
+    const imported = amount === null ? {
+      _report_booking_source: "standard",
+      payment_method: method,
+      ticket_price: 0,
+      total_cost: 0,
+      voucher_amount: 0,
+      training_fund_amount: 0,
+      account_amount: 0,
+      discount_code_amount: 0,
+      status: "confirmed",
+    } : null;
+    if (imported) {
+      row.ticket_price = normalizeGroupTicketPrices([imported])[0];
+      Object.assign(row, normalizeGroupPricePaid([imported])[0]);
+    }
+    Object.assign(group.groupPayment, {
+      paymentMethod: method,
+      totalCost: amount,
+      ...(imported ? normalizeGroupPayment([imported]) : {
+        ticketTotal: amount, totalAfterDiscount: amount,
+        discount: 0, codeDiscount: 0, totalsStatus: null,
+      }),
+      voucherAmount: 0,
+      trainingFundAmount: 0,
+      accountAmount: 0,
+    });
+    return group;
+  });
+  const state = await openGeneratedReport(page, { bookingGroups: groups, readyId: "guest-import" });
+  const expected = [
+    "Imported (financial history unavailable)", "Imported (financial history unavailable)",
+    "Free", "Free", "Stripe", "Invoice / PO", "Unknown", "Account", "Voucher", "Training Fund",
+  ];
+  for (let i = 0; i < specs.length; i++) {
+    const cells = page.getByTestId(`row-booking-${specs[i][0]}`).locator("td");
+    await expect(cells.nth(14)).toHaveText(expected[i]);
+  }
+  await expect(financialCells(page, "guest-import").totalAfterDiscount).toHaveText("Unavailable");
+  await expect(financialCells(page, "member-import").voucher).toHaveText("-");
+  await expect(financialCells(page, "member-import").fund).toHaveText("-");
+  await expect(page.getByTestId("text-price-paid-explanation")).toContainText(
+    "A recorded zero on an imported registration does not establish its external payment history",
+  );
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("Unavailable");
+  await expect(page.getByTestId("text-total-vouchers")).toHaveText("£0.00");
+  await expect(page.getByTestId("text-total-fund")).toHaveText("£0.00");
+  mkdirSync("screenshots", { recursive: true });
+  await page.screenshot({ path: "screenshots/task4789-mocked-registration-report.png", fullPage: true });
+  await page.getByTestId("row-booking-guest-import").locator("td").nth(14).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "screenshots/task4789-mocked-payment-badges.png", fullPage: true });
+  await selectOnlyColumns(page, ["std:name", "std:groupTotal", "std:voucher", "std:trainingFund", "std:accountAmount", "std:paymentMethod"]);
+  const csv = await exportSelectedColumns(page);
+  expect(csv).toContain('"Guest Imported","Unavailable","0.00","0.00","0.00","Imported (financial history unavailable)"');
+  expect(csv).toContain('"Guest Free","0.00","0.00","0.00","0.00","Free"');
+  expect(csv).toContain('"Guest Unknown","0.00","0.00","0.00","0.00","Unknown"');
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
 
 test("Price Paid is visible with net and pending semantics and selected by default", async ({ page }) => {
   const state = await openGeneratedReport(page);

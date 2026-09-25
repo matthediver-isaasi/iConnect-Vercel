@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { formatRegistrationPricePaid } from '../lib/eventRegistrationPricePaid.js';
+import { financialAmount, financialExport, financialCurrency, paymentMethodLabel } from '../lib/eventRegistrationFinancial.js';
 
 const source = readFileSync(new URL('./EventRegistrationReport.jsx', import.meta.url), 'utf8');
 
@@ -45,11 +46,13 @@ test('financial export columns use stable keys in accounting order', () => {
     /key: 'std:groupTotal'[\s\S]*?gp\.totalAfterDiscount/,
     'the CSV total must use the canonical intermediate total',
   );
-  assert.match(
-    source,
-    /totalRevenue \+= \(gp\.totalCost \|\| 0\) - \(gp\.codeDiscount \|\| 0\)/,
-    'the separate revenue summary keeps its existing meaning',
-  );
+  assert.match(source, /const cost = financialAmount\(gp\.totalCost\)/);
+  assert.match(source, /const codeDiscount = financialAmount\(gp\.codeDiscount\)/);
+  assert.match(source, /if \(cost === null \|\| codeDiscount === null\) hasUnavailableRevenue = true/);
+  assert.match(source, /else totalRevenue \+= cost - codeDiscount/, 'revenue retains cost minus code discount when both are known');
+  assert.equal(financialAmount(null), null);
+  assert.equal(financialExport(null), 'Unavailable');
+  assert.equal(financialCurrency(0), '£0.00');
 
   // Exercise the page's actual introduction effect. Existing deselections
   // remain untouched while the newly introduced Price Paid key is selected.
@@ -111,15 +114,19 @@ test('table financial columns and whole-filter footer use canonical totals in or
   }
   assert.ok(financialHeaders.indexOf('Discount') < financialHeaders.indexOf('Total after Discount'));
   assert.ok(financialHeaders.indexOf('Fund') < financialHeaders.indexOf('Price Paid'));
-  assert.match(source, /for \(const group of filteredGroups\)[\s\S]*?totalAfterDiscount \+= Number\(gp\.totalAfterDiscount \|\| 0\)/);
-  assert.match(source, /totalDiscount \+= gp\.discount \|\| 0/);
+  assert.match(source, /const afterDiscount = financialAmount\(gp\.totalAfterDiscount\)/);
+  assert.match(source, /if \(afterDiscount === null\) hasUnavailableAfterDiscount = true/);
+  assert.match(source, /else totalAfterDiscount \+= afterDiscount/);
+  assert.match(source, /if \(discount === null \|\| isGrossSnapshotUnavailable\(gp\)\) hasUnavailableDiscountTotal = true/);
+  assert.match(source, /else totalDiscount \+= discount/);
   assert.match(source, /totalFooterDiscount \+= Math\.abs\(Number\(gp\.discount\)\)/);
-  assert.match(source, /formatCurrency\(filteredSummary\.totalAfterDiscount\)/);
-  assert.match(source, /formatCurrency\(filteredSummary\.totalPricePaid\)/);
+  assert.match(source, /hasUnavailableAfterDiscount \? 'Unavailable' : formatCurrency\(filteredSummary\.totalAfterDiscount\)/);
+  assert.match(source, /hasUnavailablePricePaid \? 'Unavailable' : formatCurrency\(filteredSummary\.totalPricePaid\)/);
 });
 
 test('unavailable historical gross snapshots are never rendered or exported as zero', () => {
   assert.match(source, /ticket_price_status === 'unavailable_gross_snapshot'/);
+  assert.match(source, /ticket_price_status === 'unavailable_import_financials'/);
   assert.match(
     source,
     /isGrossSnapshotUnavailable\(a\) \|\| a\.ticket_price == null[\s\S]*?'Unavailable'/,
@@ -131,6 +138,18 @@ test('unavailable historical gross snapshots are never rendered or exported as z
   assert.match(source, /hasUnavailableTicketTotal[\s\S]*?text-muted-foreground">Unavailable/);
   assert.match(source, /hasUnavailableDiscount[\s\S]*?text-muted-foreground">Unavailable/);
   assert.match(source, /Historical Invoice \/ PO registrations with offer-adjusted prices/);
+});
+
+test('payment labels use explicit intent in both badge and CSV, not total cost', () => {
+  assert.equal(paymentMethodLabel('admin_import'), 'Imported (financial history unavailable)');
+  assert.equal(paymentMethodLabel(null), 'Unknown');
+  assert.equal(paymentMethodLabel('free'), 'Free');
+  assert.match(source, /function PaymentMethodBadge\(\{ method \}\)/);
+  assert.match(source, /const label = paymentMethodLabel\(method\)/);
+  assert.match(source, /key: 'std:paymentMethod'[\s\S]*?paymentMethodLabel\(gp\.paymentMethod\)/);
+  assert.doesNotMatch(source, /Number\(totalCost\) === 0/);
+  assert.match(source, /Voucher, Training Fund and Account amounts reflect only allocations recorded in this app/);
+  assert.match(source, /recorded zero on an imported registration does not establish its external payment history/);
 });
 
 test('report explains net and pending Price Paid semantics', () => {

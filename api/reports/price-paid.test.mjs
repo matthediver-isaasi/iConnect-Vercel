@@ -4,6 +4,7 @@ import {
   normalizeGroupPayment,
   normalizeGroupPricePaid,
   normalizeGroupTicketPrices,
+  grossTicketPrice,
 } from './_pricePaid.js';
 
 const standard = (values = {}) => ({
@@ -44,6 +45,62 @@ test('free and fully credited bookings preserve a real zero', () => {
     { price_paid: 0, price_paid_status: 'net' },
     { price_paid: 0, price_paid_status: 'net' },
   ]);
+});
+
+test('admin imports are provenance: zero defaults are unknown but positive stored evidence is retained', () => {
+  assert.deepEqual(normalizeGroupPricePaid([
+    standard({ payment_method: 'admin_import', ticket_price: 0, total_cost: 0, stripe_payment_intent_id: null }),
+    complex({ payment_method: 'admin_import', ticket_price: 0, payment_status: null }),
+    standard({ payment_method: 'admin_import', ticket_price: 40, total_cost: 30, stripe_payment_intent_id: null }),
+    standard({ payment_method: 'admin_import', ticket_price: 40, total_cost: 0 }),
+  ]), [
+    { price_paid: null, price_paid_status: 'unavailable' },
+    { price_paid: null, price_paid_status: 'unavailable' },
+    { price_paid: 30, price_paid_status: 'unavailable' },
+    { price_paid: null, price_paid_status: 'unavailable' },
+  ]);
+  const imported = standard({ payment_method: 'admin_import', ticket_price: 0, total_cost: 0 });
+  assert.deepEqual(normalizeGroupPayment([imported]), {
+    ticketTotal: null, totalAfterDiscount: null, discount: null,
+    offerDiscount: null, codeDiscount: null, totalsStatus: 'unavailable_import_financials',
+  });
+  assert.deepEqual(normalizeGroupTicketPrices([imported]), [null]);
+  assert.equal(normalizeGroupPayment([standard({
+    payment_method: 'admin_import', ticket_price: 40, total_cost: 30,
+  })]).totalAfterDiscount, 30);
+  assert.deepEqual(normalizeGroupTicketPrices([
+    standard({ payment_method: 'admin_import', ticket_price: 40, total_cost: 0 }),
+  ]), [40]);
+  const knownCost = standard({ payment_method: 'admin_import', ticket_price: 0, total_cost: 30 });
+  assert.equal(normalizeGroupPayment([knownCost]).totalAfterDiscount, 30);
+  assert.equal(normalizeGroupPayment([knownCost]).ticketTotal, null);
+  assert.deepEqual(normalizeGroupPricePaid([knownCost]), [
+    { price_paid: 30, price_paid_status: 'unavailable' },
+  ]);
+});
+
+test('missing base amounts remain unavailable rather than zero', () => {
+  assert.equal(normalizeGroupPayment([standard({ total_cost: null, ticket_price: 60 })]).totalAfterDiscount, null);
+  assert.equal(normalizeGroupPayment([standard({ total_cost: null, ticket_price: 60 })]).ticketTotal, 60);
+  assert.deepEqual(normalizeGroupPricePaid([
+    standard({ total_cost: null }), complex({ ticket_price: null }),
+  ]).map(row => row.price_paid), [null, null]);
+});
+
+test('missing or invalid gross snapshot does not invent a standard discount or a complex £0 ticket', () => {
+  for (const missing of [null, '', 'invalid', Infinity]) {
+    const standardRow = standard({ ticket_price: missing, total_cost: 75 });
+    assert.deepEqual(normalizeGroupPayment([standardRow]), {
+      ticketTotal: null, totalAfterDiscount: 75, discount: null,
+      offerDiscount: null, codeDiscount: 0, totalsStatus: 'unavailable_gross_snapshot',
+    });
+    assert.deepEqual(normalizeGroupTicketPrices([standardRow]), [null]);
+    const complexRow = complex({ ticket_price: missing });
+    assert.equal(grossTicketPrice(complexRow), null);
+    assert.deepEqual(normalizeGroupTicketPrices([complexRow]), [null]);
+    assert.equal(normalizeGroupPayment([complexRow]).ticketTotal, null);
+    assert.equal(normalizeGroupPricePaid([complexRow])[0].price_paid, null);
+  }
 });
 
 test('rounding never moves a remainder onto a free or exact-price attendee', () => {

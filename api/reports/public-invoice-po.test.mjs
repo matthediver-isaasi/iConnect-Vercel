@@ -38,6 +38,11 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const projectCredits = ${projectCredits.toString()};
     const attachReportCredits = ${attachReportCredits.toString()};
     const normalizeGroupPricePaid = ${normalizeGroupPricePaid.toString()};
+    const knownMoney = ${((value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }).toString()};
     const moneyToCents = ${((value) => {
       if (value === null || value === undefined || value === '') return 0;
       const number = Number(value);
@@ -282,4 +287,120 @@ test('complex discovery and booking failures are explicit, not successful empty 
     assert.match(result.body.error, /Failed to fetch complex/);
     assert.equal(result.body.bookingGroups, undefined);
   }
+});
+
+test('import placeholders across guest/member and both booking tables are unknown, not free; tenant is isolated', async () => {
+  const common = {
+    tenant_id: 'tenant', status: 'confirmed', created_at: '2026-09-20T16:25:00.000Z',
+    ticket_price: 0, payment_method: 'admin_import',
+  };
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      event: [{ id: 'simple', tenant_id: 'tenant', status: 'published', title: 'Simple' }],
+      complex_event: [{ id: 'complex', tenant_id: 'tenant', status: 'published', title: 'Complex' }],
+      booking: [
+        { ...common, id: 'guest', event_id: 'simple', member_id: null, is_guest_booking: true,
+          total_cost: 0, booking_reference: 'IMP-1', booking_group_reference: 'IMPG-1' },
+        { ...common, id: 'member', event_id: 'simple', member_id: 'member-1', is_guest_booking: false,
+          total_cost: 0, booking_reference: 'IMP-2', booking_group_reference: 'IMPG-1' },
+        { ...common, id: 'paid-evidence', event_id: 'simple', member_id: 'member-2',
+          ticket_price: 50, total_cost: 50, booking_group_reference: 'KNOWN' },
+        { ...common, id: 'foreign', tenant_id: 'other', event_id: 'simple', total_cost: 0 },
+      ],
+      complex_event_booking: [
+        { ...common, id: 'complex-guest', event_id: 'complex', member_id: null,
+          total_paid: null, booking_group_reference: 'IMPG-2' },
+        { ...common, id: 'complex-member', event_id: 'complex', member_id: 'member-3',
+          total_paid: 0, booking_group_reference: 'IMPG-2' },
+        { ...common, id: 'foreign-complex', tenant_id: 'other', event_id: 'complex',
+          total_paid: 0 },
+      ],
+    },
+    query: { generate: 'true' },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.summary.totalBookings, 5);
+  assert.equal(result.body.summary.countByMethod.admin_import, 3);
+  assert.equal(result.body.summary.hasUnavailableRevenue, true);
+  assert.equal(result.body.summary.hasUnavailableTicketTotal, true);
+  assert.equal(result.body.summary.hasUnavailableDiscount, true);
+  assert.equal(result.body.summary.hasUnavailableAfterDiscount, true);
+  assert.equal(result.body.summary.hasUnavailablePricePaid, true);
+  for (const group of result.body.bookingGroups.filter(group => group.groupRef?.startsWith('IMPG-'))) {
+    assert.equal(group.groupPayment.paymentMethod, 'admin_import');
+    assert.equal(group.groupPayment.totalCost, null);
+    assert.equal(group.groupPayment.ticketTotal, null);
+    assert.equal(group.groupPayment.totalAfterDiscount, null);
+    assert.equal(group.groupPayment.totalsStatus, 'unavailable_import_financials');
+    for (const attendee of group.attendees) {
+      assert.equal(attendee.ticket_price, null);
+      assert.equal(attendee.price_paid, null);
+      assert.equal(attendee.price_paid_status, 'unavailable');
+    }
+  }
+  const positive = result.body.bookingGroups.find(group => group.groupRef === 'KNOWN');
+  assert.equal(positive.groupPayment.ticketTotal, 50);
+  assert.equal(positive.attendees[0].price_paid, 50);
+  assert.equal(positive.attendees[0].price_paid_status, 'unavailable');
+});
+
+test('report preserves free, paid, pending invoice/PO and unknown method distinctions', async () => {
+  const methods = [
+    { id: 'free', payment_method: 'free', ticket_price: 0, total_cost: 0 },
+    { id: 'card', payment_method: 'card', ticket_price: 25, total_cost: 25, stripe_payment_intent_id: 'pi_test' },
+    { id: 'invoice', payment_method: 'invoice', ticket_price: 30, total_cost: 30 },
+    { id: 'po', payment_method: 'public_invoice_po', ticket_price: 40, total_cost: 40 },
+    { id: 'unknown', payment_method: null, ticket_price: 35, total_cost: 35 },
+  ];
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      event: [{ id: 'simple', tenant_id: 'tenant', status: 'published', title: 'Simple' }],
+      booking: methods.map(row => ({
+        ...row, event_id: 'simple', tenant_id: 'tenant', status: 'confirmed',
+        created_at: '2026-09-20T16:25:00.000Z',
+      })),
+    },
+    query: { eventId: 'simple' },
+  });
+  assert.equal(result.code, 200);
+  assert.deepEqual(Object.fromEntries(result.body.bookingGroups.map(group => [
+    group.attendees[0].id,
+    [group.groupPayment.paymentMethod, group.attendees[0].price_paid, group.attendees[0].price_paid_status],
+  ])), {
+    free: ['free', 0, 'net'], card: ['card', 25, 'net'],
+    invoice: ['invoice', 30, 'pending'], po: ['public_invoice_po', 40, 'pending'],
+    unknown: [null, 35, 'unavailable'],
+  });
+});
+
+test('missing gross or cost snapshots never fabricate canonical or legacy discount totals', async () => {
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      event: [{ id: 'simple', tenant_id: 'tenant', status: 'published' }],
+      complex_event: [{ id: 'complex', tenant_id: 'tenant', status: 'published' }],
+      booking: [
+        { id: 'no-gross', event_id: 'simple', tenant_id: 'tenant', ticket_price: null,
+          total_cost: 40, payment_method: 'invoice', status: 'confirmed' },
+        { id: 'no-cost', event_id: 'simple', tenant_id: 'tenant', ticket_price: 50,
+          total_cost: null, payment_method: 'invoice', status: 'confirmed' },
+      ],
+      complex_event_booking: [{ id: 'complex-no-price', event_id: 'complex',
+        tenant_id: 'tenant', ticket_price: null, total_paid: null,
+        payment_method: 'invoice', status: 'confirmed' }],
+    },
+    query: { generate: 'true' },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.summary.totalDiscount, 0);
+  assert.equal(result.body.summary.hasUnavailableDiscount, true);
+  assert.equal(result.body.summary.hasUnavailableRevenue, true);
+  const groups = Object.fromEntries(result.body.bookingGroups.map(group => [group.attendees[0].id, group]));
+  assert.equal(groups['no-gross'].groupPayment.totalAfterDiscount, 40);
+  assert.equal(groups['no-gross'].groupPayment.ticketTotal, null);
+  assert.equal(groups['no-gross'].groupPayment.discount, null);
+  assert.equal(groups['no-cost'].groupPayment.totalCost, null);
+  assert.equal(groups['no-cost'].groupPayment.ticketTotal, 50);
+  assert.equal(groups['complex-no-price'].attendees[0].ticket_price, null);
+  assert.equal(groups['complex-no-price'].attendees[0].total_cost, null);
+  assert.equal(groups['complex-no-price'].groupPayment.totalAfterDiscount, null);
 });

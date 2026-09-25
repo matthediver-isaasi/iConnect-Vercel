@@ -14,3 +14,7 @@ Legacy simple bookings may lack immutable currency evidence. Current linked tick
 **Why:** Assuming GBP would silently misstate other currencies, while refusing all legacy simple bookings would make this source unusable for otherwise explicitly configured events.
 
 **How to apply:** Prefer persisted financial snapshots; fail explicitly when neither snapshot nor linked configuration supplies currency. Future immutable snapshots should supersede, not silently reinterpret, this fallback.
+
+See [Imported registration evidence](imported-registration-financial-evidence.md)
+for the separate rule that admin-import zero defaults do not establish a free
+historical purchase.

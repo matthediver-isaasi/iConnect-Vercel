@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
+import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
 import {
   formatRegistrationCreditBreakdown,
   formatRegistrationCreditExplanation,
@@ -244,13 +245,14 @@ function TypeAheadInput({ value, onChange, onSelect, suggestions, placeholder, r
 const ITEMS_PER_PAGE = 25;
 
 function formatCurrency(amount) {
-  if (amount === null || amount === undefined) return "\u00A30.00";
-  return `\u00A3${Number(amount).toFixed(2)}`;
+  return financialCurrency(amount);
 }
 
 function isGrossSnapshotUnavailable(record) {
   return record?.totalsStatus === 'unavailable_gross_snapshot'
-    || record?.ticket_price_status === 'unavailable_gross_snapshot';
+    || record?.totalsStatus === 'unavailable_import_financials'
+    || record?.ticket_price_status === 'unavailable_gross_snapshot'
+    || record?.ticket_price_status === 'unavailable_import_financials';
 }
 
 function formatRegistrationTicketPrice(attendee) {
@@ -258,13 +260,14 @@ function formatRegistrationTicketPrice(attendee) {
   return formatCurrency(attendee.ticket_price);
 }
 
-function PaymentMethodBadge({ method, totalCost }) {
-  if (method === 'public_invoice_po') return <Badge variant="outline">Invoice / PO</Badge>;
+function PaymentMethodBadge({ method }) {
+  const label = paymentMethodLabel(method);
+  if (method === 'public_invoice_po') return <Badge variant="outline">{label}</Badge>;
   if (method === 'card') {
     return (
       <Badge variant="outline" className="gap-1">
         <CreditCard className="w-3 h-3" />
-        Stripe
+        {label}
       </Badge>
     );
   }
@@ -272,14 +275,14 @@ function PaymentMethodBadge({ method, totalCost }) {
     return (
       <Badge variant="secondary" className="gap-1">
         <Building2 className="w-3 h-3" />
-        Account
+        {label}
       </Badge>
     );
   }
-  if (method === 'free' || Number(totalCost) === 0) {
-    return <Badge variant="secondary">Free</Badge>;
+  if (['free', 'voucher', 'training_fund'].includes(method)) {
+    return <Badge variant="secondary">{label}</Badge>;
   }
-  return <span className="text-muted-foreground">{method || '-'}</span>;
+  return <span className="text-muted-foreground" title={method || undefined}>{label}</span>;
 }
 
 export default function EventRegistrationReport() {
@@ -1097,14 +1100,14 @@ export default function EventRegistrationReport() {
       const discount = Math.abs(Number(gp.discount || 0));
       return (discount > 0 ? -discount : 0).toFixed(2);
     } },
-    { key: 'std:groupTotal', label: 'Total after Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? Number(gp.totalAfterDiscount || 0).toFixed(2) : '') },
-    { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '') },
-    { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '') },
+    { key: 'std:groupTotal', label: 'Total after Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.totalAfterDiscount) : '') },
+    { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.voucherAmount) : '') },
+    { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.trainingFundAmount) : '') },
     { key: 'std:pricePaid', label: 'Price Paid', get: ({ a }) => formatRegistrationPricePaid(a) },
     { key: 'std:credits', label: 'Credits', get: ({ group, isFirstInGroup }) => (isFirstInGroup ? formatRegistrationCreditsExport(group.credits) : '') },
     { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
-    { key: 'std:accountAmount', label: 'Account Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '') },
-    { key: 'std:paymentMethod', label: 'Payment Method', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.paymentMethod || '') : '') },
+    { key: 'std:accountAmount', label: 'Account Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.accountAmount) : '') },
+    { key: 'std:paymentMethod', label: 'Payment Method', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? paymentMethodLabel(gp.paymentMethod) : '') },
     { key: 'std:poNumber', label: 'PO Number', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.purchaseOrderNumber || '') : '') },
     { key: 'std:poToFollow', label: 'PO To Follow', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.poToFollow ? 'Yes' : 'No') : '') },
     { key: 'std:stripe', label: 'Stripe Payment', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.stripePaymentIntentId ? 'Yes' : 'No') : '') },
@@ -1196,14 +1199,30 @@ export default function EventRegistrationReport() {
     const creditsSummary = summarizeRegistrationCredits(filteredGroups);
     let hasUnavailableTicketTotal = false;
     let hasUnavailableDiscount = false;
+    let hasUnavailableRevenue = false;
+    let hasUnavailableVoucher = false;
+    let hasUnavailableFund = false;
+    let hasUnavailableAfterDiscount = false;
+    let hasUnavailablePricePaid = false;
+    let hasUnavailableStripe = false;
+    let hasUnavailableDiscountTotal = false;
     let totalStripePayments = 0;
     const countByMethod = {};
     for (const group of filteredGroups) {
       const gp = group.groupPayment;
-      totalRevenue += (gp.totalCost || 0) - (gp.codeDiscount || 0);
-      totalVoucher += gp.voucherAmount || 0;
-      totalTrainingFund += gp.trainingFundAmount || 0;
-      totalDiscount += gp.discount || 0;
+      const cost = financialAmount(gp.totalCost);
+      const codeDiscount = financialAmount(gp.codeDiscount);
+      if (cost === null || codeDiscount === null) hasUnavailableRevenue = true;
+      else totalRevenue += cost - codeDiscount;
+      const voucher = financialAmount(gp.voucherAmount);
+      const fund = financialAmount(gp.trainingFundAmount);
+      const discount = financialAmount(gp.discount);
+      if (voucher === null) hasUnavailableVoucher = true;
+      else totalVoucher += voucher;
+      if (fund === null) hasUnavailableFund = true;
+      else totalTrainingFund += fund;
+      if (discount === null || isGrossSnapshotUnavailable(gp)) hasUnavailableDiscountTotal = true;
+      else totalDiscount += discount;
       if (isGrossSnapshotUnavailable(gp) || gp.ticketTotal == null) {
         hasUnavailableTicketTotal = true;
       } else {
@@ -1214,14 +1233,19 @@ export default function EventRegistrationReport() {
       } else {
         totalFooterDiscount += Math.abs(Number(gp.discount));
       }
-      totalAfterDiscount += Number(gp.totalAfterDiscount || 0);
+      const afterDiscount = financialAmount(gp.totalAfterDiscount);
+      if (afterDiscount === null) hasUnavailableAfterDiscount = true;
+      else totalAfterDiscount += afterDiscount;
       for (const attendee of group.attendees) {
         if (attendee.price_paid_status === 'net' && attendee.price_paid != null && Number.isFinite(Number(attendee.price_paid))) {
           totalPricePaid += Number(attendee.price_paid);
+        } else if (attendee.price_paid == null) {
+          hasUnavailablePricePaid = true;
         }
       }
       if (gp.paymentMethod === 'card' || gp.stripePaymentIntentId) {
-        totalStripePayments += (gp.totalCost || 0) - (gp.codeDiscount || 0);
+        if (cost === null || codeDiscount === null) hasUnavailableStripe = true;
+        else totalStripePayments += cost - codeDiscount;
       }
       const method = gp.paymentMethod || 'unknown';
       countByMethod[method] = (countByMethod[method] || 0) + 1;
@@ -1240,6 +1264,13 @@ export default function EventRegistrationReport() {
       creditsSummary,
       hasUnavailableTicketTotal,
       hasUnavailableDiscount,
+      hasUnavailableRevenue,
+      hasUnavailableVoucher,
+      hasUnavailableFund,
+      hasUnavailableAfterDiscount,
+      hasUnavailablePricePaid,
+      hasUnavailableStripe,
+      hasUnavailableDiscountTotal,
       totalStripePayments,
       countByMethod,
     };
@@ -1808,7 +1839,7 @@ export default function EventRegistrationReport() {
                   <Banknote className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Total Revenue</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-revenue">{formatCurrency(filteredSummary.totalRevenue)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-revenue">{filteredSummary.hasUnavailableRevenue ? 'Unavailable' : formatCurrency(filteredSummary.totalRevenue)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1817,7 +1848,7 @@ export default function EventRegistrationReport() {
                   <Ticket className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Vouchers Used</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-vouchers">{formatCurrency(filteredSummary.totalVoucher)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-vouchers">{filteredSummary.hasUnavailableVoucher ? 'Unavailable' : formatCurrency(filteredSummary.totalVoucher)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1826,7 +1857,7 @@ export default function EventRegistrationReport() {
                   <Building2 className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Training Fund</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-fund">{formatCurrency(filteredSummary.totalTrainingFund)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-fund">{filteredSummary.hasUnavailableFund ? 'Unavailable' : formatCurrency(filteredSummary.totalTrainingFund)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1835,7 +1866,7 @@ export default function EventRegistrationReport() {
                   <Receipt className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Discounts</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-discounts">{formatCurrency(filteredSummary.totalDiscount)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-discounts">{filteredSummary.hasUnavailableDiscountTotal ? 'Unavailable' : formatCurrency(filteredSummary.totalDiscount)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1844,7 +1875,7 @@ export default function EventRegistrationReport() {
                   <CreditCard className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Stripe Payments</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-stripe">{formatCurrency(filteredSummary.totalStripePayments)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-stripe">{filteredSummary.hasUnavailableStripe ? 'Unavailable' : formatCurrency(filteredSummary.totalStripePayments)}</p>
               </CardContent>
             </Card>
           </div>
@@ -1916,6 +1947,7 @@ export default function EventRegistrationReport() {
                   <p className="mb-3 text-xs text-muted-foreground" data-testid="text-price-paid-explanation">
                     Price Paid is the net ticket price after discounts and credits applied at checkout, including vouchers and training funds. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
                     {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
+                    {' '}Voucher, Training Fund and Account amounts reflect only allocations recorded in this app. A recorded zero on an imported registration does not establish its external payment history; imported financial history may be unavailable.
                     {' '}Credits are refunds or accounting credit notes issued after booking; they do not include vouchers, training funds or account allocations used at checkout. Pending, failed and unavailable evidence is not treated as zero.
                   </p>
                   <div className="overflow-x-auto">
@@ -2029,10 +2061,10 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalAfterDiscount)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                  {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
+                                  {gp.voucherAmount == null ? 'Unavailable' : gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                  {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                                  {gp.trainingFundAmount == null ? 'Unavailable' : gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
                                   {formatRegistrationPricePaid(attendee)}
@@ -2046,7 +2078,7 @@ export default function EventRegistrationReport() {
                                   </Tooltip>
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
-                                  <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
+                                  <PaymentMethodBadge method={gp.paymentMethod} />
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {gp.purchaseOrderNumber ? (
@@ -2141,10 +2173,10 @@ export default function EventRegistrationReport() {
                                 {formatCurrency(gp.totalAfterDiscount)}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
-                                {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
+                                {gp.voucherAmount == null ? 'Unavailable' : gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
-                                {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                                {gp.trainingFundAmount == null ? 'Unavailable' : gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
                               </td>
                             </>
                           );
@@ -2152,7 +2184,7 @@ export default function EventRegistrationReport() {
                           const renderPaymentDetailCells = (keyAttendeeId) => (
                             <>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
-                                <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
+                                <PaymentMethodBadge method={gp.paymentMethod} />
                               </td>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.purchaseOrderNumber ? (
@@ -2345,16 +2377,16 @@ export default function EventRegistrationReport() {
                                   : '-'}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalAfterDiscount)}
+                              {filteredSummary.hasUnavailableAfterDiscount ? 'Unavailable' : formatCurrency(filteredSummary.totalAfterDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalVoucher)}
+                              {filteredSummary.hasUnavailableVoucher ? 'Unavailable' : formatCurrency(filteredSummary.totalVoucher)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalTrainingFund)}
+                              {filteredSummary.hasUnavailableFund ? 'Unavailable' : formatCurrency(filteredSummary.totalTrainingFund)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalPricePaid)}
+                              {filteredSummary.hasUnavailablePricePaid ? 'Unavailable' : formatCurrency(filteredSummary.totalPricePaid)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap" data-testid="text-total-credits">
                               {formatRegistrationCreditSummary(filteredSummary.creditsSummary)}

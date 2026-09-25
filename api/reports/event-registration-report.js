@@ -126,6 +126,11 @@ export default async function handler(req, res) {
       totalDiscount: 0,
       totalAccountPayments: 0,
       totalStripePayments: 0,
+      hasUnavailableRevenue: false,
+      hasUnavailableTicketTotal: false,
+      hasUnavailableDiscount: false,
+      hasUnavailableAfterDiscount: false,
+      hasUnavailablePricePaid: false,
       countByMethod: {},
       countByStatus: {},
       totalBookings: 0,
@@ -343,7 +348,7 @@ export default async function handler(req, res) {
             ...b,
             _report_booking_source: 'complex',
             // Invoice intentions have no payment, but retain a registration value.
-            total_cost: b.payment_method === 'public_invoice_po' ? (b.ticket_price || 0) : (b.total_paid || 0),
+            total_cost: b.payment_method === 'public_invoice_po' ? b.ticket_price : b.total_paid,
             account_amount: b.account_balance_amount || 0,
             purchase_order_number: b.purchase_order_number || null,
             po_to_follow: null,
@@ -750,6 +755,11 @@ export default async function handler(req, res) {
       let totalDiscount = 0;
       let totalAccountPayments = 0;
       let totalStripePayments = 0;
+      let hasUnavailableRevenue = false;
+      let hasUnavailableTicketTotal = false;
+      let hasUnavailableDiscount = false;
+      let hasUnavailableAfterDiscount = false;
+      let hasUnavailablePricePaid = false;
       const countByMethod = {};
       const countByStatus = {};
 
@@ -775,31 +785,46 @@ export default async function handler(req, res) {
         const groupPricePaid = normalizeGroupPricePaid(members);
         const canonicalPayment = normalizeGroupPayment(members);
         const groupTicketPrices = normalizeGroupTicketPrices(members);
+        if (canonicalPayment.ticketTotal == null) hasUnavailableTicketTotal = true;
+        if (canonicalPayment.discount == null) hasUnavailableDiscount = true;
+        if (canonicalPayment.totalAfterDiscount == null) hasUnavailableAfterDiscount = true;
+        if (groupPricePaid.some(row => row.price_paid == null || row.price_paid_status === 'unavailable')) {
+          hasUnavailablePricePaid = true;
+        }
 
         // Keep totalCost and the summary-card calculations below on their
         // historical raw snapshots. The canonical footer values are calculated
         // independently because complex ticket_price is already code-discounted.
-        const groupTotalCost = members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
+        const hasUnknownCost = members.some(b => b.total_cost == null || b.total_cost === ''
+          || !Number.isFinite(Number(b.total_cost))
+          || (b.payment_method === 'admin_import' && Number(b.total_cost) === 0));
+        const groupTotalCost = hasUnknownCost ? null
+          : members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
+        if (hasUnknownCost) hasUnavailableRevenue = true;
 
         const groupVoucher = members.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0);
         const groupTrainingFund = members.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0);
         const groupAccountAmount = members.reduce((sum, b) => sum + (Number(b.account_amount) || 0), 0);
         // Legacy card totals intentionally remain based on the old raw source
         // semantics; changing those is outside this footer correction.
+        const hasUnknownGross = members.some(b => b.ticket_price == null || b.ticket_price === ''
+          || !Number.isFinite(Number(b.ticket_price))
+          || (b.payment_method === 'admin_import' && Number(b.ticket_price) === 0));
         const legacyTicketTotal = members.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0);
-        const legacyOfferDiscount = Math.max(0, legacyTicketTotal - groupTotalCost);
+        const legacyOfferDiscount = hasUnknownGross || hasUnknownCost
+          ? 0 : Math.max(0, legacyTicketTotal - groupTotalCost);
         const legacyCodeDiscount = members.reduce((sum, b) => sum + (Number(b.discount_code_amount) || 0), 0);
         const legacyDiscount = legacyOfferDiscount + legacyCodeDiscount;
         const groupDiscountCode = (members.find(b => b.discount_code_label)?.discount_code_label) || null;
 
-        totalRevenue += groupTotalCost - legacyCodeDiscount;
+        if (groupTotalCost !== null) totalRevenue += groupTotalCost - legacyCodeDiscount;
         totalVoucher += groupVoucher;
         totalTrainingFund += groupTrainingFund;
         totalDiscount += legacyDiscount;
         totalAccountPayments += groupAccountAmount;
 
         if (first.payment_method === 'card' || first.stripe_payment_intent_id) {
-          totalStripePayments += groupTotalCost - legacyCodeDiscount;
+          if (groupTotalCost !== null) totalStripePayments += groupTotalCost - legacyCodeDiscount;
         }
 
         const method = first.payment_method || 'unknown';
@@ -942,8 +967,8 @@ export default async function handler(req, res) {
               // source snapshot for consumers that need to audit complex net
               // ticket_price semantics.
               ticket_price: groupTicketPrices[memberIndex],
-              ticket_price_status: groupTicketPrices[memberIndex] === null
-                ? 'unavailable_gross_snapshot'
+               ticket_price_status: groupTicketPrices[memberIndex] === null
+                 ? (b.payment_method === 'admin_import' ? 'unavailable_import_financials' : 'unavailable_gross_snapshot')
                 : 'available',
               raw_ticket_price: b.ticket_price,
               total_cost: b.total_cost,
@@ -992,6 +1017,11 @@ export default async function handler(req, res) {
         totalDiscount,
         totalAccountPayments,
         totalStripePayments,
+        hasUnavailableRevenue,
+        hasUnavailableTicketTotal,
+        hasUnavailableDiscount,
+        hasUnavailableAfterDiscount,
+        hasUnavailablePricePaid,
         countByMethod,
         countByStatus,
         totalBookings: allBookings.length,

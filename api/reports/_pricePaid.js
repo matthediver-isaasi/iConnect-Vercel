@@ -16,7 +16,9 @@ export function normalizeGroupPricePaid(bookings) {
   const normalized = (bookings || []).map((booking) => {
     const isComplex = booking._report_booking_source === 'complex';
     const base = money(isComplex ? booking.ticket_price : booking.total_cost);
-    if (base === null) {
+    // The import writer supplies zero as a default, not as a checkout
+    // snapshot. A genuine free booking uses the separate `free` method.
+    if (base === null || (booking.payment_method === 'admin_import' && base === 0)) {
       return { price_paid: null, price_paid_status: 'unavailable', rawCents: null };
     }
 
@@ -105,6 +107,12 @@ const moneyToCents = (value) => {
   return Number.isFinite(number) ? Math.round((number + Number.EPSILON) * 100) : 0;
 };
 
+const knownMoney = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
 const centsToMoney = (value) => value / 100;
 
 const complexDiscountKey = (booking) => {
@@ -137,6 +145,74 @@ const complexDiscountCentsByRow = (rows) => {
 export function normalizeGroupPayment(bookings) {
   const rows = bookings || [];
   const isComplex = rows.some(booking => booking._report_booking_source === 'complex');
+  // Import defaults (including a zero ticket_price) are not evidence of a
+  // free purchase. Do not let one such row turn a whole group into £0.
+  const importWithoutFinancialSnapshot = rows.some(booking =>
+    booking.payment_method === 'admin_import'
+    && knownMoney(booking.ticket_price) === 0
+    && knownMoney(booking._report_booking_source === 'complex'
+      ? booking.ticket_price : booking.total_cost) === 0
+  );
+  if (importWithoutFinancialSnapshot) {
+    return {
+      ticketTotal: null, totalAfterDiscount: null, discount: null,
+      offerDiscount: null, codeDiscount: null,
+      totalsStatus: 'unavailable_import_financials',
+    };
+  }
+  // A nonzero imported list price with a zero default base does not establish
+  // the discount or the net amount. Retain the independently known list price.
+  const importWithoutBase = rows.some(booking =>
+    booking.payment_method === 'admin_import'
+    && knownMoney(booking.ticket_price) > 0
+    && knownMoney(booking._report_booking_source === 'complex'
+      ? booking.ticket_price : booking.total_cost) === 0
+  );
+  if (importWithoutBase) {
+    return {
+      ticketTotal: rows.every(booking => knownMoney(booking.ticket_price) !== null)
+        ? centsToMoney(rows.reduce((sum, booking) =>
+          sum + Math.max(0, moneyToCents(booking.ticket_price)), 0))
+        : null,
+      totalAfterDiscount: null, discount: null, offerDiscount: null,
+      codeDiscount: null, totalsStatus: 'unavailable_import_financials',
+    };
+  }
+  if (rows.some(booking =>
+    booking.payment_method === 'admin_import'
+    && knownMoney(booking.ticket_price) === 0
+    && knownMoney(booking._report_booking_source === 'complex'
+      ? booking.ticket_price : booking.total_cost) > 0
+  )) {
+    return {
+      ticketTotal: null,
+      totalAfterDiscount: rows.every(booking =>
+        knownMoney(booking._report_booking_source === 'complex'
+          ? booking.ticket_price : booking.total_cost) !== null)
+        ? centsToMoney(rows.reduce((sum, booking) => sum + Math.max(0,
+          moneyToCents(booking._report_booking_source === 'complex'
+            ? booking.ticket_price : booking.total_cost)
+          - moneyToCents(booking._report_booking_source === 'complex'
+            ? booking.discount_amount : booking.discount_code_amount)), 0))
+        : null,
+      discount: null, offerDiscount: null, codeDiscount: null,
+      totalsStatus: 'unavailable_import_financials',
+    };
+  }
+  if (rows.some(booking =>
+    knownMoney(booking._report_booking_source === 'complex'
+      ? booking.ticket_price : booking.total_cost) === null
+  )) {
+    return {
+      ticketTotal: !isComplex && rows.every(booking => knownMoney(booking.ticket_price) !== null)
+        ? centsToMoney(rows.reduce((sum, booking) =>
+          sum + Math.max(0, moneyToCents(booking.ticket_price)), 0))
+        : null,
+      totalAfterDiscount: null, discount: null,
+      offerDiscount: null, codeDiscount: null,
+      totalsStatus: 'unavailable_missing_base',
+    };
+  }
   const isStandardPublicInvoicePo = !isComplex && rows.some(
     booking => booking.payment_method === 'public_invoice_po'
       && booking.purchaser_context?.classification === 'public_non_member',
@@ -152,6 +228,23 @@ export function normalizeGroupPayment(bookings) {
       0,
       moneyToCents(booking.discount_code_amount),
     ), 0);
+
+  // Standard cost still establishes the pre-credit net even when the list
+  // ticket snapshot is absent. It cannot establish gross or offer discount.
+  // A public PO's immutable gross snapshot is independently authoritative.
+  const snapshotGross = knownMoney(publicInvoiceSnapshot?.gross_ticket_total_amount);
+  if (!isComplex && rows.some(booking => knownMoney(booking.ticket_price) === null)
+    && !(isStandardPublicInvoicePo && snapshotGross > 0)) {
+    const costCents = rows.reduce(
+      (sum, booking) => sum + Math.max(0, moneyToCents(booking.total_cost)), 0);
+    return {
+      ticketTotal: null,
+      totalAfterDiscount: centsToMoney(Math.max(0, costCents - codeDiscountCents)),
+      discount: null, offerDiscount: null,
+      codeDiscount: centsToMoney(codeDiscountCents),
+      totalsStatus: 'unavailable_gross_snapshot',
+    };
+  }
 
   let ticketTotalCents;
   let totalAfterDiscountCents;
@@ -214,7 +307,9 @@ export function normalizeGroupPayment(bookings) {
 
 /** Gross attendee ticket value for display; complex ticket_price is net. */
 export function grossTicketPrice(booking) {
-  if (booking?._report_booking_source !== 'complex') return booking?.ticket_price;
+  if (knownMoney(booking?.ticket_price) === null
+    || (booking?.payment_method === 'admin_import' && knownMoney(booking.ticket_price) === 0)) return null;
+  if (booking?._report_booking_source !== 'complex') return booking.ticket_price;
   const ticketCents = Math.max(0, moneyToCents(booking?.ticket_price));
   const codeCents = Math.max(0, moneyToCents(booking.discount_amount));
   return centsToMoney(ticketCents + codeCents);
@@ -234,15 +329,18 @@ export function normalizeGroupTicketPrices(bookings) {
       && booking.purchaser_context?.financial_snapshot,
   )?.purchaser_context.financial_snapshot.gross_ticket_unit_amount;
   return rows.map((booking, index) => {
+    if (booking?.payment_method === 'admin_import'
+      && knownMoney(booking.ticket_price) === 0) return null;
     if (booking?._report_booking_source !== 'complex') {
       const isLegacyPublicInvoicePo = booking?.payment_method === 'public_invoice_po'
         && booking.purchaser_context?.classification === 'public_non_member'
         && publicInvoiceUnit == null;
       if (isLegacyPublicInvoicePo) return null;
       return publicInvoiceUnit == null
-        ? booking?.ticket_price
+        ? (knownMoney(booking?.ticket_price) === null ? null : booking.ticket_price)
         : centsToMoney(Math.max(0, moneyToCents(publicInvoiceUnit)));
     }
+    if (knownMoney(booking.ticket_price) === null) return null;
     return centsToMoney(
       Math.max(0, moneyToCents(booking.ticket_price)) + complexDiscounts[index],
     );
