@@ -699,20 +699,26 @@ export function growthForContainedGeom(
     signedGrowth
   );
   let overflow = 0;
-
-  for (const target of targets) {
-    if (!containsMember(containerGeom, target, {
+  const ownedTargets = targets.filter(target => containsMember(containerGeom, target, {
       allowBottomOverflow: (
         allowBottomOverflow &&
         target.allowSectionBottomOverflow === true
       ),
-    })) continue;
+    }));
+  // Live payment cards can grow long after the authored geometry was saved.
+  // Keep the Section's existing trailing inset, not a new arbitrary margin or
+  // the card's internal padding. Other containers retain their slack-consuming
+  // contract. Use the deepest authored child so higher cards cannot invent gaps.
+  const trailingInset = allowBottomOverflow && ownedTargets.some(target => target.preserveSectionBottomInset)
+    ? Math.max(0, containerTop + containerHeight - Math.max(...ownedTargets.map(target => target.bottom)))
+    : 0;
+  for (const target of ownedTargets) {
     const renderedBottom = (
       target.y +
       liveTargetHeight(target, membersById) +
       offsetForTargetGeom(rowGroups, target, relayTargets, inheritedOffsets)
     );
-    overflow = Math.max(overflow, renderedBottom - renderedContainerBottom);
+    overflow = Math.max(overflow, renderedBottom + trailingInset - renderedContainerBottom);
   }
 
   // Keep the signed carousel exception intact for Sections, then extend that

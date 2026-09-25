@@ -539,6 +539,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         // Only intrinsically auto-height content can use top-anchor Section
         // ownership. Fixed blocks and background containers remain strict.
         allowSectionBottomOverflow: !!def?.autoHeight,
+        preserveSectionBottomInset: block.type === BLOCK_TYPES.PAYMENT_DETAILS,
         // Boxes participate in ownership but never receive the Section-only
         // bottom-overflow relaxation.
         containerType: (
@@ -755,6 +756,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           right: geom.x + geom.w,
           fullWidth: blockIsFullWidthLike(block),
           allowSectionBottomOverflow: !!def?.autoHeight,
+          preserveSectionBottomInset: block.type === BLOCK_TYPES.PAYMENT_DETAILS,
         };
         if (reflowMemberIsContained(spatialContainerGeom, target, {
           // Section contents are anchored by their stored top. Auto-height
@@ -770,7 +772,8 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       }
       // Containers follow final contained visible bottoms: stacked collisions
       // propagate, parallel lanes contribute their deepest path, and authored
-      // room beneath content is consumed before the background grows.
+      // room is normally consumed before growth. Sections containing live
+      // payment cards opt into retaining their authored trailing inset.
       return growthForContainedGeom(rowGroups, spatialContainerGeom, containedTargets, {
         growOnly: isBox,
         relayTargets: effectiveCollisionTargets,

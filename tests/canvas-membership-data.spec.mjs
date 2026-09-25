@@ -464,8 +464,9 @@ for (const version of [1, 2]) {
       await expect(payment).toContainText("1 October 2026");
       await expect(payment).toContainText("Planned payment date");
       await expect(payment).toContainText("2026-2027 Full member with NMC");
-      await expect(payment).toContainText("not yet bank scheduled");
-      await expect(payment).toContainText("Your membership is current");
+      // The simplified card retains the projected label, not supporting copy.
+      await expect(payment).not.toContainText("not yet bank scheduled");
+      await expect(payment).not.toContainText("Your membership is current");
       await expect(payment).not.toContainText("awaiting confirmation");
       await expect(payment).not.toContainText("paid in full");
       await page.screenshot({ path: testInfo.outputPath(`dynamic-dd-v${version}-${width}.png`), fullPage: true });
@@ -810,6 +811,58 @@ test("isolated viewer identities, guest, denied, errors and no-membership states
     expect(fixture.writes).toEqual([]);
     await context.close();
   }
+});
+
+for (const version of [1, 2]) for (const upfront of [false, true]) test(`V${version} ${upfront ? "upfront" : "dynamic DD"} payment Section preserves bottom inset through asynchronous growth`, async ({ page }, testInfo) => {
+  const fixture = await installFixtures(page, {
+    version, viewer: "alpha", apiState: "loading",
+    summaryOverride: {
+      membership: { state: "active", expiryDate: "2026-10-16" },
+      payment: upfront ? { state: "paid", method: "upfront" } : {
+        state: "current_direct_debit", method: "monthly_direct_debit",
+        amount: 13, currency: "GBP", mandateStatus: "active", collectionBasis: "projected",
+        collectionStatus: "planned", nextCollection: { date: "2026-10-01", status: "planned" },
+        collectionStructure: "2026-2027 Full member with NMC",
+      },
+    },
+  });
+  const section = fixture.fixturePage.canvas_design.root.sections[0];
+  const payment = section.children.find(item => item.type === "payment-details");
+  payment.content.minHeight = { desktop: 620, tablet: 620, mobile: 720 };
+  if (version === 1) {
+    const background = {
+      id: "payment-background", type: "section",
+      geom: { x: 0, y: 330, w: 940, h: 390 },
+      bp: {
+        desktop: { x: 0, y: 330, w: 940, h: 390 },
+        tablet: { x: 0, y: 330, w: 700, h: 390 },
+        mobile: { x: 0, y: 330, w: 343, h: 390 },
+      },
+      style: { background: "#456378", zIndex: 0 },
+      content: { bgType: "color" },
+    };
+    section.children.unshift(background);
+  } else {
+    section.style = { background: "#456378" };
+    section.flow.padTop = 20;
+    section.flow.padBottom = 40;
+  }
+  await openPublished(page, fixture);
+  fixture.releaseLoading();
+  const cookieDecline = page.getByRole("button", { name: "Decline", exact: true });
+  if (await cookieDecline.isVisible().catch(() => false)) await cookieDecline.click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const card = page.locator("[data-block-type='payment-details']").first();
+    const background = page.locator(`[data-block-id='${version === 1 ? "payment-background" : section.id}']`).first();
+    await expect.poll(async () => {
+      const cardBox = await card.boundingBox();
+      const sectionBox = await background.boundingBox();
+      return sectionBox && cardBox ? Math.round(sectionBox.y + sectionBox.height - cardBox.y - cardBox.height) : null;
+    }).toBe(40);
+    await page.screenshot({ path: testInfo.outputPath(`payment-section-v${version}-${width}.png`), fullPage: true });
+  }
+  expect(fixture.writes).toEqual([]);
 });
 
 test("simplified payment details preserve facts at desktop and mobile sizes", async ({ page }, testInfo) => {

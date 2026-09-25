@@ -18,6 +18,24 @@ const block = (id, type, y, h, x = 0, w = 100) => ({
   geom: { x, y, w, h, hidden: false },
 });
 const resolveGeom = (item) => item.geom;
+test('payment Section growth preserves authored trailing inset without adding padding to ordinary containers', () => {
+  const rows = buildReflowRowGroups([{
+    id: 'payment', top: 20, bottom: 120, refBottom: 120,
+    left: 0, right: 100, effectiveH: 300,
+    allowSectionBottomOverflow: true,
+  }]);
+  const section = { x: 0, y: 0, w: 100, h: 160 };
+  const targets = [{
+    id: 'payment', x: 0, y: 20, w: 100, h: 100,
+    allowSectionBottomOverflow: true, preserveSectionBottomInset: true,
+  }];
+  assert.equal(growthForContainedGeom(rows, section, targets, { allowBottomOverflow: true }), 200);
+  assert.equal(growthForContainedGeom(rows, section, targets), 160, 'Box consumes slack as before');
+  assert.equal(growthForContainedGeom(rows, section, [{ ...targets[0], preserveSectionBottomInset: false }],
+    { allowBottomOverflow: true }), 160, 'unrelated Section contracts unchanged');
+  assert.equal(growthForContainedGeom(rows, { ...section, h: 120 }, targets,
+    { allowBottomOverflow: true }), 200, 'zero authored inset remains zero');
+});
 const member = (id, effectiveH, { signed = false, isCard = false } = {}) => ({
   id,
   effectiveH,
