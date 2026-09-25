@@ -56,6 +56,37 @@ test('attested upfront membership shows known expiry and no invented payment or 
   }
 });
 
+test('current dynamic DD shows projected amount, planned date and structure without claiming settlement', () => {
+  const data = {
+    membership: { state: 'active', memberSince: null },
+    payment: { state: 'current_direct_debit', method: 'monthly_direct_debit',
+      amount: 13, currency: 'GBP', mandateStatus: 'active', collectionBasis: 'projected',
+      collectionStatus: 'planned', nextPayment: '2026-10-01',
+      nextCollection: { date: '2026-10-01', amount: 13, currency: 'GBP', status: 'planned' },
+      collectionNotice: 'Projected collection amount — not yet bank scheduled',
+      collectionStructure: '2026-2027 Full member with NMC',
+      structureNotice: 'Structure effective on planned collection date',
+    },
+  };
+  const html = render({ type: 'payment-details', result: { status: 'ready', data } });
+  assert.match(html, /Projected next payment amount/);
+  assert.match(html, /£13.00/);
+  assert.match(html, /Planned payment date/);
+  assert.match(html, /1 October 2026/);
+  assert.match(html, /2026-2027 Full member with NMC/);
+  assert.match(html, /Your membership is current/);
+  assert.match(html, /not yet bank scheduled/);
+  assert.doesNotMatch(html, /awaiting confirmation|paid in full|Confirmed payment date/);
+  const held = render({ type: 'payment-details', result: { status: 'ready', data: {
+    ...data, payment: { ...data.payment, state: 'paused', collectionBasis: 'held',
+      collectionNotice: 'Configured amount — collection held', nextCollection: null,
+      nextPayment: null, collectionStatus: 'unscheduled' },
+  } } });
+  assert.match(held, /Configured amount/);
+  assert.match(held, /collection held/);
+  assert.doesNotMatch(held, /1 October 2026|Your membership is current/);
+});
+
 test('summary semantic labels, values, responsive grid and sample boundary', () => {
   const html = render();
   assert.match(html, /Your membership/);

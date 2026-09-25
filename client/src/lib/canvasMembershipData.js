@@ -1,11 +1,12 @@
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
+export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'current_direct_debit', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'upfront', 'flat_rate', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
+  current_direct_debit: 'Current membership',
   first_payment_pending: 'Payment pending',
   active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
   failed: 'Payment failed', unavailable: 'Unavailable', none: 'No membership',
@@ -21,12 +22,14 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
+  current_direct_debit: 'Payment details',
   first_payment_pending: 'Payment details',
   active: 'Payment details', paid: 'Payment details', pending: 'Payment details', paused: 'Payment details',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
+  current_direct_debit: 'Your membership is current. Payment collection is shown separately.',
   first_payment_pending: 'Your payment is awaiting confirmation.',
   active: 'Your payment arrangement is active.',
   paid: 'Your current membership has been paid in full.',
@@ -67,6 +70,8 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     }])),
     fields: {
       memberSince: 'Member since', membershipType: '', amount: 'Next payment amount', method: 'Payment method',
+      projectedAmount: 'Projected next payment amount', configuredAmount: 'Configured amount',
+      collectionStructure: 'Collection structure',
       // nextPayment is retained only as a migration source for author wording.
       nextPayment: 'Payment date', expiryDate: 'Membership valid until', plannedPaymentDate: 'Planned payment date',
       confirmedPaymentDate: 'Confirmed payment date', renewalDate: 'Renewal date', paymentHistoryFrom: 'Payment history from',
@@ -233,6 +238,12 @@ export function normalizeCanvasMembershipSummary(value) {
       collectionStatus: ['confirmed', 'planned', 'unscheduled', 'unavailable'].includes(payment.collectionStatus)
         ? payment.collectionStatus : 'unavailable',
       mandateStatus: typeof payment.mandateStatus === 'string' ? payment.mandateStatus.slice(0, 400) : null,
+      ...(['projected', 'confirmed', 'held', 'not_scheduled', 'unavailable'].includes(payment.collectionBasis) ? {
+        collectionBasis: payment.collectionBasis,
+        collectionNotice: typeof payment.collectionNotice === 'string' ? payment.collectionNotice.slice(0, 400) : null,
+        collectionStructure: typeof payment.collectionStructure === 'string' ? payment.collectionStructure.slice(0, 400) : null,
+        structureNotice: typeof payment.structureNotice === 'string' ? payment.structureNotice.slice(0, 400) : null,
+      } : {}),
     },
   };
 }

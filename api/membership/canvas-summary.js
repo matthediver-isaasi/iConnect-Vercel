@@ -5,9 +5,11 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { shapePersistedCommitment, shapeLegacyCurrentMembership } from './member-membership.js';
 import { shapePlan } from './payment-plan.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
+import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
-// reads retained commitments, never live pricing, provider APIs or simulations.
+// reads retained commitments and read-only dynamic pricing projections, never
+// provider APIs, collection orchestration or payment simulations.
 const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, payment_method, billing_period, term_key, term_start_date, term_end_date, membership_renewal_date, commitment_snapshot';
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
@@ -259,7 +261,7 @@ async function matchingPlan(db, selected, tenantId, memberId) {
   const record = selected?.record;
   if (!record || record.membership_source !== 'personal' || !record.billing_agreement_id) return null;
   const { data: agreement, error } = await db.from('membership_billing_agreements')
-    .select('id, tenant_id, member_id, organization_id, provider, status, metadata, term_key, term_start_date, commitment_snapshot')
+    .select('id, tenant_id, member_id, organization_id, provider, status, environment, gocardless_mandate_id, metadata, term_key, term_start_date, commitment_snapshot')
     .eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('id', record.billing_agreement_id).maybeSingle();
   if (error) throw error;
@@ -273,7 +275,7 @@ async function matchingPlan(db, selected, tenantId, memberId) {
   if ((key && selectedKey && key !== selectedKey) || (start && selected.start && start !== selected.start)) return null;
   if (!(key && selectedKey === key) && !(start && start === selected.start)) return null;
   const { data: plans, error: planError } = await db.from('membership_payment_plans')
-    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, environment, gocardless_mandate_id, interval_unit, membership_year, next_charge_date, last_payment_status, collection_stopped_at, amount_minor, currency, metadata')
+    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, environment, gocardless_mandate_id, gocardless_subscription_id, interval_unit, membership_year, next_charge_date, dynamic_next_collection_date, last_payment_status, collection_stopped_at, amount_minor, currency, metadata')
     .eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('billing_agreement_id', agreement.id)
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
@@ -433,7 +435,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const selected = selectCanvasCommitment(personal, organisation, today);
       const plan = await matchingPlan(db, selected, tenantId, member.id);
       const [managed, historical] = await Promise.all([
-        collectionEvidence(db, plan, tenantId, member.id, today),
+        plan?.metadata?.collection_mode === 'dynamic' ? null : collectionEvidence(db, plan, tenantId, member.id, today),
         pilotHistoricalEvidence(db, selected, plan, tenantId, member.id),
       ]);
       const selectedWithEvidence = selected ? {
@@ -442,9 +444,10 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         confirmedPayment: managed?.confirmed || historical?.latest || null,
         plannedCollection: managed?.planned || null,
       } : null;
-      return res.json(buildCanvasSummary({
+      const summary = buildCanvasSummary({
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
-      }));
+      });
+      return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });
     }

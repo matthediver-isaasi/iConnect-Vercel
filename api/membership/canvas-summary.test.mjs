@@ -115,7 +115,7 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
         data = data.slice(call.offset, call.end + 1);
         // Real PostgREST returns only selected columns. Do not let fixture-only
         // fields conceal an incomplete production query projection.
-        if (call.columns) data = data.map(row => Object.fromEntries(call.columns.split(',')
+        if (call.columns && call.columns !== '*') data = data.map(row => Object.fromEntries(call.columns.split(',')
           .map(column => column.trim()).map(column => [column, row[column]])));
         return { data, error: errors[table] || null };
       };
@@ -124,6 +124,7 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
         eq(key, value) { call.filters.push([key, value]); return chain; },
         in(key, values) { call.filters.push([key, values, 'in']); return chain; },
         is(key, value) { call.filters.push([key, value]); return chain; },
+        or() { return chain; }, // Effective-date selection is covered by the canonical price resolver suite.
         order() { return chain; },
         range(offset, end) { call.offset = offset; call.end = end; return chain; },
         limit(size) { call.end = size - 1; return chain; },
@@ -158,6 +159,130 @@ function harness({ session = member, context = { tenantId: 'tenant-a' }, admin =
   }
   return { db, gates, request };
 }
+
+function dynamicRows() {
+  const config = { id: 'config', tenant_id: member.tenant_id, name: 'October member structure',
+    structure_scope_type: 'member', pricing_model: 'flat', start_mode: 'immediate',
+    dd_enabled: true, dd_monthly_amount: 13, currency: 'GBP' };
+  return {
+    member_membership_history: [term({ billing_agreement_id: 'agreement', payment_method: 'direct_debit',
+      billing_period: 'monthly_direct_debit' })],
+    membership_billing_agreements: [{
+      id: 'agreement', tenant_id: member.tenant_id, member_id: member.id,
+      term_key: '2026-term', provider: 'gocardless', environment: 'live', status: 'first_payment_pending',
+      gocardless_mandate_id: 'mandate', metadata: { dd: {
+        billing_request_mode: 'migration_existing_mandate', activation_rule: 'first_payment',
+        collection_policy: { version: 1, pricing_policy: 'dynamic', end_policy: 'stop' },
+        invoicing_mode: 'per_instalment', currency: 'GBP',
+        commitment: { term_key: '2026-term', commitment_snapshot: { config } },
+      } },
+    }],
+    membership_payment_plans: [{
+      id: 'plan', tenant_id: member.tenant_id, member_id: member.id, billing_agreement_id: 'agreement',
+      provider: 'gocardless', environment: 'live', status: 'first_payment_pending',
+      gocardless_mandate_id: 'mandate', interval_unit: 'monthly', amount_minor: 9999, currency: 'GBP',
+      dynamic_next_collection_date: '2026-10-01', metadata: { collection_mode: 'dynamic' },
+    }],
+    gocardless_mandates: [{ tenant_id: member.tenant_id, gocardless_mandate_id: 'mandate', environment: 'live', status: 'active' }],
+    membership_tier_config: [config],
+  };
+}
+
+test('dynamic DD API uses projected canonical price, not stale fixed amount or first-payment copy for current members', async () => {
+  const h = harness({ rows: dynamicRows() });
+  const result = await h.request();
+  assert.equal(result.statusCode, 200);
+  const p = result.payload.payment;
+  assert.equal(result.payload.membership.state, 'active');
+  assert.equal(p.state, 'current_direct_debit');
+  assert.equal(p.amount, 13);
+  assert.equal(p.nextPayment, '2026-10-01');
+  assert.equal(p.collectionStatus, 'planned');
+  assert.equal(p.collectionBasis, 'projected');
+  assert.match(p.collectionNotice, /not yet bank scheduled/);
+  assert.equal(p.collectionStructure, 'October member structure');
+  assert.equal(p.confirmedPayment, null);
+  assert.doesNotMatch(JSON.stringify(result.payload), /commitment_snapshot|agreement|mandate"|metadata/);
+  for (const call of h.db.calls) {
+    assert.ok(call.filters.some(([key]) => key === 'tenant_id'), call.table);
+    if (['member_membership_history', 'organisation_membership_history'].includes(call.table)) {
+      assert.ok(call.filters.some(([key]) => ['member_id', 'organization_id'].includes(key)));
+    }
+  }
+});
+
+test('dynamic DD stops, holds, pricing review and mismatched scope remain explicit', async () => {
+  for (const [change, expected] of [
+    [r => { r.member = [{ ...member, membership_paused: true }]; }, 'paused'],
+    [r => { r.membership_payment_plans[0].collection_stopped_at = today; }, 'paused'],
+    [r => { r.membership_payment_plans[0].metadata.bnms_release_required = true; }, 'paused'],
+    [r => { r.membership_payment_plans[0].status = 'cancelled'; }, 'paused'],
+    [r => { r.membership_payment_plans[0].status = 'expired'; }, 'expired'],
+    [r => { r.gocardless_mandates[0].status = 'cancelled'; }, 'paused'],
+    [r => { r.gocardless_mandates[0].status = 'expired'; }, 'expired'],
+    [r => { r.membership_tier_config.push({ ...r.membership_tier_config[0], id: 'overlap' }); }, 'review'],
+    [r => { r.membership_tier_config = []; }, 'review'],
+    [r => { r.membership_payment_plans[0].dynamic_next_collection_date = '2026-09-01'; }, 'review'],
+    [r => { r.membership_payment_plans[0].dynamic_next_collection_date = '2026-02-30'; }, 'review'],
+    [r => { r.membership_billing_agreements[0].environment = 'sandbox'; }, 'review'],
+    [r => { r.membership_billing_agreements[0].gocardless_mandate_id = 'foreign'; }, 'review'],
+  ]) {
+    const rows = dynamicRows(); change(rows);
+    const result = await harness({ rows }).request();
+    assert.equal(result.statusCode, 200);
+    const p = result.payload.payment;
+    assert.equal(p.nextPayment, null);
+    if (expected === 'review') {
+      assert.equal(p.amount, null);
+      assert.match(p.collectionNotice, /Review required/);
+    } else assert.equal(p.state, expected);
+    assert.equal(p.confirmedPayment, null);
+  }
+});
+
+test('submitted dynamic payment uses matching provider amount and immutable structure, not repricing', async () => {
+  const rows = dynamicRows();
+  rows.gocardless_payments = [{
+    id: 'payment', tenant_id: member.tenant_id, plan_id: 'plan', environment: 'live',
+    gocardless_payment_id: 'provider-payment', gocardless_mandate_id: 'mandate',
+    status: 'submitted', charge_date: '2026-10-03', amount_minor: 1100, currency: 'GBP',
+  }];
+  rows.gocardless_collection_reservations = [{
+    id: 'reservation', tenant_id: member.tenant_id, plan_id: 'plan', billing_agreement_id: 'agreement',
+    gocardless_payment_id: 'provider-payment', price_snapshot: { config: { name: 'Submitted original structure' } },
+  }];
+  const response = await harness({ rows }).request();
+  const p = response.payload.payment;
+  assert.equal(p.amount, 11);
+  assert.equal(p.nextPayment, '2026-10-03');
+  assert.equal(p.collectionStatus, 'confirmed');
+  assert.equal(p.collectionStructure, 'Submitted original structure');
+  assert.equal(p.confirmedPayment, null, 'scheduled collection is not settlement');
+  rows.gocardless_payments.push({ ...rows.gocardless_payments[0], id: 'ambiguous', gocardless_payment_id: 'another' });
+  const ambiguous = (await harness({ rows }).request()).payload.payment;
+  assert.equal(ambiguous.amount, null);
+  assert.equal(ambiguous.nextPayment, null);
+  assert.match(ambiguous.collectionNotice, /multiple next collections/);
+});
+
+test('foreign provider evidence cannot become this member collection and new joiners remain pending', async () => {
+  for (const patch of [{ tenant_id: 'foreign' }, { plan_id: 'foreign' }, { environment: 'sandbox' }, { gocardless_mandate_id: 'foreign' }]) {
+    const rows = dynamicRows();
+    rows.gocardless_payments = [{ id: 'payment', tenant_id: member.tenant_id, plan_id: 'plan', environment: 'live',
+      gocardless_payment_id: 'provider-payment', gocardless_mandate_id: 'mandate', status: 'submitted',
+      charge_date: '2026-10-03', amount_minor: 99900, currency: 'GBP', ...patch }];
+    const p = (await harness({ rows }).request()).payload.payment;
+    assert.equal(p.amount, 13);
+    assert.equal(p.collectionBasis, 'projected');
+  }
+  const rows = dynamicRows();
+  rows.member_membership_history[0].status = 'pending_payment_setup';
+  assert.equal((await harness({ rows }).request()).payload.payment.state, 'first_payment_pending');
+  const leaky = await harness({ rows, unfiltered: true }).request();
+  assert.equal(leaky.statusCode, 200);
+  rows.gocardless_payments = [{ tenant_id: 'foreign', plan_id: 'plan' }];
+  assert.equal((await harness({ rows, unfiltered: true }).request()).statusCode, 500);
+});
 
 test('current personal term wins over current organisation and future personal terms', () => {
   const result = summary([

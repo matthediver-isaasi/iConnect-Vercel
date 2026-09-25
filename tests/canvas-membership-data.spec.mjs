@@ -443,6 +443,37 @@ async function dragPaletteBlock(page, type, targetY) {
 }
 
 for (const version of [1, 2]) {
+  test(`isolated V${version} current dynamic DD projects collection without implying payment confirmation`, async ({ page }, testInfo) => {
+    const fixture = await installFixtures(page, { version, summaryOverride: {
+      membership: { state: "active", memberSince: null, membershipType: "Flat Rate" },
+      payment: {
+        state: "current_direct_debit", method: "monthly_direct_debit", mandateStatus: "active",
+        amount: 13, currency: "GBP", nextPayment: "2026-10-01", collectionStatus: "planned",
+        nextCollection: { date: "2026-10-01", amount: 13, currency: "GBP", status: "planned" },
+        collectionBasis: "projected", collectionNotice: "Projected collection amount — not yet bank scheduled",
+        collectionStructure: "2026-2027 Full member with NMC",
+        structureNotice: "Structure effective on planned collection date",
+      },
+    } });
+    await openPublished(page, fixture);
+    const payment = page.getByTestId("canvas-payment-details").first();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect(payment).toContainText("Projected next payment amount");
+      await expect(payment).toContainText("£13.00");
+      await expect(payment).toContainText("1 October 2026");
+      await expect(payment).toContainText("Planned payment date");
+      await expect(payment).toContainText("2026-2027 Full member with NMC");
+      await expect(payment).toContainText("not yet bank scheduled");
+      await expect(payment).toContainText("Your membership is current");
+      await expect(payment).not.toContainText("awaiting confirmation");
+      await expect(payment).not.toContainText("paid in full");
+      await page.screenshot({ path: testInfo.outputPath(`dynamic-dd-v${version}-${width}.png`), fullPage: true });
+    }
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
+
   test(`isolated V${version} attested upfront membership displays valid until without a renewal promise`, async ({ page }, testInfo) => {
     const fixture = await installFixtures(page, { version, summaryOverride: {
       membership: { state: "active", memberSince: null, membershipType: "Full Membership UK", expiryDate: "2026-10-16", renewalDate: null },

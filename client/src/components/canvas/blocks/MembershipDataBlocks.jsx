@@ -33,6 +33,7 @@ const roleDefaults = {
   link: { fontSize: 17, lineHeight: 1.5, fontWeight: 700, color: 'var(--cb-color-primary, #9a4d16)' },
 };
 const stateColors = {
+  current_direct_debit: '#237249',
   active: '#237249', paid: '#237249', pending: '#865d10', paused: '#865d10', expired: '#667085',
   failed: '#b42318', unavailable: '#667085', none: '#667085',
 };
@@ -109,6 +110,8 @@ export function MembershipDataView({
     ? null : content.methods[summary.payment.method];
   const nextPaymentAmount = formatMembershipAmount(summary.payment.amount, summary.payment.currency)
     || content.messages.amountUnknown;
+  const amountLabel = summary.payment.collectionBasis === 'projected' ? content.fields.projectedAmount
+    : summary.payment.collectionBasis === 'held' ? content.fields.configuredAmount : content.fields.amount;
   const confirmedAmount = formatMembershipAmount(confirmedPayment?.amount, confirmedPayment?.currency)
     || content.messages.amountUnknown;
   const values = {
@@ -168,7 +171,7 @@ export function MembershipDataView({
         }}>
           <dl className="membership-fields" style={{ margin: 0 }}>
             {paymentFactsAvailable && <div style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{content.fields.amount}</dt>
+              <dt {...role('fieldLabel')}>{amountLabel}</dt>
               <dd {...role('value', { fontSize: 24 })}>{nextPaymentAmount}</dd>
             </div>}
             {paymentFactsAvailable && paymentDate && <div style={{ minWidth: 0 }}>
@@ -190,6 +193,14 @@ export function MembershipDataView({
               <dd {...role('value', { color: stateColors[state] })}>{summary.payment.mandateStatus}</dd>
             </div>}
           </dl>
+          {summary.payment.collectionBasis && <div style={{ marginTop: 16 }}>
+            <p {...role('supporting')}>{summary.payment.collectionNotice}</p>
+            <dl style={{ marginTop: 16 }}>
+              <dt {...role('fieldLabel')}>{content.fields.collectionStructure}</dt>
+              <dd {...role('value')}>{summary.payment.collectionStructure || summary.payment.structureNotice}</dd>
+            </dl>
+            {summary.payment.collectionStructure && <p {...role('supporting', { marginTop: 8 })}>{summary.payment.structureNotice}</p>}
+          </div>}
           {summary.membership.expiryDate && <dl style={{ marginTop: 16 }}>
             <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
             <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
@@ -209,7 +220,7 @@ export function MembershipDataView({
               <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
             </div>}
             {fieldKeys.map(key => <div key={key} style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{key === 'nextPayment' ? paymentDateLabel : content.fields[key]}</dt>
+              <dt {...role('fieldLabel')}>{key === 'nextPayment' ? paymentDateLabel : key === 'amount' ? amountLabel : content.fields[key]}</dt>
               <dd {...role('value')}>{values[key]}</dd>
             </div>)}
           </dl>
