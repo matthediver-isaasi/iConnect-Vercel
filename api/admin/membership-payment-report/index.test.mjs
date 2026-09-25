@@ -514,7 +514,8 @@ test('endpoint selects legacy evidence and uses one full dataset for totals, fil
   const csv = await request(deps, { method: 'upfront', format: 'csv', pageSize: '1' });
   const lines = csv.body.trimEnd().split('\r\n');
   assert.equal(lines.length, 1001);
-  assert.match(lines[1], /,Upfront,Unknown,Not Scheduled,/);
+  assert.equal(lines[0], '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure');
+  assert.match(lines[1], /,Upfront,01 Jan 2027,Review required — no uniquely named applicable structure$/);
   assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), filtered.body.rows.map(row => row.name));
 });
 
@@ -589,5 +590,6 @@ test('endpoint and CSV expose expected upfront dates without provider collection
   assert.equal(row.nextPaymentDate, null);
   assert.equal(row.nextStructureName, 'Future personal');
   const csv = await request(deps, { method: 'upfront', format: 'csv' });
-  assert.match(csv.body, /09 Dec 2026,10 Dec 2026,Expected renewal,Upfront — no automatic collection scheduled,Future personal/);
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure\r\n'
+    + 'Ada,ada@example.org,Personal,Paused,Upfront,10 Dec 2026,Future personal\r\n');
 });

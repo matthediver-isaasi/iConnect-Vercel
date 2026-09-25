@@ -112,7 +112,7 @@ export function createMembershipPaymentReportHandler(deps = {}) {
           && (!search || row.name.toLowerCase().includes(search)
             || (row.email || '').toLowerCase().includes(search)));
       if (format === 'csv') {
-        const csv = membershipPaymentReportCsv(rows);
+        const csv = membershipPaymentReportCsv(rows, method);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="membership-payment-report-${method}-${deps.today || new Date().toISOString().slice(0, 10)}.csv"`);
         res.setHeader('Cache-Control', 'private, no-store');

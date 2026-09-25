@@ -15,7 +15,21 @@ function formatDate(value) {
 
 // Build the complete response before setting attachment headers: failures must
 // return an error, never a partially successful download.
-export function membershipPaymentReportCsv(rows) {
+export function membershipPaymentReportCsv(rows, method = 'all') {
+  if (method === 'upfront') {
+    const cells = [
+      ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Membership renewal', 'Next structure'],
+      ...rows.map(row => [
+        row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
+        humanise(row.status),
+        PAYMENT_REPORT_METHODS.find(option => option.value === row.paymentMethod)?.label || humanise(row.paymentMethod),
+        row.renewalDate ? formatDate(row.renewalDate) : row.renewalLabel || 'Renewal date missing',
+        row.nextStructureState?.startsWith('Review required')
+          ? row.nextStructureState : row.nextStructureName || 'Review required — no uniquely named applicable structure',
+      ]),
+    ];
+    return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;
+  }
   const cells = [
     ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Next payment', 'Schedule',
       'Current expiry', 'Renewal date', 'Renewal basis', 'Payment arrangement', 'Next structure', 'Structure review'],

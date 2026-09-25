@@ -121,6 +121,7 @@ function member(exclusions = []) {
 async function installFixture(page, {
   excluded = [],
   canViewMembers = true,
+  fixtureRows = ROWS,
   holdReport = false,
   reportStatuses = [],
   holdCsv = false,
@@ -217,7 +218,10 @@ async function installFixture(page, {
             "Cache-Control": "private, no-store",
             "Content-Disposition": `attachment; filename="individual-membership-payments-${selectedMethod}.csv"`,
           },
-          body: membershipPaymentReportCsv(ROWS.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod)),
+          body: membershipPaymentReportCsv(
+            fixtureRows.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod),
+            selectedMethod,
+          ),
         });
       }
       state.reportRequests.push({
@@ -239,8 +243,8 @@ async function installFixture(page, {
       const selectedSearch = (url.searchParams.get("search") || "").trim().toLocaleLowerCase();
       const requestedPage = Number(url.searchParams.get("page")) || 1;
       const methodFiltered = selectedMethod === "all"
-        ? ROWS
-        : ROWS.filter((row) => row.paymentMethod === selectedMethod);
+        ? fixtureRows
+        : fixtureRows.filter((row) => row.paymentMethod === selectedMethod);
       const filtered = selectedSearch
         ? methodFiltered.filter((row) => `${row.name} ${row.email}`.toLocaleLowerCase().includes(selectedSearch))
         : methodFiltered;
@@ -248,7 +252,7 @@ async function installFixture(page, {
       // additional personally identifying row data.
       const total = selectedMethod === "all" && !selectedSearch ? 27 : filtered.length;
       const rows = requestedPage === 1 ? filtered : [{
-        ...ROWS[0],
+         ...fixtureRows[0],
         memberId: "member-page-two",
         name: "Casey Second Page",
       }];
@@ -345,10 +349,8 @@ test("pagination and method filtering send server-side query parameters and rese
   await page.getByTestId("select-payment-method").click();
   await page.getByRole("option", { name: "Upfront", exact: true }).click();
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront");
-  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront — no automatic collection scheduled");
-  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Expected renewal");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("10 Dec 2026");
   await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Future personal");
-  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Unknown");
   await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
   expect(state.reportRequests.at(-1)).toEqual({
     method: "upfront", search: null, page: "1", pageSize: "25",
@@ -368,6 +370,56 @@ test("pagination and method filtering send server-side query parameters and rese
   expect(state.reportRequests.at(-1)).toEqual({
     method: "invoice", search: null, page: "1", pageSize: "25",
   });
+});
+
+test("Upfront view trims only irrelevant columns and helper copy, retains review warnings", async ({ page }) => {
+  const review = {
+    ...ROWS[2],
+    memberId: "member-review",
+    name: "Rae Review",
+    renewalDate: null,
+    renewalLabel: "Renewal date missing",
+    nextStructureName: null,
+    nextStructureState: "Review required — renewal date missing",
+  };
+  await installFixture(page, { fixtureRows: [...ROWS, review] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+
+  const headers = page.locator("table thead th");
+  const fullHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
+    "Next payment", "Schedule", "Current expiry", "Membership renewal", "Next structure"];
+  await expect(headers).toHaveText(fullHeaders);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length);
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const upfrontHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
+    "Membership renewal", "Next structure"];
+  await expect(headers).toHaveText(upfrontHeaders);
+  const upfrontCells = page.getByTestId("row-payment-member-upfront").locator("td");
+  await expect(upfrontCells).toHaveCount(upfrontHeaders.length);
+  await expect(upfrontCells).toHaveText(["Uma Upfront", "uma@example.invalid", "Associate",
+    "Active", "Upfront", "10 Dec 2026", "Future personal"]);
+  const reviewCells = page.getByTestId("row-payment-member-review").locator("td");
+  await expect(reviewCells).toHaveCount(upfrontHeaders.length);
+  await expect(reviewCells.nth(5)).toHaveText("Renewal date missing");
+  await expect(reviewCells.nth(6)).toHaveText("Review required — renewal date missing");
+  await expect(page.getByText("Expected renewal", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Reporting only; subject to membership status. No renewal or payment is booked.")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/membership-payment-upfront.png", fullPage: true });
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  await expect(headers).toHaveText(fullHeaders);
+  await expect(page.getByTestId("row-payment-member-billie").locator("td")).toHaveCount(fullHeaders.length);
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "All payment methods", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+  await expect(headers).toHaveText(fullHeaders);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length);
 });
 
 test("debounces trimmed member search, resets pagination, hides stale results, and clears accessibly", async ({ page }) => {
@@ -436,7 +488,10 @@ test("downloads the selected full-report CSV with the server filename and leaves
   const download = await downloadPromise;
 
   expect(download.suggestedFilename()).toBe("individual-membership-payments-upfront.csv");
-  expect(await readFile(await download.path(), "utf8")).toContain("09 Dec 2026,10 Dec 2026,Expected renewal");
+  expect(await readFile(await download.path(), "utf8")).toBe(
+    "\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure\r\n"
+    + "Uma Upfront,uma@example.invalid,Associate,Active,Upfront,10 Dec 2026,Future personal\r\n",
+  );
   expect(state.csvRequests).toEqual([{
     format: "csv",
     method: "upfront",

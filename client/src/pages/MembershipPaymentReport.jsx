@@ -131,6 +131,7 @@ export default function MembershipPaymentReport() {
   const canViewMembers = clientCanViewMembers && query.data?.canViewMembers === true;
   const isDebouncing = normaliseSearch(search) !== debouncedSearch;
   const isLoadingResults = isDebouncing || query.isLoading || query.isFetching;
+  const upfrontView = paymentMethod === "upfront";
 
   const cancelExport = () => {
     exportRequestId.current += 1;
@@ -222,7 +223,9 @@ export default function MembershipPaymentReport() {
           </h1>
         </div>
         <p className="mt-1 text-slate-600">
-          Current individual membership payment methods and the next evidenced collection date.
+          {upfrontView
+            ? "Current upfront memberships and their renewal dates."
+            : "Current individual membership payment methods and the next evidenced collection date."}
         </p>
       </div>
 
@@ -328,9 +331,13 @@ export default function MembershipPaymentReport() {
                       <th className="px-3 py-2 font-medium">Tier</th>
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Payment method</th>
-                      <th className="px-3 py-2 font-medium whitespace-nowrap">Next payment</th>
-                      <th className="px-3 py-2 font-medium">Schedule</th>
-                      <th className="px-3 py-2 font-medium">Current expiry</th>
+                      {!upfrontView && (
+                        <>
+                          <th className="px-3 py-2 font-medium whitespace-nowrap">Next payment</th>
+                          <th className="px-3 py-2 font-medium">Schedule</th>
+                          <th className="px-3 py-2 font-medium">Current expiry</th>
+                        </>
+                      )}
                       <th className="px-3 py-2 font-medium">Membership renewal</th>
                       <th className="px-3 py-2 font-medium">Next structure</th>
                     </tr>
@@ -351,17 +358,27 @@ export default function MembershipPaymentReport() {
                         <td className="px-3 py-2">
                           {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
-                        <td className="px-3 py-2">{row.paymentArrangement || humanise(row.scheduleState)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>
+                        {!upfrontView && (
+                          <>
+                            <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
+                            <td className="px-3 py-2">{row.paymentArrangement || humanise(row.scheduleState)}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>
+                          </>
+                        )}
                         <td className="px-3 py-2">
                           {row.renewalDate && <div className="whitespace-nowrap">{formatDate(row.renewalDate)}</div>}
-                          <div className="text-xs text-muted-foreground">{row.renewalLabel || "—"}</div>
-                          {row.renewalLabel && <div className="text-xs text-muted-foreground">Reporting only; subject to membership status. No renewal or payment is booked.</div>}
+                          {row.paymentMethod === "upfront"
+                            ? !row.renewalDate && (row.renewalLabel || "Renewal date missing")
+                            : <>
+                                <div className="text-xs text-muted-foreground">{row.renewalLabel || "—"}</div>
+                                {row.renewalLabel && <div className="text-xs text-muted-foreground">Reporting only; subject to membership status. No renewal or payment is booked.</div>}
+                              </>}
                         </td>
                         <td className="px-3 py-2">
                           {row.nextStructureName && <div>{row.nextStructureName}</div>}
-                          <div className="text-xs text-muted-foreground">{row.nextStructureState || "—"}</div>
+                          {row.paymentMethod === "upfront"
+                            ? row.nextStructureState?.startsWith("Review required") && <div>{row.nextStructureState}</div>
+                            : <div className="text-xs text-muted-foreground">{row.nextStructureState || "—"}</div>}
                         </td>
                       </tr>
                     ))}
