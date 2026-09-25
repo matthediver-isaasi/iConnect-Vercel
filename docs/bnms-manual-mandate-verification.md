@@ -1,6 +1,45 @@
 # BNMS manual-95 verification — 25 September 2026
 
-## Outcome: verified unapplied; release blocked
+## Current outcome: all 95 adopted and released — 25 September 2026
+
+The independently reviewed, instrumented atomic runner committed on verified
+DEST (`lvmzliemqnieeoruhkik`) at **17:27:04 UTC**. Post-commit read-only
+verification at 17:27–17:28 UTC confirmed:
+
+- Exactly **95 agreements, 95 plans, 95 membership histories, 95 adoptions and
+  95 releases**, all linked to the immutable reviewed manifest.
+- Monthly plan total **£871.74**; all 95 plans await their first payment.
+- All ten workbook Alpha no-op links remain intact. Prior adoption counts
+  remain Alpha 249, Beta 10, pilot 1.
+- The original-journal replay completed with **zero additional writes** and
+  no provider calls. The create-once apply artifact was not overwritten.
+- Both migrations were installed atomically with adoption on DEST:
+  `20261121_bnms_dd_manual_95.sql` and
+  `20261122_bnms_manual_invoice_operations.sql`. Actual tables and all ten
+  manual functions were verified. The runner does not write migration-ledger
+  entries; their absence is not evidence that these migrations are pending.
+- Earliest submission remains **2026-09-30T23:00:00Z** (October 1 midnight
+  Europe/London). No payment submission, collection, settlement or cron trigger
+  was performed by this operation.
+
+The previously approved narrow deployment-evidence exception was retained:
+missing independent deployment timestamp/scoped runtime attestation only.
+Exact runtime, cohort, financial identity, collision, freshness, date and
+transaction safeguards remained enabled.
+
+The production transaction took approximately 263 seconds, consistent with
+1,726 sequential SQL operations at roughly 150 ms per network round trip.
+Durable background execution, safe progress stages and bounded SQL/lock
+timeouts allowed it to finish; earlier foreground timeouts were not proof of
+a database failure.
+
+Private immutable outcome and replay artifacts are in
+`exports/private-bnms-manual-phase2-refresh-20260925-instrumented/`;
+the independent post-commit audit is in
+`exports/private-bnms-manual-verification-2026-09-25T17-27-38-234Z/`.
+No manual migration or release remains pending for this exact cohort.
+
+## Historical pre-release observations (superseded by the outcome above)
 
 ### Subsequent authorized release attempts — 25 September
 

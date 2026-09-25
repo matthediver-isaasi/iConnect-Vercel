@@ -17,13 +17,21 @@ export async function insert(c,table,row){
 }
 const rows=async(c,table,where,args)=>(await c.query(`SELECT to_jsonb(t) row FROM ${table} t WHERE ${where}`,args)).rows.map(r=>r.row);
 
-export async function applyManualManifest(c,manifest,{schemas,freshProvider,deploymentProof,now=()=>new Date()}){
+export async function applyManualManifest(c,manifest,{schemas,freshProvider,deploymentProof,now=()=>new Date(),onProgress=()=>{}}){
+ let stage='runtime_review';
+ const started=performance.now();
+ const progress=(name,completed)=>{stage=name;onProgress({stage:name,...(completed===undefined?{}:{completed,total:95}),
+  observedAt:new Date().toISOString(),elapsedMs:Math.round(performance.now()-started)});};
  assertManualRuntimeProof(deploymentProof,await manualRuntimeHashes(),now());
  if(hash(manifest.runtimeDeployment||null)!==hash(deploymentProof))throw Error('Reviewed manifest deployment proof differs');
  const manifestSha=hash(manifest);
  await c.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
  try{
+  await c.query("SET LOCAL application_name='bnms-manual-95-reviewed-release'");
+  await c.query("SET LOCAL lock_timeout='15s'");
+  await c.query("SET LOCAL statement_timeout='60s'");
   await c.query("SET LOCAL TIME ZONE 'UTC'");
+  progress('journal_lock');
   await c.query("SELECT pg_advisory_xact_lock(hashtextextended('bnms-manual-95:ddbc1a3d',0))");
   const exists=(await c.query("SELECT to_regclass('public.bnms_dd_manual_manifest') present")).rows[0].present;
   if(exists){
@@ -41,8 +49,11 @@ export async function applyManualManifest(c,manifest,{schemas,freshProvider,depl
   if(!freshProvider)throw Error('Apply requires freshly reacquired provider evidence');
   assertFreshManualProvider(manifest,freshProvider);
   // Concurrent generic imports cannot insert a duplicate between CAS and commit.
+  progress('canonical_table_locks');
   await c.query('LOCK TABLE member,membership_billing_agreements,membership_payment_plans,member_membership_history,gocardless_customers,gocardless_mandates IN SHARE ROW EXCLUSIVE MODE');
   await c.query('LOCK TABLE membership_tier_config,membership_tier_vat_override,member_preference_value,preference_field IN SHARE MODE');
+  progress('live_cas',0);
+  let checked=0;
   for(const m of manifest.members){
    const member=await rows(c,'member','id=$1 AND tenant_id=$2',[m.memberId,TENANT]);
    if(member.length!==1||hash(member[0])!==hash(m.owner))throw Error('Live member drift');
@@ -65,12 +76,17 @@ export async function applyManualManifest(c,manifest,{schemas,freshProvider,depl
    const mandates=await rows(c,'gocardless_mandates','gocardless_mandate_id=$1 OR gocardless_customer_id=$2',[m.mandateId,m.customerId]);
    if(customers.length>1||mandates.length>1||customers.some(x=>x.tenant_id!==TENANT||x.member_id!==m.memberId||x.organization_id||x.environment!=='live'||x.gocardless_customer_id!==m.customerId)
     ||mandates.some(x=>x.tenant_id!==TENANT||x.environment!=='live'||x.status!=='active'||x.gocardless_mandate_id!==m.mandateId||x.gocardless_customer_id!==m.customerId))throw Error('Live provider mirror ownership collision');
+   checked++;
+   if(checked%10===0||checked===95)progress('live_cas',checked);
   }
   if((await c.query('SELECT id FROM membership_tier_vat_override WHERE tenant_id=$1',[TENANT])).rowCount)throw Error('Live VAT override drift');
+  progress('atomic_schema_install');
   if(!exists){for(const sql of schemas)await c.query(sql);}
   else throw Error('Unpopulated schema must be independently catalog-verified before reuse; automatic reuse prohibited');
   await insert(c,'bnms_dd_manual_manifest',{sha256:manifestSha,tenant_id:TENANT,workbook_sha256:MANUAL_WORKBOOK,evidence:manifest});
   let writes=1;
+  progress('canonical_inserts',0);
+  let inserted=0;
   for(const m of manifest.members){
    const customer=await rows(c,'gocardless_customers','gocardless_customer_id=$1',[m.customerId]);
    const mandate=await rows(c,'gocardless_mandates','gocardless_mandate_id=$1',[m.mandateId]);
@@ -79,14 +95,20 @@ export async function applyManualManifest(c,manifest,{schemas,freshProvider,depl
    if(!mandate.length){await insert(c,'gocardless_mandates',{tenant_id:TENANT,gocardless_customer_id:m.customerId,gocardless_mandate_id:m.mandateId,
     scheme:'bacs',status:'active',environment:'live',metadata:{source:'bnms_manual_95',workbook_sha256:MANUAL_WORKBOOK}});writes++;}
    for(const [table,row] of Object.entries(canonicalRows(m,manifestSha))){await insert(c,table,row);writes++;}
+   inserted++;
+   if(inserted%10===0||inserted===95)progress('canonical_inserts',inserted);
   }
+  progress('precommit_freshness');
   const clock=(await c.query('SELECT clock_timestamp() now')).rows[0].now;
   assertExecutableManifest(manifest,new Date(clock));
   if(new Date(clock).getTime()-Date.parse(freshProvider.observedAt)>15*60*1000)throw Error('Fresh provider stage expired before commit');
+  progress('deferred_constraints');
   await c.query('SET CONSTRAINTS ALL IMMEDIATE');
+  progress('commit');
   await c.query('COMMIT');
+  progress('committed');
   return {mode:'manual_95_atomic_adoption_release',writes,manifestSha256:manifestSha,monthlyTotalMinor:87174,freshProviderSha256:hash(freshProvider)};
- }catch(error){await c.query('ROLLBACK');throw error;}
+ }catch(error){error.manualStage=stage;await c.query('ROLLBACK');progress('rolled_back');throw error;}
 }
 
 export async function main(args=process.argv.slice(2)){
@@ -148,7 +170,8 @@ export async function main(args=process.argv.slice(2)){
    freshProvider=await readFreshExceptionGoCardless(await getTenantGocardlessCredentials(TENANT,{db}));
    await writeFile(`${dir}/apply-provider.json`,JSON.stringify(freshProvider,null,2),{mode:0o600,flag:'wx'});
   }
-  const result=await applyManualManifest(c,saved.review.manifest,{schemas,freshProvider,deploymentProof:saved.review.deploymentProof});
+  const result=await applyManualManifest(c,saved.review.manifest,{schemas,freshProvider,deploymentProof:saved.review.deploymentProof,
+   onProgress:event=>console.log(JSON.stringify({mode:'progress',...event}))});
   await writeFile(`${dir}/applied.json`,JSON.stringify(result,null,2),{mode:0o600,flag:'wx'});
   console.log(JSON.stringify(result));
  }finally{await c.end();}
@@ -159,7 +182,9 @@ export function safeManualFailure(error){
   'Live member class/preference drift','Live provider mirror ownership collision','Live VAT override drift',
   'Fresh GET evidence required before release; no timestamps may be renewed',
   'Fresh provider stage expired before commit','Parent-reviewed manifest, runtime or schema hash differs']);
- return {stage:'manual_cohort_guarded_execution',code:/^[0-9A-Z]{5}$/.test(error?.code||'')?error.code:'GUARD_STOP',
+ const stages=new Set(['runtime_review','journal_lock','canonical_table_locks','live_cas','atomic_schema_install',
+  'canonical_inserts','precommit_freshness','deferred_constraints','commit','committed']);
+ return {stage:stages.has(error?.manualStage)?error.manualStage:'manual_cohort_guarded_execution',code:/^[0-9A-Z]{5}$/.test(error?.code||'')?error.code:'GUARD_STOP',
   reason:safeMessages.has(error?.message)?error.message:'Restricted failure; inspect reviewed evidence without replaying apply'};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)

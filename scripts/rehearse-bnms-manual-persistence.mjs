@@ -64,7 +64,9 @@ try{
  }catch(error){if(error.code!=='ENOENT')throw error;}
  console.log('Local scoped evidence seeded; starting actual apply runner');
  const query=c.query.bind(c);
+ let applyQueryCount=0;
  c.query=async(sql,...args)=>{
+  applyQueryCount++;
   if(sql!=='ROLLBACK')lastQuery=String(sql).slice(0,110);
   if(sql==='SELECT clock_timestamp() now')return {rows:[{now:fixtureTime}]};
   const start=performance.now();
@@ -80,6 +82,7 @@ try{
  const schemas=await Promise.all([MIGRATION,INVOICE_MIGRATION].map(p=>readFile(p,'utf8')));
  const start=performance.now();
  const result=await applyManualManifest(c,m,{schemas,freshProvider:await load('gocardless'),deploymentProof:review.deploymentProof,now:()=>fixtureTime});
+ const initialApplyQueryCount=applyQueryCount;
  timings.push({stage:'apply',milliseconds:Math.round(performance.now()-start)});
  console.log('Local actual apply committed; starting zero-write replay');
  const replayStart=performance.now();
@@ -88,7 +91,7 @@ try{
  const counts=(await c.query(`SELECT (SELECT count(*) FROM bnms_dd_manual_adoption)::int adoptions,
   (SELECT count(*) FROM bnms_dd_manual_release)::int releases,
   (SELECT sum(amount_minor) FROM membership_payment_plans)::int monthly_total`)).rows[0];
- const report={localOnly:true,fixtureClock:fixtureTime.toISOString(),timings,result,replay,counts,legacyInsertTriggerCount,
+ const report={localOnly:true,fixtureClock:fixtureTime.toISOString(),initialApplyQueryCount,timings,result,replay,counts,legacyInsertTriggerCount,
   limitation:'Catalog columns/defaults/NOT NULL/PK/unique/check/exclusion and affected-table FKs plus both complete manual migrations exercised; captured legacy INSERT triggers included when provided. Legacy history/quote collision tables are empty fixture dependencies, not live collision evidence.'};
  await writeFile(`${dir}/persistence-rehearsal-${runStamp}.json`,JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});
  console.log(JSON.stringify(report));

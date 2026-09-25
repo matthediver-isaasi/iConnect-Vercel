@@ -23,6 +23,16 @@ An old zero-blocker report can support a clearly labelled, non-authorizing econo
 
 Financial release approval must distinguish reviewed source code from evidence that the same safeguards are deployed.
 
+Run long reviewed financial transactions in a durable background task with
+private progress/exit artifacts, transaction-local application naming and
+bounded SQL/lock timeouts. Measure database round-trip latency when estimating
+completion time, not just local test duration.
+
+**Why:** Thousands of sequential remote queries can take several minutes even
+when each query is fast and local rehearsal completes in seconds. Foreground
+tool termination does not identify the SQL stage or prove transaction outcome;
+verify the persisted journal and live records before considering any retry.
+
 An explicitly accepted operator deployment-evidence exception may waive only missing deployment timestamps and scoped runtime attestation for one pinned cohort/runtime/deployment. Record unknown metadata as unknown, preserve the supplied report, and never label it independently verified.
 
 Capture full-row financial CAS evidence with the same database JSON codec and

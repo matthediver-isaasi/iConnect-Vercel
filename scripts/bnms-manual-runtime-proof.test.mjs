@@ -76,6 +76,24 @@ test('new manual deployment evidence must exactly cover the reviewed runtime and
  await assert.rejects(applyManualManifest(c,{}, {schemas:[],now:()=>now,deploymentProof:p}),
   /Reviewed manifest deployment proof differs/);
  assert.equal(queries,0);
+ const statements=[],events=[];
+ const timeout=Object.assign(new Error('private backend detail'),{code:'55P03'});
+ const lockClient={query:async(sql)=>{
+  statements.push(sql);
+  if(sql.startsWith('SELECT pg_advisory_xact_lock'))throw timeout;
+  return {rows:[]};
+ }};
+ await assert.rejects(applyManualManifest(lockClient,{runtimeDeployment:p},{
+  schemas:[],deploymentProof:p,now:()=>now,onProgress:e=>events.push(e),
+ }),e=>e===timeout);
+ assert.ok(statements.includes("SET LOCAL lock_timeout='15s'"));
+ assert.ok(statements.includes("SET LOCAL statement_timeout='60s'"));
+ assert.ok(statements.includes("SET LOCAL application_name='bnms-manual-95-reviewed-release'"));
+ assert.equal(statements.at(-1),'ROLLBACK');
+ assert.equal(safeManualFailure(timeout).stage,'journal_lock');
+ assert.equal(safeManualFailure(timeout).code,'55P03');
+ assert.deepEqual(events.map(e=>e.stage),['journal_lock','rolled_back']);
+ assert.ok(!JSON.stringify(safeManualFailure(timeout)).includes('private backend detail'));
 });
 
 test('direct apply cannot begin a transaction with missing or old runtime evidence',async()=>{
