@@ -18,7 +18,7 @@ async function request(path, options) {
   return body;
 }
 
-export default function MemberCpdPointsLedger({ memberId, enabled, canCorrect }) {
+export default function MemberCpdPointsLedger({ memberId, enabled, canCorrect, children }) {
   const queryClient = useQueryClient();
   const [correction, setCorrection] = useState(null);
   const [reason, setReason] = useState('');
@@ -45,7 +45,7 @@ export default function MemberCpdPointsLedger({ memberId, enabled, canCorrect })
     onError: (err) => toast.error(err.message),
   });
 
-  if (!canCorrect) return null;
+  if (!canCorrect || !enabled) return children ? children({}) : null;
   const entries = data?.entries || [];
   const reversed = new Set(entries.filter((entry) => entry.reversal_of).map((entry) => entry.reversal_of));
   const total = entries.reduce((sum, entry) => sum + Number(entry.points_value || 0), 0);
@@ -62,10 +62,45 @@ export default function MemberCpdPointsLedger({ memberId, enabled, canCorrect })
     ...(correction.action === 'adjust'
       ? { points_value: points, correction_key: correction.correctionKey } : {}),
   });
+  const renderActions = (item) => {
+    const entry = entries.find(({ id }) => id === item.id) || item;
+    if (isLoading || error || !entry || !['event_award', 'imported_award'].includes(entry.entry_kind)) return null;
+    return (
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => open('adjust', entry)}>
+          <Plus className="w-3.5 h-3.5 mr-1" />Adjust
+        </Button>
+        <Button size="sm" variant="outline" disabled={item.is_reversed || reversed.has(entry.id)}
+          onClick={() => open('reverse', entry)}>
+          <RotateCcw className="w-3.5 h-3.5 mr-1" />{item.is_reversed || reversed.has(entry.id) ? 'Reversed' : 'Reverse'}
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <>
-      <Card>
+      {children ? <>
+      {children({
+        renderActions,
+        correctionStatus: isLoading ? 'Loading correction controls…'
+          : error ? `Could not load correction controls: ${error.message}` : null,
+      })}
+      {entries.some(entry => !['event_award', 'imported_award'].includes(entry.entry_kind)) && (
+        <details className="rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Recent correction audit</summary>
+          <p className="text-sm text-muted-foreground my-2">Corrections among the latest 200 ledger entries, newest recorded first.</p>
+          {entries.filter(entry => !['event_award', 'imported_award'].includes(entry.entry_kind)).map(entry => (
+            <div key={entry.id} className="border-t py-3 text-sm">
+              <p>{entry.entry_kind.replaceAll('_', ' ')} · {entry.points_value} points</p>
+              <p>Recorded: {new Date(entry.created_at).toLocaleString()}</p>
+              {entry.reason && <p>Reason: {entry.reason}</p>}
+              {entry.created_by && <p>Actor: {entry.created_by}</p>}
+            </div>
+          ))}
+        </details>
+      )}
+      </> : <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle className="text-lg flex items-center gap-2">
             <Award className="w-5 h-5 text-blue-600" /> CPD Points
@@ -118,7 +153,7 @@ export default function MemberCpdPointsLedger({ memberId, enabled, canCorrect })
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
       <Dialog open={!!correction} onOpenChange={(openState) => !openState && setCorrection(null)}>
         <DialogContent>
           <DialogHeader>

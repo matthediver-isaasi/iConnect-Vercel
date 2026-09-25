@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import MemberCpdPointsLedger from "@/components/MemberCpdPointsLedger";
 
 const PAGE_SIZE = 20;
 
@@ -30,12 +31,13 @@ function formatDate(value) {
 }
 
 function triggerLabel(item) {
+  if (item.entry_kind === "manual_adjustment") return "Adjustment";
   if (item.entry_kind === "imported_award") return "Historical import";
   if (item.entry_kind === "reversal") return "Reversal";
   return item.award_trigger === "attendance" ? "Attendance" : "Registration";
 }
 
-export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetching = false }) {
+export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetching = false, renderActions, correctionStatus }) {
   const items = data.items || [];
   const totalPages = Math.max(1, Math.ceil(Number(data.total || 0) / Number(data.pageSize || PAGE_SIZE)));
   return (
@@ -55,6 +57,7 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
         <CardHeader>
           <CardTitle>Points history</CardTitle>
           <p className="text-sm text-muted-foreground">A chronological record of awarded and reversed points.</p>
+          {correctionStatus && <p role="status" className="text-sm text-muted-foreground">{correctionStatus}</p>}
         </CardHeader>
         <CardContent>
           {items.length === 0 ? (
@@ -69,6 +72,7 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
                   <TableHead>Event or activity</TableHead><TableHead>Ticket</TableHead>
                   <TableHead>Trigger</TableHead><TableHead>Evidence date</TableHead>
                   <TableHead>Status</TableHead><TableHead className="text-right">Points</TableHead>
+                   {renderActions && <TableHead>Corrections</TableHead>}
                 </TableRow></TableHeader>
                 <TableBody>
                   {items.map((item) => (
@@ -81,7 +85,9 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
                       <TableCell>{triggerLabel(item)}</TableCell>
                       <TableCell>{formatDate(item.evidence_date)}</TableCell>
                       <TableCell>
-                        {item.entry_kind === "reversal"
+                        {item.entry_kind === "manual_adjustment"
+                          ? <Badge variant="secondary">Adjustment</Badge>
+                          : item.entry_kind === "reversal"
                           ? <Badge variant="destructive">Reversal</Badge>
                           : item.is_reversed
                             ? <Badge variant="secondary">Reversed</Badge>
@@ -90,6 +96,7 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
                       <TableCell className="text-right font-medium tabular-nums">
                         {Number(item.points_value) > 0 ? "+" : ""}{formatPoints(item.points_value)}
                       </TableCell>
+                       {renderActions && <TableCell>{renderActions(item)}</TableCell>}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -115,7 +122,7 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
   );
 }
 
-export default function MemberCpdPointsTab({ memberId, enabled = true }) {
+export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrect = false }) {
   const [page, setPage] = useState(1);
   const query = useQuery({
     queryKey: ["member-cpd-points", memberId, page],
@@ -136,5 +143,10 @@ export default function MemberCpdPointsTab({ memberId, enabled = true }) {
       </CardContent></Card>
     );
   }
-  return <MemberCpdPointsHistoryView data={query.data} page={page} setPage={setPage} isFetching={query.isFetching} />;
+  return (
+    <MemberCpdPointsLedger memberId={memberId} enabled={enabled} canCorrect={canCorrect}>
+      {(corrections) => <MemberCpdPointsHistoryView data={query.data} page={page} setPage={setPage}
+        isFetching={query.isFetching} {...corrections} />}
+    </MemberCpdPointsLedger>
+  );
 }

@@ -9,7 +9,6 @@ import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
 import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
-import MemberCpdPointsLedger from "@/components/MemberCpdPointsLedger";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -2174,16 +2173,15 @@ export default function MemberDetail() {
         </TabsContent>
 
         <TabsContent value="cpd-points" className="space-y-6">
-          <MemberCpdPointsTab memberId={id} enabled={activeTab === 'cpd-points'} />
+          <MemberCpdPointsTab
+            memberId={id}
+            enabled={isAccessReady && activeTab === 'cpd-points'}
+            canCorrect={isAccessReady && isFeatureExcluded && !isFeatureExcluded('cpd.points-corrections')}
+          />
         </TabsContent>
 
         {/* Activity Tab */}
         <TabsContent value="activity" className="space-y-6">
-          <MemberCpdPointsLedger
-            memberId={id}
-            enabled={activeTab === 'activity'}
-            canCorrect={isAccessReady && isFeatureExcluded && !isFeatureExcluded('cpd.points-corrections')}
-          />
           {member.created_on && (
             <Card>
               <CardContent className="py-4">
