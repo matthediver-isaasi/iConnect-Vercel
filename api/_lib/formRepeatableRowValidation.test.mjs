@@ -25,6 +25,38 @@ const form = {
   }],
 };
 
+test('server validates row file metadata without changing persisted raw answers', async () => {
+  const filesForm = {
+    id: 'files', fields: [{
+      id: 'attachments', type: 'repeatable_rows', min_rows: 1,
+      children: [{ id: 'file', type: 'file', required: true }],
+    }],
+  };
+  const metadata = {
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fform-submissions%2Fdocument.pdf&redirect=true',
+    storage_path: 'tenant/form-submissions/document.pdf',
+    bucket: 'private-uploads',
+    file_name: 'document.pdf',
+    file_size: 42,
+    mime_type: 'application/pdf',
+    is_private: true,
+    uploaded_at: '2025-02-03T12:00:00.000Z',
+  };
+  const rows = [{ _row_id: 'first', file: JSON.stringify(metadata) }];
+  const submissionData = { attachments: rows };
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1', form: filesForm, submissionData,
+    relationshipService: { async validateSubmission() {} },
+  });
+  assert.strictEqual(submissionData.attachments, rows);
+  assert.equal(rows[0].file, JSON.stringify(metadata));
+  await assert.rejects(validateRepeatableRowSubmission({
+    tenantId: 'tenant-1', form: filesForm,
+    submissionData: { attachments: [{ file: JSON.stringify({ ...metadata, storage_path: 'other' }) }] },
+    relationshipService: { async validateSubmission() {} },
+  }), error => error.status === 400 && error.code === 'invalid_file');
+});
+
 test('saved date fields with stale choice options accept years but retain scalar and select checks', async () => {
   const equipmentForm = {
     id: 'form-equipment',

@@ -1755,7 +1755,18 @@ export function mappedPayload(invocation, entity, preferenceFields) {
         custom[key] = value;
       }
     } else {
-      core[targetField(mapping)] = value === '__clear__' ? null : value;
+      // A file answer remains intact in the submission and in file-capable
+      // custom fields. Only URL-typed core destinations take its URL.
+      const destination = targetField(mapping);
+      if (['logo_url', 'website_url'].includes(destination) && value !== '__clear__') {
+        let file = value;
+        if (typeof file === 'string' && file.trim().startsWith('{')) {
+          try { file = JSON.parse(file); } catch { /* Preserve non-file strings. */ }
+        }
+        if (file && typeof file === 'object' && !Array.isArray(file)
+            && typeof file.file_url === 'string') value = file.file_url;
+      }
+      core[destination] = value === '__clear__' ? null : value;
     }
     if (mapping.is_match === true || mapping.match === true
       || invocation.action.uniqueness_field === targetField(mapping)

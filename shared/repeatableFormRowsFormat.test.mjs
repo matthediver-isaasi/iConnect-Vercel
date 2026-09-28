@@ -62,6 +62,23 @@ test('repeatable date values retain month/year precision in text exports', () =>
   );
 });
 
+test('file cells show filenames rather than raw metadata, signed links, or malformed values', () => {
+  const files = {
+    type: 'repeatable_rows',
+    children: [{ id: 'proof', label: 'Proof', type: 'file' }],
+  };
+  const metadata = {
+    file_name: 'Proof of status.pdf',
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fproof.pdf',
+  };
+  assert.equal(formatRepeatableRowsText(files, [
+    { proof: JSON.stringify(metadata) },
+    { proof: metadata },
+    { proof: 'https://example.test/documents/report.pdf?download=1' },
+    { proof: '{broken' },
+  ]), 'Row 1\nProof: Proof of status.pdf\n\nRow 2\nProof: Proof of status.pdf\n\nRow 3\nProof: report.pdf\n\nRow 4\nProof: File unavailable');
+});
+
 test('collects only relationship IDs from configured repeatable children', () => {
   assert.deepEqual(
     collectRepeatableRelationshipRecordIds([field], { employment: value }),

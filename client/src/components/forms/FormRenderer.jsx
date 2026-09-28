@@ -443,6 +443,7 @@ function RepeatableRowsField({
   }, [field, firstChild]);
   const [firstColumnAvailability, setFirstColumnAvailability] = useState({});
   const [childValidity, setChildValidity] = useState({});
+  const [pendingFileUploads, setPendingFileUploads] = useState({});
   const lastReportedValidity = useRef();
   const initializedRows = useRef(false);
   const controlledRows = useMemo(() => (Array.isArray(value) ? value : []), [value]);
@@ -551,6 +552,12 @@ function RepeatableRowsField({
         })()
       ),
     }), [field, hiddenFieldIds, repeatableParentHidden, rows, childValidity, rootAllFields, currentSetExistingBlankFieldsByRow, currentSetOptionLabels]);
+  const hasVisiblePendingUpload = !repeatableParentHidden && rows.some((row, rowIndex) => (
+    Object.keys(pendingFileUploads[row._row_id] || {}).some(childId => (
+      !(rowHiddenChildIds[rowIndex] || new Set()).has(childId)
+    ))
+  ));
+  const validForSubmission = validation.valid && !hasVisiblePendingUpload;
   const duplicateErrors = useMemo(() => {
     const byCell = new Map();
     validation.errors
@@ -560,11 +567,11 @@ function RepeatableRowsField({
   }, [validation.errors]);
 
   useEffect(() => {
-    if (lastReportedValidity.current !== validation.valid) {
-      lastReportedValidity.current = validation.valid;
-      onValidityChange?.(field.id, validation.valid);
+    if (lastReportedValidity.current !== validForSubmission) {
+      lastReportedValidity.current = validForSubmission;
+      onValidityChange?.(field.id, validForSubmission);
     }
-  }, [field.id, validation.valid, onValidityChange]);
+  }, [field.id, validForSubmission, onValidityChange]);
 
   const commitRows = (update) => {
     const nextRows = update(latestRows.current);
@@ -573,6 +580,9 @@ function RepeatableRowsField({
     onChange(nextRows);
   };
   const updateRow = (rowId, childId, nextValue) => {
+    // An upload can finish after its row was removed. Never re-emit stale
+    // answers (nor attach them to a newly added row at the same index).
+    if (!latestRows.current.some(row => row._row_id === rowId)) return;
     const child = config.children.find(candidate => candidate.id === childId);
     commitRows(currentRows => currentRows.map((row) => {
       if (row._row_id !== rowId) return row;
@@ -653,6 +663,28 @@ function RepeatableRowsField({
       return changed ? next : previous;
     });
   }, [rowHiddenChildIds, rows]);
+  useEffect(() => {
+    setPendingFileUploads(previous => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(previous).flatMap(([rowId, cells]) => {
+        const rowIndex = rows.findIndex(row => row?._row_id === rowId);
+        if (rowIndex < 0) {
+          changed = true;
+          return [];
+        }
+        const visible = Object.fromEntries(Object.entries(cells).filter(
+          ([childId]) => !(rowHiddenChildIds[rowIndex] || new Set()).has(childId),
+        ));
+        if (Object.keys(visible).length !== Object.keys(cells).length) changed = true;
+        if (!Object.keys(visible).length) {
+          changed = true;
+          return [];
+        }
+        return [[rowId, visible]];
+      }));
+      return changed ? next : previous;
+    });
+  }, [rowHiddenChildIds, rows]);
   const addRow = () => {
     if (latestRows.current.length >= config.max_rows) return;
     commitRows(currentRows => [...currentRows, createRow()]);
@@ -721,9 +753,17 @@ function RepeatableRowsField({
         }}
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
+        onFileUploadStateChange={child.type === 'file' ? uploading => setPendingFileUploads(current => {
+          if (!latestRows.current.some(candidate => candidate._row_id === rowId)) return current;
+          const cells = { ...(current[rowId] || {}) };
+          if (uploading) cells[child.id] = true;
+          else delete cells[child.id];
+          return { ...current, [rowId]: cells };
+        }) : undefined}
         onFormNotListedTextChange={text => updateRowNotListedText(rowId, child.id, text)}
         onValidityChange={childReportsValidity ? ((childId, valid) => setChildValidity(current => (
-          current[rowId]?.[childId] === valid
+          !latestRows.current.some(candidate => candidate._row_id === rowId)
+            || current[rowId]?.[childId] === valid
             ? current
             : { ...current, [rowId]: { ...(current[rowId] || {}), [childId]: valid } }
         ))) : undefined}
@@ -1291,7 +1331,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2820,10 +2860,14 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'file':
         return (
           <CustomFieldFileUpload
-            fieldId={field.id}
+            fieldId={dateElementId}
             formId={formId}
             value={value}
             onChange={onChange}
+            onUploadStateChange={uploading => {
+              onFileUploadStateChange?.(uploading);
+              onValidityChange?.(field.id, !uploading);
+            }}
             allowedTypes={field.allowed_file_types || []}
             publicAccess={field.public_access === true}
             disabled={isFieldDisabled}

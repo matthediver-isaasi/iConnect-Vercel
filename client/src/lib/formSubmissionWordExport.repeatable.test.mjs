@@ -2,6 +2,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveSubmissionToPrepared } from './formSubmissionWordExport.js';
 
+test('Word export discovers nested files without persisting or serializing signed URLs', () => {
+  const field = {
+    id: 'documents', type: 'repeatable_rows', label: 'Documents',
+    children: [{ id: 'purpose', type: 'text', label: 'Purpose' }, { id: 'upload', type: 'file', label: 'Evidence' }],
+  };
+  const metadata = {
+    file_name: 'evidence.pdf', file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fevidence.pdf',
+    bucket: 'private-uploads', storage_path: 'tenant/evidence.pdf', is_private: true,
+  };
+  const submission = {
+    submission_data: { documents: [{ _row_id: 'first', purpose: 'A', upload: JSON.stringify(metadata) },
+      { _row_id: 'second', purpose: 'B', upload: metadata }] },
+  };
+  const prepared = resolveSubmissionToPrepared({
+    submission, form: { fields: [field] },
+    selectedOptions: [{ key: 'documents', label: 'Documents' }],
+    resolvers: {
+      resolveFile: raw => {
+        const file = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return {
+          name: file.file_name,
+          url: `https://example.test/api/storage/secure-url?bucket=${encodeURIComponent(file.bucket)}&path=${encodeURIComponent(file.storage_path)}&redirect=true`,
+        };
+      },
+    },
+  });
+  assert.deepEqual(prepared.supportingDocs[0].files.map(file => file.name), [
+    'Row 1 — Evidence: evidence.pdf', 'Row 2 — Evidence: evidence.pdf',
+  ]);
+  assert.ok(prepared.supportingDocs[0].files.every(file => (
+    file.url === 'https://example.test/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fevidence.pdf&redirect=true'
+  )));
+  assert.equal(JSON.stringify(prepared).includes('signedUrl'), false);
+  assert.match(prepared.rows[0].lines.map(line => line.text).join('\n'), /Evidence: evidence.pdf/);
+  assert.deepEqual(submission.submission_data.documents[1].upload, metadata);
+});
+
 test('Word export prepares repeatable rows as labelled lines with resolved relationships', () => {
   const form = {
     id: 'form-1',

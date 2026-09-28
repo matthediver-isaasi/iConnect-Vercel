@@ -30,6 +30,7 @@ import {
 import {
   formatRepeatableCellValue,
   formatRepeatableRowsText,
+  getRepeatableRowChildren,
   isRepeatableRowsField,
   resolveRepeatableOrganisationLabel,
 } from '../../../shared/repeatableFormRowsFormat.js';
@@ -250,7 +251,26 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
         return formatRepeatableCellValue(cellValue, child);
       },
     });
-    return { lines: makeLinesFromText(text), files: [] };
+    // Keep the labelled row text in the response, but also discover nested
+    // uploads for the same Supporting Documents links as top-level files.
+    // resolveFile builds an authorized storage URL; the persisted row remains
+    // the original metadata, never an expiring signed URL.
+    const fileChildren = getRepeatableRowChildren(fieldDef).filter(child => child.type === 'file');
+    const files = [];
+    if (typeof r.resolveFile === 'function') {
+      for (const [rowIndex, row] of (Array.isArray(value) ? value : []).entries()) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+        for (const child of fileChildren) {
+          if (row[child.id] == null || row[child.id] === '') continue;
+          const resolved = r.resolveFile(row[child.id]);
+          if (resolved) files.push({
+            ...resolved,
+            name: `Row ${rowIndex + 1} — ${child.label || child.id}: ${resolved.name || 'file'}`,
+          });
+        }
+      }
+    }
+    return { lines: makeLinesFromText(text), files };
   }
 
   if (fieldType === 'file') {

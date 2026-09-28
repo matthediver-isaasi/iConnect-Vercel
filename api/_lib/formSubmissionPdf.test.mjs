@@ -157,6 +157,22 @@ test('PDF formatter renders repeatable rows with child labels and relationship d
   assert.equal(output.includes('org-1'), false);
 });
 
+test('PDF formatter renders nested private upload filenames without leaking storage metadata', () => {
+  const field = {
+    id: 'documents', type: 'repeatable_rows',
+    children: [{ id: 'file', type: 'file', label: 'Evidence' }],
+  };
+  const file = {
+    file_name: 'proof.pdf',
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fproof.pdf',
+    storage_path: 'tenant/proof.pdf', bucket: 'private-uploads', is_private: true,
+  };
+  const output = formatFormSubmissionFieldValue(field, [{ file: JSON.stringify(file) }, { file }]);
+  assert.equal(output, 'Row 1\nEvidence: proof.pdf\n\nRow 2\nEvidence: proof.pdf');
+  assert.equal(output.includes('tenant/'), false);
+  assert.equal(output.includes('file_url'), false);
+});
+
 test('PDF formatter preserves partial repeatable dates without inventing a day or timezone', () => {
   const field = {
     id: 'periods',

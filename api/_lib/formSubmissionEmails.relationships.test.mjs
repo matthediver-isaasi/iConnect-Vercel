@@ -113,6 +113,29 @@ test('configured form-email placeholders render repeatable rows and nested relat
   assert.equal(output.includes('org-1'), false);
 });
 
+test('configured email placeholders show nested upload names rather than private metadata', () => {
+  const field = {
+    id: 'documents', type: 'repeatable_rows',
+    children: [{ id: 'file', type: 'file', label: 'Evidence' }],
+  };
+  const upload = {
+    file_name: 'proof.pdf',
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fproof.pdf',
+    storage_path: 'tenant/proof.pdf',
+    bucket: 'private-uploads',
+    is_private: true,
+  };
+  const display = resolveSubmissionEmailFieldDisplayValue({
+    fields: [field],
+    fieldKey: field.id,
+    rawValue: [],
+    persistedSubmissionData: { documents: [{ file: JSON.stringify(upload) }, { file: upload }] },
+  });
+  assert.equal(display, 'Row 1\nEvidence: proof.pdf\n\nRow 2\nEvidence: proof.pdf');
+  assert.equal(display.includes('storage_path'), false);
+  assert.equal(display.includes('private-uploads'), false);
+});
+
 test('configured form-email placeholders preserve partial repeatable dates verbatim', () => {
   const repeatable = {
     id: 'periods',

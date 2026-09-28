@@ -9,6 +9,33 @@ import {
 } from './formNotListedChoice.js';
 import { isDistinctRowSource } from './formCustomObjectRowSources.js';
 
+function formatRepeatableFileName(value) {
+  let file = value;
+  if (typeof file === 'string') {
+    const trimmed = file.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('{')) {
+      try { file = JSON.parse(trimmed); } catch { return 'File unavailable'; }
+    } else {
+      file = { file_url: trimmed };
+    }
+  }
+  if (!file || typeof file !== 'object' || Array.isArray(file)) return 'File unavailable';
+  if (typeof file.file_name === 'string' && file.file_name.trim()) return file.file_name.trim();
+  const url = file.file_url || file.url;
+  if (typeof url !== 'string' || !url.trim()) return 'File unavailable';
+  if (!url.startsWith('/') && !/^https?:\/\//i.test(url)) return 'File unavailable';
+  try {
+    const parsed = new URL(url, 'https://local.invalid');
+    if (!['http:', 'https:'].includes(parsed.protocol) || url.startsWith('//')) return 'File unavailable';
+    const path = parsed.searchParams.get('path') || parsed.pathname;
+    const name = decodeURIComponent(path.split('/').filter(Boolean).pop() || '');
+    return name || 'File unavailable';
+  } catch {
+    return 'File unavailable';
+  }
+}
+
 // The builder persists its versioned configuration in `repeatable_row` with
 // `child_fields`; early drafts used config.children. Normalize both so every
 // downstream renderer sees the same child schema.
@@ -43,6 +70,7 @@ function optionLabel(child, value) {
 
 export function formatRepeatableCellValue(value, child) {
   if (value == null || value === '') return '';
+  if (child?.type === 'file') return formatRepeatableFileName(value);
   // Repeatable date answers may intentionally use month (YYYY-MM) or year
   // (YYYY) precision. Keep the persisted answer verbatim rather than routing
   // it through option/date coercion, which can invent a day or timezone.

@@ -6814,6 +6814,61 @@ function RepeatableRowsSettings({
                   <p className="text-xs text-slate-500 md:col-span-2">{repeatableDateHelp(child)}</p>
                 </div>
               )}
+              {child.type === 'file' && (
+                <div className="col-span-full space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-file-settings-${field.id}-${child.id}`}>
+                  <Label className="text-xs font-medium">File Upload Options</Label>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={`repeatable-public-access-${field.id}-${child.id}`}
+                      checked={child.public_access === true}
+                      onCheckedChange={public_access => updateChild(childIndex, { public_access: public_access === true })}
+                      data-testid={`checkbox-repeatable-public-access-${field.id}-${child.id}`}
+                    />
+                    <div>
+                      <Label htmlFor={`repeatable-public-access-${field.id}-${child.id}`} className="text-xs">Public access</Label>
+                      <p className="text-xs text-slate-500">Enable for files that need to be publicly accessible (e.g., logos for external websites)</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Allowed File Types</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'images', label: 'Images' },
+                        { value: 'pdf', label: 'PDF' },
+                        { value: 'word', label: 'Word' },
+                        { value: 'excel', label: 'Excel' },
+                        { value: 'powerpoint', label: 'PowerPoint' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'zip', label: 'Archives' },
+                        { value: 'video', label: 'Video' },
+                        { value: 'audio', label: 'Audio' },
+                      ].map(fileType => (
+                        <div key={fileType.value} className="flex items-center gap-1">
+                          <Checkbox
+                            id={`repeatable-file-type-${field.id}-${child.id}-${fileType.value}`}
+                            checked={(child.allowed_file_types || []).includes(fileType.value)}
+                            onCheckedChange={checked => {
+                              const current = child.allowed_file_types || [];
+                              updateChild(childIndex, {
+                                allowed_file_types: checked === true
+                                  ? [...new Set([...current, fileType.value])]
+                                  : current.filter(type => type !== fileType.value),
+                              });
+                            }}
+                            data-testid={`checkbox-repeatable-file-type-${field.id}-${child.id}-${fileType.value}`}
+                          />
+                          <Label htmlFor={`repeatable-file-type-${field.id}-${child.id}-${fileType.value}`} className="text-xs">{fileType.label}</Label>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {(child.allowed_file_types || []).length === 0
+                        ? 'All file types allowed'
+                        : `${child.allowed_file_types.length} type(s) selected`}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             <RepeatableRowVisibilityEditor
               field={field}

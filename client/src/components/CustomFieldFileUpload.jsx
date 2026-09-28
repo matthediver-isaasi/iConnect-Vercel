@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, X, FileText, FileImage, FileSpreadsheet, File, Loader2, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
@@ -93,10 +93,20 @@ export default function CustomFieldFileUpload({
   allowedTypes = [], 
   publicAccess = false,
   disabled = false,
-  label = "Upload File"
+  label = "Upload File",
+  onUploadStateChange,
 }) {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const mountedRef = useRef(false);
+  const uploadSequence = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      uploadSequence.current += 1;
+    };
+  }, []);
   
   // Normalize allowedTypes - handle both array and JSON string formats
   const normalizedAllowedTypes = (() => {
@@ -131,7 +141,9 @@ export default function CustomFieldFileUpload({
       return;
     }
     
+    const sequence = ++uploadSequence.current;
     setIsUploading(true);
+    onUploadStateChange?.(true);
     
     try {
       const isCustomObjectUpload = Boolean(customObjectId);
@@ -186,14 +198,21 @@ export default function CustomFieldFileUpload({
         uploaded_at: new Date().toISOString()
       };
       
-      onChange(JSON.stringify(fileData));
-      toast.success('File uploaded successfully');
+      if (mountedRef.current && sequence === uploadSequence.current) {
+        onChange(JSON.stringify(fileData));
+        toast.success('File uploaded successfully');
+      }
     } catch (error) {
-      console.error('Upload error:', error);
-      showUploadErrorToast(error, 'Failed to upload file');
+      if (mountedRef.current && sequence === uploadSequence.current) {
+        console.error('Upload error:', error);
+        showUploadErrorToast(error, 'Failed to upload file');
+      }
     } finally {
-      setIsUploading(false);
-      event.target.value = '';
+      if (mountedRef.current && sequence === uploadSequence.current) {
+        setIsUploading(false);
+        onUploadStateChange?.(false);
+        event.target.value = '';
+      }
     }
   };
   

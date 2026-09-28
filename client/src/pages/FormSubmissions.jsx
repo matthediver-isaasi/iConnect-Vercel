@@ -75,6 +75,8 @@ import {
   resolveRepeatableOrganisationLabel,
 } from '../../../shared/repeatableFormRowsFormat.js';
 import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
+import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
 import { matchSubmissionSearch } from '@/lib/formSubmissionSearch';
 import {
   getFormSubmissionPaymentReview,
@@ -106,10 +108,16 @@ function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsB
           ))}</tr>
         </thead>
         <tbody>
-          {model.rows.map((row) => (
+          {model.rows.map((row, rowIndex) => (
             <tr key={row.rowId}>{row.cells.map((cell, index) => (
               <td key={model.columns[index]?.id || index} className="p-2 border align-top whitespace-pre-wrap">
-                {cell || <span className="text-slate-400">-</span>}
+                {model.columns[index]?.child?.type === 'file' && value?.[rowIndex]?.[model.columns[index].id]
+                  ? <CustomFieldFileDisplay
+                      value={value[rowIndex][model.columns[index].id]}
+                      compact
+                      fieldId={`${field.id}-${row.rowId}-${model.columns[index].id}`}
+                    />
+                  : cell || <span className="text-slate-400">-</span>}
               </td>
             ))}</tr>
           ))}
@@ -1708,6 +1716,13 @@ export default function FormSubmissionsPage() {
                   )
                   : child?.type === 'organisation_dropdown'
                     ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+                  : child?.type === 'file'
+                    ? (() => {
+                      const file = normalizeCustomFieldFileValue(cellValue);
+                      if (file.status !== 'ready') return file.status === 'empty' ? '' : 'File unavailable';
+                      const url = buildFileUrl(cellValue);
+                      return url ? `${file.file.file_name} (${url})` : file.file.file_name;
+                    })()
                   : formatRepeatableCellValue(cellValue, child),
               });
             }

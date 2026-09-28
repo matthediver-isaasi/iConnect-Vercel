@@ -18,6 +18,29 @@ import {
 import { computeAuthoritativeHiddenFieldIds } from './formFieldVisibility.js';
 import { FORM_NOT_LISTED_TEXT_KEY, FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
+test('structured row file answers remain metadata except at URL core destinations', () => {
+  const file = {
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Freport.pdf',
+    file_name: 'report.pdf',
+    storage_path: 'tenant/report.pdf',
+  };
+  const values = { attachment: JSON.stringify(file) };
+  const action = {
+    operation: 'create',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    mappings: [
+      { source_field_id: 'attachment', target_type: 'core', target_field_id: 'logo_url' },
+      { source_field_id: 'attachment', target_type: 'custom', target_field_id: 'file-pref' },
+    ],
+  };
+  const payload = mappedPayload({ action, values }, 'organization', new Map([
+    ['file-pref', { id: 'file-pref' }],
+  ]));
+  assert.equal(payload.core.logo_url, file.file_url);
+  assert.equal(payload.custom['file-pref'], values.attachment);
+  assert.equal(values.attachment, JSON.stringify(file));
+});
+
 test('validates subordinate Related Records configuration against persisted relationship fields', () => {
   const valid = {
     fields: [{ id: 'department', type: 'relationship_dropdown', related_kind: 'custom_object', related_custom_object_id: 'department-object' }],

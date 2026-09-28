@@ -18,7 +18,7 @@ export const REPEATABLE_ROW_LAYOUT_SPREADSHEET = 'spreadsheet';
 
 export const REPEATABLE_ROW_CHILD_TYPES = Object.freeze([
   'text', 'textarea', 'email', 'phone', 'tel', 'url', 'number', 'percentage',
-  'currency', 'date', 'time', 'boolean', 'dropdown', 'select', 'radio',
+  'currency', 'date', 'time', 'file', 'boolean', 'dropdown', 'select', 'radio',
   'checkbox', 'checkboxes', 'list', 'multiselect', 'country', 'countries',
   'category_dropdown', 'category_multiselect', 'custom_field',
   'organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown',
@@ -587,6 +587,45 @@ export function isRepeatableValueEmpty(value) {
   return false;
 }
 
+// The form uploader persists JSON-encoded metadata (not a temporary signed
+// upload URL). Accept the same metadata as an object when consuming older
+// drafts, but never convert the stored answer itself to a display string.
+export function repeatableRowFileMetadata(value) {
+  let file = value;
+  if (typeof file === 'string') {
+    try {
+      file = JSON.parse(file);
+    } catch {
+      return null;
+    }
+  }
+  if (!file || typeof file !== 'object' || Array.isArray(file)) return null;
+  if (typeof file.file_url !== 'string' || !file.file_url.trim()
+      || typeof file.file_name !== 'string' || !file.file_name.trim()
+      || typeof file.storage_path !== 'string' || !file.storage_path.trim()
+      || typeof file.bucket !== 'string' || !file.bucket.trim()
+      || typeof file.file_size !== 'number' || !Number.isFinite(file.file_size) || file.file_size < 0
+      || typeof file.mime_type !== 'string'
+      || typeof file.is_private !== 'boolean'
+      || typeof file.uploaded_at !== 'string'
+      || !Number.isFinite(Date.parse(file.uploaded_at))) return null;
+  const url = file.file_url.trim();
+  if (file.is_private) {
+    if (!url.startsWith('/api/storage/secure-url?')) return null;
+    const params = new URL(url, 'https://local.invalid').searchParams;
+    if (params.get('bucket') !== file.bucket || params.get('path') !== file.storage_path
+        || params.has('token')) return null;
+  } else {
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    } catch {
+      return null;
+    }
+  }
+  return file;
+}
+
 export function isRepeatableRowEmpty(row, fieldOrChildren) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return true;
   const children = Array.isArray(fieldOrChildren)
@@ -897,6 +936,10 @@ export function validateRepeatableRows(field, value, options = {}) {
         continue;
       }
       if (isRepeatableValueEmpty(selected)) continue;
+      if (child.type === 'file' && !repeatableRowFileMetadata(selected)) {
+        errors.push({ code: 'invalid_file', row: rowIndex, child_id: child.id, message: `${child.label || child.id} must contain an uploaded file` });
+        continue;
+      }
       if (isCustomObjectRowSource(child)
           && (Array.isArray(selected) || selected === '__form_not_listed__')) {
         errors.push({
@@ -1014,7 +1057,9 @@ export function formatRepeatableRows(field, value, options = {}) {
   return value.filter((row) => !isRepeatableRowEmpty(row, children)).map((row, index) => {
     const values = children
       .filter((child) => !isRepeatableValueEmpty(row?.[child.id]))
-      .map((child) => `${child.label || child.id}: ${formatValue(row[child.id], child, row)}`);
+      .map((child) => `${child.label || child.id}: ${child.type === 'file'
+        ? (repeatableRowFileMetadata(row[child.id])?.file_name || 'File unavailable')
+        : formatValue(row[child.id], child, row)}`);
     return `${options.rowLabel || 'Row'} ${index + 1}: ${values.join('; ')}`;
   }).join(options.separator || '\n');
 }

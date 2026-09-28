@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
+import { CustomFieldFileDisplay } from "../components/CustomFieldFileUpload";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { format } from "date-fns";
@@ -69,7 +70,13 @@ function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsB
             <tr key={row.rowId}>
               {row.cells.map((cell, columnIndex) => (
                 <td key={model.columns[columnIndex]?.id || columnIndex} className="p-2 border align-top whitespace-pre-wrap">
-                  {cell || <span className="text-slate-400">-</span>}
+                  {model.columns[columnIndex]?.child?.type === 'file' && value?.[rowIndex]?.[model.columns[columnIndex].id]
+                    ? <CustomFieldFileDisplay
+                        value={value[rowIndex][model.columns[columnIndex].id]}
+                        compact
+                        fieldId={`${field.id}-${row.rowId}-${model.columns[columnIndex].id}`}
+                      />
+                    : cell || <span className="text-slate-400">-</span>}
                   <span className="sr-only"> Row {rowIndex + 1}</span>
                 </td>
               ))}

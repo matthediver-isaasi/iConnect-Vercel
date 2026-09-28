@@ -36,3 +36,17 @@ test('CSV repeatable date formatting keeps month/year answers partial', () => {
     'Row 1\nMonth: 2026-03\nYear: 2026',
   );
 });
+
+test('CSV repeatable upload labels display filenames without serialized metadata', () => {
+  const field = {
+    type: 'repeatable_rows',
+    children: [{ id: 'upload', label: 'Document', type: 'file' }],
+  };
+  const file = {
+    file_name: 'proof.pdf', file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fproof.pdf',
+    bucket: 'private-uploads', storage_path: 'tenant/proof.pdf', is_private: true,
+  };
+  const result = formatRepeatableRowsText(field, [{ upload: JSON.stringify(file) }, { upload: file }]);
+  assert.equal(result, 'Row 1\nDocument: proof.pdf\n\nRow 2\nDocument: proof.pdf');
+  assert.doesNotMatch(result, /file_url|storage_path|\\[object Object\\]/);
+});

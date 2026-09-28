@@ -7,6 +7,7 @@ import {
   isRepeatableUniqueOptionAvailable,
   isRepeatableRowEmpty,
   normalizeRepeatableRowField,
+  repeatableRowFileMetadata,
   repeatableEmptyAvailabilitySupport,
   repeatableRowAddLabelEditorValue,
   supportsRepeatableRowStaticOptions,
@@ -52,6 +53,48 @@ const field = {
     ],
   },
 };
+
+const fileAnswer = {
+  file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fform-submissions%2Freport.pdf&redirect=true',
+  storage_path: 'tenant/form-submissions/report.pdf',
+  bucket: 'private-uploads',
+  file_name: 'Annual report.pdf',
+  file_size: 4096,
+  mime_type: 'application/pdf',
+  is_private: true,
+  uploaded_at: '2025-02-03T12:00:00.000Z',
+};
+
+test('file columns accept canonical upload metadata and retain it in raw rows', () => {
+  const fileField = {
+    id: 'documents', type: 'repeatable_rows', min_rows: 1,
+    children: [{ id: 'attachment', type: 'file', label: 'Attachment', required: true }],
+  };
+  for (const answer of [fileAnswer, JSON.stringify(fileAnswer)]) {
+    const rows = [{ _row_id: 'row-1', attachment: answer }];
+    const result = validateRepeatableRows(fileField, rows);
+    assert.equal(result.valid, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.rows, rows);
+    assert.equal(repeatableRowFileMetadata(answer)?.file_name, 'Annual report.pdf');
+    assert.equal(formatRepeatableRows(fileField, rows), 'Row 1: Attachment: Annual report.pdf');
+  }
+  for (const answer of ['', null]) {
+    assert.ok(validateRepeatableRows(fileField, [{ attachment: answer }]).errors
+      .some(error => error.code === 'required_child'));
+  }
+  for (const answer of [
+    '{invalid', 'https://example.com/file.pdf', { ...fileAnswer, file_size: '4096' },
+    { ...fileAnswer, file_url: 'https://example.com/public.pdf' },
+    { ...fileAnswer, file_url: '/api/storage/secure-url?bucket=private-uploads&path=other' },
+    { ...fileAnswer, file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Fform-submissions%2Freport.pdf&token=temporary' },
+  ]) {
+    assert.ok(validateRepeatableRows(fileField, [{ attachment: answer }]).errors
+      .some(error => error.code === 'invalid_file'), JSON.stringify(answer));
+  }
+  assert.equal(validateRepeatableRows(fileField, [{ attachment: '' }], {
+    allowRequiredBlank: () => true,
+  }).valid, true);
+});
 
 test('stale choice metadata never constrains scalar repeatable fields', () => {
   const values = {
