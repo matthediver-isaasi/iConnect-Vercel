@@ -33,14 +33,17 @@ const BUILTIN_FIELDS = [
   ['member.email', 'Member email', 'alex.morgan@example.org'],
   ['member.membership_number', 'Membership number', 'MEM-00123'],
   ['cpd.activity_title', 'Activity title', 'Professional development activity'],
-  ['cpd.activity_date', 'Activity date', '28 February 2026'],
+  ['cpd.activity_date', 'Activity start date (single date)', '28 February 2026'],
+  ['cpd.activity_date_range', 'Activity date range (one or two days)', '28 February 2026 – 1 March 2026'],
   ['cpd.cpd_hours', 'CPD hours', '7.5'],
   ['cpd.cpd_points', 'CPD points', '8'],
   ['cpd.certificate_number', 'Certificate number', 'CPD-000123'],
   ['organisation.name', 'Organisation name', 'Example Institute'],
   ['event.name', 'Event name', 'Annual Conference 2026'],
-  ['event.start_date', 'Event start date', '28 February 2026'],
-  ['event.end_date', 'Event end date', '1 March 2026'],
+  ['event.start_date', 'Event start date', '2026-02-28'],
+  ['event.end_date', 'Event end date', '2026-03-01'],
+  ['cpd.activity_start_date', 'Certificate activity start (day 1)', '2026-02-28'],
+  ['cpd.activity_end_date', 'Certificate activity end (day 2)', '2026-03-01'],
 ];
 const DEFAULT_FIELD = {
   page: 1, x: 72, y: 72, width: 250, height: 32, font_family: 'Helvetica',
@@ -202,7 +205,7 @@ function TemplateLibrary() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-wrap justify-between gap-4">
           <div><h1 className="text-3xl font-bold">CPD Certificate Templates</h1>
-            <p className="text-slate-600 mt-1">Design data-driven certificates over an uploaded PDF.</p></div>
+            <p className="text-slate-600 mt-1">Design data-driven certificates over an uploaded PDF. Designer previews use illustrative sample values, not a member's actual certificate details.</p></div>
           <Button onClick={() => setCreating(v => !v)}><FilePlus2 className="w-4 h-4 mr-2" />New template</Button>
         </div>
         {creating && <Card><CardHeader><CardTitle>Create template</CardTitle></CardHeader>
@@ -310,7 +313,8 @@ export function TemplateDesigner({ id }) {
 
   const update = patch => setDraft(old => ({ ...old, fields: old.fields.map(f => f.id === selectedId ? { ...f, ...patch } : f) }));
   const addField = field => {
-    const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage }, page);
+    const isDate = ['event.start_date', 'event.end_date', 'cpd.activity_start_date', 'cpd.activity_end_date'].includes(field.key);
+    const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage, ...(isDate ? { field_type: 'date' } : {}) }, page);
     setDraft(old => ({ ...old, fields: [...old.fields, next] }));
     setSelectedId(next.id);
   };
@@ -399,6 +403,9 @@ export function TemplateDesigner({ id }) {
       {missing.length > 0 && <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-sm text-amber-900">
         Preview warning: {missing.length} field(s) have no sample value.
       </div>}
+      <div className="bg-blue-50 border-b border-blue-100 px-5 py-2 text-xs text-blue-900">
+        Preview and test PDFs use illustrative values. Activity date shows day 1; activity date range shows day 1 alone for single-day events or both dates for multi-day events. Start and end can also be placed separately. Final dates depend on the event and ticket certificate settings.
+      </div>
       <div className={`grid grid-cols-1 ${viewing ? '' : 'xl:grid-cols-[260px_minmax(0,1fr)_300px]'}`}>
         {!preview && !isActive && <aside className="bg-white border-r p-4 space-y-5">
           <section><h2 className="font-semibold mb-2">Built-in fields</h2>

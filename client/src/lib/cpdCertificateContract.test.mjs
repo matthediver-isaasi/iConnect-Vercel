@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
+  certificateDateRangeValues, certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
   serializeCertificatePlaceholder,
 } from './cpdCertificateContract.js';
 import { readFileSync } from 'node:fs';
@@ -29,6 +29,16 @@ test('render values are keyed separately from persisted placeholders', () => {
   assert.deepEqual(certificateSampleValues([{ key: 'member.full_name', sample: 'A. Member' }, { key: 'cpd.points', sample: '' }]), {
     'member.full_name': 'A. Member', 'cpd.points': '',
   });
+});
+
+test('certificate start and end placeholders are independent, including a single-day activity', () => {
+  const values = certificateDateRangeValues({ start_date: '2026-03-28', end_date: '2026-03-30' });
+  assert.equal(values['cpd.activity_start_date'], '2026-03-28');
+  assert.equal(values['cpd.activity_end_date'], '2026-03-30');
+  assert.equal(values['cpd.activity_date'], '28 March 2026');
+  assert.equal(values['cpd.activity_date_range'], '28 March 2026 – 30 March 2026');
+  assert.equal(certificateDateRangeValues({ start_date: '2026-03-28', end_date: null })['cpd.activity_end_date'], '');
+  assert.equal(certificateDateRangeValues({ start_date: '2026-03-28', end_date: null })['cpd.activity_date_range'], '28 March 2026');
 });
 
 test('browser preview applies the same date and number formats as PDF generation', () => {

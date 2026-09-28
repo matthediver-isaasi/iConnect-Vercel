@@ -105,6 +105,8 @@ import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import { putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import EventCpdCertificatesSection from "@/components/events/EventCpdCertificatesSection";
+import { putEventCpdCertificateRules, validateEventCpdCertificateConfig } from "@/lib/eventCpdCertificateRules";
 import { putEventCpdPointsRules, validateEventCpdPointsConfig } from "@/lib/eventCpdPointsRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
@@ -293,6 +295,7 @@ export default function EditEvent() {
   // must preserve existing rules rather than interpreting "not loaded" as empty.
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(null);
   const [cpdPointsConfig, setCpdPointsConfig] = useState(null);
+  const [cpdCertificateConfig, setCpdCertificateConfig] = useState(null);
   const [expandedTickets, setExpandedTickets] = useState({});
 
   useEffect(() => {
@@ -1560,6 +1563,13 @@ export default function EditEvent() {
         return;
       }
     }
+    if (cpdCertificateConfig !== null) {
+      const certificateErrors = validateEventCpdCertificateConfig(cpdCertificateConfig, isOneOffEvent ? ticketClasses : []);
+      if (certificateErrors.length > 0) {
+        toast.error(certificateErrors[0]);
+        return;
+      }
+    }
 
     // Only require program_tag for program events
     if (!isOneOffEvent && !formData.program_tag) {
@@ -1940,6 +1950,9 @@ export default function EditEvent() {
         if (cpdPointsConfig !== null) {
           cpdSaves.push(putEventCpdPointsRules(eventId, "simple", cpdPointsConfig, isOneOffEvent ? ticketClasses : []));
         }
+        if (cpdCertificateConfig !== null) {
+          cpdSaves.push(putEventCpdCertificateRules(eventId, "simple", cpdCertificateConfig, isOneOffEvent ? ticketClasses : []));
+        }
         const cpdResults = await Promise.allSettled(cpdSaves);
         const cpdFailures = cpdResults
           .filter((result) => result.status === "rejected")
@@ -2261,6 +2274,16 @@ export default function EditEvent() {
                 tickets={isOneOffEvent ? ticketClasses : []}
                 value={cpdPointsConfig}
                 onChange={setCpdPointsConfig}
+              />
+              <EventCpdCertificatesSection
+                eventId={eventId}
+                eventType="simple"
+                tickets={isOneOffEvent ? ticketClasses : []}
+                eventDates={isTraining && trainingDerivedDates
+                  ? { ...formData, start_date: trainingDerivedDates.start, end_date: trainingDerivedDates.end, timezone: eventTimezone }
+                  : { ...formData, timezone: eventTimezone }}
+                value={cpdCertificateConfig}
+                onChange={setCpdCertificateConfig}
               />
             </div>
           </TabsContent>

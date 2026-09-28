@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex, numeric, bigint, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex, numeric, bigint, date, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -460,6 +460,17 @@ export const insertCustomObjectDefinitionSchema = createInsertSchema(customObjec
   created_at: true,
   updated_at: true,
 });
+
+export const eventCpdCertificateConfig = pgTable("event_cpd_certificate_config", {
+  tenant_id: uuid("tenant_id").notNull(),
+  event_type: text("event_type").notNull(),
+  event_id: uuid("event_id").notNull(),
+  config: jsonb("config").notNull(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.event_type, table.event_id] }),
+  eventIdx: index("event_cpd_certificate_config_event_idx").on(table.tenant_id, table.event_id),
+}));
 
 export const salesAccountingCustomerMapping = pgTable("sales_accounting_customer_mapping", {
   id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),

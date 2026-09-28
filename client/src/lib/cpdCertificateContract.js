@@ -1,6 +1,8 @@
 // Keeps the browser editor's friendly field shape aligned with the API's
 // persisted placeholder shape. Values are intentionally separate: render
 // accepts only a values map and never persists sample data as certificate data.
+import { certificateDatePlaceholderValues } from '../../../shared/eventCpdCertificatePolicy.js';
+
 export function serializeCertificatePlaceholder(field) {
   return {
     placeholder_key: field.key,
@@ -32,6 +34,12 @@ export function serializeCertificatePlaceholder(field) {
 
 export function certificateSampleValues(fields) {
   return Object.fromEntries((fields || []).map((field) => [field.key, field.sample || '']));
+}
+
+// Keep browser sample/preview placeholder names in lockstep with the shared
+// resolver mapping intended for server-side issuance.
+export function certificateDateRangeValues(policy) {
+  return certificateDatePlaceholderValues(policy);
 }
 
 export function formatCertificateValue(value, field = {}) {

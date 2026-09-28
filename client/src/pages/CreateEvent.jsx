@@ -79,6 +79,8 @@ import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import { emptyEventCpdBadgeConfig, putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import EventCpdCertificatesSection from "@/components/events/EventCpdCertificatesSection";
+import { emptyEventCpdCertificateConfig, putEventCpdCertificateRules, validateEventCpdCertificateConfig } from "@/lib/eventCpdCertificateRules";
 import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import {
   emptyEventCpdPointsConfig,
@@ -239,6 +241,7 @@ export default function CreateEvent() {
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => emptyEventCpdBadgeConfig());
   const [cpdPointsConfig, setCpdPointsConfig] = useState(() => emptyEventCpdPointsConfig());
+  const [cpdCertificateConfig, setCpdCertificateConfig] = useState(() => emptyEventCpdCertificateConfig());
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
 
   useEffect(() => {
@@ -813,6 +816,7 @@ export default function CreateEvent() {
       const cpdSaves = await Promise.allSettled([
         putEventCpdBadgeRules(createdEvent.id, "simple", cpdBadgeConfig, isProgramEvent ? [] : ticketClasses),
         putEventCpdPointsRules(createdEvent.id, "simple", cpdPointsConfig, isProgramEvent ? [] : ticketClasses),
+        putEventCpdCertificateRules(createdEvent.id, "simple", cpdCertificateConfig, isProgramEvent ? [] : ticketClasses),
       ]);
       const cpdFailures = cpdSaves
         .filter((result) => result.status === "rejected")
@@ -923,6 +927,7 @@ export default function CreateEvent() {
     // Collect all validation errors
     const errors = [];
     errors.push(...validateEventCpdPointsConfig(cpdPointsConfig, isProgramEvent ? [] : ticketClasses));
+    errors.push(...validateEventCpdCertificateConfig(cpdCertificateConfig, isProgramEvent ? [] : ticketClasses));
     
     // Basic field validation
     if (!formData.title) {
@@ -3625,6 +3630,15 @@ export default function CreateEvent() {
                   tickets={isProgramEvent ? [] : ticketClasses}
                   value={cpdPointsConfig}
                   onChange={setCpdPointsConfig}
+                />
+                <EventCpdCertificatesSection
+                  eventType="simple"
+                  tickets={isProgramEvent ? [] : ticketClasses}
+                  eventDates={isTraining && trainingDerivedDates
+                    ? { ...formData, start_date: trainingDerivedDates.start, end_date: trainingDerivedDates.end }
+                    : formData}
+                  value={cpdCertificateConfig}
+                  onChange={setCpdCertificateConfig}
                 />
               </div>
             </TabsContent>
