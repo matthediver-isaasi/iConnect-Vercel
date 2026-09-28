@@ -43,7 +43,7 @@ test("assistant config is shared, tenant/session isolated, fail closed and inval
       const tenantId = options.headers["X-Tenant-Id"];
       return { ok: true, json: async () => ({
         tenantId, enabled: true, name: `${tenantId}-${calls}`, avatarUrl: "",
-        description: "", backgroundColor: "", overrides: {},
+        description: `${tenantId} introduction ${calls}`, backgroundColor: "", overrides: {},
       }) };
     };
     await render("member-a", false);
@@ -51,10 +51,12 @@ test("assistant config is shared, tenant/session isolated, fail closed and inval
     await render("member-a", true);
     assert.equal(calls, 1, "member-only navigation and panel observers share one request");
     assert.equal(current.name, "tenant-a-1");
+    assert.equal(current.description, "tenant-a introduction 1");
     await render("member-b", true);
     assert.equal(current.name, "tenant-a-2");
     await render("member-b", true, "session-a", "tenant-b");
     assert.equal(current?.tenantId, "tenant-b");
+    assert.equal(current.description, "tenant-b introduction 3");
     await act(async () => setActiveTenantId("tenant-a"));
     await render("member-b", true, "session-a", "tenant-b");
     assert.equal(current, null, "an admin/member tenant mismatch fails closed");
@@ -70,6 +72,7 @@ test("assistant config is shared, tenant/session isolated, fail closed and inval
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     assert.equal(current.name, "tenant-b-5");
+    assert.equal(current.description, "tenant-b introduction 5");
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ tenantId: "other", enabled: true }) });
     await act(async () => {
       await client.invalidateQueries({ queryKey: ["tenant-ai-assistant"] });

@@ -4,6 +4,7 @@ import { Bot, CheckCircle2, ImagePlus, Loader2, RotateCcw, Save, Trash2 } from "
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { adminFetch } from "@/lib/adminFetch";
@@ -12,12 +13,16 @@ import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const RASTER_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const MAX_DESCRIPTION_LENGTH = 500;
+const DEFAULT_DESCRIPTION = "Your AI guide to everything in the member portal.";
+const validDescription = value => value.length <= MAX_DESCRIPTION_LENGTH && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value);
 const outlineButtonClass = "!border-slate-600 !bg-slate-800 !text-slate-100 hover:!border-slate-500 hover:!bg-slate-700 hover:!text-white disabled:!border-slate-700 disabled:!bg-slate-800 disabled:!text-slate-400";
 
 function normalizeOverrides(value) {
   return {
     enabled: value?.enabled === true,
     name: typeof value?.name === "string" ? value.name : "",
+    description: typeof value?.description === "string" ? value.description.trim() : "",
     avatarUrl: typeof value?.avatarUrl === "string" ? value.avatarUrl : "",
     backgroundColor: typeof value?.backgroundColor === "string" ? value.backgroundColor : "",
   };
@@ -102,6 +107,10 @@ export default function MemberAiAssistantSettings({ tenantId }) {
 
   const save = async () => {
     if (!draft || saving || uploading) return;
+    if (!validDescription(draft.description)) {
+      setError("Use plain text up to 500 characters, without control characters.");
+      return;
+    }
     const payload = normalizeOverrides({
       ...draft,
       name: draft.name.trim(),
@@ -144,11 +153,12 @@ export default function MemberAiAssistantSettings({ tenantId }) {
           ...previous,
           enabled: canonical.enabled,
           name: canonical.name || previous.name,
+          description: canonical.description,
           avatarUrl: canonical.avatarUrl || previous.avatarUrl,
           backgroundColor: canonical.backgroundColor || previous.backgroundColor,
         }));
       }
-      await queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant"] });
+      await queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant", tenantId] });
       setSuccess("Assistant settings saved.");
     } catch (err) {
       setError(err.message || "Could not save assistant settings.");
@@ -164,6 +174,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
     : !draft?.backgroundColor && !saved?.backgroundColor && HEX_COLOR.test(config?.backgroundColor || "")
       ? config.backgroundColor : "#334155";
   const colorValid = !draft?.backgroundColor || HEX_COLOR.test(draft.backgroundColor);
+  const descriptionValid = !draft || validDescription(draft.description);
   const dirty = draft && saved && JSON.stringify(draft) !== JSON.stringify(saved);
 
   return (
@@ -191,7 +202,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
             <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-600 bg-slate-900/50 p-4">
               <div className="space-y-1">
                 <Label htmlFor="ai-assistant-enabled" className="text-slate-200 font-medium">Show AI Assistant to members</Label>
-                <p className="text-sm text-slate-400">Switching this off keeps your name, image and colour for later.</p>
+                <p className="text-sm text-slate-400">Switching this off keeps your name, description, image and colour for later.</p>
               </div>
               <Switch id="ai-assistant-enabled" checked={draft.enabled} disabled={saving || uploading} onCheckedChange={value => update("enabled", value)} data-testid="switch-ai-assistant-enabled" />
             </div>
@@ -201,6 +212,21 @@ export default function MemberAiAssistantSettings({ tenantId }) {
               <Input id="ai-assistant-name" value={draft.name} onChange={event => update("name", event.target.value)} maxLength={80} disabled={saving || uploading}
                 placeholder={!saved?.name ? (config?.name || "Dougal") : "Dougal"} className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500" data-testid="input-ai-assistant-name" />
               <p className="text-xs text-slate-400">Leave blank to use the default name.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ai-assistant-description" className="text-slate-200">Description</Label>
+              <Textarea id="ai-assistant-description" value={draft.description}
+                onChange={event => update("description", event.target.value)}
+                maxLength={MAX_DESCRIPTION_LENGTH} rows={3} disabled={saving || uploading}
+                placeholder={DEFAULT_DESCRIPTION} aria-invalid={!descriptionValid}
+                aria-describedby="ai-assistant-description-help"
+                className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                data-testid="input-ai-assistant-description" />
+              <p id="ai-assistant-description-help" className="text-xs text-slate-400">
+                Introductory text in your member assistant modal. Plain text, up to 500 characters. Leave blank to use the neutral default shown below. This does not change the Help Center assistant.
+              </p>
+              {!descriptionValid && <p className="text-xs text-rose-300" role="alert">Use plain text up to 500 characters, without control characters.</p>}
             </div>
 
             <div className="space-y-3">
@@ -245,13 +271,14 @@ export default function MemberAiAssistantSettings({ tenantId }) {
                 <span className="text-sm font-medium text-slate-200">{effectiveName}</span>
                 <span className="ml-auto rounded-lg px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: effectiveColor }}>Ask {effectiveName}</span>
               </div>
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-300" data-testid="text-ai-assistant-description-preview">{draft.description.trim() || DEFAULT_DESCRIPTION}</p>
             </div>
 
             {error && <p className="text-sm text-rose-300" role="alert">{error}</p>}
             {success && <p className="flex items-center gap-2 text-sm text-emerald-300" role="status"><CheckCircle2 className="h-4 w-4" /> {success}</p>}
             <div className="flex items-center justify-end gap-3">
               {dirty && <span className="text-xs text-slate-400">Unsaved changes</span>}
-              <Button type="button" onClick={save} disabled={!dirty || !colorValid || saving || uploading} data-testid="button-save-ai-assistant">
+              <Button type="button" onClick={save} disabled={!dirty || !colorValid || !descriptionValid || saving || uploading} data-testid="button-save-ai-assistant">
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {saving ? "Saving..." : "Save AI Assistant"}
               </Button>

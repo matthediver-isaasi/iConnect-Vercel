@@ -205,6 +205,9 @@ export default function HelpAiPersonaEditor() {
             rows={3}
             data-testid="input-ai-persona-description"
           />
+          <p className="text-xs text-muted-foreground">
+            This description appears in the separate Help Center. It does not control the member assistant modal; tenant admins set that description in their AI Assistant settings.
+          </p>
         </div>
 
         <div>

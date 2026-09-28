@@ -2,7 +2,7 @@ import { supabase } from './database.js';
 
 const DEFAULT_PERSONA = Object.freeze({ name: 'Dougal', avatarUrl: '', description: '' });
 const DEFAULT_OVERRIDES = Object.freeze({
-  enabled: true, name: '', avatarUrl: '', backgroundColor: '',
+  enabled: true, name: '', avatarUrl: '', description: '', backgroundColor: '',
 });
 
 function record(value) {
@@ -36,12 +36,15 @@ export function validateMemberAiAssistant(value) {
       throw new Error(`member_ai_assistant.${field} must be a string`);
     } else if (field === 'name' && (input.length > 120 || /[\x00-\x1f\x7f]/.test(input))) {
       throw new Error('Invalid member_ai_assistant.name');
+    } else if (field === 'description' &&
+      (input.length > 500 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(input))) {
+      throw new Error('Invalid member_ai_assistant.description');
     } else if (field === 'backgroundColor' && input !== '' && !/^#[0-9a-fA-F]{6}$/.test(input)) {
       throw new Error('member_ai_assistant.backgroundColor must be a six-digit hex colour');
     } else if (field === 'avatarUrl' && !safeAvatarUrl(input)) {
       throw new Error('member_ai_assistant.avatarUrl must be a safe HTTPS or relative URL');
     }
-    overrides[field] = field === 'name' ? input.trim() : input;
+    overrides[field] = field === 'name' || field === 'description' ? input.trim() : input;
   }
   return overrides;
 }
@@ -65,7 +68,7 @@ export function resolveMemberAiAssistant(tenantId, settings, persona = DEFAULT_P
     enabled: overrides.enabled,
     name: overrides.name || (typeof platform.name === 'string' && platform.name.trim() ? platform.name : DEFAULT_PERSONA.name),
     avatarUrl: overrides.avatarUrl || (typeof platform.avatarUrl === 'string' ? platform.avatarUrl : ''),
-    description: typeof platform.description === 'string' ? platform.description : '',
+    description: overrides.description,
     backgroundColor: overrides.backgroundColor,
     overrides,
   };

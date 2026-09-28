@@ -176,7 +176,7 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
   const aiName = (config.name || "Dougal").trim() || "Dougal";
   const aiAvatarUrl = config.avatarUrl || dougalAvatar;
   const aiInitial = aiName.charAt(0).toUpperCase();
-  const aiDescription = (config.description || "").trim();
+  const aiDescription = typeof config.description === "string" ? config.description.trim() : "";
 
   // --- Chat history (best-effort on the read path; chat works without it) ---
   const listQuery = useQuery({
@@ -426,7 +426,7 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
               <DialogTitle className="text-lg" data-testid="text-member-ai-title">
                 Ask {aiName}
               </DialogTitle>
-              <DialogDescription className="mt-0.5">
+              <DialogDescription className="mt-0.5 whitespace-pre-wrap break-words" data-testid="text-member-ai-description">
                 {aiDescription ||
                   "Your AI guide to everything in the member portal."}
               </DialogDescription>
