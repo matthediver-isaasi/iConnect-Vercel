@@ -5,6 +5,7 @@ import { PDFDocument } from 'pdf-lib';
 import { resolveAttendeeCertificate, renderAttendeeCertificate, realCertificatePlaceholders } from './attendeeCpdCertificate.js';
 import { handleAttendeeCertificate } from '../reports/attendee-cpd-certificate.js';
 import { renderCpdEmailContent, prepareCpdEmail } from './eventCpdEmail.js';
+import { resolveCertificateSurveyGrantState } from './certificateSurveyGrants.js';
 
 const tenantId = '11111111-1111-4111-8111-111111111111';
 const otherTenant = '22222222-2222-4222-8222-222222222222';
@@ -25,10 +26,11 @@ function database(rows) {
     rows,
     from(table) {
       const filters = [];
-      let update, offset = 0, count = Infinity, single = false;
+      let update, insert, offset = 0, count = Infinity, single = false;
       const orders = [];
       const q = {
         select() { return q; }, eq(k, v) { filters.push(row => row[k] === v); return q; },
+        insert(value) { insert = value; return q; },
         ilike(k, v) { filters.push(row => String(row[k] || '').toLowerCase() === v.toLowerCase()); return q; },
         order(k, opts = {}) { orders.push([k, opts.ascending !== false]); return q; },
         limit(n) { count = n; return q; },
@@ -43,6 +45,16 @@ function database(rows) {
         maybeSingle() { single = true; return q; }, single() { single = true; return q; },
         then(resolve, reject) {
           try {
+            if (insert) {
+              rows[table] ||= [];
+              if (table === 'certificate_survey_entitlement' && rows[table].some(row =>
+                ['tenant_id', 'booking_source', 'booking_id', 'assignment_id'].every(key => row[key] === insert[key]))) {
+                return Promise.resolve({ data: null, error: { code: '23505' } }).then(resolve, reject);
+              }
+              const inserted = { id: randomUUID(), ...insert };
+              rows[table].push(inserted);
+              filters.push(row => row.id === inserted.id);
+            }
             let data = (rows[table] || []).filter(row => filters.every(f => f(row)));
             if (update) data.forEach(row => Object.assign(row, update));
             data = data.slice().sort((a, b) => {
@@ -178,30 +190,41 @@ async function invoke(f, input = {}, extra = {}) {
   return output;
 }
 
-test('test send uses only the chosen recipient and PDF without attendee delivery writes', async () => {
+test('test send uses only the chosen recipient and isolated audit, without attendee sent status', async () => {
   const f = await fixture();
   const resolved = await resolveAttendeeCertificate(f.db, identity);
-  const before = JSON.stringify(f.db.rows);
-  f.db.rpc = async () => { throw new Error('Test must not claim attendee delivery'); };
+  claims(f);
   const input = { booking_id: bookingId, booking_source: 'standard', action: 'test-send',
-    test_recipient: ' reviewer@example.test ', expected_fingerprint: resolved.fingerprint };
+    test_recipient: ' reviewer@example.test ', expected_fingerprint: resolved.fingerprint,
+    confirmed: true, request_id: randomUUID() };
   let sent;
   const deps = { send: async message => { sent = message; return { success: true }; },
-    prepareSurveyLinks: async () => { throw new Error('Test must not mint survey credentials'); } };
+    prepareSurveyLinks: async () => { throw new Error('No survey list in this template'); } };
   const result = await invoke(f, input, deps);
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.test_recipient, 'reviewer@example.test');
   assert.equal(result.body.latest_delivery, undefined);
   assert.equal(sent.to, 'reviewer@example.test');
   assert.equal(sent.subject, `[TEST] ${resolved.email_message.subject}`);
-  assert.equal(sent.html, resolved.email_message.html);
+  assert.ok(sent.html.endsWith(resolved.email_message.html));
+  assert.match(sent.html, /REAL ATTENDEE SURVEY LINKS.*do not submit/);
+  assert.match(sent.html, /private\/signed-out browser/);
+  assert.match(sent.text, /private\/signed-out browser/);
+  assert.match(sent.text, /Submitting records a real response/);
   assert.equal(sent.resolveTransactionalPreferences, false);
   assert.equal(sent.cc, undefined);
   assert.equal(sent.bcc, undefined);
   assert.equal(sent.testMode, undefined, 'test emails must actually be delivered');
   assert.equal(sent.attachments[0].filename, 'cpd-certificate.pdf');
   assert.ok(sent.attachments[0].data.length > 0);
-  assert.equal(JSON.stringify(f.db.rows), before);
+  assert.equal(f.db.rows.attendee_cpd_certificate_delivery[0].purpose, 'test');
+  assert.equal(result.body.test_delivery.status, 'accepted');
+  const meta = await invoke(f, { ...input, method: 'GET' });
+  assert.equal(meta.body.latest_delivery, null);
+  assert.equal(meta.body.can_send, true);
+  assert.equal((await invoke(f, { ...input, confirmed: false }, deps)).statusCode, 400);
+  assert.equal((await invoke(f, { ...input, request_id: undefined }, deps)).statusCode, 400);
+  assert.equal((await invoke(f, input, { send: async () => assert.fail('replayed') })).body.duplicate, true);
   for (const address of ['', 'bad', 'a@example.test,b@example.test', 'a@example.test\r\nBcc:b@example.test']) {
     assert.equal((await invoke(f, { ...input, test_recipient: address }, {
       send: async () => { assert.fail('invalid recipient reached provider'); },
@@ -209,7 +232,9 @@ test('test send uses only the chosen recipient and PDF without attendee delivery
   }
   assert.equal((await invoke(f, input, { adminAccess: async () => false })).statusCode, 403);
   assert.equal((await invoke(f, { ...input, expected_fingerprint: 'stale' }, deps)).statusCode, 409);
-  assert.equal((await invoke(f, input, { send: async () => { throw new Error('timeout'); } })).statusCode, 502);
+  assert.equal((await invoke(f, { ...input, request_id: randomUUID() }, { send: async () => { throw new Error('timeout'); } })).statusCode, 502);
+  assert.equal((await invoke(f, { ...input, request_id: randomUUID() }, deps)).statusCode, 409);
+  assert.equal((await invoke(f, await sendInput(f), deps)).body.success, true);
 });
 
 test('report permissions, method validation, stale preview fingerprint and private PDF response', async () => {
@@ -238,14 +263,21 @@ function claims(f) {
     assert.equal(name, 'claim_attendee_cpd_certificate_delivery');
     const rows = f.db.rows.attendee_cpd_certificate_delivery;
     const retry = rows.find(row => row.request_id === p.p_request_id);
-    if (retry) return { data: { claimed: false, reason: 'retry', delivery: retry } };
-    const unresolved = rows.find(row => ['pending', 'unknown'].includes(row.status));
+    if (retry) {
+      if (retry.purpose !== p.p_purpose || retry.recipient !== p.p_recipient
+        || retry.fingerprint !== p.p_fingerprint || retry.booking_id !== p.p_booking_id
+        || retry.booking_source !== p.p_booking_source)
+        return { data: { claimed: false, reason: 'request_conflict' } };
+      return { data: { claimed: false, reason: 'retry', delivery: retry } };
+    }
+    const unresolved = rows.find(row => row.purpose === p.p_purpose && ['pending', 'unknown'].includes(row.status));
     if (unresolved) return { data: { claimed: false, reason: 'unresolved', delivery: unresolved } };
-    const accepted = rows.find(row => row.status === 'accepted');
+    const accepted = rows.find(row => p.p_purpose === 'attendee' && row.purpose === 'attendee' && row.status === 'accepted');
     if (accepted && !p.p_deliberate_resend) return { data: { claimed: false, reason: 'resend_required', delivery: accepted } };
     const row = { id: randomUUID(), request_id: p.p_request_id, status: 'pending', tenant_id: tenantId,
       booking_source: p.p_booking_source, booking_id: p.p_booking_id, recipient: p.p_recipient,
-      created_at: new Date().toISOString(), provenance: p.p_provenance, actor: p.p_actor };
+      created_at: new Date().toISOString(), provenance: p.p_provenance, actor: p.p_actor,
+      purpose: p.p_purpose, fingerprint: p.p_fingerprint };
     rows.push(row);
     return { data: { claimed: true, delivery: row } };
   };
@@ -630,12 +662,86 @@ test('certificate email preview and send use survey list without leaking deliver
   assert.doesNotMatch(JSON.stringify(f.db.rows.attendee_cpd_certificate_delivery[0].provenance), /certificate_grant/);
 });
 
+test('genuine test links share attendee entitlement and accepted-only security without attendee delivery side effects', async () => {
+  for (const providerStatus of ['accepted', 'failed', 'unknown']) {
+    const f = await fixture(); claims(f);
+    const template = selectEmail(f);
+    template.body = '{{event_survey_list}}';
+    f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+    const assignment = { id: randomUUID(), tenant_id: tenantId, event_id: eventId,
+      event_type: 'event', status: 'active', token: 'shared-token',
+      form_id: randomUUID(), closes_at: '2099-01-01T00:00:00Z' };
+    f.db.rows.event_survey_assignment = [assignment];
+    f.db.rows.form = [{ id: assignment.form_id, tenant_id: tenantId, form_type: 'survey',
+      name: 'Feedback', is_active: true, survey_settings: { status: 'published', current_version: 1 } }];
+    const resolved = await resolveAttendeeCertificate(f.db, identity);
+    const input = { booking_id: bookingId, booking_source: 'standard', action: 'test-send',
+      expected_fingerprint: resolved.fingerprint, confirmed: true, request_id: randomUUID(),
+      test_recipient: 'reviewer@example.test' };
+    let token;
+    const result = await invoke(f, input, { send: async message => {
+      token = message.html.match(/certificate_grant=([A-Za-z0-9_-]{43})/)[1];
+      assert.equal(message.to, input.test_recipient);
+      assert.equal(await resolveCertificateSurveyGrantState(f.db, tenantId, assignment, token), null);
+      return providerStatus === 'accepted' ? { success: true, renderedHtml: message.html }
+        : { success: false, status: providerStatus === 'failed' ? 400 : 503 };
+    } });
+    assert.equal(result.body.latest_delivery, undefined);
+    assert.equal(result.body.test_delivery.status, providerStatus);
+    const entitlement = f.db.rows.certificate_survey_entitlement[0];
+    assert.equal(entitlement.recipient_email, f.booking.attendee_email);
+    assert.equal(entitlement.completed_at, undefined);
+    const state = await resolveCertificateSurveyGrantState(f.db, tenantId, assignment, token);
+    assert.equal(state?.status || null, providerStatus === 'accepted' ? 'active' : null);
+    assert.equal(Boolean(f.db.rows.certificate_survey_credential[0].revoked_at), providerStatus === 'failed');
+    assert.doesNotMatch(JSON.stringify(f.db.rows), new RegExp(token));
+    const meta = await invoke(f, { ...input, method: 'GET' });
+    assert.equal(meta.body.latest_delivery, null);
+    assert.equal(meta.body.can_send, true);
+    await invoke(f, input, { send: async () => assert.fail('test replay reached provider') });
+    const live = await invoke(f, { ...input, action: 'send', request_id: randomUUID() }, {
+      send: async message => {
+        assert.equal(message.to, f.booking.attendee_email);
+        return { success: true };
+      },
+    });
+    assert.equal(live.body.success, true);
+    assert.equal(f.db.rows.certificate_survey_entitlement.length, 1);
+    assert.equal(f.db.rows.certificate_survey_credential.length, 2);
+    assert.equal(entitlement.completed_at, undefined);
+    f.booking.status = 'cancelled';
+    assert.equal(await resolveCertificateSurveyGrantState(f.db, tenantId, assignment, token), null);
+  }
+});
+
+test('partial test credential issuance is revoked by delivery scope before any provider call', async () => {
+  const f = await fixture(); claims(f);
+  const template = selectEmail(f);
+  template.body = '{{event_survey_list}}';
+  f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+  const input = { ...await sendInput(f), action: 'test-send', test_recipient: 'reviewer@example.test' };
+  f.db.rows.certificate_survey_credential = [{ id: 'other-credential', delivery_id: 'other-delivery' }];
+  const result = await invoke(f, input, {
+    prepareSurveyLinks: async ({ deliveryId, recipient }) => {
+      assert.equal(recipient, f.booking.attendee_email, 'grant recipient is never the admin tester');
+      f.db.rows.certificate_survey_credential.push({ id: 'partial-credential', delivery_id: deliveryId });
+      throw new Error('Second invitation could not be issued');
+    },
+    send: async () => assert.fail('partial preparation must not reach provider'),
+  });
+  assert.equal(result.statusCode, 502);
+  assert.equal(result.body.test_delivery.status, 'failed');
+  assert.equal(result.body.latest_delivery, undefined);
+  assert.ok(f.db.rows.certificate_survey_credential[1].revoked_at);
+  assert.equal(f.db.rows.certificate_survey_credential[0].revoked_at, undefined);
+});
+
 test('pending delivery fences sending, but does not fence reading the current email preview', async () => {
   const f = await fixture();
   const resolved = await resolveAttendeeCertificate(f.db, identity);
   f.db.rows.attendee_cpd_certificate_delivery.push({
     id: randomUUID(), tenant_id: tenantId, booking_source: 'standard', booking_id: bookingId,
-    status: 'pending', recipient: resolved.recipient, created_at: new Date().toISOString(),
+    status: 'pending', purpose: 'attendee', recipient: resolved.recipient, created_at: new Date().toISOString(),
   });
   const input = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint };
   const meta = await invoke(f, { ...input, method: 'GET' });

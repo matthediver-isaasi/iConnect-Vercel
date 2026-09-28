@@ -1,4 +1,4 @@
-// Previews are read-only; test sends never claim attendee delivery or issue survey credentials.
+// Previews are read-only. Test sends issue real invitations on purpose-isolated audit rows.
 import { supabase } from '../_lib/database.js';
 import { createHash } from 'node:crypto';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -21,6 +21,7 @@ async function latestDelivery(db, tenantId, source, id) {
   const { data, error } = await db.from('attendee_cpd_certificate_delivery')
     .select('id,status,recipient,created_at,updated_at,error,provider_message_id')
     .eq('tenant_id', tenantId).eq('booking_source', source).eq('booking_id', id)
+    .eq('purpose', 'attendee')
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   return data;
@@ -43,6 +44,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     }
     const input = req.method === 'GET' ? req.query : req.body;
     const { booking_id: bookingId, booking_source: bookingSource } = input || {};
+    const isTest = req.method === 'POST' && input?.action === 'test-send';
     if (!UUID.test(bookingId || '') || !Object.hasOwn(CERTIFICATE_BOOKINGS, bookingSource || '')) {
       return res.status(400).json({ error: 'A valid booking_id and booking_source (standard or complex) are required' });
     }
@@ -67,7 +69,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       can_preview_email: resolved.can_send === true,
       can_send: resolved.can_send && !blocked,
       send_reason: blocked ? 'A previous send is pending or its provider outcome is unknown. Reconcile it before sending again.' : resolved.send_reason || resolved.reason,
-      latest_delivery: publicDelivery(latest),
+      ...(!isTest ? { latest_delivery: publicDelivery(latest) } : {}),
     };
     if (req.method === 'GET') return res.status(200).json(metadata);
     if (!resolved.available) return res.status(409).json({ error: resolved.reason, ...metadata });
@@ -94,37 +96,13 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
         omitted_surveys: resolved.survey_list?.omitted || [],
       });
     }
-    if (input.action === 'test-send') {
-      const recipient = typeof input.test_recipient === 'string' ? input.test_recipient.trim() : '';
+    const recipient = isTest
+      ? (typeof input.test_recipient === 'string' ? input.test_recipient.trim() : '')
+      : resolved.recipient;
+    if (isTest) {
       if (recipient.length > 254 || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(recipient)) {
         return res.status(400).json({ error: 'Enter one valid test email address.' });
       }
-      if (!resolved.can_send) return res.status(409).json({ error: resolved.send_reason });
-      const pdf = await render(db, resolved);
-      const current = await resolve(db, identity);
-      if (!current.available || !current.can_send || current.fingerprint !== resolved.fingerprint) {
-        return res.status(409).json({ error: 'Certificate data changed during preparation. Reload and preview again.' });
-      }
-      // Use preview content: no attendee survey bearer links, delivery claims,
-      // CC/BCC, inbox delivery, or attendee preference authority in test mail.
-      let result;
-      try {
-        result = await (deps.send || sendEmail)({
-          tenantId: context.tenantId, to: recipient,
-          subject: `[TEST] ${current.email_message.subject}`,
-          html: current.email_message.html, text: current.email_message.text,
-          enableTracking: false, disableTracking: true,
-          resolveTransactionalPreferences: false,
-          attachments: [{ filename: 'cpd-certificate.pdf', data: pdf, contentType: 'application/pdf' }],
-        });
-      } catch {
-        return res.status(502).json({ error: 'Test email outcome is unknown. Check the test inbox before sending another.' });
-      }
-      if (!result.success) return res.status(502).json({
-        error: 'The provider did not confirm the test email. Check the test inbox before sending another.',
-      });
-      return res.status(200).json({ success: true, test_recipient: recipient,
-        message: 'Test email accepted by the provider. Attendee delivery is unchanged; survey links are inactive.' });
     }
     if (input.confirmed !== true || !UUID.test(input.request_id || '')) {
       return res.status(400).json({ error: 'Explicit confirmation and a UUID request_id are required' });
@@ -134,7 +112,8 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       p_tenant_id: context.tenantId, p_booking_source: bookingSource, p_booking_id: bookingId,
       p_request_id: input.request_id, p_fingerprint: resolved.fingerprint,
       p_actor: context.memberId ? `member:${context.memberId}` : `tenant_user:${context.tenantUserId}`,
-      p_recipient: resolved.recipient, p_provenance: resolved.provenance,
+      p_recipient: recipient, p_provenance: resolved.provenance,
+      p_purpose: isTest ? 'test' : 'attendee',
       p_deliberate_resend: input.deliberate_resend === true,
     });
     if (claimError) throw claimError;
@@ -142,7 +121,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       const delivery = publicDelivery(claim.delivery);
       return res.status(claim.reason === 'retry' ? 200 : 409).json({
         success: delivery?.status === 'accepted', duplicate: claim.reason === 'retry',
-        latest_delivery: delivery,
+        ...(isTest ? { test_delivery: delivery, test_recipient: recipient } : { latest_delivery: delivery }),
         error: claim.reason === 'retry' ? null : claim.reason === 'resend_required'
           ? 'This attendee has already had a certificate accepted by the email provider. Confirm a deliberate resend.'
           : 'A send is pending, unknown, or conflicts with this request. Do not retry blindly.',
@@ -179,9 +158,21 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
         if (preparedEmail.reason) throw new Error(preparedEmail.reason);
         emailMessage = preparedEmail.message;
       }
+      if (isTest) {
+        const warning = 'TEST EMAIL — REAL ATTENDEE SURVEY LINKS. Open links only in a private/signed-out browser; do not submit. A logged-in admin session may be rejected because it does not match the attendee. Submitting records a real response for this attendee.';
+        // Preserve template sender and reply-to, but never route test mail to
+        // other recipients or resolve attendee preference credentials.
+        emailMessage = {
+          subject: `[TEST] ${emailMessage.subject}`,
+          html: `<p><strong>${warning}</strong></p>${emailMessage.html}`,
+          text: `${warning}\n\n${emailMessage.text || ''}`,
+          from: emailMessage.from, replyTo: emailMessage.replyTo,
+          resolveTransactionalPreferences: false,
+        };
+      }
       attempted = true;
       const result = await (deps.send || sendEmail)({
-        tenantId: context.tenantId, to: resolved.recipient,
+        tenantId: context.tenantId, to: recipient,
         ...emailMessage,
         enableTracking: false,
         disableTracking: true,
@@ -215,21 +206,24 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     // A durable pending row remains a permanent replay fence if persistence fails
     // after Mailgun accepts. There is intentionally no timed automatic reclaim.
     if (finishError) return res.status(503).json({ error: 'The send outcome could not be recorded. Do not resend; reconcile the pending delivery first.' });
-    if (surveyGrantIds.length && outcome.status === 'failed') {
+    if (outcome.status === 'failed') {
       try {
         await (deps.setSurveyGrantDelivery || setCertificateSurveyGrantsDelivery)({
-          db, grantIds: surveyGrantIds, status: outcome.status,
+          db, grantIds: surveyGrantIds, deliveryId: claim.delivery.id, status: outcome.status,
         });
       } catch {
         return res.status(503).json({
           error: 'The failed delivery was recorded but survey invitations could not be revoked. Do not resend; reconcile the delivery first.',
-          latest_delivery: publicDelivery(finished),
+          ...(isTest ? { test_delivery: publicDelivery(finished) } : { latest_delivery: publicDelivery(finished) }),
         });
       }
     }
     return res.status(outcome.status === 'accepted' ? 200 : 502).json({
-      success: outcome.status === 'accepted', latest_delivery: publicDelivery(finished),
-      message: outcome.status === 'accepted' ? 'Accepted by the email provider; inbox delivery is not confirmed.' : undefined,
+      success: outcome.status === 'accepted',
+      ...(isTest ? { test_recipient: recipient, test_delivery: publicDelivery(finished) } : { latest_delivery: publicDelivery(finished) }),
+      message: outcome.status === 'accepted' ? (isTest
+        ? 'Test email accepted. Attendee delivery is unchanged. Real survey links: open only; do not submit.'
+        : 'Accepted by the email provider; inbox delivery is not confirmed.') : undefined,
       error: outcome.error || undefined,
     });
   } catch (error) {

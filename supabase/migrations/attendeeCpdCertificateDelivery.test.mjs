@@ -40,6 +40,8 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     await db.query(sql); await db.query(sql);
     const renderedEmailSql = readFileSync(new URL('./20261122_attendee_cpd_rendered_email.sql', import.meta.url), 'utf8');
     await db.query(renderedEmailSql); await db.query(renderedEmailSql);
+    const purposeSql = readFileSync(new URL('./20261124_certificate_test_delivery_purpose.sql', import.meta.url), 'utf8');
+    await db.query(purposeSql); await db.query(purposeSql);
     const privilege = await db.query(`SELECT
       has_table_privilege('anon','attendee_cpd_certificate_delivery','SELECT') AS anon,
       has_table_privilege('authenticated','attendee_cpd_certificate_delivery','SELECT') AS member,
@@ -49,9 +51,10 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     assert.deepEqual(privilege.rows[0], { anon: false, member: false, insert_delete: false, provenance_update: false, status_update: true });
     const fingerprint = 'a'.repeat(64);
     const claim = async (client, requestId, overrides = {}) => {
-      const p = { tenant, source: 'standard', booking, fingerprint, resend: false, ...overrides };
-      const { rows } = await client.query(`SELECT public.claim_attendee_cpd_certificate_delivery($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result`,
-        [p.tenant, p.source, p.booking, requestId, p.fingerprint, 'member:admin', 'attendee@example.test', { template_id: 'template', values: { name: 'Real' } }, p.resend]);
+      const p = { tenant, source: 'standard', booking, fingerprint, resend: false, purpose: 'attendee',
+        recipient: 'attendee@example.test', ...overrides };
+      const { rows } = await client.query(`SELECT public.claim_attendee_cpd_certificate_delivery($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result`,
+        [p.tenant, p.source, p.booking, requestId, p.fingerprint, 'member:admin', p.recipient, { template_id: 'template', values: { name: 'Real' } }, p.resend, p.purpose]);
       return rows[0].result;
     };
     const request = randomUUID();
@@ -95,16 +98,60 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     assert.equal((await claim(db, randomUUID(), { resend: true })).reason, 'unresolved');
     // Changing content does not defeat an unresolved provider fence.
     assert.equal((await claim(db, randomUUID(), { resend: true, fingerprint: 'c'.repeat(64) })).reason, 'unresolved');
+    // Real attendee unknown delivery does not fence test mail; test unknown
+    // fences only test purpose, even when changing recipient/fingerprint.
+    const testRequest = randomUUID();
+    const testOptions = { purpose: 'test', recipient: 'reviewer@example.test' };
+    const tests = await Promise.all([claim(a, testRequest, testOptions), claim(b, testRequest, testOptions)]);
+    assert.equal(tests.filter(row => row.claimed).length, 1);
+    assert.equal(tests.filter(row => row.reason === 'retry').length, 1);
+    const testDelivery = tests.find(row => row.claimed).delivery;
+    assert.equal(testDelivery.purpose, 'test');
+    assert.equal((await claim(db, testRequest)).reason, 'request_conflict');
+    assert.equal((await claim(db, testRequest, { ...testOptions, recipient: 'different@example.test' })).reason, 'request_conflict');
+    await db.query("UPDATE attendee_cpd_certificate_delivery SET status='unknown' WHERE id=$1", [testDelivery.id]);
+    assert.equal((await claim(db, randomUUID(), testOptions)).reason, 'unresolved');
+    await db.query("UPDATE attendee_cpd_certificate_delivery SET status='failed' WHERE id=$1", [resend.id]);
+    const unaffectedLive = await claim(db, randomUUID(), { resend: true });
+    assert.equal(unaffectedLive.claimed, true);
+    await db.query("UPDATE attendee_cpd_certificate_delivery SET status='accepted' WHERE id=$1", [testDelivery.id]);
+    const nextTest = await claim(db, randomUUID(), testOptions);
+    assert.equal(nextTest.claimed, true, 'accepted tests do not require deliberate attendee resend');
+    await a.query('SET ROLE service_role');
+    await assert.rejects(a.query("UPDATE attendee_cpd_certificate_delivery SET purpose='attendee' WHERE id=$1", [testDelivery.id]), /permission denied/);
+    await a.query('RESET ROLE');
     await assert.rejects(claim(db, randomUUID(), { tenant: other }), /tenant booking/);
     await assert.rejects(claim(db, randomUUID(), { booking: cancelled }), /tenant booking/);
     const complexClaim = await claim(db, randomUUID(), { source: 'complex', booking: complex });
     assert.equal(complexClaim.claimed, true);
     await db.query("UPDATE attendee_cpd_certificate_delivery SET status='failed' WHERE id=$1", [complexClaim.delivery.id]);
     assert.equal((await claim(db, randomUUID(), { source: 'complex', booking: complex })).claimed, true);
+    // During rolling deployment the old route sends exactly nine named RPC
+    // arguments. PostgreSQL must resolve those without overload ambiguity and
+    // default the omitted purpose to attendee.
+    const legacyBooking = randomUUID();
+    await db.query("INSERT INTO booking VALUES ($1,$2,'confirmed')", [legacyBooking, tenant]);
+    const legacyRequest = randomUUID();
+    const legacyArgs = [tenant, 'standard', legacyBooking, legacyRequest, fingerprint,
+      'member:admin', 'attendee@example.test', { template_id: 'template' }, false];
+    const legacySql = `SELECT public.claim_attendee_cpd_certificate_delivery(
+      p_tenant_id => $1, p_booking_source => $2, p_booking_id => $3,
+      p_request_id => $4, p_fingerprint => $5, p_actor => $6,
+      p_recipient => $7, p_provenance => $8, p_deliberate_resend => $9
+    ) AS result`;
+    await a.query('SET ROLE service_role');
+    const legacy = (await a.query(legacySql, legacyArgs)).rows[0].result;
+    assert.equal(legacy.claimed, true);
+    assert.equal(legacy.delivery.purpose, 'attendee');
+    const legacyReplay = (await a.query(legacySql, legacyArgs)).rows[0].result;
+    assert.equal(legacyReplay.reason, 'retry');
+    assert.equal(legacyReplay.delivery.id, legacy.delivery.id);
+    assert.equal(legacyReplay.delivery.purpose, 'attendee');
+    await a.query('RESET ROLE');
     await db.query("SET request.jwt.claim.role='authenticated'");
     await assert.rejects(claim(db, randomUUID()), /service_role is required/);
     const count = await db.query('SELECT count(*)::int AS count FROM attendee_cpd_certificate_delivery');
-    assert.equal(count.rows[0].count, 4);
+    assert.equal(count.rows[0].count, 8);
   } finally {
     for (const client of clients) await client.end();
     if (started) run('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

@@ -300,6 +300,7 @@ export const attendeeCpdCertificateDelivery = pgTable("attendee_cpd_certificate_
   tenant_id: uuid("tenant_id").notNull(),
   booking_source: text("booking_source").notNull(),
   booking_id: uuid("booking_id").notNull(),
+  purpose: text("purpose").notNull().default("attendee"),
   request_id: uuid("request_id").notNull(),
   fingerprint: text("fingerprint").notNull(),
   actor: text("actor").notNull(),
@@ -315,7 +316,7 @@ export const attendeeCpdCertificateDelivery = pgTable("attendee_cpd_certificate_
   requestUnique: uniqueIndex("attendee_cpd_certificate_delivery_tenant_id_request_id_key").on(table.tenant_id, table.request_id),
   bookingIndex: index("attendee_cpd_certificate_delivery_booking").on(table.tenant_id, table.booking_source, table.booking_id, table.created_at),
   unresolvedUnique: uniqueIndex("attendee_cpd_certificate_delivery_unresolved")
-    .on(table.tenant_id, table.booking_source, table.booking_id).where(sql`${table.status} IN ('pending','unknown')`),
+    .on(table.tenant_id, table.booking_source, table.booking_id, table.purpose).where(sql`${table.status} IN ('pending','unknown')`),
 }));
 
 // Custom Object foundation. These shared generic tables back every

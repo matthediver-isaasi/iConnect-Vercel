@@ -117,6 +117,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const [sent, setSent] = useState(false);
   const [testRecipient, setTestRecipient] = useState("");
   const [testMessage, setTestMessage] = useState("");
+  const [testConfirmed, setTestConfirmed] = useState(false);
+  const testRequestId = useRef(null);
   const requestId = useRef(null);
   const metadataRef = useRef(null);
   const pendingRef = useRef(false);
@@ -135,6 +137,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setSent(false);
     setTestRecipient("");
     setTestMessage("");
+    setTestConfirmed(false);
+    testRequestId.current = null;
     setPdfBytes(null);
     setEmailPreview(null);
     requestId.current = null;
@@ -164,14 +168,15 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setTestMessage("");
     if (kind === "preview") setPdfBytes(null);
     if (kind === "email-preview") setEmailPreview(null);
-    if (kind === "send" && !requestId.current) {
+    const activeRequestId = kind === "test-send" ? testRequestId : requestId;
+    if (["send", "test-send"].includes(kind) && !activeRequestId.current) {
       if (!globalThis.crypto?.randomUUID) {
         setError("Secure request IDs are unavailable in this browser. Please use a supported browser.");
         pendingRef.current = false;
         setBusy("");
         return;
       }
-      requestId.current = globalThis.crypto.randomUUID();
+      activeRequestId.current = globalThis.crypto.randomUUID();
     }
     try {
       const response = await fetch(ENDPOINT, {
@@ -180,7 +185,10 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         body: JSON.stringify({
           booking_id: bookingId, booking_source: source, action: kind,
           expected_fingerprint: metadataRef.current.fingerprint,
-          ...(kind === "test-send" ? { test_recipient: testRecipient.trim() } : {}),
+          ...(kind === "test-send" ? {
+            test_recipient: testRecipient.trim(), confirmed: testConfirmed,
+            request_id: testRequestId.current,
+          } : {}),
           ...(kind === "send" ? {
             request_id: requestId.current,
             confirmed: true,
@@ -193,12 +201,17 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         if (data.fingerprint && data.fingerprint !== metadataRef.current?.fingerprint) {
           // A changed email selection/content, PDF or recipient needs fresh consent.
           // The server returns the new metadata with a stale-fingerprint conflict.
-          metadataRef.current = data;
-          setMetadata(data);
+          const next = kind === "test-send"
+            ? { ...data, latest_delivery: metadataRef.current.latest_delivery }
+            : data;
+          metadataRef.current = next;
+          setMetadata(next);
           setConfirmed(false);
           setPdfBytes(null);
           setEmailPreview(null);
           requestId.current = null;
+          testRequestId.current = null;
+          setTestConfirmed(false);
         }
         if (data.latest_delivery) {
           setMetadata(previous => {
@@ -222,6 +235,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         const data = await response.json();
         if (data.success !== true) throw new Error(data.error || "Test email was not accepted.");
         setTestMessage(`Test email accepted by the provider for ${data.test_recipient}. Attendee delivery is unchanged.`);
+        testRequestId.current = null;
+        setTestConfirmed(false);
       } else {
         const data = await response.json();
         if (data.success !== true) throw new Error(data.error || "The email provider has not confirmed acceptance. Check the delivery record before trying again.");
@@ -331,12 +346,21 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                   <div className="space-y-2 rounded border p-3" data-testid="cpd-test-email-section">
                     <label htmlFor="cpd-test-recipient" className="block text-sm font-medium">Test email recipient</label>
                     <input id="cpd-test-recipient" type="email" value={testRecipient}
-                      onChange={event => { setTestRecipient(event.target.value); setTestMessage(""); }}
+                      onChange={event => {
+                        setTestRecipient(event.target.value); setTestMessage("");
+                        setTestConfirmed(false); testRequestId.current = null;
+                      }}
                       disabled={!!busy} placeholder="you@example.com"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-                    <p className="text-xs text-muted-foreground">Sends this attendee’s email and certificate PDF only to the address above, with [TEST] in the subject. Survey links stay inactive. Does not mark the attendee’s certificate as sent or change attendance or CPD points.</p>
+                    <p className="text-xs text-muted-foreground">Sends this attendee’s email and certificate PDF only to the address above, with [TEST] in the subject. Includes genuine tokenised survey links that open without login. Does not mark the attendee’s certificate as sent or change attendance or CPD points.</p>
+                    <p className="text-sm font-medium text-amber-700">Open links only—do not submit surveys. Open in a private or signed-out browser to test access without login. These are real attendee links; submitting records the attendee’s response and may prevent them responding later.</p>
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox checked={testConfirmed} onCheckedChange={value => setTestConfirmed(value === true)}
+                        disabled={!!busy} data-testid="confirm-cpd-test-email" />
+                      I understand these are real attendee survey links and will only open them, not submit.
+                    </label>
                     <Button type="button" variant="outline" data-testid="button-test-cpd-email"
-                      disabled={!!busy || !canPreviewEmail || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(testRecipient.trim())}
+                      disabled={!!busy || !canPreviewEmail || !testConfirmed || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(testRecipient.trim())}
                       onClick={() => action("test-send")}>
                       {busy === "test-send" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Send test email
                     </Button>

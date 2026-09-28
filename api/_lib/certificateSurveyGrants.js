@@ -181,14 +181,16 @@ export async function prepareCertificateSurveyLinks({
   };
 }
 
-export async function setCertificateSurveyGrantsDelivery({ db, grantIds, status }) {
+export async function setCertificateSurveyGrantsDelivery({ db, grantIds, deliveryId, status }) {
   if (!['accepted', 'failed'].includes(status)) throw new Error('Invalid grant delivery status');
   // Accepted status needs NO second write: each credential is joined to its
   // durable delivery_id at both lookup and atomic submission boundaries.
-  if (!grantIds?.length || status === 'accepted') return;
-  const { error } = await db.from('certificate_survey_credential')
-    .update({ revoked_at: new Date().toISOString() })
-    .in('id', grantIds);
+  if (status === 'accepted' || (!deliveryId && !grantIds?.length)) return;
+  // Delivery scope also covers partial issuance when preparation throws before
+  // it can return the credential IDs. Other deliveries' credentials stay valid.
+  const query = db.from('certificate_survey_credential')
+    .update({ revoked_at: new Date().toISOString() });
+  const { error } = await (deliveryId ? query.eq('delivery_id', deliveryId) : query.in('id', grantIds));
   if (error) throw error;
 }
 

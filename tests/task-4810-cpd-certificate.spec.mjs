@@ -248,15 +248,20 @@ test("test email has a separate recipient and leaves real attendee send unconfir
     const button = dialog.getByTestId("button-test-cpd-email");
     await expect(button).toBeDisabled();
     await dialog.getByLabel("Test email recipient", { exact: true }).fill("reviewer@example.test");
+    await expect(button).toBeDisabled();
+    await expect(dialog).toContainText("Open links only—do not submit surveys.");
+    await dialog.getByTestId("confirm-cpd-test-email").click();
     await button.click();
     await expect(dialog).toContainText("Test email accepted by the provider for reviewer@example.test");
     await expect(dialog.getByTestId("button-email-cpd-certificate")).toBeDisabled();
     await expect(dialog.getByTestId("confirm-cpd-email")).not.toBeChecked();
+    await expect(dialog.getByTestId("confirm-cpd-test-email")).not.toBeChecked();
     await page.screenshot({ path: "/tmp/cpd-test-email-dialog.png" });
     await dialog.getByRole("button", { name: "Close" }).first().click();
   }
   expect(state.postCalls.map(call => call.action)).toEqual(["test-send", "test-send"]);
   expect(state.postCalls.every(call => call.test_recipient === "reviewer@example.test")).toBe(true);
+  expect(state.postCalls.every(call => call.confirmed === true && /^[0-9a-f-]{36}$/i.test(call.request_id))).toBe(true);
   expect(state.rejectedWrites).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
 });

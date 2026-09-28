@@ -29,16 +29,18 @@ encoding the literal alias into a tracking redirect makes the visible link
 unusable. This exception is narrow: ordinary campaign links still follow the
 normal tracking path.
 
-Certificate test sends must remain inspection-only with respect to attendee
-authority, even though the email itself is actually delivered.
+Certificate test sends intentionally carry genuine attendee survey credentials;
+administrators are instructed to open links only, not submit.
 
-**Why:** The test recipient may not be the attendee. Issuing the real attendee's
-survey invitations or recording an attendee delivery would grant unintended
-access or interfere with the later real send.
+**Why:** The user explicitly requires proving unauthenticated access through the
+same token checks as real attendee mail, not placeholder or security-bypassed
+test links. They accept that submitting would consume the attendee's response.
 
-**How to apply:** Keep survey links inactive in test messages and keep test
-delivery independent of attendee delivery claims and confirmations. Provider
-acceptance is not proof of inbox delivery.
+**How to apply:** Preserve normal grant security and accepted-delivery activation.
+Keep test delivery separate from attendee delivery claims and confirmations.
+Warn in the UI and email not to submit, and to open signed out/private because a
+different logged-in identity is correctly rejected. Provider acceptance is not
+proof of inbox delivery. Ordinary on-screen previews still use inactive links.
 
 Campaign test sends deliberately differ from production at the credential
 boundary. Tenant and group test-send recipients are synthetic and have no
