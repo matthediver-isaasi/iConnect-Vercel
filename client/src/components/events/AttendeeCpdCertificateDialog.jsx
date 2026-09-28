@@ -115,6 +115,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const [emailPreview, setEmailPreview] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const [sent, setSent] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testMessage, setTestMessage] = useState("");
   const requestId = useRef(null);
   const metadataRef = useRef(null);
   const pendingRef = useRef(false);
@@ -131,6 +133,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     metadataRef.current = null;
     setConfirmed(false);
     setSent(false);
+    setTestRecipient("");
+    setTestMessage("");
     setPdfBytes(null);
     setEmailPreview(null);
     requestId.current = null;
@@ -157,6 +161,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     pendingRef.current = true;
     setBusy(kind);
     setError("");
+    setTestMessage("");
     if (kind === "preview") setPdfBytes(null);
     if (kind === "email-preview") setEmailPreview(null);
     if (kind === "send" && !requestId.current) {
@@ -175,6 +180,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         body: JSON.stringify({
           booking_id: bookingId, booking_source: source, action: kind,
           expected_fingerprint: metadataRef.current.fingerprint,
+          ...(kind === "test-send" ? { test_recipient: testRecipient.trim() } : {}),
           ...(kind === "send" ? {
             request_id: requestId.current,
             confirmed: true,
@@ -212,6 +218,10 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         setPdfBytes(new Uint8Array(await blob.arrayBuffer()));
       } else if (kind === "email-preview") {
         setEmailPreview(await response.json());
+      } else if (kind === "test-send") {
+        const data = await response.json();
+        if (data.success !== true) throw new Error(data.error || "Test email was not accepted.");
+        setTestMessage(`Test email accepted by the provider for ${data.test_recipient}. Attendee delivery is unchanged.`);
       } else {
         const data = await response.json();
         if (data.success !== true) throw new Error(data.error || "The email provider has not confirmed acceptance. Check the delivery record before trying again.");
@@ -318,6 +328,20 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                     {busy === "email-preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview email subject &amp; body
                   </Button>
                   {!canPreviewEmail && <p role="status" className="text-sm text-amber-700">Email preview unavailable: {emailPreviewReason}</p>}
+                  <div className="space-y-2 rounded border p-3" data-testid="cpd-test-email-section">
+                    <label htmlFor="cpd-test-recipient" className="block text-sm font-medium">Test email recipient</label>
+                    <input id="cpd-test-recipient" type="email" value={testRecipient}
+                      onChange={event => { setTestRecipient(event.target.value); setTestMessage(""); }}
+                      disabled={!!busy} placeholder="you@example.com"
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                    <p className="text-xs text-muted-foreground">Sends this attendee’s email and certificate PDF only to the address above, with [TEST] in the subject. Survey links stay inactive. Does not mark the attendee’s certificate as sent or change attendance or CPD points.</p>
+                    <Button type="button" variant="outline" data-testid="button-test-cpd-email"
+                      disabled={!!busy || !canPreviewEmail || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(testRecipient.trim())}
+                      onClick={() => action("test-send")}>
+                      {busy === "test-send" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Send test email
+                    </Button>
+                    {testMessage && <p role="status" className="text-sm">{testMessage}</p>}
+                  </div>
                   {emailPreview && <div className="space-y-2 rounded border p-3" data-testid="cpd-email-preview">
                     <p className="text-sm"><strong>To:</strong> {emailPreview.recipient}</p>
                     <p className="text-sm"><strong>Subject:</strong> {emailPreview.subject}</p>

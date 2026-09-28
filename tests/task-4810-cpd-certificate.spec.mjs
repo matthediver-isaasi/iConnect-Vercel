@@ -142,6 +142,9 @@ async function fixture(page, { groups = [group("regular-01"), group("complex-01"
             headers: { "Cache-Control": "private, no-store", "Content-Disposition": "inline; filename=certificate.pdf" },
             body: await fixturePdf(body.booking_id) });
         }
+        if (body.action === "test-send") {
+          return json(route, { success: true, test_recipient: body.test_recipient });
+        }
         if (body.action === "email-preview") {
           const selected = body.booking_id !== "default-01";
           return json(route, {
@@ -234,6 +237,26 @@ test("regular and complex attendees preview PDFs and send only after confirming 
   }
   expect(state.metadataCalls).toHaveLength(2);
   expect(state.postCalls).toHaveLength(4);
+  expect(state.rejectedWrites).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("test email has a separate recipient and leaves real attendee send unconfirmed", async ({ page }) => {
+  const state = await fixture(page);
+  for (const id of ["regular-01", "complex-01"]) {
+    const dialog = await openCertificate(page, id);
+    const button = dialog.getByTestId("button-test-cpd-email");
+    await expect(button).toBeDisabled();
+    await dialog.getByLabel("Test email recipient", { exact: true }).fill("reviewer@example.test");
+    await button.click();
+    await expect(dialog).toContainText("Test email accepted by the provider for reviewer@example.test");
+    await expect(dialog.getByTestId("button-email-cpd-certificate")).toBeDisabled();
+    await expect(dialog.getByTestId("confirm-cpd-email")).not.toBeChecked();
+    await page.screenshot({ path: "/tmp/cpd-test-email-dialog.png" });
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+  }
+  expect(state.postCalls.map(call => call.action)).toEqual(["test-send", "test-send"]);
+  expect(state.postCalls.every(call => call.test_recipient === "reviewer@example.test")).toBe(true);
   expect(state.rejectedWrites).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
 });

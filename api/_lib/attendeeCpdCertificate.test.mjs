@@ -178,6 +178,40 @@ async function invoke(f, input = {}, extra = {}) {
   return output;
 }
 
+test('test send uses only the chosen recipient and PDF without attendee delivery writes', async () => {
+  const f = await fixture();
+  const resolved = await resolveAttendeeCertificate(f.db, identity);
+  const before = JSON.stringify(f.db.rows);
+  f.db.rpc = async () => { throw new Error('Test must not claim attendee delivery'); };
+  const input = { booking_id: bookingId, booking_source: 'standard', action: 'test-send',
+    test_recipient: ' reviewer@example.test ', expected_fingerprint: resolved.fingerprint };
+  let sent;
+  const deps = { send: async message => { sent = message; return { success: true }; },
+    prepareSurveyLinks: async () => { throw new Error('Test must not mint survey credentials'); } };
+  const result = await invoke(f, input, deps);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.test_recipient, 'reviewer@example.test');
+  assert.equal(result.body.latest_delivery, undefined);
+  assert.equal(sent.to, 'reviewer@example.test');
+  assert.equal(sent.subject, `[TEST] ${resolved.email_message.subject}`);
+  assert.equal(sent.html, resolved.email_message.html);
+  assert.equal(sent.resolveTransactionalPreferences, false);
+  assert.equal(sent.cc, undefined);
+  assert.equal(sent.bcc, undefined);
+  assert.equal(sent.testMode, undefined, 'test emails must actually be delivered');
+  assert.equal(sent.attachments[0].filename, 'cpd-certificate.pdf');
+  assert.ok(sent.attachments[0].data.length > 0);
+  assert.equal(JSON.stringify(f.db.rows), before);
+  for (const address of ['', 'bad', 'a@example.test,b@example.test', 'a@example.test\r\nBcc:b@example.test']) {
+    assert.equal((await invoke(f, { ...input, test_recipient: address }, {
+      send: async () => { assert.fail('invalid recipient reached provider'); },
+    })).statusCode, 400);
+  }
+  assert.equal((await invoke(f, input, { adminAccess: async () => false })).statusCode, 403);
+  assert.equal((await invoke(f, { ...input, expected_fingerprint: 'stale' }, deps)).statusCode, 409);
+  assert.equal((await invoke(f, input, { send: async () => { throw new Error('timeout'); } })).statusCode, 502);
+});
+
 test('report permissions, method validation, stale preview fingerprint and private PDF response', async () => {
   const f = await fixture();
   const input = { booking_id: bookingId, booking_source: 'standard' };

@@ -1,4 +1,4 @@
-// PDF and email previews are read-only; only the confirmed send action delivers mail.
+// Previews are read-only; test sends never claim attendee delivery or issue survey credentials.
 import { supabase } from '../_lib/database.js';
 import { createHash } from 'node:crypto';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -47,8 +47,8 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       return res.status(400).json({ error: 'A valid booking_id and booking_source (standard or complex) are required' });
     }
     const identity = { tenantId: context.tenantId, bookingId, bookingSource };
-    if (req.method === 'POST' && !['preview', 'email-preview', 'send'].includes(input.action)) {
-      return res.status(400).json({ error: 'action must be preview, email-preview or send' });
+    if (req.method === 'POST' && !['preview', 'email-preview', 'test-send', 'send'].includes(input.action)) {
+      return res.status(400).json({ error: 'action must be preview, email-preview, test-send or send' });
     }
     const resolved = await resolve(db, identity);
     const latest = await latestDelivery(db, context.tenantId, bookingSource, bookingId);
@@ -93,6 +93,38 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
         survey_links_inactive: true,
         omitted_surveys: resolved.survey_list?.omitted || [],
       });
+    }
+    if (input.action === 'test-send') {
+      const recipient = typeof input.test_recipient === 'string' ? input.test_recipient.trim() : '';
+      if (recipient.length > 254 || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(recipient)) {
+        return res.status(400).json({ error: 'Enter one valid test email address.' });
+      }
+      if (!resolved.can_send) return res.status(409).json({ error: resolved.send_reason });
+      const pdf = await render(db, resolved);
+      const current = await resolve(db, identity);
+      if (!current.available || !current.can_send || current.fingerprint !== resolved.fingerprint) {
+        return res.status(409).json({ error: 'Certificate data changed during preparation. Reload and preview again.' });
+      }
+      // Use preview content: no attendee survey bearer links, delivery claims,
+      // CC/BCC, inbox delivery, or attendee preference authority in test mail.
+      let result;
+      try {
+        result = await (deps.send || sendEmail)({
+          tenantId: context.tenantId, to: recipient,
+          subject: `[TEST] ${current.email_message.subject}`,
+          html: current.email_message.html, text: current.email_message.text,
+          enableTracking: false, disableTracking: true,
+          resolveTransactionalPreferences: false,
+          attachments: [{ filename: 'cpd-certificate.pdf', data: pdf, contentType: 'application/pdf' }],
+        });
+      } catch {
+        return res.status(502).json({ error: 'Test email outcome is unknown. Check the test inbox before sending another.' });
+      }
+      if (!result.success) return res.status(502).json({
+        error: 'The provider did not confirm the test email. Check the test inbox before sending another.',
+      });
+      return res.status(200).json({ success: true, test_recipient: recipient,
+        message: 'Test email accepted by the provider. Attendee delivery is unchanged; survey links are inactive.' });
     }
     if (input.confirmed !== true || !UUID.test(input.request_id || '')) {
       return res.status(400).json({ error: 'Explicit confirmation and a UUID request_id are required' });
