@@ -557,9 +557,12 @@ test('certificate email preview and send use survey list without leaking deliver
   assert.match(resolved.email_message.html, /Feedback/);
   assert.doesNotMatch(JSON.stringify(resolved.provenance), /certificate_grant/);
   const input = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint };
+  const meta = await invoke(f, { ...input, method: 'GET' });
+  assert.equal(meta.body.can_preview_email, true);
   const preview = await invoke(f, { ...input, action: 'email-preview' });
   assert.equal(preview.statusCode, 200);
   assert.match(preview.body.html, /Feedback/);
+  assert.equal(preview.body.recipient, resolved.recipient);
   assert.doesNotMatch(preview.body.html, /certificate_grant/);
   assert.equal(preview.body.attachment.filename, 'cpd-certificate.pdf');
   assert.ok(preview.body.attachment.bytes > 100);
@@ -591,6 +594,23 @@ test('certificate email preview and send use survey list without leaking deliver
   assert.equal(issued, 1);
   assert.doesNotMatch(JSON.stringify(f.db.rows.attendee_cpd_certificate_delivery), new RegExp(token));
   assert.doesNotMatch(JSON.stringify(f.db.rows.attendee_cpd_certificate_delivery[0].provenance), /certificate_grant/);
+});
+
+test('pending delivery fences sending, but does not fence reading the current email preview', async () => {
+  const f = await fixture();
+  const resolved = await resolveAttendeeCertificate(f.db, identity);
+  f.db.rows.attendee_cpd_certificate_delivery.push({
+    id: randomUUID(), tenant_id: tenantId, booking_source: 'standard', booking_id: bookingId,
+    status: 'pending', recipient: resolved.recipient, created_at: new Date().toISOString(),
+  });
+  const input = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint };
+  const meta = await invoke(f, { ...input, method: 'GET' });
+  assert.equal(meta.body.can_send, false);
+  assert.equal(meta.body.can_preview_email, true);
+  const preview = await invoke(f, { ...input, action: 'email-preview' });
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.body.recipient, resolved.recipient);
+  assert.equal(f.db.rows.attendee_cpd_certificate_delivery.length, 1);
 });
 
 test('empty attached-survey list is neutral and ordinary placeholder values remain escaped', async () => {

@@ -63,6 +63,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       email_is_default: resolved.email_is_default,
       email_selection_missing: resolved.email_selection_missing === true,
       email_reason: resolved.email_reason || null,
+      can_preview_email: resolved.can_send === true,
       can_send: resolved.can_send && !blocked,
       send_reason: blocked ? 'A previous send is pending or its provider outcome is unknown. Reconcile it before sending again.' : resolved.send_reason || resolved.reason,
       latest_delivery: publicDelivery(latest),
@@ -83,6 +84,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       if (!resolved.can_send) return res.status(409).json({ error: resolved.send_reason });
       const pdf = await render(db, resolved);
       return res.status(200).json({
+        recipient: resolved.recipient,
         subject: resolved.email_message.subject, html: resolved.email_message.html,
         text: resolved.email_message.text || null,
         attachment: { filename: 'cpd-certificate.pdf', content_type: 'application/pdf',

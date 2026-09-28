@@ -85,7 +85,7 @@ function metadata(id, overrides = {}) {
   return {
     available: true, attendee_name: id.startsWith("complex") ? "Complex Fixture" : "Regular Fixture",
     recipient: `${id}@example.invalid`, fingerprint: `fingerprint-${id}`,
-    can_send: true, send_reason: null, reason: null, latest_delivery: null,
+    can_send: true, can_preview_email: true, send_reason: null, reason: null, latest_delivery: null,
     email_template_id: "fixture-email-template", email_template_name: "CPD workshop message",
     email_is_default: false, email_reason: null, ...overrides,
   };
@@ -142,6 +142,18 @@ async function fixture(page, { groups = [group("regular-01"), group("complex-01"
             headers: { "Cache-Control": "private, no-store", "Content-Disposition": "inline; filename=certificate.pdf" },
             body: await fixturePdf(body.booking_id) });
         }
+        if (body.action === "email-preview") {
+          const selected = body.booking_id !== "default-01";
+          return json(route, {
+            recipient: `${body.booking_id}@example.invalid`,
+            subject: selected ? "Your CPD workshop certificate" : "Your default CPD certificate",
+            html: selected ? "<p>Selected workshop email body</p>" : "<p>Default certificate email body</p>",
+            text: selected ? "Selected workshop email body" : "Default certificate email body",
+            attachment: { filename: "cpd-certificate.pdf", content_type: "application/pdf", bytes: 476 },
+            survey_links_inactive: true,
+          });
+        }
+        if (body.action !== "send") return json(route, { error: "Unexpected certificate action" }, 400);
         return json(route, { success: true, latest_delivery: { status: "accepted" } });
       }
     }
@@ -246,6 +258,45 @@ test("configured template is visible for both booking sources before confirming 
   expect(state.unexpectedExternal).toEqual([]);
 });
 
+test("distinct PDF and email previews display selected and default subject, recipient and sandboxed body without a send", async ({ page }) => {
+  const state = await fixture(page, {
+    groups: [group("regular-01"), group("default-01")],
+    onGet: identity => identity.booking_id === "default-01"
+      ? metadata(identity.booking_id, { email_template_id: null, email_template_name: null, email_is_default: true })
+      : metadata(identity.booking_id),
+  });
+  for (const [id, subject, body] of [
+    ["regular-01", "Your CPD workshop certificate", "Selected workshop email body"],
+    ["default-01", "Your default CPD certificate", "Default certificate email body"],
+  ]) {
+    const dialog = await openCertificate(page, id);
+    await expect(dialog.getByTestId("cpd-certificate-section")).toBeVisible();
+    await expect(dialog.getByTestId("cpd-email-section")).toBeVisible();
+    await expect(dialog.getByTestId("button-preview-cpd-certificate")).toBeVisible();
+    await expect(dialog.getByTestId("button-preview-cpd-email")).toBeEnabled();
+    await expect(dialog.getByTestId("button-email-cpd-certificate")).toBeDisabled();
+    await dialog.getByTestId("button-preview-cpd-email").click();
+    const email = dialog.getByTestId("cpd-email-preview");
+    await expect(email).toContainText(subject);
+    await expect(email).toContainText(`${id}@example.invalid`);
+    await expect(email.locator("iframe")).toHaveAttribute("sandbox", "");
+    await expect(email.locator("iframe")).toHaveAttribute("srcdoc", `<p>${body}</p>`);
+    await expect(email.locator("iframe").contentFrame().getByText(body)).toBeVisible();
+    await expect(email).toContainText("cpd-certificate.pdf");
+    if (id === "regular-01") {
+      mkdirSync("screenshots", { recursive: true });
+      await page.screenshot({ path: "screenshots/task-4810-cpd-email-and-pdf-preview.png", fullPage: true });
+    }
+    await dialog.getByTestId("button-preview-cpd-certificate").click();
+    await expectRenderedPreview(dialog);
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+  }
+  expect(state.postCalls.map(call => call.action)).toEqual(["email-preview", "preview", "email-preview", "preview"]);
+  expect(state.postCalls.every(call => call.confirmed === undefined && call.request_id === undefined)).toBe(true);
+  expect(state.rejectedWrites).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
 test("default email is identified, and missing template blocks send without blocking PDF preview", async ({ page }) => {
   const state = await fixture(page, {
     groups: [group("default-01"), group("missing-template-01")],
@@ -254,7 +305,7 @@ test("default email is identified, and missing template blocks send without bloc
       : metadata(identity.booking_id, {
         email_template_id: "deleted-template", email_template_name: "Deleted template",
         email_is_default: false, email_reason: "email_template_unavailable",
-        can_send: false, send_reason: "email_template_unavailable",
+        can_preview_email: false, can_send: false, send_reason: "email_template_unavailable",
       }),
   });
   let dialog = await openCertificate(page, "default-01");
@@ -265,6 +316,8 @@ test("default email is identified, and missing template blocks send without bloc
   dialog = await openCertificate(page, "missing-template-01");
   await expect(dialog).toContainText(/template/i);
   await expect(dialog.getByTestId("button-email-cpd-certificate")).toHaveCount(0);
+  await expect(dialog.getByTestId("button-preview-cpd-email")).toBeDisabled();
+  await expect(dialog).toContainText("Email preview unavailable:");
   await dialog.getByTestId("button-preview-cpd-certificate").click();
   await expectRenderedPreview(dialog);
   expect(state.postCalls.map(call => call.action)).toEqual(["preview"]);
@@ -290,18 +343,20 @@ test("unavailable certificate explains why; missing email still allows preview b
   const state = await fixture(page, {
     groups: [group("suppressed-01"), group("missing-email-01", "booking", { attendee_email: "" })],
     onGet: identity => identity.booking_id === "suppressed-01"
-      ? metadata(identity.booking_id, { available: false, reason: "no_template", can_send: false })
-      : metadata(identity.booking_id, { recipient: null, can_send: false, send_reason: "missing_recipient" }),
+      ? metadata(identity.booking_id, { available: false, reason: "no_template", can_preview_email: false, can_send: false })
+      : metadata(identity.booking_id, { recipient: null, can_preview_email: false, can_send: false, send_reason: "missing_recipient" }),
   });
   let dialog = await openCertificate(page, "suppressed-01");
   await expect(dialog).toContainText("No certificate template is configured");
   await expect(dialog.getByTestId("button-preview-cpd-certificate")).toHaveCount(0);
   await expect(dialog.getByTestId("button-email-cpd-certificate")).toHaveCount(0);
+  await expect(dialog.getByTestId("button-preview-cpd-email")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close" }).first().click();
 
   dialog = await openCertificate(page, "missing-email-01");
   await expect(dialog).toContainText("no valid email address");
   await expect(dialog.getByTestId("button-email-cpd-certificate")).toHaveCount(0);
+  await expect(dialog.getByTestId("button-preview-cpd-email")).toBeDisabled();
   await dialog.getByTestId("button-preview-cpd-certificate").click();
   await expectRenderedPreview(dialog);
   expect(state.postCalls.map(call => call.action)).toEqual(["preview"]);

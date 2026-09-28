@@ -15,8 +15,8 @@ function describeReason(reason) {
     date_unavailable: "The certificate activity dates are unavailable.",
     cancelled_booking: "Cancelled bookings cannot receive certificates.",
     booking_cancelled: "Cancelled bookings cannot receive certificates.",
-    missing_recipient: "This attendee has no valid email address. Preview is still available.",
-    invalid_recipient: "This attendee has no valid email address. Preview is still available.",
+    missing_recipient: "This attendee has no valid email address. Certificate PDF preview remains available.",
+    invalid_recipient: "This attendee has no valid email address. Certificate PDF preview remains available.",
     email_template_unavailable: "The selected certificate email template is unavailable or deleted. Select an active template or the default email in the event's Certificates settings.",
     email_template_inactive: "The selected certificate email template is inactive. Select an active template or the default email in the event's Certificates settings.",
     email_template_invalid: "The selected certificate email template cannot be used. Update it in Email Templates or select the default email in the event's Certificates settings.",
@@ -257,28 +257,34 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const available = metadata?.available === true;
   const canSend = available && metadata?.can_send === true && !!metadata?.fingerprint
     && !["pending", "unknown"].includes(metadata?.latest_delivery?.status);
+  // A pending delivery blocks another send, not inspection of the selected email.
+  const canPreviewEmail = available && metadata?.can_preview_email === true && !!metadata?.fingerprint;
+  const emailPreviewReason = !recipient
+    ? "The attendee has no valid email address. Add a valid address to preview the email."
+    : metadata?.email_reason
+      ? describeReason(metadata.email_reason)
+      : metadata?.send_reason && !["pending", "unknown"].includes(metadata.latest_delivery?.status)
+        ? describeReason(metadata.send_reason)
+        : "The certificate email cannot be previewed with the current settings.";
 
   return (
     <Dialog open={!!attendee} onOpenChange={open => { if (!open && !busy) onClose(); }}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="attendee-certificate-dialog">
         <DialogHeader>
           <DialogTitle>CPD certificate — {name}</DialogTitle>
-          <DialogDescription>Preview or download the personalized PDF before emailing it to this attendee. This does not change attendance or award member CPD points.</DialogDescription>
+          <DialogDescription>Preview the certificate PDF and the separate email subject and message before deciding whether to send. Previews do not send email, change attendance or award member CPD points.</DialogDescription>
         </DialogHeader>
         {loading ? <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Checking certificate settings…</p> : metadata && (
           <div className="space-y-3">
-            <p className="text-sm" data-testid="cpd-email-template-name">
+            {!available && <p className="text-sm" data-testid="cpd-email-template-name">
               Certificate email: <strong>{metadata.email_is_default !== false
                 ? "Default certificate email"
                 : metadata.email_template_name || "Selected template unavailable"}</strong>
-            </p>
-            {metadata.email_selection_missing && <p role="status" className="text-sm text-amber-700">
-              No event-wide certificate email selection is saved. This uses the default email; choose a template in the event Certificates settings and save it before sending.
             </p>}
             {!available && <p role="status" className="text-sm text-amber-700">Preview unavailable: {describeReason(metadata.reason)}</p>}
             {available && (
               <>
-                <p className="text-sm">Attendee: <strong>{name}</strong><br />Email destination: <strong>{recipient || "No valid attendee email"}</strong></p>
+                <p className="text-sm">Attendee: <strong>{name}</strong></p>
                  {metadata.certificate_points_source === "guest_rule" && (
                    <p className="text-sm text-muted-foreground" data-testid="guest-certificate-points">
                      {metadata.certificate_points != null
@@ -287,23 +293,43 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                      This certificate does not create a member CPD ledger award.
                    </p>
                  )}
-                <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("preview")} data-testid="button-preview-cpd-certificate">
-                  {busy === "preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview CPD certificate
-                </Button>
-                {canSend && <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("email-preview")} data-testid="button-preview-cpd-email">
-                  {busy === "email-preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview certificate email
-                </Button>}
-                {emailPreview && <div className="space-y-2 rounded border p-3" data-testid="cpd-email-preview">
-                  <p className="text-sm"><strong>Subject:</strong> {emailPreview.subject}</p>
-                  <p className="text-sm"><strong>Attachment:</strong> {emailPreview.attachment?.filename} (PDF, {emailPreview.attachment?.bytes} bytes)</p>
-                  <p className="text-xs text-muted-foreground">Survey links are inactive in previews. Sent emails include individual attendee links.</p>
-                  <iframe title="Certificate email HTML preview" sandbox="" referrerPolicy="no-referrer"
-                    srcDoc={emailPreview.html} className="w-full min-h-48 rounded border" />
-                  {emailPreview.text && <details><summary className="text-sm">Plain-text version</summary>
-                    <pre className="whitespace-pre-wrap text-xs">{emailPreview.text}</pre></details>}
-                </div>}
-                {pdfBytes && <CertificatePdfCanvasPreview bytes={pdfBytes} pdfEngine={pdfEngine} />}
-                 {pdfBytes && <Button type="button" variant="outline" disabled={!!busy} onClick={download} data-testid="button-download-cpd-certificate">Download CPD certificate</Button>}
+                <section className="space-y-2 rounded border p-3" aria-label="Certificate PDF preview" data-testid="cpd-certificate-section">
+                  <h3 className="font-semibold">1. Certificate PDF</h3>
+                  <p className="text-sm text-muted-foreground">Inspect the personalized certificate without sending it.</p>
+                  <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("preview")} data-testid="button-preview-cpd-certificate">
+                    {busy === "preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview CPD certificate PDF
+                  </Button>
+                  {pdfBytes && <CertificatePdfCanvasPreview bytes={pdfBytes} pdfEngine={pdfEngine} />}
+                  {pdfBytes && <Button type="button" variant="outline" disabled={!!busy} onClick={download} data-testid="button-download-cpd-certificate">Download CPD certificate</Button>}
+                </section>
+                <section className="space-y-2 rounded border p-3" aria-label="Certificate email preview" data-testid="cpd-email-section">
+                  <h3 className="font-semibold">2. Certificate email</h3>
+                  <p className="text-sm" data-testid="cpd-email-template-name">
+                    Email template: <strong>{metadata.email_is_default !== false
+                      ? "Default certificate email"
+                      : metadata.email_template_name || "Selected template unavailable"}</strong>
+                  </p>
+                  <p className="text-sm">Recipient: <strong>{recipient || "No valid attendee email"}</strong></p>
+                  {metadata.email_selection_missing && <p role="status" className="text-sm text-amber-700">
+                    No event-wide certificate email selection is saved. This uses the default email; choose a template in the event Certificates settings and save it before sending.
+                  </p>}
+                  <Button type="button" variant="outline" disabled={!!busy || !canPreviewEmail}
+                    onClick={() => action("email-preview")} data-testid="button-preview-cpd-email">
+                    {busy === "email-preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview email subject &amp; body
+                  </Button>
+                  {!canPreviewEmail && <p role="status" className="text-sm text-amber-700">Email preview unavailable: {emailPreviewReason}</p>}
+                  {emailPreview && <div className="space-y-2 rounded border p-3" data-testid="cpd-email-preview">
+                    <p className="text-sm"><strong>To:</strong> {emailPreview.recipient}</p>
+                    <p className="text-sm"><strong>Subject:</strong> {emailPreview.subject}</p>
+                    <p className="text-sm"><strong>Body:</strong></p>
+                    <iframe title="Certificate email HTML preview" sandbox="" referrerPolicy="no-referrer"
+                      srcDoc={emailPreview.html} className="w-full min-h-48 rounded border" />
+                    <p className="text-sm"><strong>Attachment:</strong> {emailPreview.attachment?.filename} (PDF, {emailPreview.attachment?.bytes} bytes)</p>
+                    <p className="text-xs text-muted-foreground">Survey links are inactive in previews. Sent emails include individual attendee links.</p>
+                    {emailPreview.text && <details><summary className="text-sm">Plain-text version</summary>
+                      <pre className="whitespace-pre-wrap text-xs">{emailPreview.text}</pre></details>}
+                  </div>}
+                </section>
                 {sent ? (
                   <div className="space-y-2">
                     <p role="status" className="text-sm">Certificate email request accepted for {recipient}. This does not confirm inbox delivery.</p>

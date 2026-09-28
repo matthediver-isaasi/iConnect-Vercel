@@ -25,7 +25,7 @@ const { createRoot } = await import("react-dom/client");
 const { default: CertificateDialog, CertificatePdfCanvasPreview } = await import("./AttendeeCpdCertificateDialog.jsx");
 
 const attendee = { id: "booking-1", attendee_first_name: "Ari", attendee_last_name: "Lee" };
-const details = { attendee_name: "Ari Lee", recipient: "ari@example.test", available: true, can_send: true, fingerprint: "snapshot-a", latest_delivery: null };
+const details = { attendee_name: "Ari Lee", recipient: "ari@example.test", available: true, can_preview_email: true, can_send: true, fingerprint: "snapshot-a", latest_delivery: null };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 const tick = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 const click = async selector => act(async () => document.querySelector(selector).click());
@@ -69,7 +69,7 @@ test("email preview shows selected subject, safe HTML and matching PDF attachmen
     requests.push(body);
     if (body.action !== "email-preview") throw new Error("Preview cannot send");
     return Promise.resolve(json({
-      subject: "Your certificate", html: "<p>Survey list preview</p>",
+      recipient: "ari@example.test", subject: "Your certificate", html: "<p>Survey list preview</p>",
       text: "Survey list preview", survey_links_inactive: true,
       attachment: { filename: "cpd-certificate.pdf", bytes: 432, content_type: "application/pdf" },
     }));
@@ -77,13 +77,20 @@ test("email preview shows selected subject, safe HTML and matching PDF attachmen
   const cleanup = await mount();
   try {
     await tick();
+    assert.ok(document.querySelector('[data-testid="cpd-certificate-section"]'));
+    assert.ok(document.querySelector('[data-testid="cpd-email-section"]'));
+    assert.ok(document.querySelector('[data-testid="button-preview-cpd-certificate"]'));
+    assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, false);
     await click('[data-testid="button-preview-cpd-email"]');
     await tick();
     assert.deepEqual(requests.map(request => request.action), ["email-preview"]);
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Your certificate/);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /To: ari@example.test/);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Body:/);
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /cpd-certificate.pdf/);
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Plain-text version/);
     assert.equal(document.querySelector('[data-testid="cpd-email-preview"] iframe').getAttribute("sandbox"), "");
+    assert.equal(document.querySelector('[data-testid="cpd-email-preview"] iframe').getAttribute("srcdoc"), "<p>Survey list preview</p>");
     assert.match(document.body.textContent, /Autumn Meeting 2026 CPD/);
   } finally {
     await cleanup();
@@ -278,10 +285,12 @@ test("email requires explicit recipient confirmation; retry retains ID, delibera
 });
 
 test("preview remains available without a valid recipient, but sending is disabled with reason", async () => {
-  globalThis.fetch = () => Promise.resolve(json({ ...details, recipient: null, can_send: false, send_reason: "missing_recipient" }));
+  globalThis.fetch = () => Promise.resolve(json({ ...details, recipient: null, can_preview_email: false, can_send: false, send_reason: "missing_recipient" }));
   const cleanup = await mount();
   await tick();
   assert.ok(document.querySelector('[data-testid="button-preview-cpd-certificate"]'));
+  assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, true);
+  assert.match(document.body.textContent, /Email preview unavailable:.*valid email address/i);
   assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
   assert.match(document.body.textContent, /no valid email address/i);
   await cleanup();
@@ -298,6 +307,7 @@ test("an unknown provider outcome disables sending instead of offering a blind r
   await tick();
   assert.match(document.body.textContent, /Provider outcome unknown/);
   assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
+  assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, false);
   assert.match(document.body.textContent, /Reconcile it before sending again/);
   await cleanup();
 });
@@ -305,15 +315,45 @@ test("an unknown provider outcome disables sending instead of offering a blind r
 test("selected certificate email is named in consent and unavailable email blocks send but not PDF preview", async () => {
   globalThis.fetch = () => Promise.resolve(json({
     ...details, email_is_default: false, email_template_id: "old-email",
-    email_template_name: "Retired course email", can_send: false, email_reason: "email_template_inactive",
+    email_template_name: "Retired course email", can_preview_email: false, can_send: false, email_reason: "email_template_inactive",
   }));
   const cleanup = await mount();
   await tick();
   assert.match(document.querySelector('[data-testid="cpd-email-template-name"]').textContent, /Retired course email/);
   assert.match(document.body.textContent, /selected certificate email template is inactive/);
   assert.ok(document.querySelector('[data-testid="button-preview-cpd-certificate"]'));
+  assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, true);
   assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
   await cleanup();
+});
+
+test("pending delivery blocks another send but not a no-send email preview", async () => {
+  const calls = [];
+  globalThis.fetch = (_url, options) => {
+    if (!options?.method) return Promise.resolve(json({
+      ...details, can_send: false, send_reason: "A previous send is pending",
+      latest_delivery: { status: "pending" },
+    }));
+    calls.push(JSON.parse(options.body));
+    return Promise.resolve(json({
+      recipient: details.recipient, subject: "Pending delivery preview", html: "<p>Current email body</p>",
+      attachment: { filename: "cpd-certificate.pdf", bytes: 123 },
+    }));
+  };
+  const cleanup = await mount();
+  try {
+    await tick();
+    assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
+    assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, false);
+    await click('[data-testid="button-preview-cpd-email"]');
+    await tick();
+    assert.deepEqual(calls.map(call => call.action), ["email-preview"]);
+    assert.equal(calls[0].confirmed, undefined);
+    assert.equal(calls[0].request_id, undefined);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Pending delivery preview/);
+  } finally {
+    await cleanup();
+  }
 });
 
 test("changing template content or selection forces new explicit consent with the new fingerprint", async () => {
