@@ -197,6 +197,11 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
         </DialogHeader>
         {scopeLabel && <p className="text-sm font-medium">Scope: {scopeLabel}</p>}
         {!replayId && scope?.mode === "all_event" && <p className="text-sm text-muted-foreground">Includes every server-side registration for this event, regardless of report filters or pagination.</p>}
+         {!replayId && rows.some(row => row.outcome === "unmatched_member") && (
+           <p className="text-sm text-muted-foreground" data-testid="cpd-unmatched-member-guidance">
+             Unmatched member: no unique member in this event&apos;s tenant matches the attendee email. Verify the attendee&apos;s identity and email against the intended member record through the normal admin process, then run a new read-only preview. A purchaser&apos;s member record is not a substitute; guest registrations without a matching attendee member cannot receive member CPD points.
+           </p>
+         )}
         {replayId ? (
           <>
             <p className="text-xs break-all">Processing ID: {replayId}</p>

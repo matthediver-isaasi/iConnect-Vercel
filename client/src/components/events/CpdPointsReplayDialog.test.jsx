@@ -175,6 +175,27 @@ test("failed evaluation retains registration error rows and requires a fresh rev
   } finally { await view.cleanup(); }
 });
 
+test("unmatched attendee member explains why points cannot be confirmed without substituting purchaser", async () => {
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).action, "preview");
+    calls++;
+    return json({
+      rows: [{ ...row, outcome: "unmatched_member", proposed_points: "0" }],
+      totals: { registrations: 1, eligible: 0, proposed_points: "0" },
+      complete: true, preview_token: null, cursor: null,
+    });
+  };
+  const view = await mount();
+  try {
+    await tick();
+    assert.match(document.querySelector("[data-testid=cpd-unmatched-member-guidance]").textContent, /attendee email/);
+    assert.match(document.body.textContent, /purchaser.*not a substitute/);
+    assert.equal(button("Confirm reprocessing"), undefined);
+    assert.equal(calls, 1, "unmatched preview makes no confirmation request");
+  } finally { await view.cleanup(); }
+});
+
 test("strict-mode remount still produces a complete read-only preview", async () => {
   globalThis.fetch = async () => json(preview);
   const view = await mount({}, true);
