@@ -121,6 +121,13 @@ export const EMAIL_PLACEHOLDERS = [
     'Alias of {{event_survey_url}}; resolves from campaign event survey settings, not the template.',
     ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event email survey settings',
   ),
+  entry(
+    '{{event_survey_list}}', PLACEHOLDER_SYNTAX.CURLY, 'Event Confirmation & Reminder',
+    'Event survey list for the attendee: all eligible attached surveys, with individual booking links in sent certificate emails.',
+    ['Event Confirmations'], 'api/_lib/eventCpdEmail.js (manual attendee CPD certificate email)',
+    { prerequisites: 'Use in a manual attendee CPD certificate email for an event with eligible attached surveys.',
+      notes: 'Body block only, not a URL or button href. Sent emails resolve attendee-specific access links; template and builder previews retain the literal token and never show bearer links.' },
+  ),
   // --- Member ---
   entry(
     '[[member.id]]',
