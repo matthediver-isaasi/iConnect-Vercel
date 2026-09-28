@@ -464,6 +464,66 @@ const upfront = { ...history, tenant_id: bnms, payment_method: 'upfront', billin
 const legacyFixture = overrides => fixture({ tenantId: bnms, members: [{ ...member, tenant_id: bnms }],
   history: [upfront], ...overrides });
 
+test('paid upfront history remains visible before, on and after renewal without changing dates', () => {
+  const record = { ...history, payment_method: 'upfront', billing_period: 'annual',
+    payment_status: 'paid', billing_agreement_id: null };
+  for (const date of ['2026-12-31', '2027-01-01', '2027-07-01']) {
+    const [row] = project(fixture({ history: [record], today: date }));
+    assert.equal(row.renewalDate, '2027-01-01');
+    assert.equal(row.currentExpiryDate, '2026-12-31');
+    assert.equal(row.nextPaymentDate, null);
+    assert.equal(row.status, date > '2026-12-31' ? 'expired' : 'active');
+  }
+  assert.equal(project(fixture({ history: [{ ...record, status: 'expired' }], today: '2027-07-01' }))[0].status, 'expired');
+  for (const patch of [{ payment_status: 'unpaid' }, { status: 'cancelled' },
+    { status: 'failed' }, { tenant_id: 'foreign' }, { payment_method: 'gocardless' },
+    { billing_agreement_id: 'a' }, { term_start_date: null }]) {
+    assert.equal(project(fixture({ history: [{ ...record, ...patch }], today: '2027-07-01' })).length, 0);
+  }
+  assert.equal(project(fixture({ history: [record], today: '2027-07-01',
+    members: [{ ...member, email: 'deleted_m@deleted.local' }] })).length, 0);
+  for (const status of ['active', 'scheduled', 'cancelled', 'expired']) {
+    const successor = { ...history, id: 'successor', previous_term_id: record.id, status,
+      term_start_date: '2027-01-01', term_end_date: '2027-12-31', membership_renewal_date: '2028-01-01' };
+    const rows = project(fixture({ history: [record, successor], today: '2027-07-01' }));
+    assert.equal(rows.some(row => row.paymentMethod === 'upfront'), false, status);
+  }
+  const newer = { ...record, id: 'newer', term_start_date: '2027-01-01',
+    term_end_date: '2027-12-31', membership_renewal_date: '2028-01-01' };
+  assert.equal(project(fixture({ history: [record, newer], today: '2029-01-01' }))[0].renewalDate, '2028-01-01');
+});
+
+test('expired attested legacy rows remain report-only and cannot supersede a retained successor', () => {
+  const record = { ...upfront, status: 'expired' };
+  const input = legacyFixture({ today: '2027-07-01', history: [record] });
+  assert.equal(project(input)[0].renewalDate, '2027-01-01');
+  assert.equal(project(input)[0].status, 'expired');
+  assert.equal(record.term_start_date, null);
+  assert.equal(record.membership_renewal_date, null);
+  assert.equal(project({ ...input, history: [record, { ...record, id: 'cancelled-successor',
+    status: 'cancelled', previous_term_id: record.id }] }).length, 0);
+});
+
+test('overdue upfront rows share search, totals, pages and sorted CSV', async () => {
+  const members = ['a', 'b', 'c'].map(id => ({ ...member, id, first_name: `Overdue ${id}` }));
+  const histories = members.map((m, i) => ({ ...history, id: m.id, member_id: m.id,
+    billing_agreement_id: null, payment_method: 'upfront', billing_period: 'annual', payment_status: 'paid',
+    status: 'expired', term_end_date: `2026-0${i + 2}-28`, membership_renewal_date: `2026-0${i + 3}-01` }));
+  const deps = { today: '2027-07-01', db: database({ member: members, member_membership_history: histories }),
+    resolveSchedules: async () => new Map() };
+  for (const sortDirection of ['asc', 'desc']) {
+    const query = { method: 'upfront', search: 'Overdue', sortBy: 'renewalDate', sortDirection };
+    const response = await request(deps, { ...query, page: '2', pageSize: '1' });
+    assert.equal(response.body.total, 3);
+    assert.equal(response.body.rows[0].memberId, 'b');
+    const csv = await request(deps, { ...query, format: 'csv', page: '2', pageSize: '1' });
+    const lines = csv.body.trimEnd().split('\r\n');
+    assert.equal(lines.length, 4);
+    assert.match(lines[1], sortDirection === 'asc' ? /^Overdue a,/ : /^Overdue c,/);
+    assert.match(lines[2], /^Overdue b,.*Expired,Upfront,01 Apr 2026/);
+  }
+});
+
 test('search is bounded and validated before database reads for JSON and CSV', async () => {
   const db = { from() { throw new Error('Must not read invalid search'); } };
   for (const search of [['Ada'], {}, 42, 'a'.repeat(201)]) {
@@ -512,7 +572,7 @@ test('literal case-insensitive search spans fetch batches, methods, totals and f
   assert.equal((await request(deps, { search: 'no match' })).body.total, 0);
 });
 
-test('search finds current reviewed upfront member in both methods but never extends expiry', async () => {
+test('search retains reviewed upfront members after expiry without extending entitlement', async () => {
   const deps = { today: '2026-09-24', db: database({
     member: [{ ...member, tenant_id: bnms, email: 'sample@example.invalid' }],
     member_membership_history: [{ ...upfront, term_end_date: '2026-09-29' }],
@@ -525,7 +585,10 @@ test('search finds current reviewed upfront member in both methods but never ext
     assert.equal(result.body.rows[0].nextPaymentDate, null);
     assert.equal(result.body.rows[0].scheduleState, 'not_scheduled');
     assert.equal((await request({ ...deps, today: '2026-09-29' }, { search: 'sample', method })).body.total, 1);
-    assert.equal((await request({ ...deps, today: '2026-09-30' }, { search: 'sample', method })).body.total, 0);
+    const overdue = await request({ ...deps, today: '2026-10-01' }, { search: 'sample', method });
+    assert.equal(overdue.body.total, 1);
+    assert.equal(overdue.body.rows[0].status, 'expired');
+    assert.equal(overdue.body.rows[0].renewalDate, '2026-09-30');
   }
 });
 
@@ -540,7 +603,7 @@ test('reviewed upfront records preserve unknown dates/amounts and never request 
     assert.equal(row.scheduleState, 'not_scheduled');
     assert.equal(calls, 0);
     assert.equal(project({ ...input, today: '2026-12-31' }).length, 1);
-    assert.equal(project({ ...input, today: '2027-01-01' }).length, 0);
+    assert.equal(project({ ...input, today: '2027-01-02' })[0].status, 'expired');
   }
 });
 
@@ -550,7 +613,7 @@ test('legacy fallback rejects invalid evidence, foreign tenants, organisations a
     { membership_year: '2026/2027' }, { currency: 'EUR' }, { tier_label: '' },
     { config_id: 'config' }, { term_duration_months: 12 }, { commitment_snapshot: {} },
     { billing_agreement_id: 'a' }, { term_end_date: '2026-02-30' },
-    { term_end_date: '2025-12-31' }, { term_end_date: '2027-01-01' },
+    { term_end_date: '2027-01-01' },
     { final_cost: 100 }, { final_cost: -1, total_with_vat: -1 },
     { organization_id: 'org' }, { membership_source: 'organisation' }, { tenant_id: 'foreign' }]) {
     assert.equal(project(legacyFixture({ history: [{ ...upfront, ...patch }] })).length, 0, JSON.stringify(patch));

@@ -245,7 +245,7 @@ export default function MembershipPaymentReport() {
         </div>
         <p className="mt-1 text-slate-600">
           {upfrontView
-            ? "Current upfront memberships and their renewal dates."
+            ? "Upfront memberships and their renewal dates, including overdue renewals."
             : "Current individual membership payment methods and the next evidenced collection date."}
         </p>
       </div>

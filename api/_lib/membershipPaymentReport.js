@@ -203,26 +203,53 @@ export function projectMembershipPaymentReport({
       ? (b.selected.start || '').localeCompare(a.selected.start || '')
       : (a.selected.start || '').localeCompare(b.selected.start || ''))
     || String(a.selected.record.id).localeCompare(String(b.selected.record.id)))[0].row);
-  // Legacy recognition is display evidence only, never a rolling commitment or
-  // collection request. Existing current/scheduled candidates always win.
+  // Report-only fallback retains overdue upfront memberships without reviving
+  // entitlement. The shared Canvas selector must continue treating them as past.
   const included = new Set(rows.map(row => row.memberId));
-  for (const record of [...history].sort((a, b) => String(a.id).localeCompare(String(b.id)))) {
+  for (const record of [...history].sort((a, b) =>
+    String(b.term_end_date || '').localeCompare(String(a.term_end_date || ''))
+    || String(a.id).localeCompare(String(b.id)))) {
     const member = memberMap.get(record.member_id);
-    if (!member || included.has(member.id) || record.organization_id
+    if (!member || record.tenant_id !== tenantId || included.has(member.id) || record.organization_id
       || record.membership_source === 'organisation') continue;
+    const expiry = dateOnly(record.term_end_date);
+    const past = expiry && expiry < today;
+    const personal = { ...record, membership_source: 'personal' };
+    // Recognise approved expiry-only evidence at its known expiry, not by
+    // inventing a start date. A persisted expired status is display-only here.
     const legacy = shapeLegacyCurrentMembership(
-      { ...record, membership_source: 'personal' }, tenantId, new Date(`${today}T00:00:00Z`));
-    if (!legacy) continue;
+      { ...personal, status: past && record.status === 'expired' ? 'active' : record.status },
+      tenantId, new Date(`${past ? expiry : today}T00:00:00Z`));
+    const selected = selectCanvasCommitment([personal], [], today);
+    const renewal = upfrontRenewalProjection({ record, member, tenantId, configs, preferences });
+    const overdue = renewal.renewalDate && renewal.renewalDate <= today;
+    const datedUpfront = selected?.validCommencement && selected.start && expiry
+      && selected.start <= expiry && selected.start <= today && overdue
+      && ['active', 'paid', 'expired'].includes(record.status)
+      && record.payment_status === 'paid' && !record.billing_agreement_id
+      && (record.billing_period === 'annual' || record.commitment_snapshot?.payment_frequency === 'upfront')
+      && record.commitment_snapshot?.payment_frequency !== 'monthly'
+      && ['upfront', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method);
+    if (!legacy && !datedUpfront) continue;
+    // A later retained term (even cancelled/unpaid or recurring) supersedes
+    // this historical row. Never resurrect it because that successor is hidden.
+    if (history.some(other => other.id !== record.id && other.tenant_id === tenantId
+      && other.member_id === member.id && !other.organization_id
+      && other.membership_source !== 'organisation'
+      && (other.previous_term_id === record.id
+        || (dateOnly(other.term_start_date) && other.term_start_date > (selected?.start || expiry))
+        || (dateOnly(other.term_end_date) && other.term_end_date > expiry)))) continue;
     rows.push({
       memberId: member.id,
       name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || 'Unnamed member',
       email: member.email || null,
-      tier: legacy.tierLabel,
-      status: member.membership_paused ? 'paused' : 'active',
-      paymentMethod: 'upfront',
+      tier: legacy?.tierLabel || record.tier_label,
+      status: member.membership_paused ? 'paused' : past || (renewal.renewalDate && renewal.renewalDate < today) ? 'expired' : record.status,
+      paymentMethod: legacy || record.payment_method === 'upfront' ? 'upfront'
+        : record.payment_method === 'stripe' ? 'card' : record.payment_method,
       nextPaymentDate: null,
       scheduleState: 'not_scheduled',
-      ...upfrontRenewalProjection({ record, member, tenantId, configs, preferences }),
+      ...renewal,
     });
     included.add(member.id);
   }

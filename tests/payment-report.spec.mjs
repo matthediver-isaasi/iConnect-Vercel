@@ -445,6 +445,21 @@ test("Upfront view trims only irrelevant columns and helper copy, retains review
   await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length + 1);
 });
 
+test("overdue upfront renewals stay visible with their original date and expired status", async ({ page }) => {
+  const overdue = { ...ROWS[2], status: "expired", currentExpiryDate: "2025-12-09",
+    renewalDate: "2025-12-10" };
+  await installFixture(page, { fixtureRows: [overdue] });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const row = page.getByTestId("row-payment-member-upfront");
+  await expect(row).toBeVisible();
+  await expect(row.locator("td").nth(3)).toHaveText("Expired");
+  await expect(row.locator("td").nth(5)).toHaveText("10 Dec 2025");
+  await expect(page.getByText("Upfront memberships and their renewal dates, including overdue renewals.")).toBeVisible();
+  await page.screenshot({ path: "/tmp/membership-payment-overdue.png", fullPage: true });
+});
+
 test("Monthly Direct Debit shows Current, collection amount and structure with CSV parity", async ({ page }) => {
   const debit = { ...ROWS[1], paymentMethod: "monthly_direct_debit", status: "current",
     nextPaymentDate: "2026-10-01", scheduleState: "planned",
