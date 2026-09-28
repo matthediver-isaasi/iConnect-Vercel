@@ -33,6 +33,8 @@ import {
   makeFeatureAccessChecker,
 } from '../_lib/memberFeatureAccess.js';
 import { isChunkVisibleToMember } from '../_lib/memberContentVisibility.js';
+import { resolveMemberAiRetrievalContext, memberAiRetrievalArguments } from '../_lib/memberAiRetrieval.js';
+import { canAccessResourceEvents } from '../_lib/singleResourceAccess.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from '../_lib/resourceCategoryAccess.js';
 import {
   isRecencyQuestion,
@@ -104,19 +106,21 @@ function getOpenAIClient() {
 async function resolveMemberGroupIds(memberId, tenantId) {
   if (!memberId || !tenantId) return new Set();
   const nowIso = new Date().toISOString();
-  const { data: assignments } = await supabase
+  const { data: assignments, error: assignmentError } = await supabase
     .from('member_group_assignment')
     .select('group_id, expires_at')
     .eq('member_id', memberId);
+  if (assignmentError) throw assignmentError;
   const liveIds = (assignments || [])
     .filter((a) => a.group_id && (!a.expires_at || new Date(a.expires_at).toISOString() > nowIso))
     .map((a) => a.group_id);
   if (liveIds.length === 0) return new Set();
-  const { data: groupRows } = await supabase
+  const { data: groupRows, error: groupError } = await supabase
     .from('member_group')
     .select('id, is_active, tenant_id')
     .eq('tenant_id', tenantId)
     .in('id', [...new Set(liveIds)]);
+  if (groupError) throw groupError;
   return new Set((groupRows || []).filter((g) => g.is_active !== false).map((g) => g.id));
 }
 
@@ -260,7 +264,7 @@ export default async function handler(req, res) {
   try {
     // --- Authenticate + resolve the asker's tenant, RBAC, and groups ---
     const ctx = await getTenantContext(req);
-    if (!ctx || !ctx.isAuthenticated) {
+    if (!ctx || !ctx.isAuthenticated || ctx.tenantMismatch) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     if (!ctx.tenantId) {
@@ -275,6 +279,9 @@ export default async function handler(req, res) {
 
     const member = await getSessionMember(req);
     if (member) {
+      if (member.tenant_id && member.tenant_id !== ctx.tenantId) {
+        return res.status(403).json({ error: 'Member tenant mismatch' });
+      }
       roleId = member.role_id || null;
       exclusions = await resolveMemberExclusions(
         {
@@ -285,8 +292,9 @@ export default async function handler(req, res) {
       );
       groupIds = await resolveMemberGroupIds(member.id, ctx.tenantId);
     } else {
-      // Authenticated non-member (tenant/admin user): full tenant access.
-      isAdmin = true;
+      // A failed member lookup must never turn into an administrator.
+      isAdmin = !!ctx.tenantUserId;
+      if (!isAdmin) return res.status(403).json({ error: 'Validated member or tenant administrator required' });
     }
     const access = makeFeatureAccessChecker(exclusions);
 
@@ -381,6 +389,14 @@ export default async function handler(req, res) {
       }
     }
 
+    // Resolve the complete server-side authorization contract before embeddings
+    // or retrieval. The live RPC enforces these gates before ranking and checks
+    // active generations/dependencies; the JS checks below remain defence-in-depth.
+    const retrievalContext = await resolveMemberAiRetrievalContext({
+      db: supabase, tenantId: ctx.tenantId, memberId: member?.id,
+      roleId, groupIds, isAdmin, canAccessFeature: key => access.canAccessFeature(key),
+    });
+
     // --- Multi-query retrieval: expand broad questions into extra queries ---
     const wordCount = question.split(/\s+/).filter(Boolean).length;
     let queries = [question];
@@ -404,11 +420,8 @@ export default async function handler(req, res) {
 
     const matchResults = await Promise.all(
       embResp.data.map((d) =>
-        supabase.rpc('match_member_content_chunks', {
-          query_embedding: d.embedding,
-          p_tenant_id: ctx.tenantId,
-          match_count: CANDIDATE_COUNT,
-        })
+        supabase.rpc('match_member_content_chunks',
+          memberAiRetrievalArguments(retrievalContext, d.embedding, question, CANDIDATE_COUNT))
       )
     );
 
@@ -453,15 +466,23 @@ export default async function handler(req, res) {
         )];
         const { data: resourceRows, error: resourceErr } = await supabase
           .from('resource')
-          .select('id, subcategories, release_date, status, member_group_id, allowed_role_ids')
+          .select('id, subcategories, release_date, status, member_group_id, allowed_role_ids, is_public, linked_events')
           .eq('tenant_id', ctx.tenantId)
           .in('id', resourceIds);
         if (resourceErr) throw resourceErr;
         const byId = new Map((resourceRows || []).map((r) => [r.id, r]));
+        const liveEventAccess = new Set();
+        for (const row of resourceRows || []) {
+          if (isAdmin || await canAccessResourceEvents(supabase, row, {
+            tenantId: ctx.tenantId, memberId: member?.id, roleId,
+          })) liveEventAccess.add(row.id);
+        }
         visible = visible.filter((m) => {
           if (m.content_type !== 'resource') return true;
           const row = byId.get(m.source_id);
           if (!row) return false; // fail closed on missing/deleted rows
+          if (!liveEventAccess.has(row.id)) return false;
+          if (!isAdmin && row.is_public !== true && !roleId) return false;
           if (!isResourceReleased(row, now)) return false;
           if (!isChunkVisibleToMember({ ...m, ...row }, visibilityCtx)) return false;
           return !isResourceHiddenByCategories(row, hiddenSubcats);
