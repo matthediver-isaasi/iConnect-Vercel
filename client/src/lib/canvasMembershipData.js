@@ -98,6 +98,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     // Responsive outer-card minimum height. Zero deliberately means Auto.
     minHeight: 0,
     manageLink: '', manageLinkText: 'Manage payments', manageLinkNewTab: false,
+    renewalLink: '', renewalLinkNewTab: false,
     panel: { background: '#f4faf6', borderColor: '#c4e6d1', borderWidth: 2, borderRadius: 6 },
   };
 }
@@ -170,6 +171,8 @@ export function normalizeCanvasMembershipContent(content, type = 'membership-sum
     manageLink: text(input.manageLink, defaults.manageLink),
     manageLinkText: text(input.manageLinkText, defaults.manageLinkText),
     manageLinkNewTab: input.manageLinkNewTab === true,
+    renewalLink: text(input.renewalLink, defaults.renewalLink),
+    renewalLinkNewTab: input.renewalLinkNewTab === true,
     panel: {
       background: text(panel.background, defaults.panel.background),
       borderColor: text(panel.borderColor, defaults.panel.borderColor),
@@ -188,6 +191,13 @@ export function safeMembershipLink(value) {
     const url = new URL(href);
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? href : '';
   } catch { return ''; }
+}
+
+export function membershipRenewalFormSlug(value) {
+  const href = safeMembershipLink(value);
+  const match = /^\/forms\/([^/?#]+)(?:[?#].*)?$/.exec(href);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1]); } catch { return ''; }
 }
 
 function isoDate(value) {
@@ -220,6 +230,8 @@ export function normalizeCanvasMembershipSummary(value) {
   const membership = record(source.membership);
   const payment = record(source.payment);
   return {
+    // Only the authenticated server response can establish renewal eligibility.
+    renewal: { eligible: record(source.renewal).eligible === true },
     membership: {
       state: MEMBERSHIP_DATA_STATES.includes(membership.state) ? membership.state : 'unavailable',
       memberSince: isoDate(membership.memberSince),

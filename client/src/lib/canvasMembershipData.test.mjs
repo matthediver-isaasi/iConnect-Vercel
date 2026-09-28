@@ -1,10 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  getCanvasMembershipDefaults, normalizeCanvasMembershipContent, safeMembershipLink,
+  getCanvasMembershipDefaults, normalizeCanvasMembershipContent, safeMembershipLink, membershipRenewalFormSlug,
   normalizeCanvasMembershipSummary, formatMembershipAmount, formatMembershipDate, canvasMembershipQueryKey,
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } from './canvasMembershipData.js';
+
+test('renewal configuration survives normalization but never stores server eligibility', () => {
+  for (const renewalLink of ['/members/renew?source=portal', 'https://example.org/renew', '/forms/renew-membership']) {
+    const content = normalizeCanvasMembershipContent({ renewalLink, renewalLinkNewTab: true, renewal: { eligible: true } }, 'payment-details');
+    assert.equal(content.renewalLink, renewalLink);
+    assert.equal(content.renewalLinkNewTab, true);
+    assert.equal(content.renewal, undefined);
+    assert.deepEqual(normalizeCanvasMembershipContent(content, 'payment-details'), content);
+  }
+});
+
+test('form picker decodes persisted slugs once without corrupting query strings or malformed escapes', () => {
+  for (const slug of ['renew-membership', 'renew membership', 'renew-é', 'literal%slug']) {
+    const url = `/forms/${encodeURIComponent(slug)}`;
+    assert.equal(membershipRenewalFormSlug(url), slug);
+    assert.equal(membershipRenewalFormSlug(`${url}?source=portal#start`), slug);
+    assert.equal(`/forms/${encodeURIComponent(membershipRenewalFormSlug(url))}`, url);
+  }
+  for (const url of ['/forms/%ZZ', '/members/renew', 'javascript:alert(1)']) {
+    assert.equal(membershipRenewalFormSlug(url), '');
+  }
+});
 
 test('payment wording avoids first-ever-payment claims for migrated members', () => {
   const defaults = getCanvasMembershipDefaults('payment-details');

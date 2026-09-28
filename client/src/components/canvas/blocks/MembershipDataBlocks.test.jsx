@@ -47,6 +47,51 @@ function render(overrides = {}) {
   />);
 }
 
+test('renewal CTA requires authoritative true eligibility and a safe independent destination', () => {
+  const data = { ...live, payment: { state: 'paid', method: 'upfront' }, renewal: { eligible: true } };
+  for (const renewalLink of ['/members/renew?source=portal', 'https://example.org/renew', '/forms/renew-membership']) {
+    const block = { id: 'renewal', content: { renewalLink, renewalLinkNewTab: true, manageLink: '/payments' } };
+    const html = render({ type: 'payment-details', block, result: { status: 'ready', data } });
+    assert.match(html, /Renew your subscription/);
+    assert.match(html, /Manage payments/);
+    assert.ok(html.includes(`href="${renewalLink}"`));
+    assert.match(html, /noopener noreferrer/);
+    for (const eligible of [false, undefined, 'true', 1]) {
+      assert.doesNotMatch(render({ type: 'payment-details', block,
+        result: { status: 'ready', data: { ...data, renewal: { eligible } } } }), /Renew your subscription/);
+    }
+    for (const status of ['loading', 'guest', 'denied', 'error']) {
+      assert.doesNotMatch(render({ type: 'payment-details', block, result: { status, data } }), /Renew your subscription/);
+    }
+    assert.doesNotMatch(render({ block, result: { status: 'ready', data } }), /Renew your subscription/);
+  }
+  for (const renewalLink of ['', 'javascript:alert(1)', '//evil.test', 'https://user:pass@example.org']) {
+    assert.doesNotMatch(render({ type: 'payment-details', block: { id: 'renewal', content: { renewalLink } },
+      result: { status: 'ready', data } }), /Renew your subscription/);
+  }
+});
+
+test('after-expiry grace renewal remains visible even when payment lifecycle is unavailable', () => {
+  for (const membershipState of ['expired', 'unavailable']) {
+    for (const paymentState of ['expired', 'unavailable', 'none']) {
+      const html = render({ type: 'payment-details',
+        block: { id: 'renewal-grace', content: { renewalLink: '/forms/renew-membership' } },
+        result: { status: 'ready', data: {
+          membership: { state: membershipState, expiryDate: '2026-09-20' },
+          payment: { state: paymentState, method: 'unavailable' },
+          renewal: { eligible: true },
+        } },
+      });
+      assert.match(html, /Renew your subscription/);
+      const fragment = document.createElement('div');
+      fragment.innerHTML = html;
+      const section = fragment.querySelector('section');
+      assert.equal(section.hidden, false);
+      assert.notEqual(section.dataset.paymentDetailsVisibility, 'hidden');
+    }
+  }
+});
+
 test('attested upfront membership shows known expiry and no invented payment or renewal', () => {
   const data = {
     membership: { state: 'active', membershipType: 'Full Membership UK',

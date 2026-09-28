@@ -137,11 +137,11 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
 }
 
 function harness({ session = member, context = { tenantId: 'tenant-a' }, admin = false,
-  permission = true, rows = {}, errors, unfiltered } = {}) {
+  permission = true, rows = {}, errors, unfiltered, currentDay = today } = {}) {
   const db = dbFixture({ rows: { member: [member], ...rows }, errors, unfiltered });
   const gates = [];
   const handler = createCanvasSummaryHandler({
-    db, now: () => new Date(`${today}T12:00:00Z`),
+    db, now: () => new Date(`${currentDay}T12:00:00Z`),
     getSessionMember: async () => session,
     getTenantContext: async () => context,
     hasAdminAccess: async (value) => { gates.push(['admin', value]); return admin; },
@@ -159,6 +159,64 @@ function harness({ session = member, context = { tenantId: 'tenant-a' }, admin =
   }
   return { db, gates, request };
 }
+
+test('self-scoped endpoint exposes only eligibility for assigned upfront renewal window', async () => {
+  const row = term({ term_key: null, billing_period: 'annual', payment_method: 'card',
+    payment_status: 'paid', config_id: 'config', term_end_date: '2026-09-20' });
+  const config = { id: 'config', tenant_id: member.tenant_id, structure_scope_type: 'member',
+    renewal_open_days: 2, renewal_grace_days: 4 };
+  for (const [configs, expected] of [[[config], true], [[], false]]) {
+    const h = harness({ rows: { member_membership_history: [row], membership_tier_config: configs } });
+    const result = await h.request();
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.payload.renewal, { eligible: expected });
+  }
+});
+
+test('legacy assignment uses unique canonical report matching and fails closed for ambiguity', async () => {
+  const owner = { ...member, tenant_id: legacyTenant };
+  const config = { id: 'legacy-config', tenant_id: legacyTenant, structure_scope_type: 'member',
+    renewal_open_days: 40, renewal_grace_days: 5 };
+  for (const [configs, expected] of [[[config], true], [[config, { ...config, id: 'duplicate' }], false], [[], false]]) {
+    const h = harness({ session: owner, context: { tenantId: legacyTenant },
+      rows: { member: [owner], member_membership_history: [legacyTerm()], membership_tier_config: configs } });
+    const result = await h.request();
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.payload.renewal, { eligible: expected });
+  }
+});
+
+test('legacy endpoint permits after-expiry grace without reviving current entitlement', async () => {
+  const owner = { ...member, tenant_id: legacyTenant };
+  const config = { id: 'legacy-config', tenant_id: legacyTenant, structure_scope_type: 'member',
+    renewal_open_days: 10, renewal_grace_days: 5 };
+  for (const [currentDay, expected] of [['2026-10-17', true], ['2026-10-21', true], ['2026-10-22', false]]) {
+    const h = harness({ session: owner, context: { tenantId: legacyTenant }, currentDay,
+      rows: { member: [owner], member_membership_history: [legacyTerm()], membership_tier_config: [config] } });
+    const result = await h.request();
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.payload.renewal, { eligible: expected }, currentDay);
+    assert.notEqual(result.payload.membership.state, 'active');
+    assert.equal(result.payload.membership.memberSince, null);
+    assert.equal(result.payload.membership.renewalDate, null);
+  }
+});
+
+test('renewal hides recurring reservations and explicitly reports unavailable read evidence', async () => {
+  const row = term({ term_key: null, billing_period: 'annual', payment_method: 'card',
+    payment_status: 'paid', config_id: 'config', term_end_date: '2026-09-20' });
+  const config = { id: 'config', tenant_id: member.tenant_id, structure_scope_type: 'member',
+    renewal_open_days: 2, renewal_grace_days: 4 };
+  const rows = { member_membership_history: [row], membership_tier_config: [config] };
+  const recurring = harness({ rows: { ...rows, membership_billing_agreements: [
+    { tenant_id: member.tenant_id, member_id: member.id, status: 'active' },
+  ] } });
+  assert.deepEqual((await recurring.request()).payload.renewal, { eligible: false });
+  const unavailable = harness({ rows, errors: { membership_tier_config: { code: 'XX000' } } });
+  const result = await unavailable.request();
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.payload.renewal, { eligible: false, reason: 'eligibility_evidence_unavailable' });
+});
 
 function dynamicRows() {
   const config = { id: 'config', tenant_id: member.tenant_id, name: 'October member structure',
@@ -490,7 +548,8 @@ test('authenticated response is minimal, tenant scoped and private no-store', as
   const h = harness({ rows: { member_membership_history: [term()] } });
   const res = await h.request();
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(Object.keys(res.payload), ['membership', 'payment']);
+  assert.deepEqual(Object.keys(res.payload), ['membership', 'payment', 'renewal']);
+  assert.deepEqual(res.payload.renewal, { eligible: false });
   assert.deepEqual(Object.keys(res.payload.membership), [
     'state', 'memberSince', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
   ]);

@@ -6,6 +6,7 @@ import { shapePersistedCommitment, shapeLegacyCurrentMembership } from './member
 import { shapePlan } from './payment-plan.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection.js';
+import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -13,7 +14,7 @@ import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection
 const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, payment_method, billing_period, term_key, term_start_date, term_end_date, membership_renewal_date, commitment_snapshot';
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
-const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat`;
+const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id`;
 const ORGANISATION_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, organization_id`;
 const pending = new Set(['pending', 'pending_activation', 'pending_payment', 'pending_payment_setup', 'payment_setup_required', 'mandate_pending', 'first_payment_pending', 'scheduled', 'unpaid']);
 const failed = new Set(['failed', 'payment_failed', 'payment_overdue', 'payment_grace_period']);
@@ -447,6 +448,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const summary = buildCanvasSummary({
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
       });
+      summary.renewal = await loadCanvasRenewalEligibility(db, { selected, owner, history: personal, today, plan });
       return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });

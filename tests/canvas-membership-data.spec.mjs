@@ -349,6 +349,9 @@ async function installFixtures(page, {
       }
       return member ? json(route, summaryOverride || SUMMARIES[viewer]) : json(route, { error: "Sign in required" }, 401);
     }
+    if (path === "/api/public/forms") return json(route, [
+      { id: 'renewal-form-fixture', slug: 'renew-membership', name: 'Renew membership fixture', is_active: true },
+    ]);
     if (path.startsWith("/api/canvas-versions/")) {
       if (method !== "GET") writes.push({ path, method, body: request.postDataJSON?.() });
       return json(route, method === "GET" ? { versions: [] } : { version: {} });
@@ -694,6 +697,7 @@ test("isolated Auto height remains content-driven and long mobile content settle
 });
 
 test("isolated editor inserts both palette blocks, duplicates independently, edits, saves and reopens", async ({ page }) => {
+  test.setTimeout(240_000);
   const fixture = await installFixtures(page, { version: 1, viewer: "alpha", empty: true });
   await page.goto(`/CanvasPageEditor?pageId=${fixture.fixturePage.id}`);
   await expect(page.getByTestId("canvas-page-editor")).toBeVisible();
@@ -741,6 +745,12 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
   await page.getByTestId("membership-input-manage-payments-link-text").fill("Review billing");
   const linkInput = page.getByTestId("membership-manage-link");
   await linkInput.fill("/account/payments");
+  await page.getByTestId("membership-renewal-link").fill("https://example.org/renew");
+  await expect(payment.getByText("Renew your subscription", { exact: true })).toBeVisible();
+  await page.getByTestId("membership-renewal-form-picker").click();
+  await page.getByTestId("membership-renewal-form").click();
+  await page.getByRole("option", { name: "Renew membership fixture", exact: true }).click();
+  await expect(page.getByTestId("membership-renewal-link")).toHaveValue("/forms/renew-membership");
   await page.getByTestId("membership-panel-background").fill("#eaf8ef");
   await page.getByTestId("membership-panel-border").fill("#237249");
 
@@ -765,6 +775,7 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
   expect(originalSummary.content.minHeight).toBe(460);
   expect(savedPayment.content).toMatchObject({
     manageLink: "/account/payments", manageLinkText: "Review billing",
+    renewalLink: "/forms/renew-membership",
     panel: { background: "#eaf8ef", borderColor: "#237249" },
   });
   for (const item of children) {
@@ -775,10 +786,14 @@ test("isolated editor inserts both palette blocks, duplicates independently, edi
     expect(item.content.memberId).toBeUndefined();
   }
 
-  await page.reload();
+  page.once("dialog", dialog => dialog.accept());
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-block-type='membership-summary']")).toHaveCount(2);
   await expect(page.getByText("INDEPENDENT COPY WORDING", { exact: true })).toBeVisible();
   await expect(page.getByText("Review billing", { exact: true })).toBeVisible();
+  await page.locator("[data-block-type='payment-details']").first().click();
+  await expect(page.getByTestId("membership-renewal-link")).toHaveValue("/forms/renew-membership");
+  await expect(page.getByText("Renew your subscription", { exact: true })).toBeVisible();
   await page.locator("[data-block-type='membership-summary']").filter({
     hasText: "INDEPENDENT COPY WORDING",
   }).click();
@@ -987,6 +1002,35 @@ test("isolated configured links remain safe and hidden when absent", async ({ pa
   payment.content.manageLink = "javascript:alert(document.domain)";
   await openPublished(page, fixture);
   await expect(page.getByTestId("canvas-payment-details").getByRole("link")).toHaveCount(0);
+  expect(fixture.writes).toEqual([]);
+});
+
+for (const version of [1, 2]) test(`V${version} renewal CTA respects server eligibility and configured destinations`, async ({ page }, testInfo) => {
+  const summary = {
+    membership: { state: 'active', membershipType: 'Example upfront', expiryDate: '2030-10-01' },
+    payment: { state: 'paid', method: 'upfront' },
+    renewal: { eligible: true },
+  };
+  const fixture = await installFixtures(page, { version, summaryOverride: summary });
+  const block = fixture.fixturePage.canvas_design.root.sections[0].children.find(item => item.type === 'payment-details');
+  for (const [index, destination] of ['/members/renew?source=portal', 'https://example.org/renew', '/forms/renew-membership'].entries()) {
+    block.content.renewalLink = destination;
+    await page.setViewportSize({ width: index === 2 ? 390 : 1440, height: 1000 });
+    await openPublished(page, fixture);
+    const cta = page.getByTestId('membership-renewal-cta');
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute('href', destination);
+    if (index === 2) {
+      const decline = page.getByRole('button', { name: 'Decline', exact: true });
+      if (await decline.isVisible()) await decline.click();
+      await cta.scrollIntoViewIfNeeded();
+      await page.getByTestId('canvas-payment-details').screenshot({ path: testInfo.outputPath(`renewal-v${version}-mobile.png`) });
+    }
+  }
+  summary.renewal.eligible = false;
+  await page.reload();
+  await expect(page.getByTestId('canvas-payment-details')).toContainText('Upfront');
+  await expect(page.getByTestId('membership-renewal-cta')).toHaveCount(0);
   expect(fixture.writes).toEqual([]);
 });
 

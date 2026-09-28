@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ColorField } from './ColorField';
+import { FormPickerField } from './FormPickerField';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -6506,27 +6507,6 @@ function FormEmbedIframe({ href, title, breakpoint }) {
       }}
       data-testid="iframe-form-embed"
     />
-  );
-}
-
-function FormPickerField({ value, onChange, testId }) {
-  const { data: forms, isLoading } = useQuery({
-    queryKey: ['canvas', 'public-forms'],
-    queryFn: () => publicClient.listForms(),
-    staleTime: 60_000,
-  });
-  const options = (forms || []).filter((f) => f.is_active).map((f) => ({ value: f.slug, label: f.name }));
-  return (
-    <Field label="Form" hint={isLoading ? 'Loading forms…' : null}>
-      <Select value={value || ''} onValueChange={onChange}>
-        <SelectTrigger className="h-8" data-testid={testId}><SelectValue placeholder="Select a form" /></SelectTrigger>
-        <SelectContent>
-          {options.length === 0 ? (
-            <SelectItem value="__none__" disabled>No active forms</SelectItem>
-          ) : options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </Field>
   );
 }
 

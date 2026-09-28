@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColorField } from './ColorField';
+import { FormPickerField } from './FormPickerField';
 import {
   LinkField, TypographyStyleField, useTenantTypographyStylesState,
   resolveTenantStyle, isAwaitingTypographyStyle, buildTypographyInlineStyle,
@@ -13,7 +14,7 @@ import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
 import {
   normalizeCanvasMembershipContent, normalizeCanvasMembershipSummary,
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
-  formatMembershipAmount, formatMembershipDate, safeMembershipLink,
+  formatMembershipAmount, formatMembershipDate, safeMembershipLink, membershipRenewalFormSlug,
 } from '@/lib/canvasMembershipData';
 import {
   BREAKPOINT_MAX_PX, hasResponsiveOverride, resolveResponsiveValue, writeResponsiveValue,
@@ -50,12 +51,14 @@ export function MembershipDataView({
   const summary = normalizeCanvasMembershipSummary(result?.data);
   const ready = result?.status === 'ready';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
+  const renewalHref = safeMembershipLink(content.renewalLink);
+  const showRenewal = paymentCard && ready && summary.renewal.eligible && !!renewalHref;
   // A confirmed absence of payment data has no useful published presentation.
   // Keep every unresolved/error lifecycle visible, and keep the editor sample
   // selectable, but remove the complete public block (including its authored
   // wrapper background/border and its V2 flow slot) once the normalized API
   // state explicitly says `none`.
-  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor;
+  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor && !showRenewal;
   const copy = content.states[state];
   const styles = Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [
     role, resolveTenantStyle(content.typography[role], tenantStyles),
@@ -240,6 +243,16 @@ export function MembershipDataView({
         {...role('link', { display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 24, textDecoration: 'none' })}>
         {content.manageLinkText}<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
       </a>}
+      {showRenewal && <div>
+        <a href={renewalHref}
+          data-testid="membership-renewal-cta"
+          target={content.renewalLinkNewTab ? '_blank' : undefined}
+          rel={content.renewalLinkNewTab ? 'noopener noreferrer' : undefined}
+          onClick={asEditor ? event => event.preventDefault() : undefined}
+          {...role('link', { display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 24, textDecoration: 'none' })}>
+          Renew your subscription<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
+        </a>
+      </div>}
     </section>
   );
 }
@@ -247,7 +260,16 @@ export function MembershipDataView({
 function MembershipDataRender(props) {
   const result = useCanvasMembershipSummary({ asEditor: props.asEditor });
   const { styles, resolved } = useTenantTypographyStylesState();
-  return <MembershipDataView {...props} result={result} tenantStyles={styles} stylesResolved={resolved} />;
+  // Deterministic authoring-only example: never save a member or eligibility
+  // into the Canvas document, and never use sample data on the public path.
+  const previewRenewal = props.asEditor && props.type === 'payment-details'
+    && safeMembershipLink(props.block.content?.renewalLink);
+  const displayResult = previewRenewal ? { status: 'ready', isSample: true, data: {
+    membership: { state: 'active', memberSince: '2020-01-01', membershipType: 'Example membership', expiryDate: '2030-10-01' },
+    payment: { state: 'paid', method: 'upfront' },
+    renewal: { eligible: true },
+  } } : result;
+  return <MembershipDataView {...props} result={displayResult} tenantStyles={styles} stylesResolved={resolved} />;
 }
 
 export function MembershipSummaryRender(props) {
@@ -261,6 +283,7 @@ export function PaymentDetailsRender(props) {
 export function MembershipDataInspector({ block, update, breakpoint = 'desktop' }) {
   const c = normalizeCanvasMembershipContent(block.content, block.type);
   const [state, setState] = useState('active');
+  const [showRenewalForms, setShowRenewalForms] = useState(false);
   const editableStates = block.type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES;
   const set = patch => update(b => ({
     ...b, content: normalizeCanvasMembershipContent({ ...normalizeCanvasMembershipContent(b.content, b.type), ...patch }, b.type),
@@ -341,6 +364,20 @@ export function MembershipDataInspector({ block, update, breakpoint = 'desktop' 
         Enter a site path beginning with / or an http(s) URL. The link is hidden until the destination is valid.
       </p>}
       {field('Manage payments link text', c.manageLinkText, manageLinkText => set({ manageLinkText }))}
+      <LinkField label="Renew subscription destination" value={c.renewalLink}
+        onChange={renewalLink => set({ renewalLink })}
+        newTab={c.renewalLinkNewTab} onNewTabChange={renewalLinkNewTab => set({ renewalLinkNewTab })}
+        testId="membership-renewal-link" />
+      <button type="button" className="text-sm underline" onClick={() => setShowRenewalForms(value => !value)}
+        data-testid="membership-renewal-form-picker">Choose a renewal form</button>
+      {showRenewalForms && <FormPickerField
+        value={membershipRenewalFormSlug(c.renewalLink)}
+        onChange={slug => set({ renewalLink: `/forms/${encodeURIComponent(slug)}` })}
+        testId="membership-renewal-form" />}
+      <p className="text-xs text-slate-500">Shown only to upfront payers within their assigned membership schedule’s renewal period. Choose an internal page, enter a full URL, or select a form. A configured link previews an eligible upfront example in the editor.</p>
+      {c.renewalLink && !safeMembershipLink(c.renewalLink) && <p className="text-xs text-amber-700" role="status">
+        Enter a site path beginning with / or an http(s) URL. The renewal button is hidden until the destination is valid.
+      </p>}
       <ColorField label="Payment panel background" value={c.panel.background}
         onChange={background => set({ panel: { ...c.panel, background } })} testId="membership-panel-background" />
       <ColorField label="Payment panel border colour" value={c.panel.borderColor}

@@ -227,6 +227,10 @@ function extractAdvAccHtmlAnchors(content, blockId, sectionId) {
 }
 
 export const LINK_FIELD_SPECS = {
+  [BLOCK_TYPES.PAYMENT_DETAILS]: [
+    { field: 'manageLink', label: 'Manage payments' },
+    { field: 'renewalLink', label: 'Renew your subscription' },
+  ],
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt', onlyWhenPopulated: true }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button', buttonLabelContentField: 'label' }],
