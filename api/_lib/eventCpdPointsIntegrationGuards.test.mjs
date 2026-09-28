@@ -24,12 +24,18 @@ test('workflow, badge and points processors are started in one independent settl
   assert.match(group, /processCpdPointsOutbox/);
 });
 
-test('controlled replay route requires admin scope, reason and bounded booking ids', async () => {
+test('controlled replay route requires report permission, signed review, reason and bounded selected scope', async () => {
   const source = await read('../admin/event-cpd-points-replay.js');
   assert.match(source, /hasAdminAccess/);
-  assert.match(source, /reason\.length > 500/);
-  assert.match(source, /bookingIds\.length > 1000/);
-  assert.match(source, /enqueue_event_cpd_points_replay/);
+  assert.match(source, /hasFeatureAccess/);
+  assert.match(source, /makeCpdPointsReplayHandler/);
+  const handler = await read('./eventCpdPointsReprocessing.js');
+  assert.match(handler, /reason\.length > 500/);
+  assert.match(handler, /scope\.registrations\.length > 1000/);
+  assert.match(handler, /events\.event-report/);
+  assert.match(handler, /codec\.decode\(req\.body\.preview_token/);
+  assert.match(handler, /confirm_event_cpd_points_reprocessing/);
+  assert.doesNotMatch(handler, /enqueue_event_cpd_points_replay/);
 });
 
 test('badge replay route is admin-only, tenant scoped and delegates eligibility to the database', async () => {

@@ -29,6 +29,8 @@ import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
+import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
+import { CPD_REPLAY_ENDPOINT, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
 import {
@@ -287,7 +289,7 @@ function PaymentMethodBadge({ method }) {
 }
 
 export default function EventRegistrationReport() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
 
@@ -361,11 +363,22 @@ export default function EventRegistrationReport() {
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [transferIsPublic, setTransferIsPublic] = useState(false);
   const [certificateTarget, setCertificateTarget] = useState(null);
+  const [cpdSelection, setCpdSelection] = useState({});
+  const [cpdEventChoice, setCpdEventChoice] = useState("");
+  const [cpdReplayChoice, setCpdReplayChoice] = useState("");
+  const [cpdDialog, setCpdDialog] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [consentFilter, setConsentFilter] = useState("all");
   const [showColumnChooser, setShowColumnChooser] = useState(false);
   const [selectedColumnKeys, setSelectedColumnKeys] = useState(() => new Set());
   const knownColumnKeysRef = useRef(new Set());
+
+  useEffect(() => {
+    setCpdSelection({});
+    setCpdEventChoice("");
+    setCpdReplayChoice("");
+    setCpdDialog(null);
+  }, [memberInfo?.tenant_id, memberInfo?.id]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -376,6 +389,31 @@ export default function EventRegistrationReport() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  // Successful authorization on this protected endpoint is the server's admin
+  // AND report-feature decision (also supports tenant-user admin sessions).
+  // Never infer administrative authority from localStorage or page visibility.
+  const { data: cpdReplayHistory, error: cpdReplayAccessError } = useQuery({
+    queryKey: ["cpd-points-replays", memberInfo?.tenant_id, memberInfo?.id],
+    queryFn: async () => readCpdReplayResponse(await fetch(CPD_REPLAY_ENDPOINT, { credentials: "include" })),
+    enabled: accessChecked,
+    retry: false,
+    staleTime: 0,
+  });
+  const canReprocessCpd = accessChecked && !cpdReplayAccessError && Array.isArray(cpdReplayHistory?.replays)
+    && !isFeatureExcluded("events.event-report");
+  const selectedCpdRegistrations = Object.values(cpdSelection);
+  const openSelectedCpd = (registrations) => setCpdDialog({
+    scope: { mode: "selected", registrations: registrations.map(row => ({ ...row })) },
+    scopeLabel: `${registrations.length} explicitly selected registration${registrations.length === 1 ? "" : "s"}`,
+  });
+  const toggleCpdRegistration = (identity, checked) => setCpdSelection(previous => {
+    const next = { ...previous };
+    const key = cpdRegistrationKey(identity);
+    if (checked) next[key] = identity;
+    else delete next[key];
+    return next;
+  });
 
   const buildQueryUrl = () => {
     if (!appliedFilters) return null;
@@ -1544,8 +1582,30 @@ export default function EventRegistrationReport() {
 
   const renderActionIcons = (attendee, group) => {
     const isCancelled = attendee.status === 'cancelled';
+    const cpdIdentity = cpdRegistrationIdentity(attendee, group);
     return (
       <div className="flex items-center gap-0.5 mr-1">
+        {canReprocessCpd && <>
+          <Checkbox
+            checked={!!cpdSelection[cpdRegistrationKey(cpdIdentity)]}
+            onCheckedChange={checked => toggleCpdRegistration(cpdIdentity, checked === true)}
+            onClick={event => event.stopPropagation()}
+            aria-label={`Select ${attendee.attendee_first_name || "attendee"} for CPD points reprocessing`}
+            data-testid={`select-cpd-${cpdIdentity.booking_source}-${attendee.id}`}
+            className="mr-1"
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
+                onClick={event => { event.stopPropagation(); openSelectedCpd([cpdIdentity]); }}
+                aria-label="Reprocess CPD points…"
+                data-testid={`reprocess-cpd-${cpdIdentity.booking_source}-${attendee.id}`}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reprocess CPD points…</TooltipContent>
+          </Tooltip>
+        </>}
         <div className="flex items-center gap-0.5" style={{ visibility: isCancelled ? 'hidden' : 'visible' }}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1611,6 +1671,48 @@ export default function EventRegistrationReport() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-full">
+      {canReprocessCpd && <Card data-testid="cpd-replay-toolbar">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Reprocess CPD points</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Recover missing awards with a read-only preview before confirmation. Selection is retained across report pages and filters.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => openSelectedCpd(selectedCpdRegistrations)} data-testid="reprocess-cpd-selected">
+              Preview selected ({selectedCpdRegistrations.length})
+            </Button>
+            {selectedCpdRegistrations.length > 0 && <Button type="button" variant="ghost" onClick={() => setCpdSelection({})}>Clear selection</Button>}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 space-y-1 text-sm">
+              <span>All registrations for one explicit event</span>
+              <select className="block h-10 w-full rounded-md border bg-background px-3 text-sm" value={cpdEventChoice} onChange={event => setCpdEventChoice(event.target.value)} data-testid="cpd-all-event-choice">
+                <option value="">Choose an event — independent of report filters</option>
+                {eventsForTypeAhead.map(event => {
+                  const type = event.source === "complex_event" ? "complex" : "simple";
+                  return <option key={`${type}:${event.id}`} value={`${type}:${event.id}`}>{event.title || "Untitled event"} · {type} · {event.start_date ? String(event.start_date).slice(0, 10) : "No date"} · {event.id}</option>;
+                })}
+              </select>
+            </label>
+            <Button type="button" variant="outline" disabled={!cpdEventChoice} data-testid="reprocess-cpd-all-event" onClick={() => {
+              const [event_type, event_id] = cpdEventChoice.split(":");
+              const event = eventsForTypeAhead.find(item => item.id === event_id && (item.source === "complex_event" ? "complex" : "simple") === event_type);
+              if (!event) return;
+              setCpdDialog({ scope: { mode: "all_event", event_id, event_type }, scopeLabel: `All registrations · ${event.title || "Untitled event"} · ${event_type} · ${event_id}` });
+            }}>Preview all event registrations</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">All-event preview includes all server-side registrations, including those hidden by filters or pagination. It does not use the selected rows.</p>
+          {cpdReplayHistory.replays.length > 0 && <div className="flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 space-y-1 text-sm">
+              <span>Reopen recent processing results</span>
+              <select className="block h-10 w-full rounded-md border bg-background px-3 text-sm" value={cpdReplayChoice} data-testid="cpd-reopen-results" onChange={event => setCpdReplayChoice(event.target.value)}>
+                <option value="">Choose a previous reprocessing request</option>
+                {cpdReplayHistory.replays.map(replay => <option key={replay.replay_id} value={replay.replay_id}>{new Date(replay.created_at).toLocaleString()} · {replay.reason} · {replay.replay_id}</option>)}
+              </select>
+            </label>
+            <Button type="button" variant="outline" disabled={!cpdReplayChoice} onClick={() => setCpdDialog({ replayId: cpdReplayChoice })}>Open results</Button>
+          </div>}
+        </CardContent>
+      </Card>}
+      {cpdReplayAccessError && ![401, 403].includes(cpdReplayAccessError.status) && <p role="alert" className="text-sm text-destructive">CPD reprocessing controls are unavailable: {cpdReplayAccessError.message}</p>}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Event Registration Report</h1>
@@ -2622,6 +2724,10 @@ export default function EventRegistrationReport() {
         onSuccess={handleTransferSuccess}
         isPublicBooking={transferIsPublic}
       />
+      {cpdDialog && canReprocessCpd && <CpdPointsReplayDialog
+        {...cpdDialog}
+        onClose={() => { setCpdDialog(null); queryClient.invalidateQueries({ queryKey: ["cpd-points-replays"] }); }}
+      />}
       {certificateTarget && <AttendeeCpdCertificateDialog
         attendee={certificateTarget.attendee}
         bookingSource={certificateTarget.bookingSource}

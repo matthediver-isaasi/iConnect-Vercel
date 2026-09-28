@@ -1,3 +1,4 @@
+- **CPD points recovery:** `20261123_event_cpd_points_safe_reprocessing.sql` was applied to verified DEST (`lvmzliemqnieeoruhkik`) using `scripts/apply-event-cpd-points-reprocessing.mjs` on 2026-09-28. Service-only preview/confirmation/results RPC grants were verified. SOURCE was untouched, no replay was run, and no migration remains outstanding for this feature. Report UI uses a read-only preview before explicit confirmation; confirmed runs use the existing points outbox and ledger. Browser verification used intercepted fixtures, not live awarding.
 # Membership Management Platform
 A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
