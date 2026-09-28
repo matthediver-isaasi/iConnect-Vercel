@@ -1055,3 +1055,17 @@ mtime_ms = 1790626631990
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/565dd010-9bea-46c9-b9e2-6f83a8aa573d/651b8da0-b879-4cd0-b61e-3010c4c7450e"
 storage_version_token = "1790626680351909"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "crOTNGHylbNW5pjqPAWW1"
+uri = "file://exports/cpd-import-outstanding-2026-09-28-clarified.xlsx"
+type = "table"
+title = "Outstanding CPD records — clarified actions"
+description = "All 74 remaining rows retained, with clear payment-hold and attendance-verification actions."
+logical_id = "48e1deec-f9d1-4a7e-93b8-d06e213ffc80"
+content_hash = "sha256:e54ec538b5f0e1f7caacc332cda1e73ebb6a04dbaaa136301d9e935b7062a267"
+size = 13185
+mtime_ms = 1790627343426
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/48e1deec-f9d1-4a7e-93b8-d06e213ffc80/711150e0-6b29-4061-b09d-0681b78d0613"
+storage_version_token = "1790627356139068"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
