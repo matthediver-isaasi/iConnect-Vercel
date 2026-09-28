@@ -49,6 +49,8 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       attendee_name: resolved.attendee_name, recipient: resolved.recipient, event_name: resolved.event_name,
       available: resolved.available, reason: resolved.reason, fingerprint: resolved.fingerprint,
       template_name: resolved.template_name || null,
+      certificate_points: resolved.certificate_points ?? null,
+      certificate_points_source: resolved.certificate_points_source || null,
       email_template_id: resolved.email_template_id || null,
       email_template_name: resolved.email_template_name || null,
       email_is_default: resolved.email_is_default,
@@ -96,7 +98,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     try {
       const pdf = await render(db, resolved);
       // Recheck just before the provider boundary: cancellation, changed email,
-      // template/configuration changes, and ledger corrections invalidate consent.
+       // template/configuration changes, guest evidence and ledger corrections invalidate consent.
       const current = await resolve(db, identity);
       if (!current.available || !current.can_send || current.fingerprint !== resolved.fingerprint) {
         throw new Error('Certificate data changed during preparation. Reload before confirming again.');

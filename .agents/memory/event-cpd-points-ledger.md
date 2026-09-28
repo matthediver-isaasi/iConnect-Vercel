@@ -20,3 +20,9 @@ Historical import overlap review requires a quiet native-award window, even thou
 **Why:** Native awards have no shared legacy activity identifier. Read-only overlap preflight cannot exclude a native award arriving between its final read and an import transaction; automatic deduplication would discard potentially legitimate credits.
 
 **How to apply:** Explicitly review candidate overlaps and coordinate native-award processing during approved historical imports. Never infer import permission from the source Approved or Locked flags, or substitute legacy IDs/name matching for confirmed UUID ownership.
+
+Manual attendee certificates and member CPD points are distinct evidence boundaries. A guest with no attendee-matched member may display the effective, qualifying ticket/event rule's points on a manually generated certificate without creating a member or ledger award. An attendee-matched member's certificate points must instead come from that attendee's booking-scoped ledger entries; a missing member award must not be papered over with rule-derived guest points or the purchaser's ledger.
+
+**Why:** A group booking's `member_id` can identify the purchaser, while the actual attendee is a guest. Requiring a member ledger for all certificates blanks legitimate guest certificates, but treating a certificate as a ledger award would overstate earned member credit.
+
+**How to apply:** Resolve attendee identity by tenant-scoped attendee email, never by purchaser alone. For unmatched attendees, use the active ticket override (which replaces the event rule) or event rule only when booking status and its registration/attendance trigger qualify; snapshot rule and attendance evidence into the certificate fingerprint/delivery provenance. Keep preview, download, and email on the same resolved values, and never write ledger rows during certificate issuance.

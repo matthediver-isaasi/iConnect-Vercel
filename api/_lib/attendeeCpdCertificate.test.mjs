@@ -29,6 +29,7 @@ function database(rows) {
       const orders = [];
       const q = {
         select() { return q; }, eq(k, v) { filters.push(row => row[k] === v); return q; },
+        ilike(k, v) { filters.push(row => String(row[k] || '').toLowerCase() === v.toLowerCase()); return q; },
         order(k, opts = {}) { orders.push([k, opts.ascending !== false]); return q; },
         limit(n) { count = n; return q; },
         range(a, b) { offset = a; count = b - a + 1; return q; },
@@ -78,6 +79,7 @@ async function fixture(source = 'standard') {
     complex_event_ticket_class: [{ id: 'ticket', tenant_id: tenantId, complex_event_id: eventId, name: 'Ticket' }],
     event_cpd_certificate_config: [{ tenant_id: tenantId, event_id: eventId, event_type: source === 'standard' ? 'event' : 'complex_event', config }],
     cpd_certificate_template: [template], cpd_certificate_placeholder: [field('member.full_name')],
+    member: [], event_cpd_points_rule: [],
     attendee_cpd_certificate_delivery: [],
   });
   db.storage = { from(bucket) {
@@ -138,7 +140,7 @@ test('invalid date, missing name, ambiguous legacy ticket and unknown required f
   assert.match((await resolveAttendeeCertificate(f.db, identity)).reason, /name is missing/);
 });
 
-test('sample/default/literal data cannot leak; missing email permits preview; only tenant booking ledger values contribute points', async () => {
+test('sample/default/literal data cannot leak; missing email permits preview; only matched attendee ledger values contribute member points', async () => {
   assert.deepEqual(realCertificatePlaceholders([field('x', { sample_value: 'SAMPLE', default_value: 'FAKE', missing_policy: 'literal' })], {}).placeholders[0].default_value, null);
   const f = await fixture();
   f.booking.attendee_email = '';
@@ -151,6 +153,11 @@ test('sample/default/literal data cannot leak; missing email permits preview; on
     { id: '2', tenant_id: tenantId, booking_type: 'booking', booking_id: bookingId, event_type: 'event', event_id: eventId, points_value: '-2' },
     { id: '3', tenant_id: otherTenant, booking_type: 'booking', booking_id: bookingId, event_type: 'event', event_id: eventId, points_value: '999' },
   ];
+  f.db.rows.member = [{ id: 'attendee-member', tenant_id: tenantId, email: '', first_name: 'Real' }];
+  f.booking.attendee_email = 'attendee@example.test';
+  f.db.rows.member[0].email = 'attendee@example.test';
+  f.db.rows.member_cpd_points_ledger[0].member_id = 'attendee-member';
+  f.db.rows.member_cpd_points_ledger[1].member_id = 'attendee-member';
   r = await resolveAttendeeCertificate(f.db, identity);
   assert.equal(r.values['cpd.cpd_points'], 6);
   await assert.rejects(resolveAttendeeCertificate(f.db, { ...identity, tenantId: otherTenant }), /not found/);
@@ -330,7 +337,7 @@ test('CPD email rendering is single-pass, escapes guest data, blanks unknowns an
   assert.equal(renderCpdEmailContent('{{attendee_name}}', { attendee_name: '{{cpd_points}}' }), 'cpd_points');
 });
 
-test('simple and complex saved templates personalize guests using ledger points, attach PDF and audit message; selection/content invalidate confirmation', async () => {
+test('simple and complex saved templates personalize matched attendees using ledger points, attach PDF and audit message; selection/content invalidate confirmation', async () => {
   for (const source of ['standard', 'complex']) {
     const f = await fixture(source); claims(f);
     const email = selectEmail(f);
@@ -340,6 +347,8 @@ test('simple and complex saved templates personalize guests using ledger points,
       { id: '2', tenant_id: tenantId, booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
         booking_id: bookingId, event_id: eventId, event_type: source === 'standard' ? 'event' : 'complex_event', points_value: -1 },
     ];
+    f.db.rows.member = [{ id: 'attendee-member', tenant_id: tenantId, email: f.booking.attendee_email }];
+    f.db.rows.member_cpd_points_ledger.forEach(row => { row.member_id = 'attendee-member'; });
     const r = await resolveAttendeeCertificate(f.db, f.identity);
     assert.equal(r.email_template_name, email.name);
     assert.equal(r.email_is_default, false);
@@ -366,6 +375,130 @@ test('simple and complex saved templates personalize guests using ledger points,
     assert.equal((await invoke(f, input, { send })).statusCode, 409);
     assert.equal(sends, 1);
   }
+});
+
+test('guest certificate uses ticket override instead of event points; preview and email attach the same PDF without a member award', async () => {
+  for (const source of ['standard', 'complex']) {
+    const f = await fixture(source); claims(f); selectEmail(f);
+    f.booking.member_id = 'purchaser';
+    f.db.rows.member = [{ id: 'purchaser', tenant_id: tenantId, email: 'purchaser@example.test',
+      membership_number: 'PURCHASER' }];
+    f.db.rows.cpd_certificate_placeholder.push(field('cpd.cpd_points', { missing_policy: 'error' }));
+    f.db.rows.event_cpd_points_rule = [
+      { id: 'wide', tenant_id: tenantId, event_type: source === 'standard' ? 'event' : 'complex_event',
+        event_id: eventId, active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' },
+      { id: 'ticket-rule', tenant_id: tenantId, event_type: source === 'standard' ? 'event' : 'complex_event',
+        event_id: eventId, active: true, ticket_id: 'ticket', trigger_type: 'registration', points_value: '5' },
+    ];
+    f.db.rows.member_cpd_points_ledger = [{ id: 'purchaser-award', tenant_id: tenantId,
+      member_id: 'purchaser', booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
+      booking_id: bookingId, event_type: source === 'standard' ? 'event' : 'complex_event',
+      event_id: eventId, points_value: 8 }];
+    let r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.values['cpd.cpd_points'], '5');
+    assert.equal(r.values['member.membership_number'], '');
+    assert.equal(r.email_message.subject, 'Real: Real event (5)');
+    assert.equal(r.provenance.guest_certificate_points_evidence.rule_id, 'ticket-rule');
+    assert.deepEqual(r.provenance.points_ledger, []);
+    const input = { booking_id: bookingId, booking_source: source };
+    const metadata = (await invoke(f, { ...input, method: 'GET' })).body;
+    assert.equal(metadata.certificate_points, '5');
+    assert.equal(metadata.certificate_points_source, 'guest_rule');
+    const pdf = (await invoke(f, { ...input, action: 'preview', expected_fingerprint: metadata.fingerprint })).body;
+    let sent = 0;
+    const response = await invoke(f, { ...input, action: 'send', confirmed: true,
+      expected_fingerprint: metadata.fingerprint, request_id: randomUUID() }, {
+      send: async opts => {
+        sent++;
+        assert.equal(opts.to, 'attendee@example.test');
+        assert.equal(opts.subject, 'Real: Real event (5)');
+        assert.deepEqual(opts.attachments[0].data, pdf);
+        return { success: true };
+      },
+    });
+    assert.equal(response.body.success, true);
+    assert.equal(sent, 1);
+    assert.equal(f.db.rows.member_cpd_points_ledger.length, 1);
+    assert.equal(f.db.rows.attendee_cpd_certificate_delivery[0].provenance.guest_certificate_points_evidence.qualifies, true);
+    f.booking.ticket_class_id = null;
+    f.booking.ticket_class_name = 'Ticket';
+    r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.values['cpd.cpd_points'], '5');
+    f.booking.ticket_class_id = 'ticket';
+    f.db.rows.event_cpd_points_rule[1].active = false;
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).values['cpd.cpd_points'], '8');
+  }
+});
+
+test('guest disabled, zero and attendance-only overrides cannot inherit registration points or use stale attendance', async () => {
+  for (const source of ['standard', 'complex']) {
+    const f = await fixture(source);
+    f.db.rows.cpd_certificate_placeholder.push(field('cpd.cpd_points', { missing_policy: 'error' }));
+    f.db.rows.event_cpd_points_rule = [
+      { id: 'wide', tenant_id: tenantId, event_type: source === 'standard' ? 'event' : 'complex_event',
+        event_id: eventId, active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' },
+      { id: 'ticket-rule', tenant_id: tenantId, event_type: source === 'standard' ? 'event' : 'complex_event',
+        event_id: eventId, active: true, ticket_id: 'ticket', trigger_type: 'attendance', points_value: '5' },
+    ];
+    let r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.match(r.reason, /cpd.cpd_points/);
+    if (source === 'standard') {
+      f.booking.checked_in_at = '2026-03-29T12:00:00Z';
+      f.booking.check_in_reversed_at = '2026-03-29T13:00:00Z';
+      assert.match((await resolveAttendeeCertificate(f.db, f.identity)).reason, /cpd.cpd_points/);
+      f.booking.checked_in_at = '2026-03-29T14:00:00Z';
+    } else {
+      f.db.rows.complex_event_session_checkin = [{ id: 'checkin', tenant_id: tenantId,
+        complex_event_id: eventId, booking_id: bookingId, session_id: 'session',
+        checked_in_at: '2026-03-29T14:00:00Z' }];
+      assert.match((await resolveAttendeeCertificate(f.db, f.identity)).reason, /cpd.cpd_points/);
+      f.db.rows.complex_event_session = [{ id: 'session', tenant_id: tenantId, complex_event_id: eventId }];
+    }
+    r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.values['cpd.cpd_points'], '5');
+    f.db.rows.event_cpd_points_rule[1].is_no_award = true;
+    assert.match((await resolveAttendeeCertificate(f.db, f.identity)).reason, /cpd.cpd_points/);
+    f.db.rows.event_cpd_points_rule[1].is_no_award = false;
+    f.db.rows.event_cpd_points_rule[1].points_value = '0';
+    assert.match((await resolveAttendeeCertificate(f.db, f.identity)).reason, /cpd.cpd_points/);
+  }
+});
+
+test('matched attendee with missing member award does not borrow guest rule or purchaser ledger', async () => {
+  const f = await fixture();
+  f.db.rows.cpd_certificate_placeholder.push(field('cpd.cpd_points', { missing_policy: 'error' }));
+  f.db.rows.member = [{ id: 'attendee', tenant_id: tenantId, email: f.booking.attendee_email }];
+  f.db.rows.event_cpd_points_rule = [{ id: 'wide', tenant_id: tenantId, event_type: 'event',
+    event_id: eventId, active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' }];
+  f.db.rows.member_cpd_points_ledger = [{ id: 'other', tenant_id: tenantId, member_id: 'purchaser',
+    booking_type: 'booking', booking_id: bookingId, event_type: 'event', event_id: eventId, points_value: 8 }];
+  assert.match((await resolveAttendeeCertificate(f.db, identity)).reason, /cpd.cpd_points/);
+  f.db.rows.member_cpd_points_ledger.push({ ...f.db.rows.member_cpd_points_ledger[0],
+    id: 'attendee-award', member_id: 'attendee', points_value: 5 });
+  assert.equal((await resolveAttendeeCertificate(f.db, identity)).values['cpd.cpd_points'], 5);
+});
+
+test('guest attendance points require current online outcome belonging to a tracked target in the event', async () => {
+  const f = await fixture();
+  f.db.rows.cpd_certificate_placeholder.push(field('cpd.cpd_points', { missing_policy: 'error' }));
+  f.db.rows.event_cpd_points_rule = [{ id: 'attendance', tenant_id: tenantId, event_type: 'event',
+    event_id: eventId, active: true, ticket_id: 'ticket', trigger_type: 'attendance', points_value: '5' }];
+  f.db.rows.attendance_current_outcome = [{ tenant_id: tenantId, booking_type: 'booking',
+    booking_id: bookingId, provider: 'zoom', status: 'attended',
+    attendance_target_id: 'target', outcome_revision_id: 'revision' }];
+  f.db.rows.attendance_target = [{ tenant_id: tenantId, id: 'target', event_id: 'other', tracking_enabled: true }];
+  assert.match((await resolveAttendeeCertificate(f.db, identity)).reason, /cpd.cpd_points/);
+  f.db.rows.attendance_target[0].event_id = eventId;
+  f.db.rows.attendance_target[0].tracking_enabled = false;
+  assert.match((await resolveAttendeeCertificate(f.db, identity)).reason, /cpd.cpd_points/);
+  f.db.rows.attendance_target[0].tracking_enabled = true;
+  const eligible = await resolveAttendeeCertificate(f.db, identity);
+  assert.equal(eligible.values['cpd.cpd_points'], '5');
+  assert.equal(eligible.provenance.guest_certificate_points_evidence.id, 'revision');
+  f.db.rows.attendance_current_outcome[0].status = 'absent';
+  const current = await resolveAttendeeCertificate(f.db, identity);
+  assert.notEqual(current.fingerprint, eligible.fingerprint);
+  assert.match(current.reason, /cpd.cpd_points/);
 });
 
 test('deleted, cross-tenant, inactive and wrong-category email templates block sending but preserve PDF preview', async () => {

@@ -234,6 +234,18 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setError("");
   };
 
+  const download = () => {
+    if (!pdfBytes) return;
+    const url = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "cpd-certificate.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const name = metadata?.attendee_name || `${attendee?.attendee_first_name || ""} ${attendee?.attendee_last_name || ""}`.trim() || "Attendee";
   const recipient = metadata?.recipient;
   const available = metadata?.available === true;
@@ -245,7 +257,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="attendee-certificate-dialog">
         <DialogHeader>
           <DialogTitle>CPD certificate — {name}</DialogTitle>
-          <DialogDescription>Preview the personalized PDF before emailing it to this attendee. This does not change attendance or award CPD points.</DialogDescription>
+          <DialogDescription>Preview or download the personalized PDF before emailing it to this attendee. This does not change attendance or award member CPD points.</DialogDescription>
         </DialogHeader>
         {loading ? <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Checking certificate settings…</p> : metadata && (
           <div className="space-y-3">
@@ -258,10 +270,19 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
             {available && (
               <>
                 <p className="text-sm">Attendee: <strong>{name}</strong><br />Email destination: <strong>{recipient || "No valid attendee email"}</strong></p>
+                 {metadata.certificate_points_source === "guest_rule" && (
+                   <p className="text-sm text-muted-foreground" data-testid="guest-certificate-points">
+                     {metadata.certificate_points != null
+                       ? `Guest certificate points: ${metadata.certificate_points} (from the qualifying ticket/event rule). `
+                       : "No qualifying guest certificate points under the current ticket/event rule and attendance evidence. "}
+                     This certificate does not create a member CPD ledger award.
+                   </p>
+                 )}
                 <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("preview")} data-testid="button-preview-cpd-certificate">
                   {busy === "preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview CPD certificate
                 </Button>
                 {pdfBytes && <CertificatePdfCanvasPreview bytes={pdfBytes} pdfEngine={pdfEngine} />}
+                 {pdfBytes && <Button type="button" variant="outline" disabled={!!busy} onClick={download} data-testid="button-download-cpd-certificate">Download CPD certificate</Button>}
                 {sent ? (
                   <div className="space-y-2">
                     <p role="status" className="text-sm">Certificate email request accepted for {recipient}. This does not confirm inbox delivery.</p>

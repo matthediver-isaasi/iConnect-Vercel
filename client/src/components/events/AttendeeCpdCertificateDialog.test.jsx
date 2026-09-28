@@ -114,6 +114,58 @@ test("personalized PDF renders every page to canvases without blob navigation or
   }
 });
 
+test("guest metadata explains certificate evidence, previewed bytes can be downloaded, and email keeps attendee destination", async () => {
+  const oldCreate = URL.createObjectURL;
+  const oldRevoke = URL.revokeObjectURL;
+  const oldClick = dom.window.HTMLAnchorElement.prototype.click;
+  const oldContext = dom.window.HTMLCanvasElement.prototype.getContext;
+  dom.window.HTMLCanvasElement.prototype.getContext = () => ({});
+  let downloaded, blob, sent;
+  URL.createObjectURL = value => { blob = value; return "blob:guest-certificate"; };
+  URL.revokeObjectURL = () => {};
+  dom.window.HTMLAnchorElement.prototype.click = function () {
+    downloaded = { href: this.href, filename: this.download };
+  };
+  const engine = { getDocument: () => ({ promise: Promise.resolve({ numPages: 1,
+    getPage: async () => ({ getViewport: () => ({ width: 100, height: 80 }),
+      render: () => ({ promise: Promise.resolve(), cancel() {} }) }) }), destroy() {} }) };
+  globalThis.fetch = (_url, options) => {
+    if (!options?.method) return Promise.resolve(json({ ...details, certificate_points: "5",
+      certificate_points_source: "guest_rule" }));
+    const body = JSON.parse(options.body);
+    if (body.action === "send") {
+      sent = body;
+      return Promise.resolve(json({ success: true, latest_delivery: { status: "accepted" } }));
+    }
+    return Promise.resolve(new Response(new Blob(["%PDF-1.7"], { type: "application/pdf" }),
+      { headers: { "Content-Type": "application/pdf" } }));
+  };
+  let cleanup;
+  try {
+    cleanup = await mount("complex", engine);
+    await tick();
+    assert.match(document.querySelector('[data-testid="guest-certificate-points"]').textContent, /Guest certificate points: 5/);
+    assert.match(document.body.textContent, /does not create a member CPD ledger award/);
+    assert.equal(document.querySelector('[data-testid="button-download-cpd-certificate"]'), null);
+    await click('[data-testid="button-preview-cpd-certificate"]');
+    await tick();
+    await click('[data-testid="button-download-cpd-certificate"]');
+    assert.deepEqual(downloaded, { href: "blob:guest-certificate", filename: "cpd-certificate.pdf" });
+    assert.equal(await blob.text(), "%PDF-1.7");
+    await click('[data-testid="confirm-cpd-email"]');
+    await click('[data-testid="button-email-cpd-certificate"]');
+    await tick();
+    assert.equal(sent.booking_source, "complex");
+    assert.match(document.body.textContent, /accepted for ari@example.test/);
+  } finally {
+    if (cleanup) await cleanup();
+    URL.createObjectURL = oldCreate;
+    URL.revokeObjectURL = oldRevoke;
+    dom.window.HTMLAnchorElement.prototype.click = oldClick;
+    dom.window.HTMLCanvasElement.prototype.getContext = oldContext;
+  }
+});
+
 test("canvas renderer shows loading then errors, and cancels pending rendering on unmount", async () => {
   const oldContext = dom.window.HTMLCanvasElement.prototype.getContext;
   dom.window.HTMLCanvasElement.prototype.getContext = () => ({ setTransform() {} });

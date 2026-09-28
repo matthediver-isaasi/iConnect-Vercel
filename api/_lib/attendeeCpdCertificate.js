@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { resolveEventCpdCertificate } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
+import { resolveMember, decideAttendanceEvidence } from './eventCpdBadgeService.js';
+import { resolveEffectiveCpdPointsRule } from './eventCpdPointsService.js';
 
 export const CERTIFICATE_BOOKINGS = { standard: 'booking', complex: 'complex_event_booking' };
 export const certificateFingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -16,7 +18,8 @@ async function one(db, table, tenantId, id) {
 
 // No sample/default value is certificate evidence. Required unknown fields must
 // fail explicitly; optional unknown fields render blank, even if the designer
-// supplied a default. Points come only from the immutable booking ledger.
+// supplied a default. Member points come only from the immutable booking ledger;
+// guest certificate points are explicitly separate evidence, never an award.
 export function realCertificatePlaceholders(placeholders, values) {
   const missing = (placeholders || []).filter(p => p.missing_policy === 'error'
     && (values[p.placeholder_key] == null || String(values[p.placeholder_key]).trim() === ''))
@@ -30,13 +33,85 @@ export function realCertificatePlaceholders(placeholders, values) {
   };
 }
 
+async function guestCertificatePoints(db, { tenantId, booking, bookingSource, eventType, ticketId }) {
+  const { data: rules, error } = await db.from('event_cpd_points_rule').select('*')
+    .eq('tenant_id', tenantId).eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
+    .eq('event_id', booking.event_id).eq('active', true);
+  if (error) throw error;
+  // Resolve ticket precedence before trigger evaluation: an attendance-only
+  // override must not inherit the event registration points.
+  const scoped = (rules || []).filter(rule => rule.ticket_id != null && String(rule.ticket_id) === String(ticketId));
+  const rule = scoped.length ? scoped[0] : (rules || []).find(rule => rule.ticket_id == null);
+  const evidence = { rule_id: rule?.id || null, trigger: rule?.trigger_type || null,
+    ticket_id: ticketId || null, source: 'guest_certificate_rule', qualifies: false };
+  if (!rule || rule.is_no_award || rule.points_value == null || Number(rule.points_value) <= 0) return { evidence };
+  // Use the shared precedence resolver as for member awards; no alternate
+  // fallback to the event-wide rule for this ticket is permitted.
+  if (resolveEffectiveCpdPointsRule(rules, ticketId, rule.trigger_type)?.id !== rule.id) return { evidence };
+  if (booking.status !== 'confirmed') return { evidence };
+  if (rule.trigger_type === 'registration') {
+    return { points: String(rule.points_value), evidence: { ...evidence, qualifies: true, type: 'confirmed_booking', id: booking.id } };
+  }
+  if (rule.trigger_type !== 'attendance') return { evidence };
+  let attendance = null;
+  if (bookingSource === 'standard') {
+    const decision = decideAttendanceEvidence({ type: 'qr_checkin', checkedInAt: booking.checked_in_at,
+      checkInReversedAt: booking.check_in_reversed_at });
+    if (decision.qualifies) attendance = { type: 'qr_checkin', id: booking.id, checked_in_at: booking.checked_in_at,
+      reversed_at: booking.check_in_reversed_at || null };
+  } else {
+    const { data: checkins, error: checkinError } = await db.from('complex_event_session_checkin')
+      .select('id,session_id,checked_in_at,check_in_reversed_at')
+      .eq('tenant_id', tenantId).eq('complex_event_id', booking.event_id).eq('booking_id', booking.id)
+      .order('id');
+    if (checkinError) throw checkinError;
+    for (const checkin of checkins || []) {
+      if (!decideAttendanceEvidence({ type: 'qr_checkin', checkedInAt: checkin.checked_in_at,
+        checkInReversedAt: checkin.check_in_reversed_at }).qualifies) continue;
+      const { data: session, error: sessionError } = await db.from('complex_event_session').select('id')
+        .eq('tenant_id', tenantId).eq('complex_event_id', booking.event_id).eq('id', checkin.session_id).maybeSingle();
+      if (sessionError) throw sessionError;
+      if (session) {
+        attendance = { type: 'qr_checkin', id: checkin.id, session_id: session.id,
+          checked_in_at: checkin.checked_in_at, reversed_at: checkin.check_in_reversed_at || null };
+        break;
+      }
+    }
+  }
+  if (!attendance) {
+    const { data: outcomes, error: outcomeError } = await db.from('attendance_current_outcome')
+      .select('provider,status,outcome_revision_id,attendance_target_id')
+      .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
+      .eq('booking_id', booking.id).eq('status', 'attended')
+      .order('attendance_target_id');
+    if (outcomeError) throw outcomeError;
+    for (const outcome of outcomes || []) {
+      if (!['zoom', 'teams'].includes(outcome.provider) || !outcome.outcome_revision_id) continue;
+      const { data: target, error: targetError } = await db.from('attendance_target')
+        .select('id,tracking_enabled').eq('tenant_id', tenantId).eq('event_id', booking.event_id)
+        .eq('id', outcome.attendance_target_id).maybeSingle();
+      if (targetError) throw targetError;
+      if (target && target.tracking_enabled !== false) {
+        attendance = { type: outcome.provider, id: outcome.outcome_revision_id,
+          target_id: target.id, status: outcome.status };
+        break;
+      }
+    }
+  }
+  return attendance
+    ? { points: String(rule.points_value), evidence: { ...evidence, qualifies: true, ...attendance } }
+    : { evidence };
+}
+
 export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource }) {
   const booking = await one(db, CERTIFICATE_BOOKINGS[bookingSource], tenantId, bookingId);
   if (!booking) throw Object.assign(new Error('Attendee booking not found'), { status: 404 });
   const eventType = bookingSource === 'complex' ? 'complex' : 'simple';
   const event = await one(db, eventType === 'complex' ? 'complex_event' : 'event', tenantId, booking.event_id);
   if (!event) throw Object.assign(new Error('Event not found'), { status: 404 });
-  const member = booking.member_id ? await one(db, 'member', tenantId, booking.member_id) : null;
+  // The booking member_id can be the purchaser of another person's ticket.
+  const attendeeMemberId = await resolveMember(db, tenantId, booking);
+  const member = attendeeMemberId ? await one(db, 'member', tenantId, attendeeMemberId) : null;
   const firstName = booking.attendee_first_name || member?.first_name || '';
   const lastName = booking.attendee_last_name || member?.last_name || '';
   const attendeeName = [firstName, lastName].filter(Boolean).join(' ').trim();
@@ -96,20 +171,28 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     'event.start_date': event.start_date || '', 'event.end_date': event.end_date || '',
   };
   let pointsRows = [];
+  let guestPointsEvidence = null;
   const emailSelection = await loadCpdEmailTemplate(db, tenantId, policy.email_template_id);
-  if ((fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
+  if (!attendeeMemberId || (fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
     || /\{\{\s*cpd_points\s*\}\}|\[\[\s*cpd_points\s*\]\]/.test(`${emailSelection.template?.subject || ''} ${emailSelection.template?.body || ''}`)) {
-    // Paginate even when a deployment's REST row cap is below 500.
-    for (let offset = 0; ; ) {
-      const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind')
-        .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
-        .eq('booking_id', bookingId).eq('event_id', booking.event_id)
-        .eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
-        .order('id').range(offset, offset + 499);
-      if (result.error) throw result.error;
-      if (!result.data?.length) break;
-      pointsRows.push(...result.data);
-      offset += result.data.length;
+    if (attendeeMemberId) {
+      // Matched members never receive speculative rule points for missing awards.
+      // Paginate even when a deployment's REST row cap is below 500.
+      for (let offset = 0; ; ) {
+        const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind')
+          .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
+          .eq('booking_id', bookingId).eq('event_id', booking.event_id).eq('member_id', attendeeMemberId)
+          .eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
+          .order('id').range(offset, offset + 499);
+        if (result.error) throw result.error;
+        if (!result.data?.length) break;
+        pointsRows.push(...result.data);
+        offset += result.data.length;
+      }
+    } else {
+      const result = await guestCertificatePoints(db, { tenantId, booking, bookingSource, eventType, ticketId });
+      guestPointsEvidence = result.evidence;
+      if (result.points != null) values['cpd.cpd_points'] = result.points;
     }
     if (pointsRows.length) {
       const points = pointsRows.reduce((sum, row) => sum + Number(row.points_value), 0);
@@ -128,13 +211,16 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     cpd_points: values['cpd.cpd_points'],
   });
   const provenance = { ...policy.provenance, booking_id: bookingId, booking_source: bookingSource,
-    booking_status: booking.status, member_id: booking.member_id || null,
+    booking_status: booking.status, attendee_member_id: attendeeMemberId || null,
     template_version: template.version, template_source_sha256: template.source_sha256,
-    points_ledger: pointsRows, values, placeholders: real.placeholders,
+    points_ledger: pointsRows, guest_certificate_points_evidence: guestPointsEvidence,
+    values, placeholders: real.placeholders,
     email: { selection_id: policy.email_template_id || null, ...email.provenance,
       rendered_message: email.message || null, reason: email.reason || null } };
   const fingerprint = certificateFingerprint({ provenance, recipient, source_path: template.source_path });
   return { ...base, available: true, can_send: validCertificateRecipient(recipient) && !email.reason, fingerprint,
+    certificate_points: guestPointsEvidence?.qualifies ? values['cpd.cpd_points'] : null,
+    certificate_points_source: guestPointsEvidence ? 'guest_rule' : pointsRows.length ? 'member_ledger' : null,
     email_template_id: policy.email_template_id || null, email_template_name: emailSelection.template?.name || null,
     email_is_default: !policy.email_template_id, email_reason: email.reason || null, email_message: email.message,
     send_reason: email.reason || (validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.'),
