@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Form, FormSubmission } from "@/api/entities";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag, FileBadge } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { attendanceSyncMessage, responseErrors, responseHasPendingSync } from "@/lib/attendanceSyncSummary";
 import { createPageUrl } from "@/utils";
@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
+import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
 import {
@@ -359,6 +360,7 @@ export default function EventRegistrationReport() {
   const [transferTarget, setTransferTarget] = useState(null);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [transferIsPublic, setTransferIsPublic] = useState(false);
+  const [certificateTarget, setCertificateTarget] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [consentFilter, setConsentFilter] = useState("all");
   const [showColumnChooser, setShowColumnChooser] = useState(false);
@@ -1540,37 +1542,60 @@ export default function EventRegistrationReport() {
     );
   };
 
-  const renderActionIcons = (attendee) => {
+  const renderActionIcons = (attendee, group) => {
     const isCancelled = attendee.status === 'cancelled';
     return (
-      <div className="flex items-center gap-0.5 mr-1" style={{ visibility: isCancelled ? 'hidden' : 'visible' }}>
+      <div className="flex items-center gap-0.5 mr-1">
+        <div className="flex items-center gap-0.5" style={{ visibility: isCancelled ? 'hidden' : 'visible' }}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={(e) => { e.stopPropagation(); handleCancelClick(attendee); }}
+                data-testid={`button-cancel-${attendee.id}`}
+              >
+                <XCircle className="w-3.5 h-3.5 text-destructive" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Request cancellation</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={(e) => { e.stopPropagation(); handleTransferClick(attendee); }}
+                data-testid={`button-transfer-${attendee.id}`}
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Request transfer</TooltipContent>
+          </Tooltip>
+        </div>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               size="icon"
               variant="ghost"
               className="h-7 w-7"
-              onClick={(e) => { e.stopPropagation(); handleCancelClick(attendee); }}
-              data-testid={`button-cancel-${attendee.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCertificateTarget({
+                  attendee,
+                  bookingSource: group.bookingSource === 'complex_event_booking' ? 'complex' : 'standard',
+                });
+              }}
+              data-testid={`button-cpd-certificate-${attendee.id}`}
+              aria-label={`CPD certificate for ${`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'attendee'}`}
             >
-              <XCircle className="w-3.5 h-3.5 text-destructive" />
+              <FileBadge className="w-3.5 h-3.5 text-muted-foreground" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Request cancellation</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7"
-              onClick={(e) => { e.stopPropagation(); handleTransferClick(attendee); }}
-              data-testid={`button-transfer-${attendee.id}`}
-            >
-              <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Request transfer</TooltipContent>
+          <TooltipContent>Preview or email CPD certificate</TooltipContent>
         </Tooltip>
       </div>
     );
@@ -2014,7 +2039,7 @@ export default function EventRegistrationReport() {
                             return (
                               <tr key={attendee.id} className="border-b last:border-0" data-testid={`row-booking-${attendee.id}`}>
                                 <td className="py-3 pr-1">
-                                  {renderActionIcons(attendee)}
+                                  {renderActionIcons(attendee, group)}
                                 </td>
                                 <td className="py-3 pr-3">
                                   <div className="font-medium whitespace-nowrap">
@@ -2280,7 +2305,7 @@ export default function EventRegistrationReport() {
                                 data-testid={`row-booking-${attendee.id}`}
                               >
                                 <td className="py-2 pr-1">
-                                  {renderActionIcons(attendee)}
+                                  {renderActionIcons(attendee, group)}
                                 </td>
                                 <td className="py-2 pr-3">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -2597,6 +2622,11 @@ export default function EventRegistrationReport() {
         onSuccess={handleTransferSuccess}
         isPublicBooking={transferIsPublic}
       />
+      {certificateTarget && <AttendeeCpdCertificateDialog
+        attendee={certificateTarget.attendee}
+        bookingSource={certificateTarget.bookingSource}
+        onClose={() => setCertificateTarget(null)}
+      />}
     </div>
   );
 }

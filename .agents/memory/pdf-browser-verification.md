@@ -8,3 +8,9 @@ Treat certificate browser-fixture checks as layout evidence, not proof that ever
 **Why:** The workspace system Chromium lacked newer standard JavaScript APIs required by PDF.js. Test-only compatibility shims allowed real PDF rendering and geometry checks, but do not establish unshimmed production compatibility.
 
 **How to apply:** When investigating blank certificate backgrounds or changing PDF.js, test an unmodified supported browser separately. Do not attribute a renderer compatibility failure to fit geometry, or ship fixture shims as an incidental layout fix.
+
+Native PDF iframes do not reliably provide an in-dialog preview in headless Chromium.
+
+**Why:** A successful PDF response followed by blob-iframe navigation was treated as a download and reset the report; it initially looked like a development hot-reload problem.
+
+**How to apply:** Check browser download/navigation events before blaming reloads. Use in-dialog canvas rendering for predictable previews, and verify real rendering separately from mocked component tests.

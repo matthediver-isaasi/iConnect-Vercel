@@ -294,6 +294,30 @@ export const cpdCertificatePlaceholder = pgTable("cpd_certificate_placeholder", 
 export type CpdCertificateTemplate = typeof cpdCertificateTemplate.$inferSelect;
 export type CpdCertificatePlaceholder = typeof cpdCertificatePlaceholder.$inferSelect;
 
+// Manual report email audit, not proof of attendance or a CPD award.
+export const attendeeCpdCertificateDelivery = pgTable("attendee_cpd_certificate_delivery", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  booking_source: text("booking_source").notNull(),
+  booking_id: uuid("booking_id").notNull(),
+  request_id: uuid("request_id").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  actor: text("actor").notNull(),
+  recipient: text("recipient").notNull(),
+  provenance: jsonb("provenance").notNull(),
+  deliberate_resend: boolean("deliberate_resend").notNull().default(false),
+  status: text("status").notNull().default("pending"),
+  provider_message_id: text("provider_message_id"),
+  error: text("error"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  requestUnique: uniqueIndex("attendee_cpd_certificate_delivery_tenant_id_request_id_key").on(table.tenant_id, table.request_id),
+  bookingIndex: index("attendee_cpd_certificate_delivery_booking").on(table.tenant_id, table.booking_source, table.booking_id, table.created_at),
+  unresolvedUnique: uniqueIndex("attendee_cpd_certificate_delivery_unresolved")
+    .on(table.tenant_id, table.booking_source, table.booking_id).where(sql`${table.status} IN ('pending','unknown')`),
+}));
+
 // Custom Object foundation. These shared generic tables back every
 // tenant-defined object; preference_field remains the field-definition source
 // of truth and is linked by custom_object_id in the SQL migration.

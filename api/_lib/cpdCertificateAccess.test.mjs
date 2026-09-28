@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authorizeCpdTemplates, CPD_TEMPLATE_CAPABILITY } from './cpdCertificateTemplatesApi.js';
-import { isResourceExcluded } from './roleVisibility.js';
+import { isResourceExcluded, __setRoleAccessOverlayForTests } from './roleVisibility.js';
+
+// These capability tests use the generated hierarchy, not a live DB overlay.
+__setRoleAccessOverlayForTests([]);
 
 test('CPD templates use a dedicated exclusion key', () => {
   assert.equal(CPD_TEMPLATE_CAPABILITY, 'cpd.certificate-templates');
