@@ -1027,3 +1027,17 @@ mtime_ms = 1790624023431
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5e1e6d5c-1640-4ae5-a635-de05aaac9116/6aad2702-3c49-4974-9924-be6f354fc09e"
 storage_version_token = "1790624036375925"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "JAjsxhUyCImnDBCH8M9NA"
+uri = "file://exports/cpd-import-outstanding-2026-09-28.xlsx"
+type = "table"
+title = "Outstanding CPD import records"
+description = "129 source rows, checked against current production records, with status and reasons. Includes held, ineligible and duplicate rows for completeness."
+logical_id = "a19746d0-9147-47d1-b518-a8293e7980fb"
+content_hash = "sha256:7759d048c67e644ef1f260fce74896072e58dc7c60d8fb04d1ae684053448c97"
+size = 17554
+mtime_ms = 1790626042811
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a19746d0-9147-47d1-b518-a8293e7980fb/55459c46-b1d3-4893-b19f-9bc3db61f56f"
+storage_version_token = "1790626071901097"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
