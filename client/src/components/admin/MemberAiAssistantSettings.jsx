@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { adminFetch } from "@/lib/adminFetch";
+import MemberAiResponsePolicy, { DEFAULT_RESPONSE_POLICY, normalizePolicy, policyValidationError } from "./MemberAiResponsePolicy";
+import MemberAiPolicyTest from "./MemberAiPolicyTest";
 import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -25,6 +27,7 @@ function normalizeOverrides(value) {
     description: typeof value?.description === "string" ? value.description.trim() : "",
     avatarUrl: typeof value?.avatarUrl === "string" ? value.avatarUrl : "",
     backgroundColor: typeof value?.backgroundColor === "string" ? value.backgroundColor : "",
+    ...(value?.responsePolicy !== undefined ? { responsePolicy: normalizePolicy(value.responsePolicy) } : {}),
   };
 }
 
@@ -59,7 +62,8 @@ export default function MemberAiAssistantSettings({ tenantId }) {
       .then(data => {
         if (cancelled) return;
         // The effective fields include inherited values; only overrides belong in the editor.
-        const overrides = normalizeOverrides({ ...data.overrides, enabled: data.enabled });
+        const overrides = normalizeOverrides({ ...data.overrides, enabled: data.enabled,
+          ...(data.responsePolicy !== undefined ? { responsePolicy: data.responsePolicy } : {}) });
         setConfig(data);
         setDraft(overrides);
         setSaved(overrides);
@@ -74,6 +78,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
     setSuccess("");
     setError("");
   };
+  const updatePolicy = value => update("responsePolicy", value);
 
   const handleUpload = async (file) => {
     if (!file) return;
@@ -116,6 +121,11 @@ export default function MemberAiAssistantSettings({ tenantId }) {
       name: draft.name.trim(),
       backgroundColor: draft.backgroundColor.trim(),
     });
+    const policyError = policyValidationError(draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY);
+    if (policyError) {
+      setError(policyError);
+      return;
+    }
     if (payload.backgroundColor && !HEX_COLOR.test(payload.backgroundColor)) {
       setError("Enter a six-digit hex colour, such as #334155, or leave it empty to inherit.");
       return;
@@ -144,7 +154,8 @@ export default function MemberAiAssistantSettings({ tenantId }) {
           await adminFetch("/api/member-ai/config", { credentials: "include" }),
           "Could not refresh assistant preview."
         );
-        const resolved = normalizeOverrides({ ...refreshed.overrides, enabled: refreshed.enabled });
+        const resolved = normalizeOverrides({ ...refreshed.overrides, enabled: refreshed.enabled,
+          ...(refreshed.responsePolicy !== undefined ? { responsePolicy: refreshed.responsePolicy } : {}) });
         setConfig(refreshed);
         setDraft(resolved);
         setSaved(resolved);
@@ -175,6 +186,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
       ? config.backgroundColor : "#334155";
   const colorValid = !draft?.backgroundColor || HEX_COLOR.test(draft.backgroundColor);
   const descriptionValid = !draft || validDescription(draft.description);
+  const policyError = draft ? policyValidationError(draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY) : "";
   const dirty = draft && saved && JSON.stringify(draft) !== JSON.stringify(saved);
 
   return (
@@ -274,15 +286,19 @@ export default function MemberAiAssistantSettings({ tenantId }) {
               <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-300" data-testid="text-ai-assistant-description-preview">{draft.description.trim() || DEFAULT_DESCRIPTION}</p>
             </div>
 
+            <MemberAiResponsePolicy value={draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY} onChange={updatePolicy} disabled={saving || uploading} />
+            {policyError && <p className="text-sm text-rose-300" role="alert">{policyError}</p>}
+
             {error && <p className="text-sm text-rose-300" role="alert">{error}</p>}
             {success && <p className="flex items-center gap-2 text-sm text-emerald-300" role="status"><CheckCircle2 className="h-4 w-4" /> {success}</p>}
             <div className="flex items-center justify-end gap-3">
               {dirty && <span className="text-xs text-slate-400">Unsaved changes</span>}
-              <Button type="button" onClick={save} disabled={!dirty || !colorValid || !descriptionValid || saving || uploading} data-testid="button-save-ai-assistant">
+              <Button type="button" onClick={save} disabled={!dirty || !colorValid || !descriptionValid || !!policyError || saving || uploading} data-testid="button-save-ai-assistant">
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {saving ? "Saving..." : "Save AI Assistant"}
               </Button>
             </div>
+            <MemberAiPolicyTest key={tenantId} tenantId={tenantId} enabled={saved?.enabled === true} hasUnsavedChanges={!!dirty} saving={saving || uploading} />
           </>
         )}
       </CardContent>

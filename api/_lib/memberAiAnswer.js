@@ -99,6 +99,41 @@ function safeProvenance(provenance) {
   return dependencies.length ? { dependencies } : {};
 }
 
+// Citation dates are source facts, not lifecycle timestamps. Only accept
+// calendar dates or complete ISO timestamps with an explicit timezone; JS
+// Date.parse alone normalizes impossible dates such as February 30.
+function validSourceDate(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2}))?$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second, zone] = match;
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (m < 1 || m > 12 || d < 1 || d > daysInMonth[m - 1]) return false;
+  if (hour === undefined) return true;
+  if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return false;
+  if (zone !== 'Z') {
+    const offsetHours = Number(zone.slice(1, 3));
+    const offsetMinutes = Number(zone.slice(4, 6));
+    if (offsetHours > 14 || offsetMinutes > 59 || (offsetHours === 14 && offsetMinutes !== 0)) return false;
+  }
+  return true;
+}
+
+function safeDates(dates) {
+  if (!Array.isArray(dates)) return [];
+  const allowed = new Set(['Published', 'Event date', 'Updated']);
+  const seen = new Set();
+  return dates.filter((date) => {
+    if (!date || !allowed.has(date.label) || seen.has(date.label) || !validSourceDate(date.value)) return false;
+    seen.add(date.label);
+    return true;
+  }).map(({ label, value }) => ({ label, value }));
+}
+
 function safeSource(source) {
   if (!source || !ALLOWED_TYPES.has(source.type) || typeof source.sourceId !== 'string') {
     return null;
@@ -123,6 +158,7 @@ function safeSource(source) {
     title: typeof source.title === 'string' ? source.title.slice(0, 300) : '(untitled)',
     type: source.type,
     typeLabel: typeof source.typeLabel === 'string' ? source.typeLabel.slice(0, 50) : 'Item',
+    dates: safeDates(source.dates),
     // Links are derived from an authorized source, never model output.
     link: typeof source.link === 'string' && source.link.startsWith('/') ? source.link.slice(0, 1000) : null,
     sourceId: source.sourceId.slice(0, 100),
@@ -154,6 +190,18 @@ export function makeCitationSources(chunks, labels = {}) {
   for (const [key, supportingChunks] of chunksByKey) {
     const chunk = supportingChunks[0];
     const citationId = `S${sources.length + 1}`;
+    // revalidateMemberContentCandidates overlays these two fields from the
+    // live source row. Its projection has no source update date; in particular
+    // source_updated_at / updated_at on indexed chunks are not safe citation
+    // facts. Do not substitute indexing or generation timestamps.
+    const dateField = ['event', 'complex_event'].includes(chunk.content_type)
+      ? 'start_date'
+      : ['news_post', 'blog_post'].includes(chunk.content_type)
+        ? 'published_date'
+        : null;
+    const dateValue = dateField && supportingChunks
+      .map((entry) => entry[dateField])
+      .find(validSourceDate);
     const source = safeSource({
       citationId,
       title: chunk.title,
@@ -163,6 +211,10 @@ export function makeCitationSources(chunks, labels = {}) {
       sourceId: chunk.source_id,
       sourceGeneration: chunk.source_generation,
       accessScope: chunk.access_scope,
+      dates: dateValue ? [{
+        label: dateField === 'start_date' ? 'Event date' : 'Published',
+        value: dateValue,
+      }] : [],
       supportingProvenance: supportingChunks.map((entry) => entry.provenance),
     });
     // A chunk without its new source fence cannot safely be cited or stored.

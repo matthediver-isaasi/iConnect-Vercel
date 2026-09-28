@@ -14,11 +14,11 @@ const defaultDescription = "Your AI guide to everything in the member portal.";
 const platformDescription = "Platform persona text must not appear in member introductions.";
 const copy = value => structuredClone(value);
 
-async function fixture(page, { admin = false } = {}) {
+async function fixture(page, { admin = false, allowTestAsk = false } = {}) {
   const state = {
     currentTenant: tenantA, overrides: { [tenantA]: copy(original), [tenantB]: copy(tenantBOriginal) },
     writes: [], uploads: [], blocked: [], errors: [], reads: [],
-    disabledOnAsk: false, holdTenantB: null,
+    disabledOnAsk: false, holdTenantB: null, testAsks: [], testAskError: null, holdTestAsk: null,
   };
   page.on("pageerror", error => state.errors.push(error.message));
   await page.addInitScript(() => { localStorage.clear(); sessionStorage.clear(); });
@@ -93,6 +93,21 @@ async function fixture(page, { admin = false } = {}) {
       if (state.disabledOnAsk) {
         state.overrides[requestedTenant].enabled = false;
         return fulfill(route, { code: "assistant_disabled", error: "Disabled" }, 403);
+      }
+      if (allowTestAsk && admin) {
+        state.testAsks.push({ tenantId: requestedTenant, body: request.postDataJSON(), headers: request.headers() });
+        if (state.holdTestAsk) {
+          await state.holdTestAsk;
+          if (requestedTenant !== state.currentTenant) return route.abort().catch(() => {});
+        }
+        if (state.testAskError) return fulfill(route, { error: state.testAskError }, 403);
+        return fulfill(route, {
+          answer: "Read the handbook [S1].",
+          grounded: true,
+          sources: [{ citationId: "S1", title: "Handbook", type: "resource", typeLabel: "Resource", link: "/Resources",
+            dates: [{ label: "Published", value: "2026-02-10" }] }],
+          escalation: { name: "Member team", instructions: "Contact a specialist.", email: "team@example.org" },
+        });
       }
       state.blocked.push(`Unexpected provider ask ${path}`);
       return fulfill(route, { error: "Provider calls disabled" }, 599);
@@ -175,7 +190,7 @@ test("tenant description validates, saves normalized text, survives reload and H
   await description.fill(`  ${normalized}  `);
   await expect(preview).toHaveText(normalized);
   await expect(save(page)).toBeEnabled();
-  await expect(card(page).getByText("Unsaved changes")).toBeVisible();
+  await expect(card(page).getByText("Unsaved changes", { exact: true })).toBeVisible();
   await save(page).click();
   await expect(card(page).getByRole("status")).toContainText("saved");
   expect(state.writes).toHaveLength(1);
@@ -219,6 +234,110 @@ test("tenant description validates, saves normalized text, survives reload and H
   await expect(modalDescription).toHaveText(defaultDescription);
   // Navigating to Help may trigger the unrelated member-profile autosave.
   expect(state.blocked.every(write => write === `PATCH /api/entities/Member/${member.id}`)).toBe(true);
+  expect(state.errors).toEqual([]);
+});
+
+test("response policy defaults, strict validation, save, reload, reset and current-session test", async ({ page }, testInfo) => {
+  const state = await fixture(page, { admin: true, allowTestAsk: true });
+  await page.goto("/admin/settings");
+  const panel = card(page).getByTestId("member-ai-policy-test");
+  const ask = panel.getByTestId("button-ai-policy-test");
+  const question = panel.getByTestId("input-ai-policy-test-question");
+  await expect(card(page).getByTestId("select-ai-policy-answerLength")).toHaveValue("balanced");
+  await expect(card(page).getByTestId("select-ai-policy-clarification")).toHaveValue("when_needed");
+  await card(page).screenshot({ path: testInfo.outputPath("response-policy-editor.png") });
+  await question.fill("What is the handbook?");
+  await card(page).getByTestId("input-ai-policy-role").fill("Guide members using published sources.");
+  await expect(ask).toBeDisabled();
+  await card(page).getByRole("button", { name: "Add term" }).click();
+  await expect(save(page)).toBeDisabled();
+  await expect(card(page).getByText(/each with a term and preferred wording/i)).toBeVisible();
+  await card(page).getByRole("textbox", { name: "Term 1" }).fill("member");
+  await card(page).getByRole("textbox", { name: "Preferred wording 1" }).fill("participant");
+  await card(page).getByTestId("input-ai-policy-escalationUrl").fill("http://example.org");
+  await expect(save(page)).toBeDisabled();
+  await card(page).getByTestId("input-ai-policy-escalationUrl").fill("https://example.org/contact");
+  await card(page).getByTestId("select-ai-policy-answerLength").selectOption("detailed");
+  await save(page).click();
+  await expect(card(page).getByRole("status")).toContainText("saved");
+  expect(state.writes.at(-1).payload.responsePolicy).toMatchObject({
+    role: "Guide members using published sources.", answerLength: "detailed",
+    terminology: [{ term: "member", preferred: "participant" }],
+    escalationUrl: "https://example.org/contact",
+  });
+  expect(state.writes.at(-1).payload.description).toBe(original.description);
+  await page.reload();
+  await expect(card(page).getByTestId("input-ai-policy-role")).toHaveValue("Guide members using published sources.");
+  await question.fill("What is the handbook?");
+  await ask.click();
+  await expect(panel.getByTestId("member-ai-test-results")).toContainText("Published: 2026-02-10");
+  await expect(panel.getByTestId("member-ai-test-results")).toContainText("Member team");
+  await panel.screenshot({ path: testInfo.outputPath("response-policy-test.png") });
+  expect(state.testAsks).toHaveLength(1);
+  expect(state.testAsks[0].tenantId).toBe(tenantA);
+  expect(state.testAsks[0].body).toEqual({ question: "What is the handbook?", history: [] });
+  expect(state.testAsks[0].headers.cookie || "").not.toContain("impersonat");
+  await question.fill("Where else?");
+  await ask.click();
+  expect(state.testAsks[1].body.history).toEqual([
+    { role: "user", content: "What is the handbook?" }, { role: "assistant", content: "Read the handbook [S1]." },
+  ]);
+  state.testAskError = "Access denied for this session";
+  await question.fill("Can I see more?");
+  await ask.click();
+  await expect(panel.getByRole("alert")).toHaveText("Access denied for this session");
+  await expect(panel.getByTestId("member-ai-test-results")).not.toContainText("Can I see more?");
+  await card(page).getByRole("button", { name: "Reset response policy to defaults" }).click();
+  await expect(ask).toBeDisabled();
+  await save(page).click();
+  await page.reload();
+  await expect(card(page).getByTestId("select-ai-policy-answerLength")).toHaveValue("balanced");
+  await expect(card(page).getByTestId("input-ai-policy-role")).toHaveValue("");
+  expect(state.blocked).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test("admin test history and saved policy do not cross tenants", async ({ page }) => {
+  const state = await fixture(page, { admin: true, allowTestAsk: true });
+  await page.goto("/admin/settings");
+  const panel = card(page).getByTestId("member-ai-policy-test");
+  await panel.getByTestId("input-ai-policy-test-question").fill("Tenant A handbook?");
+  await panel.getByTestId("button-ai-policy-test").click();
+  await expect(panel.getByTestId("member-ai-test-results")).toContainText("Tenant A handbook?");
+  state.currentTenant = tenantB;
+  await page.reload();
+  await expect(card(page).getByTestId("input-ai-assistant-name")).toHaveValue("Borealis");
+  await expect(card(page).getByTestId("select-ai-policy-answerLength")).toHaveValue("balanced");
+  await expect(panel.getByTestId("member-ai-test-results")).toHaveCount(0);
+  await panel.getByTestId("input-ai-policy-test-question").fill("Tenant B handbook?");
+  await panel.getByTestId("button-ai-policy-test").click();
+  await expect(panel.getByTestId("member-ai-test-results")).toContainText("Tenant B handbook?");
+  expect(state.testAsks[1].tenantId).toBe(tenantB);
+  expect(state.testAsks[1].body.history).toEqual([]);
+  expect(state.blocked).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test("in-flight admin test is discarded on tenant navigation", async ({ page }) => {
+  const state = await fixture(page, { admin: true, allowTestAsk: true });
+  await page.goto("/admin/settings");
+  const panel = card(page).getByTestId("member-ai-policy-test");
+  let release;
+  state.holdTestAsk = new Promise(resolve => { release = resolve; });
+  await panel.getByTestId("input-ai-policy-test-question").fill("Old tenant question?");
+  await panel.getByTestId("button-ai-policy-test").click();
+  await expect.poll(() => state.testAsks.length).toBe(1);
+  state.currentTenant = tenantB;
+  try {
+    await page.reload();
+  } finally {
+    release();
+    state.holdTestAsk = null;
+  }
+  await expect(card(page).getByTestId("input-ai-assistant-name")).toHaveValue("Borealis");
+  await expect(panel.getByTestId("member-ai-test-results")).toHaveCount(0);
+  await expect(panel.getByTestId("button-ai-policy-test")).toBeDisabled();
+  expect(state.testAsks).toHaveLength(1);
   expect(state.errors).toEqual([]);
 });
 

@@ -67,7 +67,7 @@ function tenantHeaders(tenantId) {
   };
 }
 
-async function askMemberAi({ question, history, tenantId, signal }) {
+export async function askMemberAi({ question, history, tenantId, signal }) {
   const res = await fetch("/api/member-ai/ask", {
     method: "POST",
     credentials: "include",
@@ -136,7 +136,7 @@ function deriveTitle(question) {
   return q.length > TITLE_MAX ? `${q.slice(0, TITLE_MAX - 1).trimEnd()}…` : q;
 }
 
-function AnswerWithCitations({ content, sources, onSourceClick }) {
+export function AnswerWithCitations({ content, sources, onSourceClick, className = "text-foreground" }) {
   const byCitation = new Map(
     (sources || [])
       .filter((source) => source?.citationId)
@@ -144,7 +144,7 @@ function AnswerWithCitations({ content, sources, onSourceClick }) {
   );
   const parts = String(content || "").split(/(\[[A-Za-z][A-Za-z0-9_-]{0,11}\])/g);
   return (
-    <p className="whitespace-pre-wrap leading-relaxed text-foreground">
+    <p className={`whitespace-pre-wrap leading-relaxed ${className}`}>
       {parts.map((part, index) => {
         const match = /^\[([A-Za-z][A-Za-z0-9_-]{0,11})\]$/.exec(part);
         const source = match ? byCitation.get(match[1]) : null;
@@ -164,6 +164,29 @@ function AnswerWithCitations({ content, sources, onSourceClick }) {
       })}
     </p>
   );
+}
+
+export function SourceDates({ dates }) {
+  if (!Array.isArray(dates) || !dates.length) return null;
+  return <span className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+    {dates.filter(date => date?.label && date?.value).map((date, index) =>
+      <span key={index}>{date.label}: {date.value}</span>)}
+  </span>;
+}
+
+export function EscalationNotice({ escalation }) {
+  if (!escalation || typeof escalation !== "object") return null;
+  const { name, url, email, instructions, message } = escalation;
+  const safeUrl = typeof url === "string" && /^https:\/\//i.test(url) ? url : null;
+  const safeEmail = typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+  if (!name && !safeUrl && !safeEmail && !instructions && !message) return null;
+  return <div className="mt-2 rounded-md border border-current/20 p-3 text-sm" data-testid="member-ai-escalation">
+    <p className="font-semibold">Specialist contact</p>
+    {(instructions || message) && <p className="mt-1 whitespace-pre-wrap">{instructions || message}</p>}
+    {name && <p className="mt-1">{name}</p>}
+    {safeUrl && <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="underline break-all">Contact link</a>}
+    {safeEmail && <a href={`mailto:${safeEmail}`} className="ml-2 underline break-all">{safeEmail}</a>}
+  </div>;
 }
 
 export default function MemberAiAssistant({ open, onOpenChange, config, identityKey }) {
@@ -244,6 +267,7 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
         role: m.role,
         content: m.content,
         sources: Array.isArray(m.sources) ? m.sources : undefined,
+        escalation: m.escalation,
       }))
     );
   }, [detailQuery.data, activeConversationId]);
@@ -319,6 +343,7 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
           role: "assistant",
           content: data.answer,
           sources: Array.isArray(data.sources) ? data.sources : [],
+          escalation: data.escalation,
         },
       ]);
       // Persist the turn alongside the (stateless) ask flow. Saves must
@@ -704,6 +729,7 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
                           sources={turn.sources}
                           onSourceClick={() => onOpenChange(false)}
                         />
+                        <EscalationNotice escalation={turn.escalation} />
                       </div>
                       {Array.isArray(turn.sources) && turn.sources.some((source) => !source?._memberAiAnswerKind) && (
                         <div className="mt-2 flex flex-col gap-1.5">
@@ -720,7 +746,10 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
                                      [{source.citationId}]
                                    </span>
                                  )}
-                                <span className="truncate">{source.title}</span>
+                                 <span className="min-w-0 flex-1">
+                                   <span className="block truncate">{source.title}</span>
+                                   <SourceDates dates={source.dates} />
+                                 </span>
                                 {source.typeLabel && (
                                   <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                                     {source.typeLabel}

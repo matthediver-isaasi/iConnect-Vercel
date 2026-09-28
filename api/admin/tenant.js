@@ -106,10 +106,19 @@ export default async function handler(req, res) {
         const currentSettings = currentTenant.settings;
         const incomingSettings = updates.settings;
         const currentAssistant = currentSettings.member_ai_assistant;
+        const previousAssistant = currentAssistant && typeof currentAssistant === 'object' && !Array.isArray(currentAssistant)
+          ? currentAssistant : {};
+        const previousPolicy = previousAssistant.responsePolicy && typeof previousAssistant.responsePolicy === 'object' &&
+          !Array.isArray(previousAssistant.responsePolicy) ? previousAssistant.responsePolicy : {};
         const mergedAssistant = assistantUpdates === undefined
           ? currentAssistant
-          : { ...(currentAssistant && typeof currentAssistant === 'object' && !Array.isArray(currentAssistant)
-            ? currentAssistant : {}), ...assistantUpdates };
+          : {
+              ...previousAssistant,
+              ...assistantUpdates,
+              ...(assistantUpdates.responsePolicy !== undefined && {
+                responsePolicy: { ...previousPolicy, ...assistantUpdates.responsePolicy },
+              }),
+            };
         
         if (incomingSettings.email_from_name || incomingSettings.email_from_address) {
           const currentEmailDomain = currentSettings.email_domain || {};

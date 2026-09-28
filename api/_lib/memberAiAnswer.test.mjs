@@ -19,6 +19,7 @@ const source = {
   sourceId: 'r1',
   sourceGeneration: '4',
   accessScope: 'authenticated',
+  dates: [],
   supportingProvenance: [{
     kind: 'resource_pdf',
     fileId: 'f1',
@@ -60,6 +61,76 @@ test('a deduped citation retains every derived-chunk dependency fence', () => {
       dependencies: [{ contentType: 'file_repository', sourceId: 'f1', generation: '8' }],
     },
   ]);
+});
+
+test('citation cards expose only meaningful authorized source dates, never indexing timestamps', () => {
+  const chunks = [
+    { content_type: 'news_post', source_id: 'n1', source_generation: 1,
+      published_date: '2026-02-24', updated_at: '2026-03-05T10:00:00Z',
+      indexed_at: '2026-03-06T10:00:00Z', provenance: {} },
+    { content_type: 'event', source_id: 'e1', source_generation: 1,
+      start_date: '2026-04-30T09:30:00+01:00', provenance: {} },
+    { content_type: 'complex_event', source_id: 'e2', source_generation: 1,
+      start_date: '2026-05-10', provenance: {} },
+    { content_type: 'blog_post', source_id: 'b1', source_generation: 1,
+      published_date: '2026-03-04T12:00:00Z', provenance: {} },
+    { content_type: 'resource', source_id: 'r1', source_generation: 1,
+      updated_at: '2026-03-05', indexed_at: '2026-03-06', provenance: {} },
+    { content_type: 'canvas_page', source_id: 'c1', source_generation: 1,
+      source_updated_at: '2026-03-07T10:00:00Z', provenance: {} },
+  ];
+  const { sources } = makeCitationSources(chunks);
+  assert.deepEqual(sources.map(({ dates }) => dates), [
+    [{ label: 'Published', value: '2026-02-24' }],
+    [{ label: 'Event date', value: '2026-04-30T09:30:00+01:00' }],
+    [{ label: 'Event date', value: '2026-05-10' }],
+    [{ label: 'Published', value: '2026-03-04T12:00:00Z' }],
+    [],
+    [],
+  ]);
+});
+
+test('invalid, unknown and index-only dates are omitted from source cards', () => {
+  const { sources } = makeCitationSources([
+    { content_type: 'news_post', source_id: 'n1', source_generation: 1,
+      published_date: '2026-02-30', indexed_at: '2026-02-28T12:00:00Z', provenance: {} },
+    { content_type: 'event', source_id: 'e1', source_generation: 1,
+      start_date: 'not-a-date', updated_at: '2026-01-01', provenance: {} },
+    { content_type: 'blog_post', source_id: 'b1', source_generation: 1,
+      published_date: null, provenance: {} },
+  ]);
+  assert.deepEqual(sources.map(({ dates }) => dates), [[], [], []]);
+});
+
+test('signed provenance and history retain validated dates, rejecting fabricated date labels or values', () => {
+  const datedSource = {
+    ...source,
+    dates: [
+      { label: 'Published', value: '2024-02-29' },
+      { label: 'Updated', value: '2026-03-04T15:00:00Z' },
+      { label: 'Indexed', value: '2026-03-05' },
+      { label: 'Event date', value: '2026-13-01' },
+      { label: 'Published', value: '2026-03-05' },
+    ],
+  };
+  const expectedDates = [
+    { label: 'Published', value: '2024-02-29' },
+    { label: 'Updated', value: '2026-03-04T15:00:00Z' },
+  ];
+  const answer = 'Read it [S1].';
+  const token = makeAnswerProvenance({
+    tenantId: 'tenant-1', memberId: 'member-1', answer,
+    sources: [datedSource], now: Date.now(),
+  });
+  const verified = verifyAnswerProvenance(token, {
+    tenantId: 'tenant-1', memberId: 'member-1', answer,
+  });
+  assert.deepEqual(verified.sources[0].dates, expectedDates);
+  const saved = preparePersistedMessages([
+    { role: 'assistant', content: answer, answerProvenance: token,
+      sources: [{ ...datedSource, dates: [{ label: 'Published', value: '2099-01-01' }] }] },
+  ], { tenantId: 'tenant-1', memberId: 'member-1' });
+  assert.deepEqual(saved[0].sources[0].dates, expectedDates);
 });
 
 test('answer citations reject model-invented ids and only return cited cards', () => {
