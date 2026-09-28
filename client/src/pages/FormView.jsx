@@ -133,6 +133,16 @@ function resolveRedirectTarget(form, formValues) {
 // supplies an event id.
 export default function FormViewPage({ slug: slugProp = null, assignmentToken = null }) {
   const location = useLocation();
+  const [certificateGrant] = useState(() => {
+    if (!assignmentToken) return null;
+    try {
+      const key = `certificate-survey:${window.location.pathname}`;
+      const token = window.sessionStorage.getItem(key);
+      // Tab-local storage survives refresh and transient network failures.
+      // Never consume the capability before the server has confirmed completion.
+      return /^[A-Za-z0-9_-]{43}$/.test(token || '') ? token : null;
+    } catch { return null; }
+  });
   const {
     memberInfo,
     organizationInfo,
@@ -278,7 +288,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   const { data: loadedForm, isLoading, error: formError } = useQuery({
     queryKey: assignmentToken
-      ? ['public-survey-assignment', assignmentToken, !!memberInfo]
+      ? ['public-survey-assignment', assignmentToken, !!memberInfo, certificateGrant ? 'invitation' : 'ordinary']
       : ['public-form-by-slug', formSlug, !!memberInfo],
     queryFn: async () => {
       // Task #3331: assignment links resolve everything server-side from the
@@ -286,8 +296,39 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // no form config — carry the metadata through so the guards below can
       // render the right message instead of "not found".
       if (assignmentToken) {
-        const payload = await publicClient.getSurveyAssignment(assignmentToken);
+        let completedLocally = false;
+        let expiredLocally = false;
+        try {
+          completedLocally = window.sessionStorage.getItem(`certificate-survey-completed:${window.location.pathname}`) === '1';
+          expiredLocally = window.sessionStorage.getItem(`certificate-survey-expired:${window.location.pathname}`) === '1';
+        } catch { /* Session storage can be unavailable in restricted browsers. */ }
+        if (!certificateGrant && (completedLocally || expiredLocally)) {
+          return { __assignmentBlocked: true, fields: [],
+            __assignment: { invitation_completed: completedLocally,
+              closed_message: completedLocally
+                ? 'Your response to this survey has already been received.'
+                : 'This survey invitation has expired or is no longer available.' } };
+        }
+        let payload;
+        try {
+          payload = await publicClient.getSurveyAssignment(assignmentToken, certificateGrant);
+        } catch (error) {
+          if (!certificateGrant || error.status !== 403
+            || !/Survey invitation unavailable/.test(error.message || '')) throw error;
+          try {
+            window.sessionStorage.removeItem(`certificate-survey:${window.location.pathname}`);
+            window.sessionStorage.setItem(`certificate-survey-expired:${window.location.pathname}`, '1');
+          } catch { /* Do not turn a server denial into a storage error. */ }
+          return { __assignmentBlocked: true, fields: [],
+            __assignment: { closed_message: 'This survey invitation has expired or is no longer available.' } };
+        }
         if (!payload) return null;
+        if (certificateGrant && payload.invitation_completed) {
+          try {
+            window.sessionStorage.removeItem(`certificate-survey:${window.location.pathname}`);
+            window.sessionStorage.setItem(`certificate-survey-completed:${window.location.pathname}`, '1');
+          } catch { /* The server remains the completion authority. */ }
+        }
         if (payload.form) {
           return { ...payload.form, __assignment: payload };
         }
@@ -333,6 +374,18 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Assignment metadata (event context + window state) when opened via an
   // assignment link; null for slug-based access.
   const assignmentMeta = rawForm?.__assignment || null;
+  useEffect(() => {
+    if (!certificateGrant || !defaultsInitialized || !assignmentMeta?.invitation_prefill || !rawForm?.fields) return;
+    const attendee = assignmentMeta.invitation_prefill;
+    const values = {};
+    for (const field of rawForm.fields) {
+      const label = `${field.id || ''} ${field.label || ''}`.toLowerCase();
+      if (field.type === 'email' || field.type === 'user_email' || /\bemail\b/.test(label)) values[field.id] = attendee.email;
+      else if (field.type === 'user_name' || /\bfull name\b/.test(label)) values[field.id] =
+        [attendee.first_name, attendee.last_name].filter(Boolean).join(' ');
+    }
+    if (Object.keys(values).length) setFormValues(previous => ({ ...previous, ...values }));
+  }, [certificateGrant, defaultsInitialized, assignmentMeta?.invitation_prefill?.email, rawForm?.id]);
   const accessPayload = rawForm || (formError?.errorData?.access
     ? { __access: formError.errorData.access }
     : null);
@@ -1253,6 +1306,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         ...(assignmentToken
           && String(form?.id || '') === String(loadedForm?.id || '')
           && { assignment_token: assignmentToken }),
+        ...(certificateGrant
+          && String(form?.id || '') === String(loadedForm?.id || '')
+          && { certificate_survey_grant: certificateGrant }),
         idempotency_key: getIdempotencyKey(),
       });
       if (departmentCurrentSet.active && !currentSetCommitConfirmed(result)) {
@@ -1267,6 +1323,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // key so a legitimate NEW submission from this page load isn't
       // collapsed into this one, then show success/redirect.
       const finalize = () => {
+        if (certificateGrant && submissionId) {
+          try {
+            window.sessionStorage.removeItem(`certificate-survey:${window.location.pathname}`);
+            window.sessionStorage.setItem(`certificate-survey-completed:${window.location.pathname}`, '1');
+          } catch { /* Submission is already durable; keep the success UI. */ }
+        }
         queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
         rotateIdempotencyKey();
         setSubmitted(true);

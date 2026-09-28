@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
-import { getSessionMember } from '../../_lib/session.js';
+import { getSession, getSessionMember } from '../../_lib/session.js';
 import { assignmentWindowState, assignmentClosedMessage } from '../../_lib/surveyAssignment.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
+import { resolveCertificateSurveyGrantState } from '../../_lib/certificateSurveyGrants.js';
 
 /**
  * Task #3331: serve a survey via its event-assignment token.
@@ -26,7 +27,9 @@ const PUBLIC_FORM_FIELDS = [
   'form_type', 'survey_settings'
 ];
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -37,13 +40,13 @@ export default async function handler(req, res) {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if ((!supabaseUrl || !supabaseServiceKey) && !dependencies.supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await (dependencies.resolveTenant || resolveTenantFromRequest)(req);
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
@@ -58,6 +61,24 @@ export default async function handler(req, res) {
       .maybeSingle();
     if (assignErr || !assignment) {
       return res.status(404).json({ error: 'Survey not found' });
+    }
+    const grantToken = req.headers?.['x-certificate-survey-grant'];
+    const invitationState = grantToken
+      ? await resolveCertificateSurveyGrantState(supabase, tenant.id, assignment, grantToken)
+      : null;
+    if (grantToken && !invitationState) return res.status(403).json({ error: 'Survey invitation unavailable' });
+    const sessionMember = await (dependencies.getSessionMember || getSessionMember)(req).catch(() => null);
+    const existingSession = invitationState ? await (dependencies.getSession || getSession)(req) : null;
+    if (invitationState && ((existingSession && !sessionMember)
+      || sessionMember && ((sessionMember.tenant_id || sessionMember.organization?.tenant_id) !== tenant.id
+      || sessionMember.email?.trim().toLowerCase() !== invitationState.grant.recipient_email))) {
+      return res.status(403).json({ error: 'This invitation belongs to another attendee' });
+    }
+    if (invitationState?.status === 'completed') {
+      return res.status(200).json({
+        invitation_completed: true,
+        closed_message: 'Your response to this survey has already been received.',
+      });
     }
 
     // Resolve and authorize the form before returning even closed-window event
@@ -76,9 +97,11 @@ export default async function handler(req, res) {
     if (!isFormScheduleAvailable(form)) {
       return res.status(404).json({ error: 'Survey not found' });
     }
-    const access = await resolveFormAccess({
-      supabase, req, tenantId: tenant.id, policy: form.access_policy,
-    });
+    const invited = invitationState?.status === 'active' ? invitationState : null;
+    const access = invited ? { allowed: true, restricted: false, code: 'CERTIFICATE_INVITATION' }
+      : await resolveFormAccess({
+        supabase, req, tenantId: tenant.id, policy: form.access_policy,
+      });
     if (!access.allowed) return sendFormAccessDenied(res, access);
 
     const windowState = assignmentWindowState(assignment);
@@ -133,13 +156,12 @@ export default async function handler(req, res) {
     // session before the form config is released.
     let hasTenantSession = false;
     try {
-      const sessionMember = await getSessionMember(req);
       const memberTenantId = sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
       hasTenantSession = !!sessionMember && memberTenantId === tenant.id;
     } catch {
       hasTenantSession = false;
     }
-    if (assignment.access_mode === 'authenticated' && !hasTenantSession) {
+    if (assignment.access_mode === 'authenticated' && !hasTenantSession && !invited) {
       return res.status(200).json({
         ...baseResponse,
         require_authentication: true,
@@ -196,9 +218,14 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ...baseResponse,
       form: publicForm,
+      ...(invited && { invitation_prefill: {
+        email: invited.grant.recipient_email,
+        first_name: invited.booking.attendee_first_name || '',
+        last_name: invited.booking.attendee_last_name || '',
+      } }),
     });
   } catch (err) {
-    console.error('[Survey Assignment API] Error:', err);
+    console.error('[Survey Assignment API] Failed to load survey');
     return res.status(500).json({ error: 'Failed to load survey' });
   }
 }

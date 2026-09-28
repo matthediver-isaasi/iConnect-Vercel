@@ -59,6 +59,37 @@ test("metadata is fetched only when opened, with the selected booking source; un
   await cleanup();
 });
 
+test("email preview shows selected subject, safe HTML and matching PDF attachment without sending", async () => {
+  const requests = [];
+  globalThis.fetch = (_url, options) => {
+    if (!options?.method) return Promise.resolve(json({
+      ...details, email_is_default: false, email_template_name: "Autumn Meeting 2026 CPD",
+    }));
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    if (body.action !== "email-preview") throw new Error("Preview cannot send");
+    return Promise.resolve(json({
+      subject: "Your certificate", html: "<p>Survey list preview</p>",
+      text: "Survey list preview", survey_links_inactive: true,
+      attachment: { filename: "cpd-certificate.pdf", bytes: 432, content_type: "application/pdf" },
+    }));
+  };
+  const cleanup = await mount();
+  try {
+    await tick();
+    await click('[data-testid="button-preview-cpd-email"]');
+    await tick();
+    assert.deepEqual(requests.map(request => request.action), ["email-preview"]);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Your certificate/);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /cpd-certificate.pdf/);
+    assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Plain-text version/);
+    assert.equal(document.querySelector('[data-testid="cpd-email-preview"] iframe').getAttribute("sandbox"), "");
+    assert.match(document.body.textContent, /Autumn Meeting 2026 CPD/);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("personalized PDF renders every page to canvases without blob navigation or an iframe", async () => {
   const requests = [];
   const oldCreate = URL.createObjectURL;

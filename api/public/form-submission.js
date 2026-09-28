@@ -3,7 +3,7 @@ import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplica
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
-import { getSessionMember } from '../_lib/session.js';
+import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import {
   markSubmissionEmailPostProcessingComplete,
@@ -14,6 +14,7 @@ import {
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
+import { resolveCertificateSurveyGrant, certificateSurveyTokenHash } from '../_lib/certificateSurveyGrants.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
@@ -68,6 +69,26 @@ function idempotencyAnswerValues(values) {
   return normalized;
 }
 
+export function certificateInvitationSideEffectRejection(form, request, hasCurrentSetProcessing, organizationId) {
+  const configuredPipelines = Object.values(form.entity_pipelines || {})
+    .some(value => Array.isArray(value) ? value.length > 0 : Boolean(value));
+  return configuredPipelines || hasPersistedFormEntityActions(form)
+    || hasCurrentSetProcessing || form.due_diligence_required
+    || request.contract_instance_id || request.brief_id || request.vacancy_id
+    || request.prefill_organization_id || organizationId
+    || request.applicant_continuation_token || request.resume_token
+    || request.submitterCopyRequested || form.allow_submitter_email_copy && request.submitterCopyEmail;
+}
+
+export function certificateInvitationSideEffectValues({
+  invitation, anonymous, surveyVersion, authoritativeData, requestedData,
+}) {
+  if (!invitation) return requestedData || {};
+  return anonymous
+    ? redactIdentityAnswers(surveyVersion.fields || [], authoritativeData).data
+    : authoritativeData;
+}
+
 function sameIdempotencyAnswers(existingValues, requestedValues, {
   anonymousSurvey = false,
   surveyFields = [],
@@ -111,6 +132,8 @@ export function hasCurrentSetCommit(result) {
 }
 
 export default async function handler(req, res, dependencies = {}) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
   
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -125,7 +148,7 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id: requestedPrefillOrganizationId, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id: requestedPrefillOrganizationId, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token, certificate_survey_grant } = req.body;
   let prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId);
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
@@ -198,12 +221,14 @@ export default async function handler(req, res, dependencies = {}) {
     // swallowed so it can never block a public submission.
     let sessionMemberName = null;
     let sessionMemberEmail = null;
+    let anySessionMemberEmail = null;
     let sessionMemberId = null;
     let verifiedSessionMember = null;
     let hasTenantSession = false;
     let sessionHasAdminAccess = false;
     try {
         const sessionMember = await (dependencies.getSessionMember || getSessionMember)(req);
+      anySessionMemberEmail = sessionMember?.email?.trim().toLowerCase() || null;
       // Only honour a session that belongs to THIS tenant, so a member's
       // session for another tenant can't attach their identity here. A member's
       // tenant may be set directly or inherited from their organisation
@@ -273,8 +298,36 @@ export default async function handler(req, res, dependencies = {}) {
     // authenticated member with a valid session for this tenant is allowed.
     // Current-set forms are likewise session-only; their per-Department
     // responder check happens in the dedicated preflight/RPC below.
+    let certificateInvitation = null;
+    if (certificate_survey_grant) {
+      if (!assignment_token || form.form_type !== 'survey') {
+        return res.status(403).json({ error: 'Survey invitation unavailable' });
+      }
+      const { data: invitationAssignment, error: invitationError } = await supabase
+        .from('event_survey_assignment').select('*')
+        .eq('tenant_id', tenantData.id).eq('form_id', form.id)
+        .eq('token', String(assignment_token)).maybeSingle();
+      if (invitationError || !invitationAssignment) {
+        return res.status(403).json({ error: 'Survey invitation unavailable' });
+      }
+      certificateInvitation = await resolveCertificateSurveyGrant(
+        supabase, tenantData.id, invitationAssignment, certificate_survey_grant,
+      );
+      const existingSession = await (dependencies.getSession || getSession)(req);
+      if (!certificateInvitation || (existingSession && !anySessionMemberEmail)
+        || (anySessionMemberEmail
+        && anySessionMemberEmail !== certificateInvitation.grant.recipient_email)) {
+        return res.status(403).json({ error: 'Survey invitation unavailable for this attendee' });
+      }
+      // A booking invitation grants precisely one survey response, never
+      // applicant, entity, member, communication or due-diligence actions.
+      if (certificateInvitationSideEffectRejection(form, req.body,
+        hasCurrentSetProcessing, prefill_organization_id)) {
+        return res.status(403).json({ error: 'Certificate survey invitations cannot perform other form actions' });
+      }
+    }
     if (form.require_authentication) {
-      const isAuthedSurvey = form.form_type === 'survey' && hasTenantSession;
+      const isAuthedSurvey = form.form_type === 'survey' && (hasTenantSession || !!certificateInvitation);
       const isAuthedCurrentSet = hasCurrentSetProcessing && hasTenantSession;
       const isAuthedApplicant = requiresApplicantContinuation(form)
         && (sessionHasAdminAccess || !!verifiedSessionMember?.organization_id);
@@ -289,7 +342,7 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
-    const formAccess = await resolveFormAccess({
+    const formAccess = certificateInvitation ? { allowed: true } : await resolveFormAccess({
       supabase,
       req,
       tenantId: tenantData.id,
@@ -317,7 +370,7 @@ export default async function handler(req, res, dependencies = {}) {
       if (assignmentErr || !assignmentRow) {
         return res.status(404).json({ error: 'Survey assignment not found' });
       }
-      const rejection = assignmentSubmissionRejection(assignmentRow, { hasTenantSession });
+      const rejection = assignmentSubmissionRejection(assignmentRow, { hasTenantSession: hasTenantSession || !!certificateInvitation });
       if (rejection) {
         return res.status(rejection.status).json({ error: rejection.error, code: rejection.code });
       }
@@ -378,6 +431,9 @@ export default async function handler(req, res, dependencies = {}) {
           code: 'IDEMPOTENCY_KEY_REUSED',
         });
       }
+      if (certificateInvitation && existing) {
+        return res.status(409).json({ error: 'This survey submission key has already been used' });
+      }
       existingIdempotentSubmission = existing || null;
     }
 
@@ -390,6 +446,7 @@ export default async function handler(req, res, dependencies = {}) {
       ? form.survey_settings
       : {};
     let surveyVersion = null;
+    let authoritativeSurveyData = submission_data || {};
     let surveyScoring = null;
     let submissionVisibilityOptions = {};
     if (isSurvey) {
@@ -412,7 +469,30 @@ export default async function handler(req, res, dependencies = {}) {
         return res.status(403).json({ error: 'This survey is not accepting responses' });
       }
       surveyVersion = versionRow;
-      surveyScoring = scoreSubmission(surveyVersion, submission_data || {});
+      if (certificateInvitation) {
+        // The invitation's booking is the identity authority. Submitted
+        // identity fields cannot switch the attributed respondent.
+        const booking = certificateInvitation.booking;
+        authoritativeSurveyData = { ...authoritativeSurveyData };
+        for (const field of surveyVersion.fields || []) {
+          const label = `${field.id || ''} ${field.label || ''}`.toLowerCase();
+          if (field.type === 'email' || field.type === 'user_email' || /\bemail\b/.test(label)) {
+            authoritativeSurveyData[field.id] = certificateInvitation.grant.recipient_email;
+          } else if (field.type === 'user_name' || /\bfull name\b/.test(label)) {
+            authoritativeSurveyData[field.id] = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ');
+          }
+        }
+      }
+      // Normalised answer rows are persisted separately from submission_data.
+      // Redact BEFORE scoring so an anonymous response can never reintroduce
+      // identity through the RPC's p_answers payload or a score field name.
+      const scoringSettings = surveyVersion.survey_settings
+        && typeof surveyVersion.survey_settings === 'object'
+        ? surveyVersion.survey_settings : surveySettings;
+      const scoringData = (scoringSettings.response_identity || 'identified') === 'identified'
+        ? authoritativeSurveyData
+        : redactIdentityAnswers(surveyVersion.fields || [], authoritativeSurveyData).data;
+      surveyScoring = scoreSubmission(surveyVersion, scoringData);
       if (existingIdempotentSubmission) {
         if (!existingIdempotentSubmission.survey_version_id) {
           return res.status(409).json({
@@ -723,9 +803,9 @@ export default async function handler(req, res, dependencies = {}) {
     // compare against a single canonical column instead of re-scanning
     // arbitrary JSON blobs.
     const resolvedSubmitterEmail = extractSubmitterEmail();
-    const canonicalSubmitterEmail = resolvedSubmitterEmail
+    const canonicalSubmitterEmail = certificateInvitation?.grant.recipient_email || (resolvedSubmitterEmail
       ? resolvedSubmitterEmail.trim().toLowerCase()
-      : null;
+      : null);
 
     // --- Survey respondent identity & duplicate prevention (Task #3330) ---
     // identified          -> identity stored as usual
@@ -746,8 +826,8 @@ export default async function handler(req, res, dependencies = {}) {
     const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     let surveyRespondentKey = null;
     if (isSurvey && !existingIdempotentSubmission) {
-      const respondentIdentity = sessionMemberEmail || canonicalSubmitterEmail || null;
-      const wantsDedupe = surveyIdentityMode === 'anonymous_dedupe' ||
+      const respondentIdentity = certificateInvitation?.grant.recipient_email || sessionMemberEmail || canonicalSubmitterEmail || null;
+      const wantsDedupe = !!certificateInvitation || surveyIdentityMode === 'anonymous_dedupe' ||
         (snapshotSettings.one_submission_per_respondent === true && surveyIdentityMode !== 'anonymous');
       // Fail CLOSED: dedupe-enabled surveys REQUIRE a canonical respondent
       // identity (verified session email or submitted email). Without one
@@ -778,7 +858,10 @@ export default async function handler(req, res, dependencies = {}) {
         // SAME key, so the unique partial index on
         // (form_id, survey_respondent_key) rejects the concurrent loser.
         surveyRespondentKey = createHmac('sha256', process.env.SESSION_SECRET)
-          .update(respondentKeyInput(tenantData.id, form.id, surveyAssignment?.id || null, respondentIdentity))
+          .update(respondentKeyInput(tenantData.id, form.id, surveyAssignment?.id || null,
+            certificateInvitation
+              ? `certificate-booking:${certificateInvitation.grant.booking_source}:${certificateInvitation.grant.booking_id}:${respondentIdentity}`
+              : respondentIdentity))
           .digest('hex');
         const { data: priorResponse, error: priorErr } = await supabase
           .from('form_submission')
@@ -1204,7 +1287,11 @@ export default async function handler(req, res, dependencies = {}) {
     // view and cannot retain a hidden same-row source.
     const sideEffectSubmissionData = effectiveRepeatableRowSubmissionData(
       relationshipForm,
-      submission_data || {},
+      certificateInvitationSideEffectValues({
+        invitation: certificateInvitation, anonymous: surveyIsAnonymous,
+        surveyVersion, authoritativeData: authoritativeSurveyData,
+        requestedData: submission_data,
+      }),
       { hiddenFieldIds: hiddenRelationshipFieldIds },
     );
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
@@ -1212,7 +1299,7 @@ export default async function handler(req, res, dependencies = {}) {
       sideEffectSubmissionData,
       { hiddenFieldIds: hiddenRelationshipFieldIds },
     );
-    let initialCommunicationSnapshot = surveyIsAnonymous
+    let initialCommunicationSnapshot = surveyIsAnonymous || certificateInvitation
       ? null
       : createFormCommunicationSnapshot({
           form,
@@ -1243,7 +1330,10 @@ export default async function handler(req, res, dependencies = {}) {
       // Persist the authenticated member's real name (null for genuinely
       // anonymous/public submissions, which keep falling back to the email /
       // "Anonymous submission" label in admin views).
-      submitted_by_name: surveyIsAnonymous ? null : sessionMemberName,
+      submitted_by_name: surveyIsAnonymous ? null : (certificateInvitation
+        ? [certificateInvitation.booking.attendee_first_name, certificateInvitation.booking.attendee_last_name]
+          .filter(Boolean).join(' ') || null
+        : sessionMemberName),
       // Current-set reconciliation authorizes against the immutable,
       // server-resolved actor on this durable submission row. Never use a
       // member ID supplied in form values or metadata.
@@ -1257,8 +1347,8 @@ export default async function handler(req, res, dependencies = {}) {
       submission_data: snapshotFormNotListedLabels(
         isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
         surveyIsAnonymous
-          ? redactIdentityAnswers(surveyVersion.fields || [], submission_data || {}).data
-          : (submission_data || {}),
+          ? redactIdentityAnswers(surveyVersion.fields || [], authoritativeSurveyData).data
+          : authoritativeSurveyData,
       ),
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
@@ -1342,9 +1432,10 @@ export default async function handler(req, res, dependencies = {}) {
         survey_version_id: surveyVersion.id
       }));
       const { data: rpcRows, error: rpcError } = await supabase
-        .rpc('create_survey_submission', {
+        .rpc(certificateInvitation ? 'create_certificate_survey_submission' : 'create_survey_submission', {
           p_submission: finalSubmissionRecord,
-          p_answers: answersPayload
+          p_answers: answersPayload,
+          ...(certificateInvitation && { p_token_hash: certificateSurveyTokenHash(certificate_survey_grant) }),
         });
       submission = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
       insertError = rpcError;
@@ -1365,6 +1456,12 @@ export default async function handler(req, res, dependencies = {}) {
     // Race safety for survey respondent dedupe: the unique partial index on
     // (form_id, survey_respondent_key) rejects the concurrent loser — return
     // the same 409 the pre-insert check would have produced.
+    if (certificateInvitation && insertError?.code === 'P0001') {
+      return res.status(409).json({ error: 'This invitation is no longer available or has already been answered' });
+    }
+    if (certificateInvitation && insertError?.code === '23505') {
+      return res.status(409).json({ error: 'A response has already been recorded' });
+    }
     if (insertError && insertError.code === '23505'
         && surveyRespondentKey
         && /respondent/i.test(`${insertError.message || ''}${insertError.details || ''}`)) {
@@ -2115,7 +2212,7 @@ export default async function handler(req, res, dependencies = {}) {
       });
     }
 
-    const emailResult = await processSubmissionEmails({
+    const emailResult = certificateInvitation ? { durable: true } : await processSubmissionEmails({
       row: {
         ...submission,
         submission_data: submission.submission_data || finalSubmissionRecord.submission_data,

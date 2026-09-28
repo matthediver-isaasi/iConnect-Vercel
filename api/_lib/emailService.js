@@ -273,7 +273,7 @@ export function mailgunSuccessMetadata(
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
@@ -419,7 +419,13 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       messageData.bcc = Array.isArray(bcc) ? bcc : [bcc];
     }
 
-    if (enableTracking) {
+    if (disableTracking) {
+      // Bearer links must never pass through provider click analytics, even
+      // when the sending domain enables tracking by default.
+      messageData['o:tracking'] = 'no';
+      messageData['o:tracking-opens'] = 'no';
+      messageData['o:tracking-clicks'] = 'no';
+    } else if (enableTracking) {
       messageData['o:tracking'] = 'yes';
       messageData['o:tracking-opens'] = 'yes';
       messageData['o:tracking-clicks'] = 'htmlonly';

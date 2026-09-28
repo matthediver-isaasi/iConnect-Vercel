@@ -537,3 +537,156 @@ test('tenant sender constraints reject unsafe envelopes and recheck content chan
   assert.equal(calls, 0);
   assert.equal(result.body.latest_delivery.status, 'failed');
 });
+
+test('certificate email preview and send use survey list without leaking delivered bearer into audit', async () => {
+  const f = await fixture(); claims(f);
+  const template = selectEmail(f);
+  template.body = '<p>Hello {{attendee_name}}</p>{{event_survey_list}}';
+  f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+  f.db.rows.event_survey_assignment = [{
+    id: randomUUID(), form_id: randomUUID(), tenant_id: tenantId, event_id: eventId,
+    event_type: 'event', status: 'active', access_mode: 'authenticated',
+    token: 'shared-link', closes_at: '2099-01-01T00:00:00Z',
+  }];
+  f.db.rows.form = [{
+    id: f.db.rows.event_survey_assignment[0].form_id, tenant_id: tenantId,
+    form_type: 'survey', name: 'Feedback', description: 'Share your thoughts',
+    is_active: true, survey_settings: { status: 'published', current_version: 1 },
+  }];
+  const resolved = await resolveAttendeeCertificate(f.db, identity);
+  assert.match(resolved.email_message.html, /Feedback/);
+  assert.doesNotMatch(JSON.stringify(resolved.provenance), /certificate_grant/);
+  const input = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint };
+  const preview = await invoke(f, { ...input, action: 'email-preview' });
+  assert.equal(preview.statusCode, 200);
+  assert.match(preview.body.html, /Feedback/);
+  assert.doesNotMatch(preview.body.html, /certificate_grant/);
+  assert.equal(preview.body.attachment.filename, 'cpd-certificate.pdf');
+  assert.ok(preview.body.attachment.bytes > 100);
+  assert.match(preview.body.attachment.sha256, /^[a-f0-9]{64}$/);
+  assert.match(preview.body.text, /Feedback/);
+  assert.equal(f.db.rows.attendee_cpd_certificate_delivery.length, 0);
+  const token = 'z'.repeat(43);
+  let issued = 0;
+  const result = await invoke(f, {
+    ...input, action: 'send', confirmed: true, request_id: randomUUID(),
+  }, {
+    prepareSurveyLinks: async ({ preview: isPreview, bookingId: selectedBooking, deliveryId }) => {
+      assert.equal(isPreview, false); assert.equal(selectedBooking, bookingId);
+      assert.match(deliveryId, /^[0-9a-f-]{36}$/);
+      issued++;
+      const url = `https://tenant.example.test/survey/shared-link#certificate_grant=${token}`;
+      return { html: `<a href="${url}">Complete survey</a>`, text: `Complete survey: ${url}`,
+        grantIds: ['credential-1'], snapshot: resolved.survey_list.snapshot };
+    },
+    setSurveyGrantDelivery: async () => { throw new Error('Acceptance requires no second write'); },
+    send: async message => {
+      assert.equal(message.enableTracking, false);
+      assert.match(message.html, new RegExp(token));
+      assert.match(message.text, new RegExp(token));
+      return { success: true, renderedHtml: message.html, renderedText: message.text };
+    },
+  });
+  assert.equal(result.body.success, true);
+  assert.equal(issued, 1);
+  assert.doesNotMatch(JSON.stringify(f.db.rows.attendee_cpd_certificate_delivery), new RegExp(token));
+  assert.doesNotMatch(JSON.stringify(f.db.rows.attendee_cpd_certificate_delivery[0].provenance), /certificate_grant/);
+});
+
+test('empty attached-survey list is neutral and ordinary placeholder values remain escaped', async () => {
+  const f = await fixture(); const template = selectEmail(f);
+  template.body = '<p>{{attendee_name}}</p>{{event_survey_list}}';
+  f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+  f.booking.attendee_first_name = '<script>';
+  const resolved = await resolveAttendeeCertificate(f.db, identity);
+  assert.match(resolved.email_message.html, /&lt;script&gt;/);
+  assert.doesNotMatch(resolved.email_message.html, /<script>/);
+  assert.match(resolved.email_message.html, /No surveys are currently available/);
+  assert.match(resolved.email_message.text, /No surveys are currently available/);
+  assert.deepEqual(resolved.survey_list.grantIds, []);
+});
+
+test('survey assignment identity, publication version, completion and eligibility invalidate certificate consent', async () => {
+  const f = await fixture(); const template = selectEmail(f);
+  template.body = '{{event_survey_list}}';
+  f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+  const assignment = { id: randomUUID(), tenant_id: tenantId, event_id: eventId,
+    event_type: 'event', status: 'active', token: 'shared-token',
+    form_id: randomUUID(), closes_at: '2099-01-01T00:00:00Z' };
+  f.db.rows.event_survey_assignment = [assignment];
+  f.db.rows.form = [{ id: assignment.form_id, tenant_id: tenantId, name: 'Feedback',
+    form_type: 'survey', is_active: true, survey_settings: { status: 'published', current_version: 1 } }];
+  const original = await resolveAttendeeCertificate(f.db, identity);
+  const initialFingerprint = original.fingerprint;
+  f.db.rows.form[0].survey_settings.current_version = 2;
+  const version = await resolveAttendeeCertificate(f.db, identity);
+  assert.notEqual(version.fingerprint, initialFingerprint);
+  f.db.rows.form[0].survey_settings.current_version = 1;
+  assignment.id = randomUUID();
+  assert.notEqual((await resolveAttendeeCertificate(f.db, identity)).fingerprint, initialFingerprint);
+  assignment.id = original.survey_list.snapshot[0].assignment_id;
+  f.db.rows.certificate_survey_entitlement = [{
+    tenant_id: tenantId, booking_source: 'standard', booking_id: bookingId,
+    assignment_id: assignment.id, completed_at: new Date().toISOString(),
+  }];
+  const completed = await resolveAttendeeCertificate(f.db, identity);
+  assert.notEqual(completed.fingerprint, initialFingerprint);
+  assert.match(completed.email_message.text, /Response received/);
+  f.db.rows.event_survey_assignment = [];
+  assert.notEqual((await resolveAttendeeCertificate(f.db, identity)).fingerprint, initialFingerprint);
+});
+
+test('failed send revokes invitation; ambiguous provider outcome leaves it inactive and fences retry', async () => {
+  for (const provider of [
+    { success: false, status: 400, error: 'Rejected' },
+    { success: false, status: 503, error: 'Uncertain' },
+  ]) {
+    const f = await fixture(); claims(f);
+    const template = selectEmail(f);
+    template.body = '{{event_survey_list}}';
+    f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+    let finalized = null; let minted = 0;
+    const options = {
+      prepareSurveyLinks: async () => {
+        minted++;
+        return { html: '<p>Survey</p>', text: 'Survey', grantIds: ['credential-1'],
+          snapshot: (await resolveAttendeeCertificate(f.db, identity)).survey_list.snapshot };
+      },
+      setSurveyGrantDelivery: async ({ status }) => { finalized = status; },
+      send: async () => provider,
+    };
+    const result = await invoke(f, await sendInput(f), options);
+    assert.equal(minted, 1);
+    assert.equal(result.body.latest_delivery.status, provider.status === 400 ? 'failed' : 'unknown');
+    assert.equal(finalized, provider.status === 400 ? 'failed' : null);
+    if (provider.status === 503) {
+      await invoke(f, { ...(await sendInput(f)), deliberate_resend: true }, options);
+      assert.equal(minted, 1);
+    }
+  }
+});
+
+test('assignment change at issuance aborts before provider and revokes newly issued credential', async () => {
+  const f = await fixture(); claims(f);
+  const template = selectEmail(f); template.body = '{{event_survey_list}}';
+  f.db.rows.tenant = [{ id: tenantId, slug: 'tenant', domain: 'tenant.example.test' }];
+  f.db.rows.event_survey_assignment = [{ id: randomUUID(), form_id: randomUUID(),
+    tenant_id: tenantId, event_id: eventId, event_type: 'event', token: 'shared',
+    status: 'active', closes_at: '2099-01-01T00:00:00Z' }];
+  f.db.rows.form = [{ id: f.db.rows.event_survey_assignment[0].form_id, tenant_id: tenantId,
+    name: 'Feedback', form_type: 'survey', is_active: true,
+    survey_settings: { status: 'published', current_version: 1 } }];
+  let sendCalls = 0; let revoked = 0;
+  const result = await invoke(f, await sendInput(f), {
+    prepareSurveyLinks: async () => ({
+      snapshot: [], html: '<p>Changed</p>', text: 'Changed', grantIds: ['credential-1'],
+    }),
+    setSurveyGrantDelivery: async ({ status }) => {
+      assert.equal(status, 'failed'); revoked++;
+    },
+    send: async () => { sendCalls++; return { success: true }; },
+  });
+  assert.equal(sendCalls, 0);
+  assert.equal(revoked, 1);
+  assert.equal(result.body.latest_delivery.status, 'failed');
+});

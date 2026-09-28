@@ -88,3 +88,26 @@ test('sendEmail omits rendered message content unless a trusted caller opts in',
   });
   assert.equal(JSON.stringify(result).includes('CONFIDENTIAL'), false);
 });
+
+test('certificate-style bearer messages explicitly disable Mailgun domain click tracking', async () => {
+  let message;
+  const result = await sendEmail({
+    to: 'attendee@example.test', subject: 'Certificate',
+    html: '<a href="https://tenant.iconn.app/survey/shared#certificate_grant=opaque">Survey</a>',
+    text: 'Survey', tenantId: 'tenant-a', disableTracking: true,
+  }, {
+    client: { messages: { create: async (_domain, payload) => {
+      message = payload;
+      return { id: '<accepted@mailgun.test>' };
+    } } },
+    defaultDomain: 'mail.iconn.test',
+    defaultFrom: 'ICONN <noreply@mail.iconn.test>',
+    getTenantEmailConfig: async () => null,
+    getEmailFooter: async () => null,
+    resolveTransactionalPreferenceTokens: async payload => payload,
+  });
+  assert.equal(result.success, true);
+  assert.equal(message['o:tracking'], 'no');
+  assert.equal(message['o:tracking-clicks'], 'no');
+  assert.equal(message['o:tracking-opens'], 'no');
+});

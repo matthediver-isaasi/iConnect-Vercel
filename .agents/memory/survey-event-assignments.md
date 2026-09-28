@@ -42,3 +42,26 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
   lockdown in the same migration** — CREATE OR REPLACE keeps grants on an
   existing deployment but defaults to PUBLIC-executable on a fresh one.
   Code review rejects the omission.
+
+- **Certificate survey links are not assignment tokens.** A CPD certificate
+  send creates/reuses one service-only entitlement per tenant, booking source,
+  booking and assignment, plus a new hashed-only credential per actual send.
+  Each credential is bound to a pending certificate delivery claim; the
+  accepted delivery ledger row itself authorizes redemption, with no second
+  activation write that could fail after provider acceptance. Pending,
+  unknown and failed deliveries stay inactive; failed credentials may also
+  be revoked. Preview never mints either.
+  An answered entitlement cannot be reopened on resend. The URL credential
+  lives in a fragment, is stripped synchronously in the HTML head before app
+  analytics, and is passed to the assignment GET in a header and to survey
+  submission in the body, never a route path or query. Keep the plain
+  assignment/slug member-only policy unchanged; only the invitation-bearing
+  assignment route can bypass it. The service-only SQL RPC locks entitlement
+  and booking, rechecks confirmed attendee/email/event, current publication
+  and response window, inserts response and completion in one transaction.
+  The entitlement keeps a service-only response_id FK so staff can reconcile
+  completion, but report routes never expose or join it: anonymous survey
+  results remain redacted in their reporting rows. See
+  `supabase/migrations/20261121_certificate_survey_grants.sql` and the
+  dry-run-by-default pinned DEST runner
+  `scripts/apply-certificate-survey-grants.mjs`.

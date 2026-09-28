@@ -12,4 +12,5 @@ export const EVENT_CPD_EMAIL_PLACEHOLDERS = [
   ['activity_start_date', 'Activity start date', 'Effective certificate start date (YYYY-MM-DD).'],
   ['activity_end_date', 'Activity end date', 'Effective certificate end date, blank when not supplied.'],
   ['cpd_points', 'Awarded CPD points', 'Authoritative booking ledger total including reversals; blank if no ledger entries exist. Never the configured award amount.'],
+  ['event_survey_list', 'Event surveys', 'All currently eligible attached surveys. Sent emails include individual attendee booking links; previews show no access links.'],
 ].map(([key, label, description]) => ({ token: `{{${key}}}`, label, description }));

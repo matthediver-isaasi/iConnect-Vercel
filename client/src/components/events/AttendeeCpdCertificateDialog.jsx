@@ -112,6 +112,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [pdfBytes, setPdfBytes] = useState(null);
+  const [emailPreview, setEmailPreview] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const [sent, setSent] = useState(false);
   const requestId = useRef(null);
@@ -131,6 +132,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setConfirmed(false);
     setSent(false);
     setPdfBytes(null);
+    setEmailPreview(null);
     requestId.current = null;
     fetch(`${ENDPOINT}?${new URLSearchParams({ booking_id: bookingId, booking_source: source })}`, {
       credentials: "include", signal: controller.signal,
@@ -156,6 +158,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setBusy(kind);
     setError("");
     if (kind === "preview") setPdfBytes(null);
+    if (kind === "email-preview") setEmailPreview(null);
     if (kind === "send" && !requestId.current) {
       if (!globalThis.crypto?.randomUUID) {
         setError("Secure request IDs are unavailable in this browser. Please use a supported browser.");
@@ -188,6 +191,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
           setMetadata(data);
           setConfirmed(false);
           setPdfBytes(null);
+          setEmailPreview(null);
           requestId.current = null;
         }
         if (data.latest_delivery) {
@@ -206,6 +210,8 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
           throw new Error("The preview did not return a PDF.");
         }
         setPdfBytes(new Uint8Array(await blob.arrayBuffer()));
+      } else if (kind === "email-preview") {
+        setEmailPreview(await response.json());
       } else {
         const data = await response.json();
         if (data.success !== true) throw new Error(data.error || "The email provider has not confirmed acceptance. Check the delivery record before trying again.");
@@ -266,6 +272,9 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                 ? "Default certificate email"
                 : metadata.email_template_name || "Selected template unavailable"}</strong>
             </p>
+            {metadata.email_selection_missing && <p role="status" className="text-sm text-amber-700">
+              No event-wide certificate email selection is saved. This uses the default email; choose a template in the event Certificates settings and save it before sending.
+            </p>}
             {!available && <p role="status" className="text-sm text-amber-700">Preview unavailable: {describeReason(metadata.reason)}</p>}
             {available && (
               <>
@@ -281,6 +290,18 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                 <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("preview")} data-testid="button-preview-cpd-certificate">
                   {busy === "preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview CPD certificate
                 </Button>
+                {canSend && <Button type="button" variant="outline" disabled={!!busy} onClick={() => action("email-preview")} data-testid="button-preview-cpd-email">
+                  {busy === "email-preview" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Preview certificate email
+                </Button>}
+                {emailPreview && <div className="space-y-2 rounded border p-3" data-testid="cpd-email-preview">
+                  <p className="text-sm"><strong>Subject:</strong> {emailPreview.subject}</p>
+                  <p className="text-sm"><strong>Attachment:</strong> {emailPreview.attachment?.filename} (PDF, {emailPreview.attachment?.bytes} bytes)</p>
+                  <p className="text-xs text-muted-foreground">Survey links are inactive in previews. Sent emails include individual attendee links.</p>
+                  <iframe title="Certificate email HTML preview" sandbox="" referrerPolicy="no-referrer"
+                    srcDoc={emailPreview.html} className="w-full min-h-48 rounded border" />
+                  {emailPreview.text && <details><summary className="text-sm">Plain-text version</summary>
+                    <pre className="whitespace-pre-wrap text-xs">{emailPreview.text}</pre></details>}
+                </div>}
                 {pdfBytes && <CertificatePdfCanvasPreview bytes={pdfBytes} pdfEngine={pdfEngine} />}
                  {pdfBytes && <Button type="button" variant="outline" disabled={!!busy} onClick={download} data-testid="button-download-cpd-certificate">Download CPD certificate</Button>}
                 {sent ? (

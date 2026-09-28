@@ -112,6 +112,7 @@ export async function resolveEventCpdCertificate(db, { tenantId, eventType, even
   return {
     ...policy,
     email_template_id: config.eventRule?.email_template_id ?? null,
+    email_selection_missing: !Object.hasOwn(config.eventRule || {}, 'email_template_id'),
     available,
     reason: policy.available && !available ? 'template_unavailable' : policy.reason,
     template: undefined,

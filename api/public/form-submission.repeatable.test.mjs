@@ -3,9 +3,116 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import handler, {
   buildSubmissionEmailRequestContext,
+  certificateInvitationSideEffectRejection,
+  certificateInvitationSideEffectValues,
   hasCurrentSetCommit,
 } from './form-submission.js';
 import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
+import { certificateSurveyTokenHash } from '../_lib/certificateSurveyGrants.js';
+
+test('booking invitations reject member/entity/communication pipelines and side-effect data trusts the server booking', () => {
+  const form = { entity_pipelines: { members: [{ id: 'member-action' }] } };
+  assert.ok(certificateInvitationSideEffectRejection(form, {}, false, null));
+  assert.ok(certificateInvitationSideEffectRejection({ entity_pipelines: {} },
+    { submitterCopyRequested: true, submitterCopyEmail: 'attacker@example.test' }, false, null));
+  assert.ok(certificateInvitationSideEffectRejection({ entity_pipelines: {} },
+    { brief_id: 'attacker-brief' }, false, null));
+  const version = { fields: [{ id: 'email', type: 'email' }, { id: 'feedback', type: 'text' }] };
+  const authoritative = { email: 'booking@example.test', feedback: 'Good session' };
+  const forged = { email: 'attacker@example.test', feedback: 'Injected' };
+  assert.deepEqual(certificateInvitationSideEffectValues({
+    invitation: { grant: {} }, anonymous: false, surveyVersion: version,
+    authoritativeData: authoritative, requestedData: forged,
+  }), authoritative);
+  const anonymous = certificateInvitationSideEffectValues({
+    invitation: { grant: {} }, anonymous: true, surveyVersion: version,
+    authoritativeData: authoritative, requestedData: forged,
+  });
+  assert.equal(anonymous.email, undefined);
+  assert.equal(anonymous.feedback, 'Good session');
+});
+
+test('guest invitation submission cannot run member pipelines and persists booking identity, never forged email', async () => {
+  const token = 'a'.repeat(43);
+  const form = {
+    ...affectedFormFixture(), form_type: 'survey', entity_action: 'none',
+    require_authentication: true, entity_pipelines: { members: [], organisations: [] },
+    survey_settings: { status: 'published', current_version: 1, response_identity: 'identified' },
+    fields: [{ id: 'email', type: 'email' },
+      { id: 'full_name', label: 'Full name', type: 'text' },
+      { id: 'phone', type: 'tel' }, { id: 'feedback', type: 'text' },
+      { id: 'rating', type: 'score', label: 'Session rating', score_style: 'stars',
+        score_min: 1, score_max: 5, required: true }],
+  };
+  const assignment = { id: 'assignment-1', form_id: form.id, tenant_id: form.tenant_id,
+    event_id: 'event-1', event_type: 'event', status: 'active', token: 'shared-token' };
+  const grant = { id: 'entitlement-1', assignment_id: assignment.id, tenant_id: form.tenant_id,
+    booking_source: 'standard', booking_id: 'booking-1', recipient_email: 'booking@example.test',
+    expires_at: '2099-01-01T00:00:00Z' };
+  const credential = { entitlement_id: grant.id, delivery_id: 'delivery-1',
+    token_hash: certificateSurveyTokenHash(token), expires_at: grant.expires_at };
+  const certificateSurvey = {
+    event_survey_assignment: assignment,
+    certificate_survey_entitlement: grant,
+    certificate_survey_credential: credential,
+    attendee_cpd_certificate_delivery: { id: 'delivery-1', tenant_id: form.tenant_id,
+      booking_source: 'standard', booking_id: grant.booking_id, status: 'accepted' },
+    booking: { id: grant.booking_id, tenant_id: form.tenant_id, event_id: assignment.event_id,
+      status: 'confirmed', attendee_email: grant.recipient_email,
+      attendee_first_name: 'Booked', attendee_last_name: 'Guest' },
+  };
+  const version = { id: 'version-1', form_id: form.id, tenant_id: form.tenant_id,
+    version_number: 1, fields: form.fields, pages: [], visibility_rules: [],
+    survey_settings: form.survey_settings };
+  const run = async () => {
+    const db = makePublicSubmissionBoundaryDb(form, { certificateSurvey, surveyVersion: version });
+    const { response, res } = makeResponseRecorder();
+    let pipelineCalls = 0; let mailCalls = 0;
+    await handler({
+      method: 'POST', headers: { host: 'student-join.test' },
+      body: { form_id: form.id, form_name: form.name, assignment_token: assignment.token,
+        certificate_survey_grant: token, submission_data: {
+          email: 'forged@example.test', full_name: 'Forged Person',
+          phone: '+441234567890', feedback: 'Good session', rating: { score: 4 },
+        } },
+    }, res, {
+      supabase: db.client, tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+      getSessionMember: async () => null, getSession: async () => null,
+      fetchImpl: async () => { pipelineCalls++; throw new Error('Pipeline must never run'); },
+      sendSubmissionEmailsGuarded: async () => { mailCalls++; throw new Error('Email must never send'); },
+    });
+    return { db, response, pipelineCalls, mailCalls };
+  };
+  form.entity_pipelines.members = [{ id: 'forbidden' }];
+  const blocked = await run();
+  assert.equal(blocked.response.statusCode, 403);
+  assert.equal(blocked.db.insertedSubmissions.length, 0);
+  form.entity_pipelines.members = [];
+  const accepted = await run();
+  assert.equal(accepted.response.statusCode, 201);
+  assert.equal(accepted.db.insertedSubmissions[0].submission_data.email, grant.recipient_email);
+  assert.equal(accepted.db.insertedSubmissions[0].submitted_by_email, grant.recipient_email);
+  assert.equal(accepted.pipelineCalls, 0);
+  assert.equal(accepted.mailCalls, 0);
+  form.survey_settings.response_identity = 'anonymous';
+  const anonymous = await run();
+  assert.equal(anonymous.response.statusCode, 201);
+  assert.equal(anonymous.db.insertedSubmissions[0].submitted_by_email, null);
+  assert.equal(anonymous.db.insertedSubmissions[0].submission_data.email, undefined);
+  assert.equal(anonymous.db.insertedSubmissions[0].submission_data.full_name, undefined);
+  assert.equal(anonymous.db.insertedSubmissions[0].submission_data.phone, undefined);
+  assert.equal(anonymous.db.insertedSubmissions[0].submission_data.feedback, 'Good session');
+  assert.deepEqual(anonymous.db.insertedSubmissions[0].submission_data.rating, { score: 4 });
+  const [rpc] = anonymous.db.certificateSubmissionRpcs;
+  assert.equal(rpc.p_submission.submission_data.feedback, 'Good session');
+  assert.equal(rpc.p_submission.submission_data.rating.score, 4);
+  assert.equal(rpc.p_answers.length, 1);
+  assert.equal(rpc.p_answers[0].field_id, 'rating');
+  assert.equal(rpc.p_answers[0].raw_score, 4);
+  assert.doesNotMatch(JSON.stringify(rpc), /booking@example\.test|forged@example\.test|Booked Guest|Forged Person|\+441234567890/);
+  assert.ok(rpc.p_answers.every(answer => answer.field_id === 'rating'));
+  assert.equal(anonymous.mailCalls, 0);
+});
 import {
   FORM_NOT_LISTED_LABELS_KEY,
   FORM_NOT_LISTED_TEXT_KEY,
@@ -121,9 +228,11 @@ function makePublicSubmissionBoundaryDb(
     concurrentWinner = null,
     failReadyOnce = false,
     failCheckpointOnce = false,
+    certificateSurvey = null,
   } = {},
 ) {
   const insertedSubmissions = [];
+  const certificateSubmissionRpcs = [];
   const deletedSubmissionIds = [];
   const queriedTables = [];
   let submissionRow = existingSubmission ? structuredClone(existingSubmission) : null;
@@ -188,6 +297,9 @@ function makePublicSubmissionBoundaryDb(
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (certificateSurvey?.[this.table]) {
+        return { data: structuredClone(certificateSurvey[this.table]), error: null };
+      }
       if (this.table === 'department_current_set_config') {
         return { data: currentSetConfig ? { config: structuredClone(currentSetConfig) } : null, error: null };
       }
@@ -264,12 +376,19 @@ function makePublicSubmissionBoundaryDb(
 
   return {
     insertedSubmissions,
+    certificateSubmissionRpcs,
     deletedSubmissionIds,
     queriedTables,
     getSubmissionRow() { return structuredClone(submissionRow); },
     client: {
       from(table) { return new Query(table); },
-      async rpc(name) {
+      async rpc(name, parameters) {
+        if (name === 'create_certificate_survey_submission' && certificateSurvey) {
+          certificateSubmissionRpcs.push(structuredClone(parameters));
+          insertedSubmissions.push(parameters.p_submission);
+          submissionRow = { id: 'certificate-survey-response', ...structuredClone(parameters.p_submission) };
+          return { data: [structuredClone(submissionRow)], error: null };
+        }
         if (name === 'department_current_set_load_authenticated') {
           return { data: structuredClone(currentSetLoad), error: null };
         }

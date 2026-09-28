@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { resolveEventCpdCertificate } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
+import { prepareCertificateSurveyLinks } from './certificateSurveyGrants.js';
 import { resolveMember, decideAttendanceEvidence } from './eventCpdBadgeService.js';
 import { resolveEffectiveCpdPointsRule } from './eventCpdPointsService.js';
 
@@ -203,26 +204,43 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   const real = realCertificatePlaceholders(fields, values);
   if (!attendeeName || real.missing.length) return { ...base, reason: !attendeeName
     ? 'The attendee name is missing.' : `Required certificate data is unavailable: ${real.missing.join(', ')}.` };
-  const email = await prepareCpdEmail(db, tenantId, emailSelection, {
+  const emailValues = {
     attendee_name: attendeeName, attendee_first_name: firstName, attendee_last_name: lastName,
     attendee_email: recipient, organisation_name: values['organisation.name'], event_name: event.title || '',
     activity_date: values['cpd.activity_date'], activity_date_range: values['cpd.activity_date_range'],
     activity_start_date: values['cpd.activity_start_date'], activity_end_date: values['cpd.activity_end_date'],
     cpd_points: values['cpd.cpd_points'],
-  });
+  };
+  const usesSurveyList = /\{\{\s*event_survey_list\s*\}\}|\[\[\s*event_survey_list\s*\]\]/i
+    .test(emailSelection.template?.body || '');
+  let surveyList = null;
+  if (usesSurveyList && validCertificateRecipient(recipient)) {
+    const { data: tenant, error: tenantError } = await db.from('tenant').select('id,slug,domain')
+      .eq('id', tenantId).maybeSingle();
+    if (tenantError || !tenant) throw tenantError || new Error('Certificate tenant unavailable');
+    surveyList = await prepareCertificateSurveyLinks({
+      db, tenant, eventType: eventType === 'simple' ? 'event' : 'complex_event',
+      eventId: booking.event_id, bookingSource, bookingId, recipient, preview: true,
+    });
+  }
+  const email = await prepareCpdEmail(db, tenantId, emailSelection, emailValues, surveyList);
   const provenance = { ...policy.provenance, booking_id: bookingId, booking_source: bookingSource,
     booking_status: booking.status, attendee_member_id: attendeeMemberId || null,
     template_version: template.version, template_source_sha256: template.source_sha256,
     points_ledger: pointsRows, guest_certificate_points_evidence: guestPointsEvidence,
     values, placeholders: real.placeholders,
     email: { selection_id: policy.email_template_id || null, ...email.provenance,
-      rendered_message: email.message || null, reason: email.reason || null } };
+      rendered_message: email.message || null, survey_snapshot: surveyList?.snapshot || null,
+      reason: email.reason || null } };
   const fingerprint = certificateFingerprint({ provenance, recipient, source_path: template.source_path });
   return { ...base, available: true, can_send: validCertificateRecipient(recipient) && !email.reason, fingerprint,
     certificate_points: guestPointsEvidence?.qualifies ? values['cpd.cpd_points'] : null,
     certificate_points_source: guestPointsEvidence ? 'guest_rule' : pointsRows.length ? 'member_ledger' : null,
     email_template_id: policy.email_template_id || null, email_template_name: emailSelection.template?.name || null,
     email_is_default: !policy.email_template_id, email_reason: email.reason || null, email_message: email.message,
+    email_selection_missing: policy.email_selection_missing,
+    email_values: emailValues, email_selection: emailSelection, survey_list: surveyList,
+    survey_list_enabled: usesSurveyList, event_id: booking.event_id,
     send_reason: email.reason || (validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.'),
     template_name: template.name, template, placeholders: real.placeholders, values, provenance };
 }
