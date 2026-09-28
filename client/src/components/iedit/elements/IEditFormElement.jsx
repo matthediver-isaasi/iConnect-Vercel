@@ -2157,6 +2157,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             <CardContent className="min-h-[300px] pt-8">
               {currentField && (
                 <FormRenderer
+                  membershipPaymentMemberId={prefillMemberId}
                   key={currentStep}
                   field={currentField}
                   value={formValues[currentField.id]}
@@ -2318,6 +2319,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               if (columnCount === 1 || !hasPages) {
                 return displayFields.map(field => (
                   <FormRenderer
+                    membershipPaymentMemberId={prefillMemberId}
                     key={field.id}
                     field={field}
                     value={formValues[field.id]}
@@ -2350,6 +2352,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     <div className="space-y-4 mb-4">
                       {unassignedFields.map(field => (
                         <FormRenderer
+                          membershipPaymentMemberId={prefillMemberId}
                           key={field.id}
                           field={field}
                           value={formValues[field.id]}
@@ -2382,6 +2385,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                         <div key={colIndex} className="space-y-4">
                           {columnFields.map(field => (
                             <FormRenderer
+                              membershipPaymentMemberId={prefillMemberId}
                               key={field.id}
                               field={field}
                               value={formValues[field.id]}

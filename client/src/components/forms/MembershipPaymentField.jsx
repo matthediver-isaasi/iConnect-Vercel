@@ -21,7 +21,7 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
-export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {} }) {
+export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {}, resolvedMemberId = null }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -54,8 +54,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const memberId = useMemo(() => {
     if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('member_id');
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    // An explicit (even empty/invalid) target must never fall back to self.
+    return params.has('member_id') ? params.get('member_id') : resolvedMemberId;
+  }, [resolvedMemberId]);
 
   const buildFieldOverrides = () => {
     const mappings = field.field_mappings;
@@ -91,6 +93,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const pendingRefetchRef = useRef(false);
   const fetchInProgressRef = useRef(false);
+  const feeRequestRef = useRef(0);
+  const latestFetchFeesRef = useRef(null);
 
   useEffect(() => {
     if (!memberId) {
@@ -98,6 +102,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       return;
     }
     fetchFees();
+    return () => { feeRequestRef.current += 1; };
   }, [memberId]);
 
   useEffect(() => {
@@ -134,6 +139,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   }, [allFormValues, field.field_mappings, memberId, paymentComplete, paymentMode]);
 
   const fetchFees = () => {
+    const requestId = ++feeRequestRef.current;
     setLoading(true);
     setError(null);
     fetchInProgressRef.current = true;
@@ -149,6 +155,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         return res.json();
       })
       .then((result) => {
+        if (requestId !== feeRequestRef.current) return;
         setData(result);
         if (result.existingRecord?.status === 'active') {
           setPaymentComplete(true);
@@ -161,16 +168,21 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           }
         }
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        if (requestId === feeRequestRef.current) setError(err.message);
+      })
       .finally(() => {
+        if (requestId !== feeRequestRef.current) return;
         fetchInProgressRef.current = false;
         setLoading(false);
         if (pendingRefetchRef.current) {
           pendingRefetchRef.current = false;
-          fetchFees();
+          latestFetchFeesRef.current();
         }
       });
   };
+
+  latestFetchFeesRef.current = fetchFees;
 
   useEffect(() => {
     if (redirectHandled.current || !memberId) return;

@@ -3,6 +3,48 @@ import { test, expect } from "@playwright/test";
 const FORM_SLUG = "embed-transition-fixture";
 const PAGE_SLUG = "embed-transition-canvas";
 
+test("membership payment follows delayed session prefill and explicit member precedence", async ({ page }, testInfo) => {
+  await installFixtures(page);
+  const quoted = [];
+  const member = { id: "session-member", first_name: "Session", tenant_id: "fixture-tenant" };
+  const form = {
+    ...formFixture(), prefill_source: "member", pages: [],
+    fields: [
+      { id: "first-name", type: "text", label: "First name", prefill_field: "member:first_name" },
+      { id: "renewal", type: "membership_payment", label: "Membership Payment" },
+    ],
+  };
+  await page.route("**/api/**", async route => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== "GET") return json(route, { error: "Writes blocked" }, 599);
+    if (url.pathname === "/api/auth/me") {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      return json(route, member);
+    }
+    if (url.pathname === `/api/public/form/${FORM_SLUG}`) return json(route, form);
+    if (url.pathname.startsWith("/api/entities/Member/")) {
+      return json(route, { ...member, id: url.pathname.split("/").at(-1), first_name: url.pathname.endsWith("explicit-member") ? "Explicit" : "Session" });
+    }
+    if (url.pathname === "/api/membership/payment-plan") return json(route, { currentPlan: null });
+    if (url.pathname === "/api/forms/membership-payment") {
+      quoted.push(url.searchParams.get("memberId"));
+      return json(route, { membershipYear: "2026", tierLabel: "Professional", finalCost: 125, totalWithVat: 125, currency: "GBP" });
+    }
+    return route.fallback();
+  });
+  await page.goto(`/embed/form/${FORM_SLUG}`);
+  await expect(page.getByTestId("text-total-amount")).toHaveText("£125.00");
+  await expect(page.getByRole("textbox")).toHaveValue("Session");
+  expect(quoted).toContain("session-member");
+  await page.screenshot({ path: testInfo.outputPath("membership-payment-session.png"), fullPage: true });
+  quoted.length = 0;
+  await page.goto(`/embed/form/${FORM_SLUG}?member_id=explicit-member`);
+  await expect(page.getByTestId("text-total-amount")).toHaveText("£125.00");
+  await expect(page.getByRole("textbox")).toHaveValue("Explicit");
+  expect(quoted).toContain("explicit-member");
+  expect(quoted).not.toContain("session-member");
+});
+
 const pageIds = {
   tallOne: "page-tall-one",
   shortOne: "page-short-one",

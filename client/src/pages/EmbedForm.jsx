@@ -1546,6 +1546,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
             ))}
             {currentField && (
               <FormRenderer
+                membershipPaymentMemberId={prefillMemberId}
                 key={currentStep}
                 field={currentField}
                 value={formValues[currentField.id]}
@@ -1747,6 +1748,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
           <div className="space-y-4">
             {currentPageFields.map(field => (
               <FormRenderer
+                membershipPaymentMemberId={prefillMemberId}
                 key={field.id}
                 field={field}
                 value={formValues[field.id]}

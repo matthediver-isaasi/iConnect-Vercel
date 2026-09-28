@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { authorizeMemberAccess } from '../membership/payment-plan.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
@@ -33,9 +34,20 @@ export default async function handler(req, res) {
       const tenantData = await resolveTenantFromRequest(req);
       resolvedTenantId = tenantData?.id || null;
     } catch (e) {
-      console.log('[FormMembershipPayment] Tenant resolution failed (will use member tenant_id):', e.message);
+      console.log('[FormMembershipPayment] Tenant resolution failed; payment access will be denied:', e.message);
     }
 
+    // A prefill reference is not payment authority. Apply the same self/admin
+    // boundary as the membership plan API before quoting OR creating payment.
+    const memberId = req.method === 'GET' ? req.query?.memberId : req.body?.memberId;
+    if (!resolvedTenantId) {
+      return res.status(403).json({ error: 'Tenant could not be verified' });
+    }
+    if (!memberId) return res.status(400).json({ error: 'memberId is required' });
+    const access = await authorizeMemberAccess(req, memberId);
+    if (!access.ok || (access.tenantId && access.tenantId !== resolvedTenantId)) {
+      return res.status(403).json({ error: 'Not authorized to access this membership payment' });
+    }
     if (req.method === 'GET') {
       return handleGet(req, res, resolvedTenantId);
     }

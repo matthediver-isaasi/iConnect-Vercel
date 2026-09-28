@@ -2875,6 +2875,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             ))}
             {currentField && (
               <FormRenderer
+                membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                 key={currentStep}
                 field={currentField}
                 value={formValues[currentField.id]}
@@ -3235,6 +3236,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
               const renderField = (field) => (
                 <FormRenderer
+                  membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                   key={field.id}
                   field={field}
                   value={formValues[field.id]}

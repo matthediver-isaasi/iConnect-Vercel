@@ -420,6 +420,7 @@ function RepeatableRowsField({
   formMemberRoleId,
   prefillData,
   membershipFeeQuote,
+  membershipPaymentMemberId,
   notListedDisplayLabel,
   rootAllFields,
   rootAllFormValues,
@@ -742,6 +743,7 @@ function RepeatableRowsField({
         currentSetOptionLabels={currentSetOptionLabels}
         currentSetExistingBlankFieldsByRow={currentSetExistingBlankFieldsByRow}
         membershipFeeQuote={membershipFeeQuote}
+        membershipPaymentMemberId={membershipPaymentMemberId}
         notListedDisplayLabel={notListedDisplayLabel}
         repeatableSiblingUniqueValues={siblingUniqueValues}
         repeatableFormExcludedValues={formExcludedValues}
@@ -829,6 +831,7 @@ function RepeatableRowsField({
           currentSetOptionLabels={currentSetOptionLabels}
           currentSetExistingBlankFieldsByRow={currentSetExistingBlankFieldsByRow}
           membershipFeeQuote={membershipFeeQuote}
+          membershipPaymentMemberId={membershipPaymentMemberId}
           notListedDisplayLabel={notListedDisplayLabel}
           repeatableSiblingUniqueValues={repeatableSiblingUniqueValues(uniquenessRows, firstChild, rowId)}
           repeatableFormExcludedValues={formExcludedValues}
@@ -1288,7 +1291,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2277,6 +2280,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       formMemberRoleId={formMemberRoleId}
       prefillData={prefillData}
       membershipFeeQuote={membershipFeeQuote}
+      membershipPaymentMemberId={membershipPaymentMemberId}
       notListedDisplayLabel={notListedDisplayLabel}
       rootAllFields={allFields}
       rootAllFormValues={allFormValues}
@@ -3967,6 +3971,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'membership_payment':
         return (
           <MembershipPaymentField
+            key={membershipPaymentMemberId || 'no-member'}
+            resolvedMemberId={membershipPaymentMemberId}
             value={value}
             onChange={onChange}
             disabled={isFieldDisabled}
