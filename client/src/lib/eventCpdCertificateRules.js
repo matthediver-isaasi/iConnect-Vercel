@@ -14,11 +14,11 @@ export function validateEventCpdCertificateConfig(config, tickets = []) {
 }
 
 export function normalizeEventCpdCertificateConfig(raw) {
-  const empty = emptyEventCpdCertificateConfig();
   const event = raw?.eventRule || {};
   return {
     eventRule: {
       template_id: event.template_id || null,
+      email_template_id: event.email_template_id ?? null,
       date_mode: event.date_mode === "custom" ? "custom" : "event",
       start_date: event.date_mode === "custom" ? event.start_date || null : null,
       end_date: event.date_mode === "custom" ? event.end_date || null : null,

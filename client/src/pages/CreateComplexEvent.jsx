@@ -31,6 +31,7 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import { internalEventTypePayload } from "@/lib/internalEventTypes";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -621,6 +622,7 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
 });
 
 export default function CreateComplexEvent() {
+  const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const location = useLocation();
   const queryClient = useQueryClient();
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
@@ -2534,6 +2536,7 @@ export default function CreateComplexEvent() {
                 onChange={setCpdPointsConfig}
               />
               <EventCpdCertificatesSection
+                canManageEmailTemplates={!!memberInfo && isAccessReady && !isFeatureExcluded('page_EmailTemplateManagement')}
                 eventId={isEditMode ? editId : null}
                 eventType="complex"
                 tickets={ticketClasses}

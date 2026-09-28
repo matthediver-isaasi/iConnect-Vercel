@@ -4,7 +4,6 @@ import { sendEmail } from '../_lib/emailService.js';
 import { CERTIFICATE_BOOKINGS, resolveAttendeeCertificate, renderAttendeeCertificate } from '../_lib/attendeeCpdCertificate.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const escapeHtml = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const publicDelivery = row => row ? {
   id: row.id, status: row.status, recipient: row.recipient, created_at: row.created_at,
   updated_at: row.updated_at, error: row.error || null, provider_message_id: row.provider_message_id || null,
@@ -50,6 +49,10 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       attendee_name: resolved.attendee_name, recipient: resolved.recipient, event_name: resolved.event_name,
       available: resolved.available, reason: resolved.reason, fingerprint: resolved.fingerprint,
       template_name: resolved.template_name || null,
+      email_template_id: resolved.email_template_id || null,
+      email_template_name: resolved.email_template_name || null,
+      email_is_default: resolved.email_is_default,
+      email_reason: resolved.email_reason || null,
       can_send: resolved.can_send && !blocked,
       send_reason: blocked ? 'A previous send is pending or its provider outcome is unknown. Reconcile it before sending again.' : resolved.send_reason || resolved.reason,
       latest_delivery: publicDelivery(latest),
@@ -101,16 +104,26 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       attempted = true;
       const result = await (deps.send || sendEmail)({
         tenantId: context.tenantId, to: resolved.recipient,
-        subject: `Your CPD certificate: ${resolved.event_name.replace(/[\r\n]/g, ' ')}`,
-        text: `Dear ${resolved.attendee_name},\n\nPlease find your CPD certificate for ${resolved.event_name} attached.`,
-        html: `<p>Dear ${escapeHtml(resolved.attendee_name)},</p><p>Please find your CPD certificate for ${escapeHtml(resolved.event_name)} attached.</p>`,
+        ...current.email_message,
+        includeRenderedContent: true,
         attachments: [{ filename: 'cpd-certificate.pdf', data: pdf, contentType: 'application/pdf' }],
-        // Certificate values are not email-template instructions.
-        resolveTransactionalPreferences: false,
       });
       outcome = result.success ? { status: 'accepted', provider_message_id: result.id || result.messageId || null, error: null }
         : { status: result.ambiguousEffect || !result.status || Number(result.status) >= 500 ? 'unknown' : 'failed',
           error: result.error || 'Email provider did not confirm acceptance', provider_message_id: null };
+      if (result.success) {
+        // The transport resolves footer/preference tokens at the final-recipient
+        // boundary. Retain that final envelope as well as the confirmed template.
+        // Initial claim provenance is immutable. The separately granted column
+        // records transport output without rewriting the confirmed snapshot.
+        outcome.rendered_email = {
+          subject: result.renderedSubject ?? current.email_message.subject,
+          html: result.renderedHtml ?? current.email_message.html,
+          text: result.renderedText ?? current.email_message.text ?? null,
+          from: result.fromAddress || current.email_message.from || null,
+          domain: result.domain || null,
+        };
+      }
     } catch (error) {
       outcome = { status: attempted ? 'unknown' : 'failed', error: error.message || 'Certificate preparation failed', provider_message_id: null };
     }

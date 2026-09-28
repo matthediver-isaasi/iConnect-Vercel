@@ -8,6 +8,26 @@ const safeTemplate = ({ id, name, version, status, source_sha256 }) => ({
   id, name, version, status, source_sha256,
 });
 
+const usableEmailTemplate = template => template.is_active === true && template.category === 'events'
+  && typeof template.subject === 'string' && !!template.subject.trim()
+  && typeof template.body === 'string' && !!template.body.trim();
+
+async function listEmailTemplates(db, tenantId) {
+  const templates = [];
+  // Account for tenant REST row caps, including caps below our page size.
+  for (let offset = 0; ; ) {
+    const { data, error } = await db.from('email_template')
+      .select('id,name,is_active,category,subject,body')
+      .eq('tenant_id', tenantId).eq('category', 'events').eq('is_active', true)
+      .order('id').range(offset, offset + 499);
+    if (error) throw error;
+    if (!data?.length) break;
+    templates.push(...data.filter(usableEmailTemplate));
+    offset += data.length;
+  }
+  return templates;
+}
+
 export async function handleCertificateRules(req, res, {
   db = supabase, contextFor = getTenantContext, adminAccess = hasAdminAccess,
 } = {}) {
@@ -34,6 +54,7 @@ export async function handleCertificateRules(req, res, {
       .eq('tenant_id', context.tenantId).eq('status', 'active').order('name');
     if (listError) throw listError;
     const activeTemplates = (active || []).filter(template => template.source_path);
+    const activeEmailTemplates = await listEmailTemplates(db, context.tenantId);
     if (req.method === 'GET') {
       const config = eventId ? await loadCertificateConfig(db, context.tenantId, eventType, eventId) : emptyCertificateConfig();
       const selectedIds = new Set([config.eventRule?.template_id,
@@ -49,7 +70,16 @@ export async function handleCertificateRules(req, res, {
           ? { ...safeTemplate(reference), unavailable: true }
           : { id, name: 'Unavailable template', unavailable: true });
       }
-      return res.status(200).json({ config, templates: [
+      const emailTemplates = activeEmailTemplates.map(({ id, name, is_active }) => ({ id, name, is_active, unavailable: false }));
+      const emailId = config.eventRule?.email_template_id;
+      if (emailId && !emailTemplates.some(template => template.id === emailId)) {
+        const { data: selected, error } = await db.from('email_template').select('id,name,is_active')
+          .eq('tenant_id', context.tenantId).eq('id', emailId).maybeSingle();
+        if (error) throw error;
+        emailTemplates.push(selected ? { ...selected, unavailable: true }
+          : { id: emailId, name: 'Unavailable email template', unavailable: true });
+      }
+      return res.status(200).json({ config, emailTemplates, templates: [
         ...activeTemplates.map(template => ({ ...safeTemplate(template), unavailable: false })), ...unavailable,
       ] });
     }
@@ -62,7 +92,8 @@ export async function handleCertificateRules(req, res, {
       if (error) throw error;
       ids = (data || []).map(ticket => String(ticket.id));
     }
-    const config = validateCertificateConfig(req.body?.config, ids, activeTemplates.map(template => template.id));
+    const config = validateCertificateConfig(req.body?.config, ids, activeTemplates.map(template => template.id),
+      activeEmailTemplates.map(template => template.id));
     const { data, error } = await db.rpc('replace_event_cpd_certificate_config', {
       p_tenant_id: context.tenantId, p_event_type: DB_EVENT_TYPES[eventType],
       p_event_id: eventId, p_config: config,

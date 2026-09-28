@@ -85,7 +85,9 @@ function metadata(id, overrides = {}) {
   return {
     available: true, attendee_name: id.startsWith("complex") ? "Complex Fixture" : "Regular Fixture",
     recipient: `${id}@example.invalid`, fingerprint: `fingerprint-${id}`,
-    can_send: true, send_reason: null, reason: null, latest_delivery: null, ...overrides,
+    can_send: true, send_reason: null, reason: null, latest_delivery: null,
+    email_template_id: "fixture-email-template", email_template_name: "CPD workshop message",
+    email_is_default: false, email_reason: null, ...overrides,
   };
 }
 
@@ -220,6 +222,66 @@ test("regular and complex attendees preview PDFs and send only after confirming 
   }
   expect(state.metadataCalls).toHaveLength(2);
   expect(state.postCalls).toHaveLength(4);
+  expect(state.rejectedWrites).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("configured template is visible for both booking sources before confirming email", async ({ page }) => {
+  const state = await fixture(page);
+  for (const id of ["regular-01", "complex-01"]) {
+    const dialog = await openCertificate(page, id);
+    await expect(dialog).toContainText("CPD workshop message");
+    await expect(dialog.getByTestId("button-email-cpd-certificate")).toBeDisabled();
+    if (id === "regular-01") {
+      mkdirSync("screenshots", { recursive: true });
+      await page.screenshot({ path: "screenshots/task-4813-cpd-email-dialog.png", fullPage: true });
+    }
+    await dialog.getByTestId("confirm-cpd-email").click();
+    await dialog.getByTestId("button-email-cpd-certificate").click();
+    await expect(dialog).toContainText("does not confirm inbox delivery");
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+  }
+  expect(state.postCalls).toHaveLength(2);
+  expect(state.rejectedWrites).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("default email is identified, and missing template blocks send without blocking PDF preview", async ({ page }) => {
+  const state = await fixture(page, {
+    groups: [group("default-01"), group("missing-template-01")],
+    onGet: identity => identity.booking_id === "default-01"
+      ? metadata(identity.booking_id, { email_template_id: null, email_template_name: null, email_is_default: true })
+      : metadata(identity.booking_id, {
+        email_template_id: "deleted-template", email_template_name: "Deleted template",
+        email_is_default: false, email_reason: "email_template_unavailable",
+        can_send: false, send_reason: "email_template_unavailable",
+      }),
+  });
+  let dialog = await openCertificate(page, "default-01");
+  await expect(dialog).toContainText(/default/i);
+  await expect(dialog.getByTestId("button-email-cpd-certificate")).toBeDisabled();
+  await dialog.getByRole("button", { name: "Close" }).first().click();
+
+  dialog = await openCertificate(page, "missing-template-01");
+  await expect(dialog).toContainText(/template/i);
+  await expect(dialog.getByTestId("button-email-cpd-certificate")).toHaveCount(0);
+  await dialog.getByTestId("button-preview-cpd-certificate").click();
+  await expectRenderedPreview(dialog);
+  expect(state.postCalls.map(call => call.action)).toEqual(["preview"]);
+  expect(state.rejectedWrites).toEqual([]);
+});
+
+test("a template change invalidates the old send confirmation and never triggers a second email", async ({ page }) => {
+  const state = await fixture(page, {
+    onPost: body => body.action === "send"
+      ? { status: 409, body: { error: "Email template changed. Close and reopen to confirm the current message." } }
+      : null,
+  });
+  const dialog = await openCertificate(page, "regular-01");
+  await dialog.getByTestId("confirm-cpd-email").click();
+  await dialog.getByTestId("button-email-cpd-certificate").click();
+  await expect(dialog.getByRole("alert")).toContainText("Email template changed");
+  expect(state.postCalls.map(call => call.action)).toEqual(["send"]);
   expect(state.rejectedWrites).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
 });

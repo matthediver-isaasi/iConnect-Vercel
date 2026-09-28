@@ -49,6 +49,7 @@ test("metadata is fetched only when opened, with the selected booking source; un
   };
   const cleanup = await mount("complex");
   await tick();
+  assert.match(document.querySelector('[data-testid="cpd-email-template-name"]').textContent, /Default certificate email/);
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /booking_id=booking-1/);
   assert.match(calls[0].url, /booking_source=complex/);
@@ -215,5 +216,54 @@ test("an unknown provider outcome disables sending instead of offering a blind r
   assert.match(document.body.textContent, /Provider outcome unknown/);
   assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
   assert.match(document.body.textContent, /Reconcile it before sending again/);
+  await cleanup();
+});
+
+test("selected certificate email is named in consent and unavailable email blocks send but not PDF preview", async () => {
+  globalThis.fetch = () => Promise.resolve(json({
+    ...details, email_is_default: false, email_template_id: "old-email",
+    email_template_name: "Retired course email", can_send: false, email_reason: "email_template_inactive",
+  }));
+  const cleanup = await mount();
+  await tick();
+  assert.match(document.querySelector('[data-testid="cpd-email-template-name"]').textContent, /Retired course email/);
+  assert.match(document.body.textContent, /selected certificate email template is inactive/);
+  assert.ok(document.querySelector('[data-testid="button-preview-cpd-certificate"]'));
+  assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
+  await cleanup();
+});
+
+test("changing template content or selection forces new explicit consent with the new fingerprint", async () => {
+  const sends = [];
+  let first = true;
+  globalThis.fetch = (_url, options) => {
+    if (!options?.method) return Promise.resolve(json({
+      ...details, email_template_id: "selected", email_template_name: "Course email", email_is_default: false,
+    }));
+    const body = JSON.parse(options.body);
+    sends.push(body);
+    if (first) {
+      first = false;
+      return Promise.resolve(json({
+        ...details, fingerprint: "snapshot-b", email_template_id: "replacement",
+        email_template_name: "Updated course email", email_is_default: false,
+        error: "Certificate data or recipient changed. Reload and preview before confirming.",
+      }, 409));
+    }
+    return Promise.resolve(json({ success: true, latest_delivery: { status: "accepted" } }));
+  };
+  const cleanup = await mount();
+  await tick();
+  await click('[data-testid="confirm-cpd-email"]');
+  await click('[data-testid="button-email-cpd-certificate"]');
+  await tick();
+  assert.match(document.body.textContent, /Updated course email/);
+  assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]').disabled, true);
+  await click('[data-testid="confirm-cpd-email"]');
+  await click('[data-testid="button-email-cpd-certificate"]');
+  await tick();
+  assert.equal(sends[0].expected_fingerprint, "snapshot-a");
+  assert.equal(sends[1].expected_fingerprint, "snapshot-b");
+  assert.notEqual(sends[0].request_id, sends[1].request_id);
   await cleanup();
 });

@@ -24,7 +24,7 @@ function checkRange(start, end, label) {
   if (start && end && start > end) throw new Error(`${label} end_date must not precede start_date`);
 }
 
-export function validateCertificateConfig(config, ticketIds = [], activeTemplateIds = []) {
+export function validateCertificateConfig(config, ticketIds = [], activeTemplateIds = [], activeEmailTemplateIds = []) {
   const errors = validateEventCpdCertificateConfig(config, ticketIds);
   if (errors.length) throw new Error(`Invalid certificate configuration: ${errors[0]}`);
   if (!config || typeof config !== 'object' || Array.isArray(config)
@@ -33,6 +33,10 @@ export function validateCertificateConfig(config, ticketIds = [], activeTemplate
     throw new Error('Invalid certificate configuration');
   }
   const event = config.eventRule;
+  if (event.email_template_id != null
+    && (!UUID.test(event.email_template_id) || !activeEmailTemplateIds.includes(event.email_template_id))) {
+    throw new Error('Invalid email template: select an active Events email template in this tenant with a subject and body');
+  }
   const ids = new Set(ticketIds.map(String));
   const templates = new Set(activeTemplateIds.map(String));
   const validTemplate = (id, label) => {
@@ -107,6 +111,7 @@ export async function resolveEventCpdCertificate(db, { tenantId, eventType, even
   const available = policy.available && Boolean(policy.template?.source_path);
   return {
     ...policy,
+    email_template_id: config.eventRule?.email_template_id ?? null,
     available,
     reason: policy.available && !available ? 'template_unavailable' : policy.reason,
     template: undefined,

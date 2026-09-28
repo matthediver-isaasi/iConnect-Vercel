@@ -151,3 +151,4 @@
 - [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.
 - [Event revenue evidence](event-revenue-basis.md) — booked value differs from cash; historical currency and imported registration evidence boundaries.
 - [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js browser compatibility.
+- [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.

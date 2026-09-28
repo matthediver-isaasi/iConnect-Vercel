@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
 import { ticketStableReference } from "@/lib/eventCpdBadgeRules";
 import { formatCertificateValue } from "@/lib/cpdCertificateContract";
 import { eventDateOnly, resolveEventCpdCertificatePolicy } from "../../../../shared/eventCpdCertificatePolicy.js";
@@ -40,6 +42,37 @@ function TemplateSelect({ value, templates, onChange, label }) {
   );
 }
 
+function EmailTemplateSelect({ value, templates, onChange, canManageEmailTemplates }) {
+  const selected = templates.find(template => template.id === value);
+  const available = templates.filter(template => template.is_active && !template.unavailable);
+  const isUnavailable = !!value && !available.some(template => template.id === value);
+  return (
+    <div className="space-y-2 border-t pt-4" data-testid="event-cpd-email-template">
+      <div>
+        <Label htmlFor="cpd-email-template">Certificate email template (event-wide)</Label>
+        <p className="text-xs text-muted-foreground">The message accompanying a manually emailed CPD certificate. This does not change the PDF template or ticket-specific certificate settings.</p>
+      </div>
+      <Select value={value || NO_TEMPLATE} onValueChange={next => onChange(next === NO_TEMPLATE ? null : next)}>
+        <SelectTrigger id="cpd-email-template" data-testid="select-cpd-email-template"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_TEMPLATE}>Default certificate email (existing message)</SelectItem>
+          {available.map(template => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
+          {isUnavailable && <SelectItem value={value} disabled>{selected?.name || value} (unavailable)</SelectItem>}
+        </SelectContent>
+      </Select>
+      {isUnavailable && <p role="alert" className="text-xs text-amber-700">
+        The selected certificate email template is unavailable or inactive. Certificate PDF preview remains available, but emailing is blocked until you select an active template or the default email.
+      </p>}
+      {!available.length && !isUnavailable && <p className="text-sm text-muted-foreground">
+        No active event email templates yet. The default certificate email will be used.
+      </p>}
+      {canManageEmailTemplates
+        ? <Link className="text-sm text-primary underline" to={createPageUrl("EmailTemplateManagement")}>Create or edit event email templates</Link>
+        : <p className="text-xs text-muted-foreground">Ask someone with email-template management access to set up a custom message.</p>}
+    </div>
+  );
+}
+
 function DateFields({ rule, onChange, label }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -66,9 +99,10 @@ function policySummary(policy, templateId, dates, templates) {
 }
 
 export default function EventCpdCertificatesSection({
-  eventId = null, eventType, tickets = [], eventDates = {}, value, onChange,
+  eventId = null, eventType, tickets = [], eventDates = {}, value, onChange, canManageEmailTemplates = false,
 }) {
   const [templates, setTemplates] = useState([]);
+  const [emailTemplates, setEmailTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const config = value || emptyEventCpdCertificateConfig();
@@ -85,6 +119,7 @@ export default function EventCpdCertificatesSection({
         if (!response.ok) throw new Error(data.error || "Failed to load certificate settings");
         if (cancelled) return;
         setTemplates(data.templates || []);
+        setEmailTemplates(data.emailTemplates || []);
         if (eventId) onChange(normalizeEventCpdCertificateConfig(data.config));
         setError("");
       })
@@ -137,6 +172,9 @@ export default function EventCpdCertificatesSection({
                 <p className="text-xs text-muted-foreground">Effective: {policySummary(eventPolicy, eventRule.template_id, inheritedDates, templates)}</p>
                 {eventPolicy.template_id && !eventPolicy.available && <p role="alert" className="text-xs text-amber-700">Certificate unavailable: {eventPolicy.reason?.replaceAll("_", " ")}.</p>}
               </div>
+              <EmailTemplateSelect value={eventRule.email_template_id} templates={emailTemplates}
+                canManageEmailTemplates={canManageEmailTemplates}
+                onChange={email_template_id => updateEvent({ ...eventRule, email_template_id })} />
               <div className="space-y-3 border-t pt-4">
                 <div><h3 className="font-medium">Ticket-specific overrides</h3>
                   <p className="text-xs text-muted-foreground">Each ticket can inherit, replace, or explicitly suppress the event template. Dates can be overridden independently.</p></div>

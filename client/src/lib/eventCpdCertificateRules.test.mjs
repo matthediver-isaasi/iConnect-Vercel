@@ -10,7 +10,7 @@ import {
 
 test("default dates follow the event and ticket override modes remain independent", () => {
   const config = emptyEventCpdCertificateConfig();
-  assert.deepEqual(config.eventRule, { template_id: null, date_mode: "event", start_date: null, end_date: null });
+  assert.deepEqual(config.eventRule, { template_id: null, email_template_id: null, date_mode: "event", start_date: null, end_date: null });
   config.ticketRules.t1 = {
     template_mode: "none", template_id: null,
     date_mode: "custom", start_date: "2026-02-01", end_date: null,
@@ -42,10 +42,13 @@ test("custom start date is required, optional end may be empty, and invalid rang
 
 test("loaded overrides retain unavailable template IDs visibly instead of resetting them", () => {
   const loaded = normalizeEventCpdCertificateConfig({
-    eventRule: { template_id: "archived-id", date_mode: "event" },
+    eventRule: { template_id: "archived-id", email_template_id: "unavailable-email", date_mode: "event" },
     ticketRules: { t1: { template_mode: "override", template_id: "missing-id", date_mode: "inherit" } },
   });
   assert.equal(loaded.eventRule.template_id, "archived-id");
+  assert.equal(loaded.eventRule.email_template_id, "unavailable-email");
+  assert.equal(eventCpdCertificateConfigToPayload(loaded, [{ id: "t1" }]).eventRule.email_template_id, "unavailable-email");
+  assert.equal(normalizeEventCpdCertificateConfig({ eventRule: {} }).eventRule.email_template_id, null);
   assert.equal(loaded.ticketRules.t1.template_id, "missing-id");
   assert.equal(loaded.ticketRules.t1.start_date, null);
 });

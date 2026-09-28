@@ -82,6 +82,7 @@ import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAge
 import { persistAgendaLinesWithRollback } from "@/lib/eventAgendaPersistence";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import SEOSettings from "@/components/blog/SEOSettings";
@@ -167,6 +168,7 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
 const TAB_PANEL_CLASS = "mt-0 data-[state=inactive]:hidden";
 
 export default function EditEvent() {
+  const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
@@ -2276,6 +2278,7 @@ export default function EditEvent() {
                 onChange={setCpdPointsConfig}
               />
               <EventCpdCertificatesSection
+                canManageEmailTemplates={!!memberInfo && isAccessReady && !isFeatureExcluded('page_EmailTemplateManagement')}
                 eventId={eventId}
                 eventType="simple"
                 tickets={isOneOffEvent ? ticketClasses : []}

@@ -17,6 +17,9 @@ function describeReason(reason) {
     booking_cancelled: "Cancelled bookings cannot receive certificates.",
     missing_recipient: "This attendee has no valid email address. Preview is still available.",
     invalid_recipient: "This attendee has no valid email address. Preview is still available.",
+    email_template_unavailable: "The selected certificate email template is unavailable or deleted. Select an active template or the default email in the event's Certificates settings.",
+    email_template_inactive: "The selected certificate email template is inactive. Select an active template or the default email in the event's Certificates settings.",
+    email_template_invalid: "The selected certificate email template cannot be used. Update it in Email Templates or select the default email in the event's Certificates settings.",
   };
   if (!reason) return "Certificate unavailable. Check the booking and certificate settings.";
   if (typeof reason !== "string") return "Certificate unavailable. Check the booking and certificate settings.";
@@ -123,6 +126,12 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     const controller = new AbortController();
     setLoading(true);
     setError("");
+    setMetadata(null);
+    metadataRef.current = null;
+    setConfirmed(false);
+    setSent(false);
+    setPdfBytes(null);
+    requestId.current = null;
     fetch(`${ENDPOINT}?${new URLSearchParams({ booking_id: bookingId, booking_source: source })}`, {
       credentials: "include", signal: controller.signal,
     }).then(async response => {
@@ -172,6 +181,15 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
+        if (data.fingerprint && data.fingerprint !== metadataRef.current?.fingerprint) {
+          // A changed email selection/content, PDF or recipient needs fresh consent.
+          // The server returns the new metadata with a stale-fingerprint conflict.
+          metadataRef.current = data;
+          setMetadata(data);
+          setConfirmed(false);
+          setPdfBytes(null);
+          requestId.current = null;
+        }
         if (data.latest_delivery) {
           setMetadata(previous => {
             const next = { ...previous, latest_delivery: data.latest_delivery,
@@ -231,6 +249,11 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
         </DialogHeader>
         {loading ? <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Checking certificate settings…</p> : metadata && (
           <div className="space-y-3">
+            <p className="text-sm" data-testid="cpd-email-template-name">
+              Certificate email: <strong>{metadata.email_is_default !== false
+                ? "Default certificate email"
+                : metadata.email_template_name || "Selected template unavailable"}</strong>
+            </p>
             {!available && <p role="status" className="text-sm text-amber-700">Preview unavailable: {describeReason(metadata.reason)}</p>}
             {available && (
               <>
@@ -246,7 +269,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                   </div>
                 ) : (
                   <div className="space-y-2 border-t pt-3">
-                    {!canSend && <p role="status" className="text-sm text-amber-700">Email unavailable: {["pending", "unknown"].includes(metadata.latest_delivery?.status) ? "A previous send is pending or its provider outcome is unknown. Reconcile it before sending again." : describeReason(metadata.send_reason || metadata.reason || "missing_recipient")}</p>}
+                    {!canSend && <p role="status" className="text-sm text-amber-700">Email unavailable: {["pending", "unknown"].includes(metadata.latest_delivery?.status) ? "A previous send is pending or its provider outcome is unknown. Reconcile it before sending again." : metadata.email_message || describeReason(metadata.email_reason || metadata.send_reason || metadata.reason || "missing_recipient")}</p>}
                     {canSend && <>
                       {wasAccepted(metadata.latest_delivery) && <p className="text-sm text-amber-700">A certificate email was already accepted. Sending again will create another email.</p>}
                       <label className="flex items-start gap-2 text-sm">

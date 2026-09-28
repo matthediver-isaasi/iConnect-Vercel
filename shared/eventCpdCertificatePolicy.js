@@ -42,7 +42,7 @@ export function certificateDatePlaceholderValues(policy) {
 
 export function emptyEventCpdCertificateConfig() {
   return {
-    eventRule: { template_id: null, date_mode: 'event', start_date: null, end_date: null },
+    eventRule: { template_id: null, email_template_id: null, date_mode: 'event', start_date: null, end_date: null },
     ticketRules: {},
   };
 }
@@ -69,6 +69,9 @@ export function validateEventCpdCertificateConfig(config, tickets) {
     return ['Event-wide certificate rule is required'];
   }
   const eventRule = config.eventRule;
+  if (eventRule.email_template_id != null && (typeof eventRule.email_template_id !== 'string' || !eventRule.email_template_id.trim())) {
+    errors.push('Event-wide email template must be a non-empty ID or null');
+  }
   if (eventRule.template_id != null && (typeof eventRule.template_id !== 'string' || !eventRule.template_id.trim())) {
     errors.push('Event-wide template must be a non-empty ID or null');
   }
@@ -83,6 +86,7 @@ export function validateEventCpdCertificateConfig(config, tickets) {
     const label = `Ticket ${reference}`;
     if (!reference || (allowedTickets && !allowedTickets.has(reference))) errors.push(`${label} is not a ticket on this event`);
     if (!rule || typeof rule !== 'object') { errors.push(`${label} rule is invalid`); continue; }
+    if (rule.email_template_id != null) errors.push(`${label} email template selection is event-wide only`);
     if (!['inherit', 'override', 'none'].includes(rule.template_mode)) errors.push(`${label} template mode must be inherit, override or none`);
     if (rule.template_mode === 'override') {
       if (typeof rule.template_id !== 'string' || !rule.template_id.trim()) errors.push(`${label} override requires a template ID`);

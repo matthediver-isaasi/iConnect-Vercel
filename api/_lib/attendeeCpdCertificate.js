@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { resolveEventCpdCertificate } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
+import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
 
 export const CERTIFICATE_BOOKINGS = { standard: 'booking', complex: 'complex_event_booking' };
 export const certificateFingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -95,7 +96,9 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     'event.start_date': event.start_date || '', 'event.end_date': event.end_date || '',
   };
   let pointsRows = [];
-  if ((fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')) {
+  const emailSelection = await loadCpdEmailTemplate(db, tenantId, policy.email_template_id);
+  if ((fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
+    || /\{\{\s*cpd_points\s*\}\}|\[\[\s*cpd_points\s*\]\]/.test(`${emailSelection.template?.subject || ''} ${emailSelection.template?.body || ''}`)) {
     // Paginate even when a deployment's REST row cap is below 500.
     for (let offset = 0; ; ) {
       const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind')
@@ -117,13 +120,24 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   const real = realCertificatePlaceholders(fields, values);
   if (!attendeeName || real.missing.length) return { ...base, reason: !attendeeName
     ? 'The attendee name is missing.' : `Required certificate data is unavailable: ${real.missing.join(', ')}.` };
+  const email = await prepareCpdEmail(db, tenantId, emailSelection, {
+    attendee_name: attendeeName, attendee_first_name: firstName, attendee_last_name: lastName,
+    attendee_email: recipient, organisation_name: values['organisation.name'], event_name: event.title || '',
+    activity_date: values['cpd.activity_date'], activity_date_range: values['cpd.activity_date_range'],
+    activity_start_date: values['cpd.activity_start_date'], activity_end_date: values['cpd.activity_end_date'],
+    cpd_points: values['cpd.cpd_points'],
+  });
   const provenance = { ...policy.provenance, booking_id: bookingId, booking_source: bookingSource,
     booking_status: booking.status, member_id: booking.member_id || null,
     template_version: template.version, template_source_sha256: template.source_sha256,
-    points_ledger: pointsRows, values, placeholders: real.placeholders };
+    points_ledger: pointsRows, values, placeholders: real.placeholders,
+    email: { selection_id: policy.email_template_id || null, ...email.provenance,
+      rendered_message: email.message || null, reason: email.reason || null } };
   const fingerprint = certificateFingerprint({ provenance, recipient, source_path: template.source_path });
-  return { ...base, available: true, can_send: validCertificateRecipient(recipient), fingerprint,
-    send_reason: validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.',
+  return { ...base, available: true, can_send: validCertificateRecipient(recipient) && !email.reason, fingerprint,
+    email_template_id: policy.email_template_id || null, email_template_name: emailSelection.template?.name || null,
+    email_is_default: !policy.email_template_id, email_reason: email.reason || null, email_message: email.message,
+    send_reason: email.reason || (validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.'),
     template_name: template.name, template, placeholders: real.placeholders, values, provenance };
 }
 

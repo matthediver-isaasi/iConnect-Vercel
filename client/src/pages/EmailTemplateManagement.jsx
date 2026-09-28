@@ -50,6 +50,7 @@ import { createPageUrl } from "@/utils";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { EMAIL_PLACEHOLDERS } from "@/lib/emailPlaceholders";
+import { EVENT_CPD_EMAIL_PLACEHOLDERS } from "../../../shared/eventCpdEmailPlaceholders.js";
 import { designToHtml } from "@/components/email-builder/mjmlConverter";
 import { defaultEmailDesign, extractDynamicSlots, normalizeDuplicateDynamicTokens } from "@/components/email-builder/types";
 
@@ -104,6 +105,10 @@ const TEMPLATE_CATEGORIES = [
 // System placeholders grouped by category
 // [[placeholder]] syntax for DB values, {{placeholder}} syntax for dynamic values
 const PLACEHOLDER_GROUPS = [
+  {
+    label: 'CPD certificate email',
+    placeholders: EVENT_CPD_EMAIL_PLACEHOLDERS.map(({ token, label }) => ({ value: token, label })),
+  },
   {
     label: 'Member',
     placeholders: [
@@ -1053,6 +1058,17 @@ export default function EmailTemplateManagement() {
                   </Select>
                 </div>
               </div>
+              {formData.category === 'events' && (
+                <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900" data-testid="cpd-email-placeholder-guide">
+                  <p className="font-medium">For manual CPD certificate emails</p>
+                  <p>Choose the Events category and select this email in an event's Certificates section. Only the CPD certificate email tokens below are supported in this delivery context. They work in the subject and body, including for guest attendees. Optional missing details are left blank; awarded CPD points come from the booking ledger, not the configured award amount. Other template placeholders may not be available when emailing a certificate.</p>
+                  <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                    {EVENT_CPD_EMAIL_PLACEHOLDERS.map(({ token, label, description }) => (
+                      <li key={token}><code>{token}</code> — {label}. {description}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>

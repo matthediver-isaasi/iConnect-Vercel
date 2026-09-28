@@ -67,6 +67,7 @@ import { internalEventTypePayload } from "@/lib/internalEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import EventEmailSettingsEditor, {
@@ -149,6 +150,7 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
 });
 
 export default function CreateEvent() {
+  const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const location = useLocation();
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
@@ -3632,6 +3634,7 @@ export default function CreateEvent() {
                   onChange={setCpdPointsConfig}
                 />
                 <EventCpdCertificatesSection
+                  canManageEmailTemplates={!!memberInfo && isAccessReady && !isFeatureExcluded('page_EmailTemplateManagement')}
                   eventType="simple"
                   tickets={isProgramEvent ? [] : ticketClasses}
                   eventDates={isTraining && trainingDerivedDates

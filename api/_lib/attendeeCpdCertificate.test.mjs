@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { resolveAttendeeCertificate, renderAttendeeCertificate, realCertificatePlaceholders } from './attendeeCpdCertificate.js';
 import { handleAttendeeCertificate } from '../reports/attendee-cpd-certificate.js';
+import { renderCpdEmailContent, prepareCpdEmail } from './eventCpdEmail.js';
 
 const tenantId = '11111111-1111-4111-8111-111111111111';
 const otherTenant = '22222222-2222-4222-8222-222222222222';
@@ -31,7 +32,13 @@ function database(rows) {
         order(k, opts = {}) { orders.push([k, opts.ascending !== false]); return q; },
         limit(n) { count = n; return q; },
         range(a, b) { offset = a; count = b - a + 1; return q; },
-        update(value) { update = value; return q; },
+        update(value) {
+          if (table === 'attendee_cpd_certificate_delivery') {
+            const writable = new Set(['status', 'provider_message_id', 'error', 'updated_at', 'rendered_email']);
+            assert.ok(Object.keys(value).every(key => writable.has(key)), 'delivery finalization must respect service_role column grants');
+          }
+          update = value; return q;
+        },
         maybeSingle() { single = true; return q; }, single() { single = true; return q; },
         then(resolve, reject) {
           try {
@@ -217,13 +224,20 @@ test('send uses server recipient, real PDF, tenant transport; duplicate/concurre
     assert.equal(opts.to, 'attendee@example.test'); assert.equal(opts.tenantId, tenantId);
     assert.equal(opts.attachments[0].contentType, 'application/pdf');
     assert.equal((await PDFDocument.load(opts.attachments[0].data)).getPageCount(), 1);
-    return { success: true, messageId: 'provider-1' };
+    return { success: true, messageId: 'provider-1', renderedSubject: 'Final subject',
+      renderedHtml: '<p>Final recipient footer</p>', renderedText: 'Final text', fromAddress: 'sender@example.test', domain: 'example.test' };
   };
   const results = await Promise.all([
     invoke(f, { ...input, recipient: 'attacker@example.test' }, { send }), invoke(f, input, { send }),
   ]);
   assert.equal(sends, 1);
   assert.equal(results.some(r => r.body.success), true);
+  const delivery = f.db.rows.attendee_cpd_certificate_delivery[0];
+  assert.equal(delivery.provenance.delivered_email, undefined);
+  assert.deepEqual(delivery.rendered_email, {
+    subject: 'Final subject', html: '<p>Final recipient footer</p>', text: 'Final text',
+    from: 'sender@example.test', domain: 'example.test',
+  });
   const retry = await invoke(f, input, { send });
   assert.equal(retry.body.duplicate, true); assert.equal(retry.body.latest_delivery.status, 'accepted');
   assert.equal((await invoke(f, { ...input, request_id: randomUUID() }, { send })).statusCode, 409);
@@ -293,4 +307,100 @@ test('missing recipient prevents transport, preparation failure records failed a
   assert.equal(f.db.rows.attendee_cpd_certificate_delivery.some(row => row.status === 'pending'), true);
   const retry = await invoke(f, { ...input, request_id: randomUUID(), deliberate_resend: true }, { send });
   assert.equal(retry.statusCode, 409); assert.equal(sends, 1);
+});
+
+function selectEmail(f) {
+  const email = { id: '66666666-6666-4666-8666-666666666666', tenant_id: tenantId,
+    name: 'Personal certificate', category: 'events', is_active: true,
+    subject: '{{attendee_first_name}}: {{event_name}} ({{cpd_points}})',
+    body: '<p>{{attendee_name}} {{activity_date_range}} {{cpd_points}} {{organisation_name}}</p>{{communication_preferences_link}}',
+    from_name: 'Certificates', reply_to: 'help@example.test' };
+  f.config.eventRule.email_template_id = email.id;
+  f.db.rows.email_template = [email];
+  return email;
+}
+
+test('CPD email rendering is single-pass, escapes guest data, blanks unknowns and missing values, retains zero and authored preference tokens', () => {
+  const html = renderCpdEmailContent('{{attendee_name}} {{cpd_points}} {{unknown}} {{organisation_name}} {{communication_preferences_link}}',
+    { attendee_name: '<a>{{communication_preferences_url}}</a>', cpd_points: 0 }, true);
+  assert.match(html, /&lt;a&gt;&#123;&#123;communication_preferences_url/);
+  assert.match(html, / 0 /);
+  assert.equal(html.endsWith('{{communication_preferences_link}}'), true);
+  assert.equal(html.includes('{{unknown}}'), false);
+  assert.equal(renderCpdEmailContent('{{attendee_name}}', { attendee_name: '{{cpd_points}}' }), 'cpd_points');
+});
+
+test('simple and complex saved templates personalize guests using ledger points, attach PDF and audit message; selection/content invalidate confirmation', async () => {
+  for (const source of ['standard', 'complex']) {
+    const f = await fixture(source); claims(f);
+    const email = selectEmail(f);
+    f.db.rows.member_cpd_points_ledger = [
+      { id: '1', tenant_id: tenantId, booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
+        booking_id: bookingId, event_id: eventId, event_type: source === 'standard' ? 'event' : 'complex_event', points_value: 4 },
+      { id: '2', tenant_id: tenantId, booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
+        booking_id: bookingId, event_id: eventId, event_type: source === 'standard' ? 'event' : 'complex_event', points_value: -1 },
+    ];
+    const r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.email_template_name, email.name);
+    assert.equal(r.email_is_default, false);
+    assert.equal(r.email_message.subject, 'Real: Real event (3)');
+    assert.match(r.email_message.html, /29 March 2026 – 30 March 2026 3/);
+    assert.equal(r.provenance.email.rendered_message.subject, r.email_message.subject);
+    const input = { booking_id: bookingId, booking_source: source, action: 'send',
+      expected_fingerprint: r.fingerprint, confirmed: true, request_id: randomUUID() };
+    let sends = 0;
+    const send = async opts => {
+      sends++;
+      assert.equal(opts.subject, r.email_message.subject);
+      assert.equal(opts.to, f.booking.attendee_email);
+      assert.equal(opts.replyTo, 'help@example.test');
+      assert.equal(opts.resolveTransactionalPreferences, true);
+      assert.equal(opts.attachments[0].data.subarray(0, 5).toString(), '%PDF-');
+      return { success: true };
+    };
+    assert.equal((await invoke(f, input, { send })).body.success, true);
+    email.body += ' Updated';
+    assert.equal((await invoke(f, { ...input, request_id: randomUUID(), deliberate_resend: true }, { send })).statusCode, 409);
+    email.body = r.provenance.email.body;
+    f.config.eventRule.email_template_id = null;
+    assert.equal((await invoke(f, input, { send })).statusCode, 409);
+    assert.equal(sends, 1);
+  }
+});
+
+test('deleted, cross-tenant, inactive and wrong-category email templates block sending but preserve PDF preview', async () => {
+  for (const mutate of [
+    (f) => { f.db.rows.email_template = []; },
+    (_f, email) => { email.tenant_id = otherTenant; },
+    (_f, email) => { email.is_active = false; },
+    (_f, email) => { email.category = 'welcome'; },
+  ]) {
+    const f = await fixture(); const email = selectEmail(f); mutate(f, email);
+    const r = await resolveAttendeeCertificate(f.db, identity);
+    assert.equal(r.available, true); assert.equal(r.can_send, false);
+    assert.match(r.email_reason, /administrator/);
+    assert.equal(r.email_is_default, false);
+    const result = await invoke(f, { booking_id: bookingId, booking_source: 'standard', action: 'preview', expected_fingerprint: r.fingerprint });
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.body.subarray(0, 5).toString(), '%PDF-');
+  }
+});
+
+test('tenant sender constraints reject unsafe envelopes and recheck content changes immediately before provider', async () => {
+  const f = await fixture(); const email = selectEmail(f); claims(f);
+  email.from_email = 'impersonate@another-tenant.test';
+  assert.equal((await resolveAttendeeCertificate(f.db, identity)).can_send, false);
+  email.from_email = null;
+  email.from_name = 'Bad\r\nBcc: victim@example.test';
+  assert.match((await prepareCpdEmail(f.db, tenantId, { template: email }, {})).reason, /sender name/);
+  email.from_name = 'Certificates';
+  const r = await resolveAttendeeCertificate(f.db, identity);
+  let calls = 0;
+  const result = await invoke(f, { booking_id: bookingId, booking_source: 'standard', action: 'send',
+    confirmed: true, request_id: randomUUID(), expected_fingerprint: r.fingerprint }, {
+    render: async () => { email.subject += ' changed'; return Buffer.from('pdf'); },
+    send: async () => { calls++; return { success: true }; },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.body.latest_delivery.status, 'failed');
 });

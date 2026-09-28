@@ -10,11 +10,16 @@ globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Element = dom.window.Element;
 globalThis.DocumentFragment = dom.window.DocumentFragment;
 globalThis.Node = dom.window.Node;
+globalThis.MutationObserver = dom.window.MutationObserver;
+globalThis.CustomEvent = dom.window.CustomEvent;
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+dom.window.HTMLElement.prototype.scrollIntoView ||= () => {};
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.React = (await import("react")).default;
 const React = globalThis.React;
 const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { MemoryRouter } = await import("react-router-dom");
 const { default: Certificates } = await import("./EventCpdCertificatesSection.jsx");
 const {
   emptyEventCpdCertificateConfig, remapEventCpdCertificateTicketReferences, putEventCpdCertificateRules,
@@ -24,10 +29,14 @@ const templates = [
   { id: "active-template", name: "Course certificate", status: "active" },
   { id: "archived-template", name: "Old certificate", status: "archived", unavailable: true },
 ];
+const emailTemplates = [
+  { id: "event-email", name: "Course follow-up", is_active: true, unavailable: false },
+  { id: "old-email", name: "Old follow-up", is_active: false, unavailable: true },
+];
 const response = body => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 const tick = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 
-async function mount({ eventId = null, eventType = "simple", tickets = [], initial = null, onSnapshot = () => {}, remap = null }) {
+async function mount({ eventId = null, eventType = "simple", tickets = [], initial = null, onSnapshot = () => {}, remap = null, canManageEmailTemplates = false }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -37,6 +46,7 @@ async function mount({ eventId = null, eventType = "simple", tickets = [], initi
     onSnapshot(config);
     return <>
       <Certificates eventId={eventId} eventType={eventType} tickets={shownTickets}
+        canManageEmailTemplates={canManageEmailTemplates}
         eventDates={{ start_date: "2026-03-01T11:00:00Z", end_date: "2026-03-04T11:00:00Z", timezone: "Europe/London" }}
         value={config} onChange={setConfig} />
       <button type="button" data-testid="edit-draft" onClick={() => setConfig(previous => ({
@@ -51,7 +61,7 @@ async function mount({ eventId = null, eventType = "simple", tickets = [], initi
       }}>Persist tickets</button>}
     </>;
   }
-  await act(async () => root.render(<Fixture />));
+  await act(async () => root.render(<MemoryRouter><Fixture /></MemoryRouter>));
   return {
     container,
     click: async selector => act(async () => container.querySelector(selector).click()),
@@ -106,6 +116,7 @@ test("complex ticket remap saves hydrated draft, then a fresh mount reloads the 
   let persisted = emptyEventCpdCertificateConfig();
   const draft = emptyEventCpdCertificateConfig();
   draft.eventRule.template_id = "active-template";
+  draft.eventRule.email_template_id = "event-email";
   draft.ticketRules.local1 = {
     template_mode: "none", template_id: null, date_mode: "custom",
     start_date: "2026-02-02", end_date: "2026-02-03",
@@ -116,7 +127,7 @@ test("complex ticket remap saves hydrated draft, then a fresh mount reloads the 
       persisted = JSON.parse(options.body).config;
       return response({ config: persisted });
     }
-    return response({ config: persisted, templates });
+    return response({ config: persisted, templates, emailTemplates });
   };
   const options = {
     eventType: "complex", tickets: [{ _localId: "local1", name: "Premium" }],
@@ -134,11 +145,13 @@ test("complex ticket remap saves hydrated draft, then a fresh mount reloads the 
   assert.equal(sent.event_type, "complex");
   assert.deepEqual(Object.keys(sent.config.ticketRules), ["db1"]);
   assert.equal(sent.config.eventRule.template_id, "active-template");
+  assert.equal(sent.config.eventRule.email_template_id, "event-email");
   await view.cleanup();
   const reloaded = await mount({ ...options, eventId: "event-1", tickets: options.remap.tickets, remap: null, initial: null });
   await tick();
   assert.match(reloaded.container.textContent, /Premium/);
   assert.match(reloaded.container.textContent, /Course certificate · 1 March 2026 – 4 March 2026/);
+  assert.match(reloaded.container.textContent, /Course follow-up/);
   assert.equal(persisted.ticketRules.db1.date_mode, "custom");
   await reloaded.cleanup();
 });
@@ -183,5 +196,47 @@ test("an active template flagged unavailable is not treated as selectable or eff
   assert.match(view.container.textContent, /Missing source PDF/);
   assert.match(view.container.textContent, /template is unavailable/);
   assert.match(view.container.textContent, /Certificate unavailable: template inactive/);
+  await view.cleanup();
+});
+
+test("simple event email template selection is event-wide and survives save/reopen without changing PDF rules", async () => {
+  let stored = emptyEventCpdCertificateConfig();
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === "PUT") {
+      stored = JSON.parse(options.body).config;
+      return response({ config: stored });
+    }
+    return response({ config: stored, templates, emailTemplates });
+  };
+  const first = await mount({ eventId: "event-1", canManageEmailTemplates: true });
+  await tick();
+  assert.match(first.container.textContent, /Default certificate email \(existing message\)/);
+  assert.match(first.container.textContent, /Create or edit event email templates/);
+  assert.match(first.container.querySelector("a").getAttribute("href"), /EmailTemplateManagement/);
+  await first.click('[data-testid="select-cpd-email-template"]');
+  // Radix uses a portal for the menu. Select the named email, not a PDF template.
+  const courseOption = [...document.querySelectorAll('[role="option"]')].find(item => item.textContent === "Course follow-up");
+  assert.ok(courseOption);
+  await act(async () => courseOption.click());
+  await first.click('[data-testid="save-draft"]');
+  assert.equal(stored.eventRule.email_template_id, "event-email");
+  assert.equal(stored.eventRule.template_id, null);
+  assert.deepEqual(stored.ticketRules, {});
+  await first.cleanup();
+  const reopened = await mount({ eventId: "event-1" });
+  await tick();
+  assert.match(reopened.container.textContent, /Course follow-up/);
+  await reopened.cleanup();
+});
+
+test("unavailable saved email selection remains visible and default is still selectable", async () => {
+  const stored = emptyEventCpdCertificateConfig();
+  stored.eventRule.email_template_id = "old-email";
+  globalThis.fetch = async () => response({ config: stored, templates, emailTemplates });
+  const view = await mount({ eventId: "event-2" });
+  await tick();
+  assert.match(view.container.textContent, /Old follow-up \(unavailable\)/);
+  assert.match(view.container.textContent, /PDF preview remains available, but emailing is blocked/);
+  assert.equal(view.container.querySelector("a"), null);
   await view.cleanup();
 });

@@ -24,7 +24,7 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     }
     const [db, a, b] = clients;
     await db.query(`
-      CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+      CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
       CREATE SCHEMA auth;
       CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role',true),''),'service_role') $$;
       CREATE TABLE public.tenant(id uuid PRIMARY KEY);
@@ -38,6 +38,8 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     await db.query("INSERT INTO complex_event_booking VALUES ($1,$2,'confirmed')", [complex, tenant]);
     const sql = readFileSync(new URL('./20261120_attendee_cpd_certificate_delivery.sql', import.meta.url), 'utf8');
     await db.query(sql); await db.query(sql);
+    const renderedEmailSql = readFileSync(new URL('./20261122_attendee_cpd_rendered_email.sql', import.meta.url), 'utf8');
+    await db.query(renderedEmailSql); await db.query(renderedEmailSql);
     const privilege = await db.query(`SELECT
       has_table_privilege('anon','attendee_cpd_certificate_delivery','SELECT') AS anon,
       has_table_privilege('authenticated','attendee_cpd_certificate_delivery','SELECT') AS member,
@@ -59,7 +61,30 @@ test('delivery audit migration: real PostgreSQL atomic claims, concurrency, repl
     const first = parallel.find(result => result.claimed).delivery;
     assert.equal((await claim(db, randomUUID(), { resend: true })).reason, 'unresolved');
     assert.equal((await claim(db, request, { fingerprint: 'b'.repeat(64) })).reason, 'request_conflict');
-    await db.query("UPDATE attendee_cpd_certificate_delivery SET status='accepted' WHERE id=$1", [first.id]);
+    // Execute the actual finalization shape under the runtime role, not the
+    // migration-owner superuser: RLS bypass does not bypass column ACLs.
+    await a.query('SET ROLE service_role');
+    const renderedEmail = { subject: 'Final subject', html: '<p>Final body with recipient footer</p>',
+      text: null, from: 'sender@example.test', domain: 'example.test' };
+    const finalized = await a.query(`UPDATE attendee_cpd_certificate_delivery
+      SET status='accepted',provider_message_id='provider-accepted',error=NULL,updated_at=now(),rendered_email=$1
+      WHERE tenant_id=$2 AND id=$3 AND status='pending'
+      RETURNING status,provider_message_id,rendered_email,provenance,fingerprint`, [renderedEmail, tenant, first.id]);
+    assert.equal(finalized.rowCount, 1);
+    assert.equal(finalized.rows[0].status, 'accepted');
+    assert.equal(finalized.rows[0].provider_message_id, 'provider-accepted');
+    assert.deepEqual(finalized.rows[0].rendered_email, renderedEmail);
+    assert.deepEqual(finalized.rows[0].provenance, first.provenance);
+    assert.equal(finalized.rows[0].fingerprint, first.fingerprint);
+    await assert.rejects(a.query("UPDATE attendee_cpd_certificate_delivery SET provenance='{}' WHERE id=$1", [first.id]), /permission denied/);
+    await assert.rejects(a.query("UPDATE attendee_cpd_certificate_delivery SET fingerprint=$1 WHERE id=$2", ['b'.repeat(64), first.id]), /permission denied/);
+    await a.query('RESET ROLE');
+    const finalGrants = await db.query(`SELECT
+      has_column_privilege('service_role','attendee_cpd_certificate_delivery','rendered_email','UPDATE') AS final_update,
+      has_column_privilege('anon','attendee_cpd_certificate_delivery','rendered_email','UPDATE') AS anon_update,
+      has_column_privilege('authenticated','attendee_cpd_certificate_delivery','rendered_email','UPDATE') AS member_update,
+      has_column_privilege('service_role','attendee_cpd_certificate_delivery','provenance','UPDATE') AS initial_update`);
+    assert.deepEqual(finalGrants.rows[0], { final_update: true, anon_update: false, member_update: false, initial_update: false });
     assert.equal((await claim(db, request)).reason, 'retry');
     assert.equal((await claim(db, randomUUID())).reason, 'resend_required');
     const resends = await Promise.all([claim(a, randomUUID(), { resend: true }), claim(b, randomUUID(), { resend: true })]);

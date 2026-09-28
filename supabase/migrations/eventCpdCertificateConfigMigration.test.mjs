@@ -45,6 +45,7 @@ test('certificate policy replacement is atomic and validates tenant, ticket, tem
       CREATE TABLE public.complex_event(id uuid PRIMARY KEY,tenant_id uuid);
       CREATE TABLE public.complex_event_ticket_class(id uuid PRIMARY KEY,tenant_id uuid,complex_event_id uuid,name text);
       CREATE TABLE public.cpd_certificate_template(id uuid PRIMARY KEY,tenant_id uuid,status text,source_path text);
+      CREATE TABLE public.email_template(id uuid PRIMARY KEY,tenant_id uuid,category text,is_active boolean,subject text,body text);
       INSERT INTO tenant VALUES ('${tenant}'),('${other}');
       INSERT INTO event VALUES ('${event}','${tenant}','{"ticket_classes":[{"id":"member","name":"Member"}]}');
       INSERT INTO complex_event VALUES ('${complexEvent}','${tenant}');
@@ -72,6 +73,27 @@ test('certificate policy replacement is atomic and validates tenant, ticket, tem
     sql(`SELECT public.replace_event_cpd_certificate_config('${tenant}','complex_event','${complexEvent}','${JSON.stringify(complexConfig)}'::jsonb);`);
     sql(`SELECT public.replace_event_cpd_certificate_config('${tenant}','complex_event','${complexEvent}','${JSON.stringify(config)}'::jsonb);`, true);
     assert.equal(sql(`SELECT count(*) FROM event_cpd_certificate_config;`).trim(), '2');
+    const emailMigration = readFileSync(new URL('./20261121_event_cpd_email_template.sql', import.meta.url), 'utf8');
+    sql(emailMigration);
+    sql(emailMigration);
+    sql(`INSERT INTO email_template VALUES ('${template}','${tenant}','events',true,'Certificate','Attached');`);
+    // Existing configurations survive installation and legacy replacement.
+    sql(call(config));
+    const emailConfig = { ...config, eventRule: { ...config.eventRule, email_template_id: template } };
+    sql(call(emailConfig));
+    sql(`SELECT public.replace_event_cpd_certificate_config('${tenant}','complex_event','${complexEvent}','${JSON.stringify({ ...complexConfig, eventRule: emailConfig.eventRule })}'::jsonb);`);
+    for (const update of [
+      `tenant_id='${other}'`, `category='welcome'`, 'is_active=false', "subject=' '", "body=''",
+    ]) {
+      sql(`BEGIN; UPDATE email_template SET ${update}; ${call(emailConfig)}`, true);
+      assert.equal(sql(`SELECT config->'eventRule'->>'email_template_id' FROM event_cpd_certificate_config WHERE event_type='event';`).trim(), template);
+    }
+    sql(call({ ...config, eventRule: { ...config.eventRule, email_template_id: inactive } }), true);
+    sql(call({ ...config, eventRule: { ...config.eventRule, email_template_id: 12 } }), true);
+    sql(call({ ...emailConfig, ticketRules: { member: { ...config.ticketRules.member, email_template_id: template } } }), true);
+    sql(`SET ROLE authenticated; ${call(emailConfig)}`, true);
+    sql(`SET ROLE service_role; ${call(emailConfig)}`);
+    assert.equal(sql(`SELECT has_function_privilege('anon','validate_event_cpd_email_template_config()','EXECUTE');`).trim(), 'f');
   } finally {
     if (started) run('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);
     await h.cleanup();

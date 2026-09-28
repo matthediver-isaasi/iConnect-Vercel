@@ -46,6 +46,7 @@ test('independent ticket template and date precedence preserves snapshot identit
 });
 
 function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config: { ticket_classes: [{ id: 'member' }] } },
+  emailTemplates = [],
   templates = [{ id: template, status: 'active', name: 'Certificate', version: 2, source_sha256: 'sha', source_path: 'private.pdf' }] } = {}) {
   const calls = [];
   const db = {
@@ -53,7 +54,11 @@ function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config
       const filters = [];
       const chain = {
         select() { return this; }, eq(key, value) { filters.push([key, value]); return this; },
-        order() { return Promise.resolve({ data: templates, error: null }); },
+        order() { return table === 'email_template' ? this : Promise.resolve({ data: templates, error: null }); },
+        range(start, end) {
+          return Promise.resolve({ data: emailTemplates.filter(t => filters.every(([key, value]) => t[key] === value))
+            .slice(start, end + 1), error: null });
+        },
         maybeSingle() {
           if (table === 'event' || table === 'complex_event') {
             return Promise.resolve({ data: event, error: null });
@@ -62,9 +67,16 @@ function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config
           if (table === 'cpd_certificate_template') {
             return Promise.resolve({ data: templates.find(t => t.id === filters.find(([key]) => key === 'id')?.[1]) || null, error: null });
           }
+          if (table === 'email_template') {
+            return Promise.resolve({ data: emailTemplates.find(t => filters.every(([key, value]) => t[key] === value)) || null, error: null });
+          }
+          if (table === 'complex_event_ticket_class') return Promise.resolve({ data: { id: 'member' }, error: null });
           throw new Error(`Unexpected table ${table}`);
         },
       };
+      if (table === 'complex_event_ticket_class') {
+        chain.then = (resolve, reject) => Promise.resolve({ data: [{ id: 'member' }], error: null }).then(resolve, reject);
+      }
       return chain;
     },
     async rpc(name, args) {
@@ -80,6 +92,61 @@ function response() {
 const deps = db => ({
   db, contextFor: async () => ({ tenantId: 'tenant1', isAuthenticated: true }),
   adminAccess: async () => true,
+});
+
+const emailId = '66666666-6666-4666-8666-666666666666';
+const emailTemplate = () => ({
+  id: emailId, tenant_id: 'tenant1', name: 'Certificate email', category: 'events',
+  is_active: true, subject: 'Certificate', body: '<p>Your certificate is attached.</p>',
+});
+
+test('email selection is optional for legacy config and validated independently of PDF selection', () => {
+  assert.doesNotThrow(() => validateCertificateConfig(config(), ['member'], [template]));
+  const selected = config();
+  selected.eventRule.email_template_id = emailId;
+  assert.throws(() => validateCertificateConfig(selected, ['member'], [template]), /Invalid email template/);
+  assert.equal(validateCertificateConfig(selected, ['member'], [template], [emailId]).eventRule.email_template_id, emailId);
+  selected.ticketRules.member.email_template_id = emailId;
+  assert.throws(() => validateCertificateConfig(selected, ['member'], [template], [emailId]), /event-wide only/);
+});
+
+for (const eventType of ['simple', 'complex']) {
+  test(`${eventType} saves/reopens email selection and only exposes tenant-owned safe metadata`, async () => {
+    const selected = config();
+    selected.eventRule.email_template_id = emailId;
+    const { db, calls } = mockDb({ stored: selected, emailTemplates: [emailTemplate(),
+      { ...emailTemplate(), id: '77777777-7777-4777-8777-777777777777', tenant_id: 'other' }] });
+    const res = response();
+    await handleCertificateRules({ method: 'PUT', body: { event_type: eventType, event_id: 'e', config: selected } }, res, deps(db));
+    assert.equal(res.code, 200);
+    assert.equal(calls[0][1].p_config.eventRule.email_template_id, emailId);
+    await handleCertificateRules({ method: 'GET', query: { event_type: eventType, event_id: 'e' } }, res, deps(db));
+    assert.equal(res.code, 200);
+    assert.equal(res.data.config.eventRule.email_template_id, emailId);
+    assert.deepEqual(res.data.emailTemplates, [{ id: emailId, name: 'Certificate email', is_active: true, unavailable: false }]);
+    const policy = await resolveEventCpdCertificate(db, { tenantId: 'tenant1', eventType, eventId: 'e', ticketId: 'member' });
+    assert.equal(policy.email_template_id, emailId);
+  });
+}
+
+test('missing, foreign, inactive, wrong-category and empty-content selections remain visible but cannot save', async () => {
+  for (const record of [null, { ...emailTemplate(), tenant_id: 'other' },
+    { ...emailTemplate(), is_active: false }, { ...emailTemplate(), category: 'welcome' },
+    { ...emailTemplate(), subject: ' ' }, { ...emailTemplate(), body: '' }]) {
+    const selected = config();
+    selected.eventRule.email_template_id = emailId;
+    const { db, calls } = mockDb({ stored: selected, emailTemplates: record ? [record] : [] });
+    const res = response();
+    await handleCertificateRules({ method: 'GET', query: { event_type: 'simple', event_id: 'e' } }, res, deps(db));
+    assert.equal(res.code, 200);
+    assert.equal(res.data.config.eventRule.email_template_id, emailId);
+    assert.equal(res.data.emailTemplates[0].unavailable, true);
+    if (!record || record.tenant_id !== 'tenant1') assert.equal(res.data.emailTemplates[0].name, 'Unavailable email template');
+    await handleCertificateRules({ method: 'PUT', body: { event_type: 'simple', event_id: 'e', config: selected } }, res, deps(db));
+    assert.equal(res.code, 400);
+    assert.match(res.data.error, /active Events email template/);
+    assert.equal(calls.length, 0);
+  }
 });
 
 test('GET safe template metadata and missing historical template indication', async () => {
