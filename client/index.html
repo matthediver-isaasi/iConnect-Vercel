@@ -7,14 +7,14 @@
       // Strip invitation credentials before app modules and analytics execute.
       // Fragments are never transmitted with an HTTP request.
       (function() {
-        if (!/^\/survey\/[^/]+$/.test(location.pathname) || !location.hash.startsWith('#certificate_grant=')) return;
+        if (!/^\/survey\/[^/]+\/?$/i.test(location.pathname) || !location.hash.startsWith('#certificate_grant=')) return;
         var token = location.hash.slice('#certificate_grant='.length);
         history.replaceState(history.state, '', location.pathname + location.search);
-        if (/^[A-Za-z0-9_-]{43}$/.test(token)) {
+        {
           try {
             sessionStorage.removeItem('certificate-survey-completed:' + location.pathname);
             sessionStorage.removeItem('certificate-survey-expired:' + location.pathname);
-            sessionStorage.setItem('certificate-survey:' + location.pathname, token);
+            sessionStorage.setItem('certificate-survey:' + location.pathname, /^[A-Za-z0-9_-]{43}$/.test(token) ? token : 'invalid');
           } catch (_) {}
         }
       })();

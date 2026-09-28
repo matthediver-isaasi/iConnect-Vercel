@@ -12,6 +12,7 @@ import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { readCertificateSurveyGrant } from "@/lib/certificateSurveyRoute";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { buildMemberResourceCategoryPrefillValues, coerceConditionalSetValue, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
@@ -146,13 +147,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const location = useLocation();
   const [certificateGrant] = useState(() => {
     if (!assignmentToken) return null;
-    try {
-      const key = `certificate-survey:${window.location.pathname}`;
-      const token = window.sessionStorage.getItem(key);
-      // Tab-local storage survives refresh and transient network failures.
-      // Never consume the capability before the server has confirmed completion.
-      return /^[A-Za-z0-9_-]{43}$/.test(token || '') ? token : null;
-    } catch { return null; }
+    return readCertificateSurveyGrant();
   });
   const {
     memberInfo,

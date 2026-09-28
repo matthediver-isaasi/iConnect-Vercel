@@ -42,6 +42,17 @@ Warn in the UI and email not to submit, and to open signed out/private because a
 different logged-in identity is correctly rejected. Provider acceptance is not
 proof of inbox delivery. Ordinary on-screen previews still use inactive links.
 
+Fragment-based survey credentials must survive approved canonical-domain redirects.
+
+**Why:** Early removal into sessionStorage protects against analytics leakage, but
+that storage is origin-scoped. A later domain redirect otherwise loses the
+credential and falls back to the ordinary assignment's login requirement.
+
+**How to apply:** Carry the capability only in the fragment to a server-approved
+tenant destination; never copy it into query strings or canonical metadata. Keep
+the public survey resolver accessible and let its API validate entitlement,
+instead of applying generic form-page visibility first.
+
 Campaign test sends deliberately differ from production at the credential
 boundary. Tenant and group test-send recipients are synthetic and have no
 persisted campaign-recipient identity, so preference aliases render as

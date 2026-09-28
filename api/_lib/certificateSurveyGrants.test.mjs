@@ -127,6 +127,50 @@ test('issuance requires confirmed booking and creates a hashed per-booking crede
   assert.equal(certificateSurveyTokenHash(token), db.rows.certificate_survey_credential[0].token_hash);
 });
 
+test('logged-out assignment GET serves accepted grant and rejects invalid, expired and wrong-assignment grants', async () => {
+  const db = dbFixture();
+  db.rows.event = [];
+  db.rows.survey_version = [{
+    form_id: form.id, tenant_id: tenant.id, version_number: 1,
+    fields: [{ id: 'feedback', type: 'text', label: 'Feedback' }], pages: [],
+  }];
+  const deliveryId = '11111111-1111-4111-8111-111111111111';
+  const links = await prepareCertificateSurveyLinks({
+    db, tenant, eventType: 'event', eventId: 'event-1', bookingSource: 'standard',
+    bookingId: booking.id, recipient: booking.attendee_email, preview: false, deliveryId,
+  });
+  const token = links.text.match(/certificate_grant=([A-Za-z0-9_-]{43})/)[1];
+  db.rows.attendee_cpd_certificate_delivery.push({
+    id: deliveryId, tenant_id: tenant.id, booking_source: 'standard',
+    booking_id: booking.id, status: 'accepted', purpose: 'test',
+  });
+  const invoke = async supplied => {
+    const output = {};
+    const res = { setHeader() {}, status(code) { output.status = code; return res; },
+      json(body) { output.body = body; return res; } };
+    await surveyAssignmentHandler({ method: 'GET', query: { token: assignment.token },
+      headers: supplied ? { 'x-certificate-survey-grant': supplied } : {} }, res, {
+      supabase: db, resolveTenant: async () => tenant,
+      getSessionMember: async () => null, getSession: async () => null,
+    });
+    return output;
+  };
+  const allowed = await invoke(token);
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.form.id, form.id);
+  assert.equal(allowed.body.require_authentication, undefined);
+  const ordinary = await invoke(null);
+  assert.equal(ordinary.body.require_authentication, true);
+  assert.equal(ordinary.body.form, undefined);
+  assert.equal((await invoke('invalid')).status, 403);
+  const grant = db.rows.certificate_survey_entitlement[0];
+  grant.assignment_id = 'wrong-assignment';
+  assert.equal((await invoke(token)).status, 403);
+  grant.assignment_id = assignment.id;
+  db.rows.certificate_survey_credential[0].expires_at = '2000-01-01T00:00:00Z';
+  assert.equal((await invoke(token)).status, 403);
+});
+
 test('two published assignments both appear in the final wrapped email, with buttons in padded separate rows', async () => {
   const db = dbFixture();
   db.rows.event_survey_assignment.push({
@@ -161,6 +205,7 @@ test('two published assignments both appear in the final wrapped email, with but
     } } },
     getTenantEmailConfig: async () => null,
     getEmailFooter: async () => '<p>Footer</p>',
+    replaceSocialPlaceholdersInFooter: async html => html,
     resolveTransactionalPreferenceTokens: async payload => payload,
   });
   assert.equal(result.success, true);

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { canonicalSurveyRedirect } from '@/lib/certificateSurveyRoute';
 
 export default function SubdomainRedirect() {
   useEffect(() => {
@@ -49,7 +50,9 @@ export default function SubdomainRedirect() {
           }
         }
         
-        const redirectUrl = `https://${customDomain}${window.location.pathname}${window.location.search}`;
+        const redirect = canonicalSurveyRedirect(customDomain);
+        if (!redirect) return;
+        const redirectUrl = redirect.canonical;
         
         const link = document.querySelector('link[rel="canonical"]');
         if (link) {
@@ -61,7 +64,7 @@ export default function SubdomainRedirect() {
           document.head.appendChild(newLink);
         }
         
-        window.location.replace(redirectUrl);
+        window.location.replace(redirect.destination);
         
       } catch (err) {
         console.error('[SubdomainRedirect] Error:', err);

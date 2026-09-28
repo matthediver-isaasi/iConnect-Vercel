@@ -1416,6 +1416,10 @@ const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched,
 
 // Helper to get page visibility from dynamic settings or fallback to default
 const getPageVisibility = (pageName) => {
+  // Assignment access is resolved by the public API (including invitation,
+  // tenant, window and ordinary member-only checks), not FormView's generic
+  // portal setting. This exposes only the resolver shell, never a form.
+  if (pageName === 'FormView' && /^\/survey\/[^/]+\/?$/i.test(location.pathname)) return 'hybrid';
   // First check dynamic settings
   if (pageVisibilitySettings[pageName]) {
     return pageVisibilitySettings[pageName];
