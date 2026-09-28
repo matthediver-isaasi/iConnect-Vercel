@@ -31,3 +31,14 @@ processing. Draft associations must not silently become ordinary unbound drafts.
 detached authority on already-bound processing, and enforce binding predicates
 in the database too. Never retry live organisation deletion as verification:
 the existing multi-step cleanup can have partial effects.
+
+Explicit applicant policy can restore a legacy form's editable mutation contract
+without changing its business mappings; the user confirmed this approach worked.
+
+**Why:** A legacy public organisation form had real finance/custom updates but no
+explicit policy. Enabling the scoped applicant contract allowed the user to
+update the form without weakening record ownership checks.
+
+**How to apply:** Obtain approval for the exact production policy change. Do not
+equate a successful form edit with proof of anonymous applicant completion, or
+apply organisation-scoped policy wholesale to member-only signup forms.

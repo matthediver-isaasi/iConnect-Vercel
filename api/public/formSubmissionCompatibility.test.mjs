@@ -264,6 +264,33 @@ function fixtureRoles(form) {
     .map(pipeline => ({ id: pipeline.role_id, tenant_id: form.tenant_id }));
 }
 
+test('partner incident: repaired policy rejects bare organisation IDs and legacy unbound drafts before writes', async () => {
+  const form = continuationForm(sanitizedFixtures[1]);
+  const organization = { id: 'fixture-organization', tenant_id: form.tenant_id, name: 'Existing partner' };
+  for (const resumeToken of [undefined, 'ordinary-partner-draft']) {
+    const result = await submitThroughRealProcessor({
+      form,
+      submissionData: fixtureAnswers(form, organization.id),
+      prefillOrganizationId: organization.id,
+      resumeToken,
+      draft: resumeToken ? {
+        applicant_continuation_id: null,
+        resume_token_hash: hashApplicantToken(resumeToken),
+        expires_at: '2099-01-01T00:00:00Z',
+      } : undefined,
+      processorOptions: {
+        existingOrganization: organization,
+        preferenceFields: fixturePreferenceFields(form),
+        roles: fixtureRoles(form),
+      },
+    });
+    assert.equal(result.response.statusCode, 403);
+    assert.equal(result.response.body.code, 'APPLICANT_CONTINUATION_REQUIRED');
+    assert.equal(result.handoffs.length, 0);
+    assert.equal(result.insertedSubmissions.length, 0);
+  }
+});
+
 for (const fixture of sanitizedFixtures) {
   test(`sanitized GFI ${fixture.formId}: continuation preserves configured mutation scope`, async () => {
     const form = continuationForm(fixture);
