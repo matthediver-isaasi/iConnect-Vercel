@@ -326,6 +326,11 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                       srcDoc={emailPreview.html} className="w-full min-h-48 rounded border" />
                     <p className="text-sm"><strong>Attachment:</strong> {emailPreview.attachment?.filename} (PDF, {emailPreview.attachment?.bytes} bytes)</p>
                     <p className="text-xs text-muted-foreground">Survey links are inactive in previews. Sent emails include individual attendee links.</p>
+                    {emailPreview.omitted_surveys?.length > 0 && <div className="text-sm text-amber-700" data-testid="cpd-omitted-surveys">
+                      <strong>Assigned surveys not included in this email:</strong>
+                      <ul className="list-disc pl-5">{emailPreview.omitted_surveys.map((survey, index) =>
+                        <li key={index}>{survey.title}: {survey.reason}</li>)}</ul>
+                    </div>}
                     {emailPreview.text && <details><summary className="text-sm">Plain-text version</summary>
                       <pre className="whitespace-pre-wrap text-xs">{emailPreview.text}</pre></details>}
                   </div>}

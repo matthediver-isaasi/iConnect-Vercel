@@ -75,19 +75,31 @@ export async function prepareCertificateSurveyLinks({
     if (!page || page.length < 500) break;
   }
   const eligible = [];
+  // These reasons are returned only to the admin email preview, never included
+  // in the recipient message or entitlement snapshot.
+  const omitted = [];
   for (const assignment of assignments || []) {
-    if (assignmentWindowState(assignment) !== 'open') continue;
     const form = checked(await db.from('form').select('id,name,description,form_type,is_active,survey_settings,deactivate_at,deactivate_timezone')
       .eq('id', assignment.form_id).eq('tenant_id', tenant.id).maybeSingle());
-    if (form?.form_type !== 'survey' || form.is_active !== true
-      || !isFormScheduleAvailable(form) || form.survey_settings?.status !== 'published'
-      || !Number.isInteger(Number(form.survey_settings?.current_version))
-      || Number(form.survey_settings.current_version) < 1) continue;
+    const state = assignmentWindowState(assignment);
+    let reason = null;
+    if (!form) reason = 'Survey form is unavailable.';
+    else if (form.form_type !== 'survey') reason = 'Assigned form is not a survey.';
+    else if (state !== 'open') reason = state === 'not_open_yet' ? 'Assignment has not opened.' : 'Assignment has closed.';
+    else if (form.is_active !== true) reason = 'Survey form is inactive.';
+    else if (!isFormScheduleAvailable(form)) reason = 'Survey form availability window has closed.';
+    else if (form.survey_settings?.status !== 'published') reason = 'Survey is not published.';
+    else if (!Number.isInteger(Number(form.survey_settings?.current_version))
+      || Number(form.survey_settings.current_version) < 1) reason = 'Survey has no published version.';
+    if (reason) {
+      if (preview) omitted.push({ title: form?.name || 'Unavailable survey', reason });
+      continue;
+    }
     eligible.push({ assignment, form });
   }
   if (!eligible.length) {
     const message = 'No surveys are currently available for this event.';
-    return { html: `<p>${message}</p>`, text: message, grantIds: [], snapshot: [] };
+    return { html: `<p>${message}</p>`, text: message, grantIds: [], snapshot: [], ...(preview ? { omitted } : {}) };
   }
   // Never derive a bearer URL from request Host/Origin. Fragment credentials
   // are not transmitted in HTTP requests or Referer headers.
@@ -159,9 +171,9 @@ export async function prepareCertificateSurveyLinks({
     });
   }
   return {
-    grantIds, snapshot,
-    html: `<div style="font-family:Arial,sans-serif"><p>Surveys for this event:</p><ul style="list-style:none;padding:0">${rows.map(row =>
-      `<li style="margin:0 0 20px;padding:16px;border:1px solid #ddd;border-radius:8px"><strong>${safe(row.title)}</strong>${row.description ? `<p>${safe(row.description)}</p>` : ''}${row.closes ? `<p>Closing date: ${safe(row.closes)}</p>` : ''}${row.url ? `<a href="${safe(row.url)}" style="display:inline-block;padding:10px 16px;background:#1e4774;color:#fff;text-decoration:none;border-radius:4px">Complete survey</a>` : `<p>${row.completed ? 'Response received' : 'Survey link available in the sent email'}</p>`}</li>`).join('')}</ul></div>`,
+    grantIds, snapshot, ...(preview ? { omitted } : {}),
+    html: `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:Arial,sans-serif;border-collapse:collapse"><tr><td style="padding:0 0 12px">Surveys for this event:</td></tr>${rows.map(row =>
+      `<tr><td style="padding:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #ddd"><tr><td style="padding:16px 16px 8px;font-weight:bold">${safe(row.title)}</td></tr>${row.description ? `<tr><td style="padding:0 16px 8px">${safe(row.description)}</td></tr>` : ''}${row.closes ? `<tr><td style="padding:0 16px 8px">Closing date: ${safe(row.closes)}</td></tr>` : ''}<tr><td style="padding:8px 16px 16px">${row.url ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#1e4774" style="background-color:#1e4774;border-radius:4px;padding:10px 16px"><a href="${safe(row.url)}" style="color:#ffffff;text-decoration:none;display:inline-block">Complete survey</a></td></tr></table>` : (row.completed ? 'Response received' : 'Survey link available in the sent email')}</td></tr></table></td></tr>`).join('')}</table>`,
     text: `Surveys for this event:\n\n${rows.map(row => [
       row.title, row.description, row.closes ? `Closing date: ${row.closes}` : '',
       row.url || (row.completed ? 'Response received' : 'Survey link available in the sent email'),

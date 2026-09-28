@@ -90,6 +90,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
         attachment: { filename: 'cpd-certificate.pdf', content_type: 'application/pdf',
           bytes: pdf.length, sha256: createHash('sha256').update(pdf).digest('hex') },
         survey_links_inactive: true,
+        omitted_surveys: resolved.survey_list?.omitted || [],
       });
     }
     if (input.confirmed !== true || !UUID.test(input.request_id || '')) {

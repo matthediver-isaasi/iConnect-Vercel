@@ -3,7 +3,8 @@ import { build } from "esbuild";
 import path from "node:path";
 import fs from "node:fs";
 import surveyAssignmentHandler from "../api/public/survey-assignment/[token].js";
-import { certificateSurveyTokenHash } from "../api/_lib/certificateSurveyGrants.js";
+import { certificateSurveyTokenHash, prepareCertificateSurveyLinks } from "../api/_lib/certificateSurveyGrants.js";
+import { prepareCpdEmail } from "../api/_lib/eventCpdEmail.js";
 
 // An isolated, mounted editor suite: all entity writes and fetches stay in
 // browser memory. No live tenant or email provider is contacted.
@@ -338,6 +339,73 @@ test("isolated certificate email preview displays inert survey text without send
     { method: "POST", body: { booking_id: "booking-fixture", booking_source: "standard",
       action: "email-preview", expected_fingerprint: "preview-fingerprint" } },
   ]);
+});
+
+test("two-survey sent-email card fixture visually separates padded buttons from titles", async ({ page }) => {
+  const tenant = { id: "fixture-tenant", slug: "fixture", domain: "fixture.example.test" };
+  const rows = {
+    booking: [{ id: "booking", tenant_id: tenant.id, event_id: "event", status: "confirmed",
+      attendee_email: "fixture@example.test" }],
+    event_survey_assignment: ["First speaker survey", "Second feedback survey"].map((_, i) => ({
+      id: `assignment-${i}`, tenant_id: tenant.id, event_type: "event", event_id: "event",
+      form_id: `form-${i}`, token: `assignment-token-${i}`, status: "active",
+    })),
+    form: ["First speaker survey", "Second feedback survey"].map((name, i) => ({
+      id: `form-${i}`, tenant_id: tenant.id, name, description: `Description ${i + 1}`,
+      form_type: "survey", is_active: true,
+      survey_settings: { status: "published", current_version: 1 },
+    })),
+    certificate_survey_entitlement: [], certificate_survey_credential: [],
+    tenant: [{ id: tenant.id, settings: {} }],
+  };
+  const db = {
+    from(table) {
+      const filters = [];
+      let inserted;
+      const q = {
+        select() { return q; },
+        eq(key, value) { filters.push(row => row[key] === value); return q; },
+        order() { return q; },
+        range() { return q; },
+        maybeSingle() { return Promise.resolve({ data: rows[table].find(row => filters.every(f => f(row))) || null }); },
+        insert(row) { inserted = row; return q; },
+        single() {
+          const row = { ...inserted, id: `generated-${rows[table].length}` };
+          rows[table].push(row);
+          return Promise.resolve({ data: row });
+        },
+        then(resolve, reject) {
+          return Promise.resolve({ data: rows[table].filter(row => filters.every(f => f(row))) }).then(resolve, reject);
+        },
+      };
+      return q;
+    },
+  };
+  const list = await prepareCertificateSurveyLinks({
+    db, tenant, eventType: "event", eventId: "event", bookingSource: "standard",
+    bookingId: "booking", recipient: "fixture@example.test", preview: false,
+    deliveryId: "11111111-1111-4111-8111-111111111111",
+  });
+  const email = await prepareCpdEmail(db, tenant.id, {
+    template: { id: "template", subject: "Certificate", body:
+      '<table width="600" align="center"><tr><td><div style="font-family:Arial,sans-serif">{{event_survey_list}}</div></td></tr></table>' },
+  }, {}, list);
+  await page.route("**/*", route => route.request().resourceType() === "document"
+    ? route.fulfill({ status: 200, contentType: "text/html", body: email.message.html })
+    : route.abort("blockedbyclient"));
+  await page.goto("http://cpd-email-editors.test/survey-email-layout-fixture");
+  await expect(page.getByText("First speaker survey")).toBeVisible();
+  await expect(page.getByText("Second feedback survey")).toBeVisible();
+  const buttons = page.getByRole("link", { name: "Complete survey" });
+  await expect(buttons).toHaveCount(2);
+  for (let i = 0; i < 2; i++) {
+    const title = page.getByText(i ? "Second feedback survey" : "First speaker survey");
+    const titleBox = await title.boundingBox();
+    const buttonBox = await buttons.nth(i).boundingBox();
+    expect(buttonBox.y).toBeGreaterThan(titleBox.y + titleBox.height);
+    expect(buttonBox.x).toBeGreaterThanOrEqual(titleBox.x);
+  }
+  await page.screenshot({ path: "/tmp/cpd-survey-email-card-fixture.png", fullPage: true });
 });
 
 test("isolated guest browser keeps fragment grant through transient failure and reaches the real assignment handler", async ({ page }) => {

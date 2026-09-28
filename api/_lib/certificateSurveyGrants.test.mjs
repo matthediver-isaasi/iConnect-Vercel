@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { JSDOM } from 'jsdom';
+import { prepareCpdEmail } from './eventCpdEmail.js';
+import { sendEmail } from './emailService.js';
 import surveyAssignmentHandler from '../public/survey-assignment/[token].js';
 import {
   certificateSurveyTokenHash, prepareCertificateSurveyLinks,
@@ -122,6 +125,99 @@ test('issuance requires confirmed booking and creates a hashed per-booking crede
   assert.doesNotMatch(JSON.stringify(db.writes), /certificate_grant=/);
   const token = list.text.match(/certificate_grant=([A-Za-z0-9_-]{43})/)[1];
   assert.equal(certificateSurveyTokenHash(token), db.rows.certificate_survey_credential[0].token_hash);
+});
+
+test('two published assignments both appear in the final wrapped email, with buttons in padded separate rows', async () => {
+  const db = dbFixture();
+  db.rows.event_survey_assignment.push({
+    ...assignment, id: 'assignment-2', form_id: 'form-2', token: 'second-token',
+  });
+  db.rows.form.push({
+    ...form, id: 'form-2', name: 'Second survey', description: 'Second description',
+  });
+  const list = await prepareCertificateSurveyLinks({
+    db, tenant, eventType: 'event', eventId: 'event-1', bookingSource: 'standard',
+    bookingId: 'booking-1', recipient: 'guest@example.org', preview: false,
+    deliveryId: '11111111-1111-4111-8111-111111111111',
+  });
+  assert.equal(list.snapshot.length, 2);
+  assert.equal(list.grantIds.length, 2);
+  assert.equal(db.rows.certificate_survey_credential.length, 2);
+  db.rows.tenant = [{ id: tenant.id, settings: {} }];
+  const email = await prepareCpdEmail(db, tenant.id, {
+    template: { id: 'template-1', name: 'Certificate', subject: 'Certificate',
+      body: '<table><tbody><tr><td><div style="font-size:14px">{{event_survey_list}}</div></td></tr></tbody></table>' },
+  }, {}, list);
+  // prepareCpdEmail reads the tenant before rendering; its actual wrapper is
+  // included in the HTML passed through the transport, not just helper output.
+  let delivered;
+  const result = await sendEmail({
+    ...email.message, to: 'guest@example.org', tenantId: tenant.id,
+    disableTracking: true, includeRenderedContent: true,
+  }, {
+    client: { messages: { create: async (_domain, message) => {
+      delivered = message;
+      return { id: '<fixture@example.org>' };
+    } } },
+    getTenantEmailConfig: async () => null,
+    getEmailFooter: async () => '<p>Footer</p>',
+    resolveTransactionalPreferenceTokens: async payload => payload,
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.renderedHtml, delivered.html);
+  const document = new JSDOM(result.renderedHtml).window.document;
+  const cards = [...document.querySelectorAll('table[role="presentation"]')]
+    .filter(table => table.textContent.includes('Complete survey') && table.querySelectorAll('a[href*="certificate_grant"]').length);
+  assert.equal(document.querySelectorAll('a[href*="certificate_grant"]').length, 2);
+  for (const title of ['<Important survey>', 'Second survey']) {
+    const card = cards.find(table => table.textContent.includes(title) && table.querySelector('td[style*="font-weight:bold"]'));
+    assert.ok(card, `${title} card exists after wrapping`);
+    const titleCell = card.querySelector('td[style*="font-weight:bold"]');
+    const buttonCell = card.querySelector('td[style*="padding:8px 16px 16px"]');
+    assert.ok(buttonCell);
+    assert.notEqual(titleCell.parentElement, buttonCell.parentElement);
+    assert.ok(buttonCell.querySelector('a[href*="certificate_grant"]'));
+  }
+  assert.match(delivered.html, /Second description/);
+  assert.match(delivered.html, /Closing date:/);
+  assert.equal(delivered['o:tracking-clicks'], 'no');
+});
+
+test('admin preview explains excluded assignments without leaking them into message or issuing grants', async () => {
+  const db = dbFixture();
+  db.rows.event_survey_assignment.push(
+    { ...assignment, id: 'draft', form_id: 'draft-form' },
+    { ...assignment, id: 'future', form_id: 'future-form', opens_at: '2099-01-01T00:00:00Z' },
+    { ...assignment, id: 'inactive', form_id: 'inactive-form' },
+    { ...assignment, id: 'expired', form_id: 'expired-form' },
+    { ...assignment, id: 'unversioned', form_id: 'unversioned-form' },
+  );
+  db.rows.form.push(
+    { ...form, id: 'draft-form', name: 'Autumn Meeting Feedback', survey_settings: { status: 'draft' } },
+    { ...form, id: 'future-form', name: 'Future' },
+    { ...form, id: 'inactive-form', name: 'Inactive', is_active: false },
+    { ...form, id: 'expired-form', name: 'Expired', deactivate_at: '2020-01-01T00:00:00Z' },
+    { ...form, id: 'unversioned-form', name: 'Unversioned', survey_settings: { status: 'published' } },
+  );
+  const opts = { db, tenant, eventType: 'event', eventId: 'event-1',
+    bookingSource: 'standard', bookingId: 'booking-1', recipient: 'guest@example.org' };
+  const preview = await prepareCertificateSurveyLinks({ ...opts, preview: true });
+  assert.equal(preview.snapshot.length, 1);
+  assert.deepEqual(preview.omitted.map(({ title, reason }) => [title, reason]), [
+    ['Autumn Meeting Feedback', 'Survey is not published.'],
+    ['Future', 'Assignment has not opened.'],
+    ['Inactive', 'Survey form is inactive.'],
+    ['Expired', 'Survey form availability window has closed.'],
+    ['Unversioned', 'Survey has no published version.'],
+  ]);
+  assert.doesNotMatch(preview.html + preview.text, /Autumn Meeting Feedback/);
+  assert.equal(db.writes.length, 0);
+  const sent = await prepareCertificateSurveyLinks({ ...opts, preview: false,
+    deliveryId: '11111111-1111-4111-8111-111111111111' });
+  assert.equal(sent.snapshot.length, 1);
+  assert.equal(sent.grantIds.length, 1);
+  assert.equal(sent.omitted, undefined);
+  assert.doesNotMatch(sent.html + sent.text, /Autumn Meeting Feedback/);
 });
 
 test('complex bookings use the actual event_id booking column against complex assignment scope', async () => {

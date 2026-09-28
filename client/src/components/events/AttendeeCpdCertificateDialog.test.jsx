@@ -71,6 +71,7 @@ test("email preview shows selected subject, safe HTML and matching PDF attachmen
     return Promise.resolve(json({
       recipient: "ari@example.test", subject: "Your certificate", html: "<p>Survey list preview</p>",
       text: "Survey list preview", survey_links_inactive: true,
+      omitted_surveys: [{ title: "Autumn Meeting Feedback", reason: "Survey is not published." }],
       attachment: { filename: "cpd-certificate.pdf", bytes: 432, content_type: "application/pdf" },
     }));
   };
@@ -89,6 +90,8 @@ test("email preview shows selected subject, safe HTML and matching PDF attachmen
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Body:/);
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /cpd-certificate.pdf/);
     assert.match(document.querySelector('[data-testid="cpd-email-preview"]').textContent, /Plain-text version/);
+    assert.match(document.querySelector('[data-testid="cpd-omitted-surveys"]').textContent,
+      /Autumn Meeting Feedback: Survey is not published/);
     assert.equal(document.querySelector('[data-testid="cpd-email-preview"] iframe').getAttribute("sandbox"), "");
     assert.equal(document.querySelector('[data-testid="cpd-email-preview"] iframe').getAttribute("srcdoc"), "<p>Survey list preview</p>");
     assert.match(document.body.textContent, /Autumn Meeting 2026 CPD/);
