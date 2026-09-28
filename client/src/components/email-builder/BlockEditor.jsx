@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
-import { groupPlaceholdersByCategory, placeholderFriendlyLabel } from '@/lib/emailPlaceholders';
+import { groupBuilderPlaceholders, placeholderFriendlyLabel } from '@/lib/emailPlaceholders';
 import { toast } from 'sonner';
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { 
@@ -1834,13 +1834,13 @@ function PlaceholderBlockEditor({ block, onChange, isChild }) {
     onChange({ ...block, styles: { ...block.styles, [key]: value } });
   };
 
-  const groups = useMemo(() => groupPlaceholdersByCategory(), []);
+  const groups = useMemo(() => groupBuilderPlaceholders(), []);
   const currentLabel = block.placeholder
     ? (block.label || placeholderFriendlyLabel(block.placeholder))
     : '';
 
   const selectPlaceholder = (token) => {
-    onChange({ ...block, placeholder: token, label: placeholderFriendlyLabel(token) });
+    onChange({ ...block, placeholder: token, label: placeholderFriendlyLabel(token, true) });
     setPickerOpen(false);
   };
 
@@ -1876,7 +1876,7 @@ function PlaceholderBlockEditor({ block, onChange, isChild }) {
                     {group.items.map((item) => (
                       <CommandItem
                         key={`${group.category}-${item.token}`}
-                        value={`${item.token} ${item.description || ''} ${group.category}`}
+                        value={`${placeholderFriendlyLabel(item.token, group.category === 'CPD certificate email')} ${item.token} ${item.description || ''} ${group.category}`}
                         onSelect={() => selectPlaceholder(item.token)}
                         data-testid={`placeholder-option-${item.token}`}
                       >
@@ -1884,7 +1884,7 @@ function PlaceholderBlockEditor({ block, onChange, isChild }) {
                           className={`mr-2 h-4 w-4 ${block.placeholder === item.token ? 'opacity-100' : 'opacity-0'}`}
                         />
                         <div className="flex min-w-0 flex-col">
-                          <span className="truncate text-sm">{placeholderFriendlyLabel(item.token)}</span>
+                          <span className="truncate text-sm">{placeholderFriendlyLabel(item.token, group.category === 'CPD certificate email')}</span>
                           <span className="truncate font-mono text-xs text-muted-foreground">{item.token}</span>
                         </div>
                       </CommandItem>

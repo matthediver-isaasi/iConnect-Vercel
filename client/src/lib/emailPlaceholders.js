@@ -33,6 +33,7 @@
  * is the case. New tokens should be added here and kept in sync with the
  * substitution code paths.
  */
+import { EVENT_CPD_EMAIL_PLACEHOLDERS } from '../../../shared/eventCpdEmailPlaceholders.js';
 
 export const PLACEHOLDER_SYNTAX = {
   CURLY: 'curly',
@@ -40,6 +41,7 @@ export const PLACEHOLDER_SYNTAX = {
 };
 
 export const PLACEHOLDER_CATEGORIES = [
+  'CPD certificate email',
   'Member',
   'Organisation',
   'Contracts',
@@ -56,6 +58,7 @@ export const PLACEHOLDER_CATEGORIES = [
 ];
 
 export const PLACEHOLDER_CONTEXTS = [
+  'CPD certificate emails',
   'Workflow Emails',
   'Contract Send / Reminders',
   'DD Stage Actions',
@@ -95,7 +98,7 @@ const entry = (
   notes: extras.notes || null,
 });
 
-export const EMAIL_PLACEHOLDERS = [
+const BASE_EMAIL_PLACEHOLDERS = [
   entry(
     '{{event_sponsors}}', PLACEHOLDER_SYNTAX.CURLY, 'Event Confirmation & Reminder',
     'Public sponsor logos and names for the selected event, rendered as an email table.',
@@ -120,13 +123,6 @@ export const EMAIL_PLACEHOLDERS = [
     '[[event.survey_url]]', PLACEHOLDER_SYNTAX.BRACKET, 'System & Links',
     'Alias of {{event_survey_url}}; resolves from campaign event survey settings, not the template.',
     ['Email Campaigns', 'Event Confirmations', 'Event Reminders'], 'Campaign / event email survey settings',
-  ),
-  entry(
-    '{{event_survey_list}}', PLACEHOLDER_SYNTAX.CURLY, 'Event Confirmation & Reminder',
-    'Event survey list for the attendee: all eligible attached surveys, with individual booking links in sent certificate emails.',
-    ['Event Confirmations'], 'api/_lib/eventCpdEmail.js (manual attendee CPD certificate email)',
-    { prerequisites: 'Use in a manual attendee CPD certificate email for an event with eligible attached surveys.',
-      notes: 'Body block only, not a URL or button href. Sent emails resolve attendee-specific access links; template and builder previews retain the literal token and never show bearer links.' },
   ),
   // --- Member ---
   entry(
@@ -1522,13 +1518,40 @@ export const EMAIL_PLACEHOLDERS = [
   ),
 ];
 
+// The send-time CPD renderer and the manual template picker use this shared
+// whitelist. Keep existing inventory entries (and their other email contexts)
+// while merging CPD metadata, then append only the tokens not already listed.
+const cpdByToken = new Map(EVENT_CPD_EMAIL_PLACEHOLDERS.map((p) => [p.token, p]));
+const baseTokens = new Set(BASE_EMAIL_PLACEHOLDERS.map((p) => p.token));
+export const EMAIL_PLACEHOLDERS = [
+  ...BASE_EMAIL_PLACEHOLDERS.map((p) => {
+    const cpd = cpdByToken.get(p.token);
+    return cpd ? {
+      ...p,
+      description: `${p.description} In manual CPD certificate emails: ${cpd.description}`,
+      contexts: [...new Set([...p.contexts, 'CPD certificate emails'])],
+      source: `${p.source}; api/_lib/eventCpdEmail.js`,
+    } : p;
+  }),
+  ...EVENT_CPD_EMAIL_PLACEHOLDERS.filter((p) => !baseTokens.has(p.token)).map((p) =>
+    entry(p.token, PLACEHOLDER_SYNTAX.CURLY, 'CPD certificate email', p.description,
+      ['CPD certificate emails'], 'shared/eventCpdEmailPlaceholders.js / api/_lib/eventCpdEmail.js',
+      p.token === '{{event_survey_list}}'
+        ? { notes: 'Body block only, not a URL or button href. Previews retain the literal token and never expose attendee bearer links.' }
+        : {}),
+  ),
+];
+
 // Produce a short, human-readable label for a placeholder token, suitable for
 // a chip/label in the email builder (e.g. '[[member.first_name]]' →
 // 'Member · First name'). Falls back to a humanised token when the token is not
 // in the inventory.
-export function placeholderFriendlyLabel(token) {
+export function placeholderFriendlyLabel(token, preferCpd = false) {
   if (!token) return '';
+  const cpd = cpdByToken.get(token);
+  if (preferCpd && cpd) return `CPD certificate email · ${cpd.label}`;
   const found = EMAIL_PLACEHOLDERS.find((p) => p.token === token);
+  if (cpd && found?.category === 'CPD certificate email') return `CPD certificate email · ${cpd.label}`;
   const inner = String(token).replace(/^[\[{]+/, '').replace(/[\]}]+$/, '');
   const field = inner.split('.').pop().replace(/_/g, ' ').trim();
   const humanField = field ? field.charAt(0).toUpperCase() + field.slice(1) : token;
@@ -1546,6 +1569,17 @@ export function groupPlaceholdersByCategory(placeholders = EMAIL_PLACEHOLDERS) {
   return Array.from(grouped.entries())
     .filter(([, items]) => items.length > 0)
     .map(([category, items]) => ({ category, items }));
+}
+
+// The visual builder presents the full CPD set together, including tokens
+// already used by other contexts, without duplicating options in the dropdown.
+export function groupBuilderPlaceholders() {
+  const cpdItems = EVENT_CPD_EMAIL_PLACEHOLDERS.map(({ token }) =>
+    EMAIL_PLACEHOLDERS.find((p) => p.token === token));
+  return [
+    { category: 'CPD certificate email', items: cpdItems },
+    ...groupPlaceholdersByCategory(EMAIL_PLACEHOLDERS.filter((p) => !cpdByToken.has(p.token))),
+  ];
 }
 
 export function filterPlaceholders(placeholders, { search = '', categories = [], contexts = [], syntax = null } = {}) {

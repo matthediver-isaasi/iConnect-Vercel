@@ -1061,7 +1061,7 @@ export default function EmailTemplateManagement() {
               {formData.category === 'events' && (
                 <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900" data-testid="cpd-email-placeholder-guide">
                   <p className="font-medium">For manual CPD certificate emails</p>
-                  <p>Choose the Events category and select this email in an event's Certificates section. Only the CPD certificate email tokens below are supported in this delivery context. They work in the subject and body, including for guest attendees. Optional missing details are left blank; awarded CPD points come from the booking ledger, not the configured award amount. Other template placeholders may not be available when emailing a certificate.</p>
+                  <p>Choose the Events category and select this email in an event's Certificates section. Only the CPD certificate email tokens below are supported in this delivery context, including for guest attendees. Most work in the subject and body; the event survey list provides attendee links in the body only. Optional missing details are left blank. Member CPD points come from the booking ledger; guest CPD points require qualifying certificate rule evidence. Other template placeholders may not be available when emailing a certificate.</p>
                   <ul className="mt-2 grid gap-1 sm:grid-cols-2">
                     {EVENT_CPD_EMAIL_PLACEHOLDERS.map(({ token, label, description }) => (
                       <li key={token}><code>{token}</code> — {label}. {description}</li>
