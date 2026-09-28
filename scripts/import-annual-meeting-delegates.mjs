@@ -280,7 +280,13 @@ export async function applyManifest(client, source, manifest, expectedHash, { re
     await client.query(`LOCK TABLE event,member,event_cpd_points_rule,event_cpd_badge_rule,event_cpd_certificate_config,cpd_certificate_template IN SHARE MODE`);
     const live = await read(client, source);
     revalidate(manifest, live);
+    // This approved follow-on is registration + points only. A confirmed insert
+    // also enqueues a badge even with no configured badge rule. Keep those
+    // unrelated jobs invisible to workers by removing only our new rows before
+    // commit; do not disable database triggers or touch pre-existing jobs.
+    if (live.badgeRules.some(rule => rule.active)) fail('Badge policy is active; manual effect review required');
     const results = [];
+    const newBookingIds = [];
     for (const row of manifest.report.rows.filter(r => ['ready', 'already_registered'].includes(r.disposition))) {
       if (row.disposition === 'already_registered') {
         results.push({ source_id: row.source_id, booking_id: row.existing[0].id, expected_points: row.rule.points_value, outcome: 'already_registered' });
@@ -294,10 +300,23 @@ export async function applyManifest(client, source, manifest, expectedHash, { re
         const inserted = await client.query(`INSERT INTO booking SELECT (jsonb_populate_record(NULL::booking,$1::jsonb)).* RETURNING to_jsonb(booking) AS value`, [JSON.stringify(booking)]);
         if (canonical(normalizeBookingTimestamps(inserted.rows[0]?.value, manifest.state.columns))
           !== canonical(normalizeBookingTimestamps(booking, manifest.state.columns))) fail('Inserted booking differs from manifest');
+        newBookingIds.push(booking.id);
       }
       results.push({ source_id: row.source_id, booking_id: booking.id, expected_points: row.rule.points_value, outcome: present ? 'replayed' : 'inserted' });
     }
     revalidate(manifest, await read(client, source));
+    if (newBookingIds.length) {
+      const removed = await client.query(`DELETE FROM event_cpd_badge_outbox
+        WHERE tenant_id=$1 AND booking_type='booking' AND booking_id=ANY($2::uuid[])
+          AND trigger_type='registration' AND evidence_type='confirmed_booking'
+          AND evidence_id=booking_id::text
+          AND idempotency_key='registration:booking:'||booking_id::text
+        RETURNING booking_id`, [TENANT, newBookingIds]);
+      if (removed.rowCount !== newBookingIds.length
+        || new Set(removed.rows.map(row => row.booking_id)).size !== newBookingIds.length) {
+        fail('New badge outbox effect not fully suppressed');
+      }
+    }
     for (const row of manifest.report.rows.filter(r => r.disposition === 'duplicate_source_row')) {
       results.push({ source_id: row.source_id, canonical_source_id: row.canonical_source_id,
         booking_id: row.covered_booking_id, outcome: 'duplicate_source_row', expected_points: row.rule.points_value });

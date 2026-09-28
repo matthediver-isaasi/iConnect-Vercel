@@ -107,7 +107,7 @@ function fixture() {
   const source = { workbook_sha256: 'test', rows: [{ ...row, source_id: 'Both Days:2', source_row: 2 }] };
   const state = {
     event: { id: EVENT, tenant_id: TENANT, is_complex: false, start_date: '2026-09-24', pricing_config: { ticket_classes: [{ id: 'ticket', name: 'Full meeting - Full member', role_ids: ['full'] }] } },
-    members: [member], bookings: [], rules: [{ id: 'rule', active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' }],
+    members: [member], bookings: [], badgeRules: [], rules: [{ id: 'rule', active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' }],
     certificate: { config: { eventRule: { template_id: 'template', date_mode: 'event', start_date: null, end_date: null }, ticketRules: {} } },
     templates: [{ id: 'template', status: 'active' }],
     columns: [{ column_name: 'created_at', data_type: 'timestamp with time zone' },
@@ -163,6 +163,9 @@ function fakeClient(live, failInsert = false) {
       live.bookings.push({ ...value, table: 'booking' });
       return { rows: [{ value }] };
     }
+    if (sql.startsWith('DELETE FROM event_cpd_badge_outbox')) {
+      return { rowCount: args[1].length, rows: args[1].map(booking_id => ({ booking_id })) };
+    }
     return { rows: [] };
   } };
   return client;
@@ -177,12 +180,14 @@ test('apply locks, inserts exact manifest, and replay has zero inserts', async (
   assert.equal(live.bookings[0].created_at, manifest.state.prepared_at);
   assert.equal(live.bookings[0].updated_at, manifest.state.prepared_at);
   assert.ok(client.calls.find(q => q.startsWith('LOCK TABLE booking')));
+  assert.ok(client.calls.some(q => q.startsWith('DELETE FROM event_cpd_badge_outbox')));
   assert.equal(client.calls.at(-1), 'COMMIT');
   const replayClient = fakeClient(live);
   const replay = await applyManifest(replayClient, source, manifest, manifest.report.manifest_sha256, options);
   assert.equal(replay.inserted, 0);
   assert.equal(replay.results[0].outcome, 'replayed');
   assert.ok(!replayClient.calls.some(q => q.startsWith('INSERT')));
+  assert.ok(!replayClient.calls.some(q => q.startsWith('DELETE FROM event_cpd_badge_outbox')));
 });
 test('apply failure rolls back and never commits; manifest tampering fails before BEGIN', async () => {
   const { source, manifest } = fixture();

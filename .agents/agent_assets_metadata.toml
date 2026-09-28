@@ -1041,3 +1041,17 @@ mtime_ms = 1790626042811
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a19746d0-9147-47d1-b518-a8293e7980fb/55459c46-b1d3-4893-b19f-9bc3db61f56f"
 storage_version_token = "1790626071901097"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "PnokLeq9_9RxV7ZtgcumD"
+uri = "file://exports/cpd-import-outstanding-2026-09-28-after-import.xlsx"
+type = "table"
+title = "Remaining CPD import records — updated"
+description = "Updated after importing all 55 eligible registrations. Contains 74 held, ineligible or covered duplicate source rows; none currently ready to import."
+logical_id = "565dd010-9bea-46c9-b9e2-6f83a8aa573d"
+content_hash = "sha256:8344c41d676c96438d43c7a8bcf52cfa30c9c1ef8f73f70b209f98d667070ae6"
+size = 13052
+mtime_ms = 1790626631990
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/565dd010-9bea-46c9-b9e2-6f83a8aa573d/651b8da0-b879-4cd0-b61e-3010c4c7450e"
+storage_version_token = "1790626680351909"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
