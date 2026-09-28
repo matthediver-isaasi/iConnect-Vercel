@@ -999,3 +999,31 @@ mtime_ms = 1790154854459
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/42b0e418-edf8-4784-8e59-f6fe0e813249/8b1f37b2-e545-44f2-9324-573611a0fbc2"
 storage_version_token = "1790154914084105"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "FPAc8J_cTMULmumJK6LDZ"
+uri = "file://private/annual-meeting/Annual-Meeting-Delegate-Reconciliation.xlsx"
+type = "table"
+title = "Annual Meeting Delegate Reconciliation"
+description = "All 179 attendance-sheet dispositions, exclusions, review reasons, booking and CPD audit, and separate master-list reconciliation. Contains private delegate details."
+logical_id = "58544f1a-5d5f-4639-a843-473f6e7f6f14"
+content_hash = "sha256:0f8e3836fedee2c26cd63aed7df0538230ecc4904b6e77759d760a2b78449b99"
+size = 71518
+mtime_ms = 1790623622052
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/58544f1a-5d5f-4639-a843-473f6e7f6f14/1d9c662f-fa75-45a3-976e-90c09f54392a"
+storage_version_token = "1790623631908544"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "4q-VASW3BoxpvJ3rdm9qg"
+uri = "file://private/annual-meeting/Annual-Meeting-Delegate-Reconciliation-Final.xlsx"
+type = "table"
+title = "Final Annual Meeting Delegate Reconciliation"
+description = "Final audited workbook: 50 independent registrations, 345 CPD points, 69 held rows, 56 exclusions, four covered duplicates, and separate master-list reconciliation. Supersedes the earlier workbook."
+logical_id = "5e1e6d5c-1640-4ae5-a635-de05aaac9116"
+content_hash = "sha256:dad90d78ae54024458f4e1bc7b075ca52079b00c9914825ead107363d551490b"
+size = 72049
+mtime_ms = 1790624023431
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5e1e6d5c-1640-4ae5-a635-de05aaac9116/6aad2702-3c49-4974-9924-be6f354fc09e"
+storage_version_token = "1790624036375925"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

@@ -15,3 +15,14 @@ outside the application.
 **How to apply:** Financial reports and exports must distinguish import
 provenance, recorded free checkout, and missing evidence. Any historical repair
 requires separately reviewed immutable evidence, not membership or current prices.
+
+An import batch is not evidence of a shared purchase. Give independent delegates
+independent booking groups, and record batch provenance separately.
+
+**Why:** Reusing a batch reference as the booking group made dozens of unrelated
+members appear as one purchase with one inferred booker, and exposed them to
+group-scoped invoice/cancellation behavior. Even an existing admin-import
+endpoint's convention is not sufficient evidence of correct grouping.
+
+**How to apply:** Group imported rows only when the source establishes a shared
+booking. Verify report groups as well as row counts and attendee identities.
