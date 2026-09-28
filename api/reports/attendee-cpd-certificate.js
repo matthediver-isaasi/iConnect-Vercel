@@ -1,3 +1,4 @@
+// PDF and email previews are read-only; only the confirmed send action delivers mail.
 import { supabase } from '../_lib/database.js';
 import { createHash } from 'node:crypto';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
