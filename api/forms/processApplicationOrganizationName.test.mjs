@@ -1670,6 +1670,72 @@ test('verified organization owner retains existing organization update behavior'
   );
 });
 
+test('persisted public member signup rechecks identity before processing and keeps owner updates', async () => {
+  const signup = {
+    mutation_access_policy: { version: 1, mode: 'public_member_signup' },
+    require_authentication: false,
+    fields: [{ id: 'email', type: 'email' }, { id: 'first', type: 'text' }],
+    form_values: { email: 'owner@example.test', first: 'Changed' },
+    entity_pipelines: { members: [{
+      id: 'primary', isPrimary: true, mappings: [
+        { source_field_id: 'email', target_type: 'core', target_field: 'email' },
+        { source_field_id: 'first', target_type: 'core', target_field: 'first_name' },
+      ],
+    }], organisations: [] },
+  };
+  const owner = { id: 'owner-id', tenant_id: 'tenant-runtime-org', email: 'owner@example.test', first_name: 'Old' };
+  for (const [name, options, expected] of [
+    ['new anonymous', { requestFormValues: { email: 'owner@example.test' },
+      submissionOverrides: { submission_data: { email: 'new@example.test', first: 'New' } } }, 200],
+    ['existing anonymous', { existingMember: owner }, 403],
+    ['verified owner', { existingMember: owner, submitterMember: owner }, 200],
+    ['forged answer with signed other member', { existingMember: owner,
+      submitterMember: { ...owner, id: 'attacker-id', email: 'attacker@example.test' } }, 403],
+    ['draft token is not owner authority', { existingMember: owner,
+      requestBodyOverrides: { resume_token: 'forged-draft' } }, 403],
+    ['same-submission created member retry', { existingMember: owner,
+      provenanceRows: [{ entity_type: 'member', entity_id: owner.id,
+        tenant_id: owner.tenant_id, form_submission_id: 'submission-runtime-org' }] }, 200],
+  ]) {
+    const result = await invokeProcessor(signup, {
+      verifiedAdminAccess: false, ...options,
+      requestBodyOverrides: { fields: [], form_values: { email: 'forged@example.test' },
+        ...(options.requestBodyOverrides || {}) },
+    });
+    assert.equal(result.response.statusCode, expected, name + JSON.stringify(result.response.body));
+    if (expected === 403) {
+      assert.equal(result.response.body.code, 'FORM_MEMBER_OWNER_REQUIRED', name);
+      assert.equal(result.inserts.length, 0, name);
+      assert.equal(result.updates.length, 0, name);
+    }
+    if (name === 'verified owner') {
+      assert.equal(result.updates.find(entry => entry.table === 'member')?.payload.first_name, 'Changed');
+    }
+  }
+});
+
+test('signup early preflight honors persisted ignored hidden email mapping', async () => {
+  const result = await invokeProcessor({
+    mutation_access_policy: { version: 1, mode: 'public_member_signup' },
+    require_authentication: false,
+    fields: [{ id: 'email', type: 'email', starts_hidden: true }],
+    form_values: { email: 'owner@example.test' },
+    entity_pipelines: {
+      members: [{ id: 'primary', isPrimary: true, mappings: [{
+        id: 'hidden-member-email', source_field_id: 'email',
+        target_type: 'core', target_field: 'email', ignore_if_hidden: true,
+      }] }],
+      organisations: [],
+    },
+  }, {
+    verifiedAdminAccess: false,
+    existingMember: { id: 'owner-id', tenant_id: 'tenant-runtime-org', email: 'owner@example.test' },
+  });
+  assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+  assert.equal(result.inserts.some(entry => entry.table === 'member'), false);
+  assert.equal(result.updates.some(entry => entry.table === 'member'), false);
+});
+
 test('anonymous selection cannot clear an existing organization custom field', async () => {
   const payload = publicPayload();
   const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';

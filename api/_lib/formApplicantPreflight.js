@@ -1,4 +1,5 @@
 import { FormApplicantContinuationError } from './formApplicantContinuation.js';
+import { FORM_MUTATION_ACCESS_MODES, assessFormMutationAccess } from '../../shared/formMutationContract.js';
 import { coalesceExplicitFallbackMappings, partitionIgnoredHiddenMappings, extractMappingSourceComponent } from './formMappingFallbacks.js';
 import { resolveStaticTodayToken } from './staticValueTokens.js';
 import { resolveFormEntityActions, hasPersistedLegacyFormEntityActions } from './formEntityActionMode.js';
@@ -154,6 +155,49 @@ export function resolveApplicantLegacyIdentityPlan({
     if (value) add('email', value, true);
   }
   return checks;
+}
+
+export class FormMemberOwnerError extends Error {
+  constructor(message = 'This email already belongs to a member. Sign in as that member to update your details, or use a different email to create a new member.') {
+    super(message);
+    this.status = 403;
+    this.code = 'FORM_MEMBER_OWNER_REQUIRED';
+  }
+}
+
+export function isPublicMemberSignup(form) {
+  return form?.mutation_access_policy?.version === 1
+    && form.mutation_access_policy.mode === FORM_MUTATION_ACCESS_MODES.PUBLIC_MEMBER_SIGNUP;
+}
+
+// Read-only, tenant-scoped identity collision check. Neither answer fields nor
+// a draft/resume token can grant ownership: only the server-resolved session ID.
+export async function preflightPublicMemberSignup({
+  db, form, values, verifiedMember = null, hiddenFieldIds = new Set(),
+  primaryMemberId = null, createdMemberIds = [],
+}) {
+  if (!isPublicMemberSignup(form)) return;
+  if (!assessFormMutationAccess(form).ok) {
+    throw new FormMemberOwnerError('This form is not configured for public member signup. Contact the form administrator.');
+  }
+  const ownerId = (verifiedMember?.tenant_id === form.tenant_id
+    || verifiedMember?.organization?.tenant_id === form.tenant_id)
+    ? verifiedMember.id : null;
+  const checks = resolveApplicantLegacyIdentityPlan({
+    form, values, hiddenFieldIds, primaryMemberId,
+  }).filter(check => check.entity === 'member');
+  const createdIds = new Set([...(createdMemberIds || [])].map(String));
+  for (const check of checks) {
+    const query = db.from('member').select('id').eq('tenant_id', form.tenant_id);
+    const { data, error } = await (check.column === 'email'
+      ? query.ilike('email', check.value)
+      : query.eq('id', check.value)).limit(2);
+    if (error) throw error;
+    if ((data || []).some(row =>
+      String(row.id) !== String(ownerId || '') && !createdIds.has(String(row.id)))) {
+      throw new FormMemberOwnerError();
+    }
+  }
 }
 
 // Read-only authorization preflight. It deliberately runs before the structured

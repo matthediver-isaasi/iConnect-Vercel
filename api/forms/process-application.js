@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
-import { preflightApplicantTargets } from '../_lib/formApplicantPreflight.js';
+import { preflightApplicantTargets, preflightPublicMemberSignup, isPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
 import { randomUUID } from 'node:crypto';
 import {
   FORM_NOT_LISTED_VALUE,
@@ -987,6 +987,41 @@ export default async function handler(req, res, {
     if (!trustedInternal && !authorizedAdmin && !authorizedSubmitter) {
       return res.status(403).json({ error: 'Application processing is restricted to trusted submission flows, the authenticated submitter, or tenant administrators', code: 'PROCESSING_FORBIDDEN' });
     }
+    let signupCreatedRecords = null;
+    if (isPublicMemberSignup(persistedForm)) {
+      // Internal handoff IDs are signed server capabilities, not body claims.
+      // Revalidate the member against the tenant before any paid reservation or
+      // entity/workflow side effect. A draft token is never an owner credential.
+      if (trustedInternal && verified_submitter_member_id) {
+        const { data, error } = await supabase.from('member').select('id, tenant_id, email, organization_id')
+          .eq('id', verified_submitter_member_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle();
+        if (error) throw error;
+        authenticatedSubmitterMember = data || null;
+      }
+      signupCreatedRecords = await loadPersistedFormEntityCreations({
+        db: supabase, tenantId: effectiveEntityTenantId,
+        submissionId: persistedSubmission.id,
+      });
+      const signupVisibilityOptions = {};
+      if (rulesUseLmicOperators(persistedForm.visibility_rules)) {
+        signupVisibilityOptions.lmicCodes = await loadTenantLmicCodes(supabase, effectiveEntityTenantId);
+      }
+      const signupHiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
+        db: supabase, tenantId: effectiveEntityTenantId,
+        form: persistedForm, formValues: persistedSubmission.submission_data || {},
+        visibilityOptions: signupVisibilityOptions,
+      });
+      await preflightPublicMemberSignup({
+        db: supabase, form: persistedForm,
+        values: effectiveRepeatableRowSubmissionData(
+          persistedForm, persistedSubmission.submission_data || {},
+          { hiddenFieldIds: signupHiddenFieldIds },
+        ),
+        hiddenFieldIds: signupHiddenFieldIds,
+        verifiedMember: authenticatedSubmitterMember,
+        createdMemberIds: signupCreatedRecords.member,
+      });
+    }
     if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })) {
       return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
     }
@@ -1431,7 +1466,7 @@ export default async function handler(req, res, {
     )
       ? persistedStructuredActionResult.completed_primary_kinds
       : [];
-    let persistedEntityCreations = { member: new Set(), organization: new Set() };
+    let persistedEntityCreations = signupCreatedRecords || { member: new Set(), organization: new Set() };
     if (hasStripeAddressMappingWork) {
       persistedEntityCreations = await loadPersistedFormEntityCreations({
         db: supabase,
@@ -1620,6 +1655,12 @@ export default async function handler(req, res, {
     };
     const assertLegacyExistingRecordAuthorized = async (entity, recordId) => {
       if (legacyCreatedRecordIds[entity]?.has(String(recordId))) return true;
+      if (isPublicMemberSignup(persistedForm) && entity === 'member') {
+        if (String(recordId) !== String(authenticatedSubmitterMember?.id || '')) {
+          throw new FormMemberOwnerError();
+        }
+        return true;
+      }
       if (applicantGrant && entity === 'member' && applicantMemberIds.includes(String(recordId))) {
         const { data, error } = await supabase.from('member').select('id')
           .eq('id', recordId).eq('tenant_id', effectiveEntityTenantId)
@@ -1691,6 +1732,13 @@ export default async function handler(req, res, {
       memberIds: [...applicantMemberIds, authenticatedSubmitterMember?.id].filter(Boolean),
       primaryMemberId: singlePersistedCreationId(persistedEntityCreations, 'member') || prefill_member_id,
       createdMemberIds: persistedEntityCreations.member, applyTransformation,
+    });
+    await preflightPublicMemberSignup({
+      db: supabase, form: persistedForm, values: form_values,
+      hiddenFieldIds: hiddenSubmissionFieldIds,
+      verifiedMember: authenticatedSubmitterMember,
+      primaryMemberId: singlePersistedCreationId(persistedEntityCreations, 'member') || prefill_member_id,
+      createdMemberIds: persistedEntityCreations.member,
     });
     let structuredActionResult = null;
     let structuredActionsWaitingForPrimary = false;
@@ -5347,6 +5395,9 @@ export default async function handler(req, res, {
     });
   } catch (error) {
     await releaseStripeProcessingLease();
+    if (error instanceof FormMemberOwnerError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     console.error('[AppProcessor] Error:', error);
     if (error instanceof FormApplicantContinuationError) {
       return res.status(error.status).json({ error: error.message, code: error.code });

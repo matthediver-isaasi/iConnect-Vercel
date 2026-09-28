@@ -2,6 +2,7 @@ export const FORM_MUTATION_ACCESS_POLICY_VERSION = 1;
 export const FORM_MUTATION_ACCESS_MODES = Object.freeze({
   APPLICANT_CONTINUATION: 'applicant_continuation',
   AUTHENTICATED_OWNER: 'authenticated_owner',
+  PUBLIC_MEMBER_SIGNUP: 'public_member_signup',
 });
 
 export const FORM_RECORD_ACCESS = Object.freeze({
@@ -315,6 +316,25 @@ export function assessFormMutationAccess(form = {}) {
   }
 
   const mode = policyValidation.policy?.mode;
+  if (mode === FORM_MUTATION_ACCESS_MODES.PUBLIC_MEMBER_SIGNUP) {
+    if (form.require_authentication !== true
+      && classification.mutationTargets.length === 1
+      && classification.mutationTargets[0] === 'member'
+      && [FORM_RECORD_ACCESS.NONE, FORM_RECORD_ACCESS.REFERENCE_ONLY]
+        .includes(classification.targets.organization.classification)
+      && !classification.hasUnsupportedApplicantContinuationMutation
+      && !structuredActions(form).some(action =>
+        ['update', 'upsert', 'update_selected'].includes(action?.operation)
+        || action?.not_listed_operation === 'upsert')) {
+      return { ...classification, ok: true, policy: policyValidation.policy };
+    }
+    return {
+      ...classification,
+      ok: false,
+      code: 'UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT',
+      error: 'Public member signup requires a public member-only pipeline without organisation updates or Structured Record mutations. Use authenticated-owner access for other updates.',
+    };
+  }
   if (mode === FORM_MUTATION_ACCESS_MODES.AUTHENTICATED_OWNER) {
     if (form.require_authentication === true) {
       return { ...classification, ok: true, policy: policyValidation.policy };

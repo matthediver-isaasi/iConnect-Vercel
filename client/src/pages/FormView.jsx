@@ -59,9 +59,20 @@ import {
 } from "@/lib/departmentCurrentSet";
 import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
 import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
+import { memberOwnerRequired, memberSignupLoginUrl, PUBLIC_MEMBER_SIGNUP_MODE } from "@/lib/publicMemberSignup";
 import { useLocation } from "react-router-dom";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
+
+function PublicMemberSignupNotice({ loginUrl, hasDraft, canSaveDraft }) {
+  return (
+    <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900" data-testid="public-member-signup-notice">
+      <p>New members can complete and submit this form without signing in. If you already have a member account, sign in before submitting so we can verify that you own the existing record.</p>
+      <a className="mt-2 inline-block font-medium underline" href={loginUrl} data-testid="public-member-signin">Sign in as an existing member</a>
+      <p className="mt-2 text-xs">Your current form URL{hasDraft ? ' (including your draft link)' : ''} will be used to return here after sign-in. {canSaveDraft ? 'If you have unsaved answers, save a draft and keep its link before leaving; ' : 'Unsaved answers may be lost when leaving this page; '}signing in does not save answers automatically.</p>
+    </div>
+  );
+}
 
 // Opaque cache discriminator: never place a bearer credential itself in a
 // TanStack query key (query keys can be inspected by developer tooling).
@@ -1437,7 +1448,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     },
     onError: (error) => {
       reportFormViewError('Submission failed', error);
-      setSubmissionError(error.message || 'Failed to submit form');
+      setSubmissionError(memberOwnerRequired(error)
+        ? `This member record already exists. Sign in as its owner and submit again.${form?.allow_save_continue_later !== false ? ' If you have unsaved answers, save a draft before leaving this page.' : ' Unsaved answers may be lost when leaving this page.'}`
+        : error.message || 'Failed to submit form');
     }
   });
 
@@ -2889,6 +2902,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            {form.mutation_access_policy?.mode === PUBLIC_MEMBER_SIGNUP_MODE && !form.require_authentication && !memberInfo && (
+              <PublicMemberSignupNotice loginUrl={memberSignupLoginUrl(window.location)} hasDraft={!!draftToken} canSaveDraft={form.allow_save_continue_later !== false} />
+            )}
             <div className="mt-3">
               <DepartmentCurrentSetNotice
                 state={departmentCurrentSet}
@@ -3208,6 +3224,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            {form.mutation_access_policy?.mode === PUBLIC_MEMBER_SIGNUP_MODE && !form.require_authentication && !memberInfo && (
+              <PublicMemberSignupNotice loginUrl={memberSignupLoginUrl(window.location)} hasDraft={!!draftToken} canSaveDraft={form.allow_save_continue_later !== false} />
+            )}
             <div className="mt-3">
               <DepartmentCurrentSetNotice
                 state={departmentCurrentSet}

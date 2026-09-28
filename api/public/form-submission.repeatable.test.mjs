@@ -229,6 +229,7 @@ function makePublicSubmissionBoundaryDb(
     failReadyOnce = false,
     failCheckpointOnce = false,
     certificateSurvey = null,
+    members = [],
   } = {},
 ) {
   const insertedSubmissions = [];
@@ -259,7 +260,7 @@ function makePublicSubmissionBoundaryDb(
     delete() { this.deleteOperation = true; return this; }
     eq(column, value) { this.filters.push(['eq', column, value]); return this; }
     neq() { return this; }
-    ilike() { return this; }
+    ilike(column, value) { this.filters.push(['ilike', column, value]); return this; }
     in() { return this; }
     is() { return this; }
     not() { return this; }
@@ -333,6 +334,12 @@ function makePublicSubmissionBoundaryDb(
       return { data: null, error: null };
     }
     then(resolve, reject) {
+      if (this.table === 'member') {
+        const matches = members.filter(member => this.filters.every(([op, column, value]) =>
+          op === 'eq' ? member[column] === value
+            : String(member[column] || '').toLowerCase() === String(value).toLowerCase()));
+        return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
+      }
       if (this.table === 'form_submission' && this.deleteOperation) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         if (id) deletedSubmissionIds.push(id);
@@ -483,6 +490,63 @@ function jsonProcessingResponse(status, body) {
     async json() { return body; },
   };
 }
+
+test('public member signup slug admission allows fresh/owner but rejects forged, draft, and continuation before writes', async () => {
+  for (const scenario of [
+    { name: 'fresh anonymous', email: 'new@example.test', status: 201 },
+    { name: 'existing anonymous', email: 'owner@example.test', status: 403 },
+    { name: 'verified owner', email: 'owner@example.test', session: true, status: 201 },
+    { name: 'forged other identity', email: 'other@example.test', session: true, status: 403 },
+    { name: 'draft cannot confer authority', email: 'owner@example.test', resume_token: 'forged-draft', status: 403 },
+    { name: 'continuation cannot confer authority', email: 'owner@example.test', applicant_continuation_token: 'forged-grant', status: 403 },
+    { name: 'organisation prefill cannot confer authority', email: 'new@example.test', prefill_organization_id: 'org-1', status: 403 },
+    { name: 'selected organisation remains a reference', email: 'new@example.test',
+      prefill_organization_id: 'org-1', selectedOrganization: true, status: 201 },
+    { name: 'owner organisation remains a reference', email: 'owner@example.test',
+      prefill_organization_id: 'org-1', session: true, sessionOrganization: true, status: 201 },
+  ]) {
+    const form = {
+      ...affectedFormFixture(),
+      mutation_access_policy: { version: 1, mode: 'public_member_signup' },
+      entity_pipelines: {
+        members: affectedFormFixture().entity_pipelines.members,
+        organisations: [],
+      },
+    };
+    const db = makePublicSubmissionBoundaryDb(form, {
+      organization: { id: 'org-1', tenant_id: form.tenant_id },
+      members: [
+      { id: 'member-owner', tenant_id: form.tenant_id, email: 'owner@example.test' },
+      { id: 'member-other', tenant_id: form.tenant_id, email: 'other@example.test' },
+      ],
+    });
+    const { response, res } = makeResponseRecorder();
+    let processed = 0;
+    await handler({
+      method: 'POST', headers: { host: 'student-join.test' },
+      body: { form_id: form.id, form_name: form.name,
+        submission_data: { student_email: scenario.email, student_first_name: 'New',
+          ...(scenario.selectedOrganization && { [LIVE_ORGANISATION_FIELD_ID]: 'org-1' }) },
+        ...(scenario.resume_token && { resume_token: scenario.resume_token }),
+        ...(scenario.applicant_continuation_token && { applicant_continuation_token: scenario.applicant_continuation_token }),
+        ...(scenario.prefill_organization_id && { prefill_organization_id: scenario.prefill_organization_id }),
+      },
+    }, res, {
+      supabase: db.client, tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+      getSessionMember: async () => scenario.session
+        ? { id: 'member-owner', tenant_id: form.tenant_id, email: 'owner@example.test',
+          ...(scenario.sessionOrganization && { organization_id: 'org-1' }) } : null,
+      internalApiBaseUrl: 'https://internal.example.test',
+      fetchImpl: async () => { processed++; return jsonProcessingResponse(200, { member_id: 'member-owner' }); },
+    });
+    assert.equal(response.statusCode, scenario.status, scenario.name);
+    if (scenario.status === 403) {
+      assert.equal(response.body.code, 'FORM_MEMBER_OWNER_REQUIRED', scenario.name);
+      assert.equal(db.insertedSubmissions.length, 0, scenario.name);
+      assert.equal(processed, 0, scenario.name);
+    }
+  }
+});
 
 test('ordinary submissions load persisted visibility context for repeatable validation', async () => {
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');

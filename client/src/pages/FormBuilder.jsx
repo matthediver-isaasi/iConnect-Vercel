@@ -42,6 +42,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isProtectedDepartmentForm } from "@shared/protectedDepartmentForm.js";
+import { canUsePublicMemberSignup, PUBLIC_MEMBER_SIGNUP_MODE } from "@/lib/publicMemberSignup";
 import { duplicateFormField } from "../../../shared/formFieldDuplication.js";
 import { protectedFormUpdateHeaders } from "@/lib/protectedFormActions";
 import { formRoleValidationError, unavailableRoleLabel } from "@/lib/formRoleValidationError";
@@ -11955,12 +11956,18 @@ export default function FormBuilderPage() {
     () => assessFormMutationAccess(formData),
     [formData],
   );
+  const publicMemberSignupEligible = canUsePublicMemberSignup(formData);
   const canIssueApplicantContinuation = useMemo(
     () => supportsApplicantContinuationIssuance(formData),
     [formData],
   );
 
   const handleSubmit = () => {
+    if (formData.mutation_access_policy?.mode === PUBLIC_MEMBER_SIGNUP_MODE
+      && !publicMemberSignupEligible) {
+      toast.error('Public member signup is only available for a public member-only update contract without unsupported structured mutations.');
+      return;
+    }
     console.log('[FormBuilder] handleSubmit called');
     console.log('[FormBuilder] formData:', JSON.stringify(formData, null, 2));
     
@@ -13743,6 +13750,12 @@ export default function FormBuilderPage() {
                           >
                             Logged-in record owner
                           </SelectItem>
+                          <SelectItem
+                            value={PUBLIC_MEMBER_SIGNUP_MODE}
+                            disabled={!publicMemberSignupEligible}
+                          >
+                            Public new-member signup; verified existing owners
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-slate-600">
@@ -13750,13 +13763,19 @@ export default function FormBuilderPage() {
                         Member updates in that flow are limited to the organisation-owned member IDs captured when the link is issued and revalidated before writing.
                         Logged-in owner access still verifies the actual member or their organisation; requiring login alone is not enough.
                       </p>
+                      {formData.mutation_access_policy?.mode === PUBLIC_MEMBER_SIGNUP_MODE && (
+                        <p className="text-xs text-blue-900" data-testid="public-member-signup-help">
+                          New members can submit without signing in. Existing member records can only be changed by their verified logged-in owner.
+                          An email match, a saved draft or an organisation selection does not grant ownership.
+                        </p>
+                      )}
                       {mutationAccessAssessment.mutationTargets.length === 1
                         && mutationAccessAssessment.mutationTargets[0] === 'member'
                         && !formData.require_authentication && (
                         <p className="text-xs font-medium text-amber-900">
                           Modern member pipelines match identities such as email as upserts, even when used for signup.
-                          A public create-only collision contract is not currently supported. Require login and use authenticated-owner access;
-                          existing-member updates will not be silently discarded.
+                          Select public new-member signup to allow new records while requiring verified owner access for existing members.
+                          Existing-member updates will not be silently discarded.
                         </p>
                       )}
                       {!formData.is_active && !mutationAccessAssessment.ok && (

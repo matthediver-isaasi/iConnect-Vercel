@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplicantContinuation, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
+import { isPublicMemberSignup, preflightPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
+import { loadPersistedFormEntityCreations } from '../_lib/formEntityCreationProvenance.js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
@@ -265,6 +267,27 @@ export default async function handler(req, res, dependencies = {}) {
       sessionHasAdminAccess = false;
     }
 
+    if (isPublicMemberSignup(form)) {
+      if (req.body.applicant_continuation_token || req.body.resume_token) {
+        throw new FormMemberOwnerError('Member signup does not accept applicant continuation links. Open the public signup form directly.');
+      }
+      if (prefill_organization_id) {
+        const selectedReference = (form.fields || []).some(field =>
+          ['organisation_dropdown', 'organization_dropdown'].includes(field?.type)
+          && (submission_data || {})[field.id] === prefill_organization_id);
+        const sessionReference = verifiedSessionMember?.organization_id === prefill_organization_id;
+        if (!selectedReference && !sessionReference) {
+          throw new FormMemberOwnerError('Select an organisation from this form before using it as a member reference.');
+        }
+        const { data: referencedOrganization, error: referenceError } = await supabase
+          .from('organization').select('id').eq('tenant_id', tenantData.id)
+          .eq('id', prefill_organization_id).maybeSingle();
+        if (referenceError) throw referenceError;
+        if (!referencedOrganization) {
+          throw new FormMemberOwnerError('The selected organisation is unavailable for this form.');
+        }
+      }
+    }
     const admission = await authorizeApplicantAdmission({
       db: supabase, form, token: req.body.applicant_continuation_token,
       resumeToken: req.body.resume_token, requestedOrganizationId: prefill_organization_id,
@@ -647,6 +670,26 @@ export default async function handler(req, res, dependencies = {}) {
       form: relationshipForm,
       formValues: submission_data || {},
       visibilityOptions: submissionVisibilityOptions,
+    });
+    // Only a durable record created by this *same* idempotent submission can
+    // be replayed without a session. A draft/resume token is never consulted.
+    const signupCreatedRecords = isPublicMemberSignup(form) && existingIdempotentSubmission
+      ? await loadPersistedFormEntityCreations({
+          db: supabase, tenantId: tenantData.id,
+          submissionId: existingIdempotentSubmission.id,
+        })
+      : null;
+    // Run before idempotent/duplicate recovery, which may send mail or
+    // finalize subscriptions. A draft or a prior response is not ownership.
+    await preflightPublicMemberSignup({
+      db: supabase, form,
+      values: effectiveRepeatableRowSubmissionData(
+        relationshipForm, submission_data || {},
+        { hiddenFieldIds: hiddenRelationshipFieldIds },
+      ),
+      verifiedMember: verifiedSessionMember,
+      hiddenFieldIds: hiddenRelationshipFieldIds,
+      createdMemberIds: signupCreatedRecords?.member,
     });
     if (!existingIdempotentSubmission) {
       const invalidAddressFields = invalidRequiredAddressLookupFields(
@@ -1294,6 +1337,12 @@ export default async function handler(req, res, dependencies = {}) {
       }),
       { hiddenFieldIds: hiddenRelationshipFieldIds },
     );
+    await preflightPublicMemberSignup({
+      db: supabase, form, values: sideEffectSubmissionData,
+      verifiedMember: verifiedSessionMember,
+      hiddenFieldIds: hiddenRelationshipFieldIds,
+      createdMemberIds: signupCreatedRecords?.member,
+    });
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
       form.entity_pipelines,
       sideEffectSubmissionData,
@@ -2275,6 +2324,9 @@ export default async function handler(req, res, dependencies = {}) {
       ...committedCurrentSetMarker(pipelineProcessingResult),
     });
   } catch (error) {
+    if (error instanceof FormMemberOwnerError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     if (error instanceof FormApplicantContinuationError) {
       return res.status(error.status).json({ error: error.message, code: error.code });
     }
