@@ -23,7 +23,11 @@ function TemplateSelect({ value, templates, onChange, label }) {
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
-      <Select value={value || NO_TEMPLATE} onValueChange={next => onChange(next === NO_TEMPLATE ? null : next)}>
+      <Select value={value || NO_TEMPLATE} onValueChange={next => {
+        // Radix's hidden native select can emit "" when options hydrate later.
+        // Only the explicit sentinel is a request to clear a saved selection.
+        if (next) onChange(next === NO_TEMPLATE ? null : next);
+      }}>
         <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value={NO_TEMPLATE}>No certificate template</SelectItem>
@@ -52,7 +56,9 @@ function EmailTemplateSelect({ value, templates, onChange, canManageEmailTemplat
         <Label htmlFor="cpd-email-template">Certificate email template (event-wide)</Label>
         <p className="text-xs text-muted-foreground">The message accompanying a manually emailed CPD certificate. This does not change the PDF template or ticket-specific certificate settings.</p>
       </div>
-      <Select value={value || NO_TEMPLATE} onValueChange={next => onChange(next === NO_TEMPLATE ? null : next)}>
+      <Select value={value || NO_TEMPLATE} onValueChange={next => {
+        if (next) onChange(next === NO_TEMPLATE ? null : next);
+      }}>
         <SelectTrigger id="cpd-email-template" data-testid="select-cpd-email-template"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value={NO_TEMPLATE}>Default certificate email (existing message)</SelectItem>
@@ -160,7 +166,9 @@ export default function EventCpdCertificatesSection({
                   onChange={template_id => updateEvent({ ...eventRule, template_id })} />
                 <div className="space-y-1">
                   <Label>Certificate dates</Label>
-                  <Select value={eventRule.date_mode} onValueChange={date_mode => updateEvent({ ...eventRule, date_mode, start_date: null, end_date: null })}>
+                  <Select value={eventRule.date_mode} onValueChange={date_mode => {
+                    if (date_mode) updateEvent({ ...eventRule, date_mode, start_date: null, end_date: null });
+                  }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="event">Use event dates</SelectItem>
@@ -189,7 +197,9 @@ export default function EventCpdCertificatesSection({
                     <h4 className="text-sm font-medium">{ticket.name || `Ticket ${index + 1}`}</h4>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1"><Label>Template</Label>
-                        <Select value={rule.template_mode || "inherit"} onValueChange={template_mode => updateTicket(ref, { template_mode, template_id: null })}>
+                        <Select value={rule.template_mode || "inherit"} onValueChange={template_mode => {
+                          if (template_mode) updateTicket(ref, { template_mode, template_id: null });
+                        }}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="inherit">Use event-wide template</SelectItem>
@@ -199,7 +209,9 @@ export default function EventCpdCertificatesSection({
                         </Select>
                       </div>
                       <div className="space-y-1"><Label>Certificate dates</Label>
-                        <Select value={rule.date_mode || "inherit"} onValueChange={date_mode => updateTicket(ref, { date_mode, start_date: null, end_date: null })}>
+                        <Select value={rule.date_mode || "inherit"} onValueChange={date_mode => {
+                          if (date_mode) updateTicket(ref, { date_mode, start_date: null, end_date: null });
+                        }}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="inherit">Use event-wide dates</SelectItem>

@@ -81,6 +81,10 @@ test('certificate policy replacement is atomic and validates tenant, ticket, tem
     sql(call(config));
     const emailConfig = { ...config, eventRule: { ...config.eventRule, email_template_id: template } };
     sql(call(emailConfig));
+    assert.equal(sql(`SELECT config->'eventRule'->>'email_template_id'
+      FROM event_cpd_certificate_config WHERE event_type='event';`).trim(), template);
+    assert.equal(sql(`SELECT config->'ticketRules'->'member'->>'template_mode'
+      FROM event_cpd_certificate_config WHERE event_type='event';`).trim(), 'none');
     sql(`SELECT public.replace_event_cpd_certificate_config('${tenant}','complex_event','${complexEvent}','${JSON.stringify({ ...complexConfig, eventRule: emailConfig.eventRule })}'::jsonb);`);
     for (const update of [
       `tenant_id='${other}'`, `category='welcome'`, 'is_active=false', "subject=' '", "body=''",

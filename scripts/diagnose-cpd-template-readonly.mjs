@@ -29,6 +29,8 @@ try {
   const event = await db.query(`SELECT e.id, e.title,
     c.config->'eventRule' ? 'email_template_id' AS selected_key_present,
     c.config->'eventRule'->>'email_template_id' AS selected_id,
+    (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.config) k) AS config_keys,
+    (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.config->'eventRule') k) AS event_rule_keys,
     (SELECT jsonb_object_keys(c.config->'eventRule') LIMIT 1) IS NOT NULL AS has_event_rule
     FROM public.event e LEFT JOIN public.event_cpd_certificate_config c
       ON c.event_id=e.id AND c.tenant_id=e.tenant_id AND c.event_type='event'
@@ -42,8 +44,13 @@ try {
   const bookingColumns = await db.query(`SELECT column_name FROM information_schema.columns
     WHERE table_schema='public' AND table_name='complex_event_booking'
       AND column_name IN ('event_id','complex_event_id') ORDER BY column_name`);
+  const emailValidationTrigger = await db.query(`SELECT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgrelid='public.event_cpd_certificate_config'::regclass
+      AND tgname='validate_event_cpd_email_template_config' AND NOT tgisinternal
+  ) AS installed`);
   console.log(JSON.stringify({ event: event.rows[0] || null, candidate_templates: candidate.rows,
     complex_booking_event_columns: bookingColumns.rows.map(row => row.column_name),
+    email_validation_trigger_installed: emailValidationTrigger.rows[0].installed,
     writes_performed: false }));
   await db.query('ROLLBACK');
 } finally {

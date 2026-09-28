@@ -12,6 +12,7 @@ globalThis.DocumentFragment = dom.window.DocumentFragment;
 globalThis.Node = dom.window.Node;
 globalThis.MutationObserver = dom.window.MutationObserver;
 globalThis.CustomEvent = dom.window.CustomEvent;
+globalThis.Event = dom.window.Event;
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 dom.window.HTMLElement.prototype.scrollIntoView ||= () => {};
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,7 +45,7 @@ async function mount({ eventId = null, eventType = "simple", tickets = [], initi
     const [config, setConfig] = useState(initial);
     const [shownTickets, setShownTickets] = useState(tickets);
     onSnapshot(config);
-    return <>
+    return <form onSubmit={event => event.preventDefault()}>
       <Certificates eventId={eventId} eventType={eventType} tickets={shownTickets}
         canManageEmailTemplates={canManageEmailTemplates}
         eventDates={{ start_date: "2026-03-01T11:00:00Z", end_date: "2026-03-04T11:00:00Z", timezone: "Europe/London" }}
@@ -59,7 +60,7 @@ async function mount({ eventId = null, eventType = "simple", tickets = [], initi
         setConfig(current => remapEventCpdCertificateTicketReferences(current, remap.references));
         setShownTickets(remap.tickets);
       }}>Persist tickets</button>}
-    </>;
+    </form>;
   }
   await act(async () => root.render(<MemoryRouter><Fixture /></MemoryRouter>));
   return {
@@ -239,4 +240,61 @@ test("unavailable saved email selection remains visible and default is still sel
   assert.match(view.container.textContent, /PDF preview remains available, but emailing is blocked/);
   assert.equal(view.container.querySelector("a"), null);
   await view.cleanup();
+});
+
+test("native empty select change after hydration does not clear the event email, but explicit default does", async () => {
+  const stored = emptyEventCpdCertificateConfig();
+  stored.eventRule.email_template_id = "event-email";
+  stored.ticketRules.t1 = {
+    template_mode: "none", template_id: null, date_mode: "inherit", start_date: null, end_date: null,
+  };
+  let resolveLoad;
+  let saved;
+  let config;
+  globalThis.fetch = (url, options) => {
+    if (options?.method === "PUT") {
+      saved = JSON.parse(options.body).config;
+      return Promise.resolve(response({ config: saved }));
+    }
+    return new Promise(resolve => { resolveLoad = resolve; });
+  };
+  const options = { eventId: "event-1", tickets: [{ id: "t1" }], onSnapshot: value => { config = value; } };
+  const view = await mount(options);
+  await act(async () => resolveLoad(response({ config: stored, templates, emailTemplates })));
+  await tick();
+  assert.equal(config.eventRule.email_template_id, "event-email");
+  const trigger = view.container.querySelector('[data-testid="select-cpd-email-template"]');
+  assert.match(trigger.textContent, /Course follow-up/);
+  // Radix's hidden native select can emit an empty change while its options
+  // reconcile with the asynchronously loaded controlled value.
+  const native = view.container.querySelector('[data-testid="event-cpd-email-template"] select');
+  assert.ok(native, "the real Radix native select is present");
+  await act(async () => {
+    native.value = "";
+    native.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  assert.equal(config.eventRule.email_template_id, "event-email");
+  await view.click('[data-testid="save-draft"]');
+  assert.equal(saved.eventRule.email_template_id, "event-email");
+  assert.equal(saved.ticketRules.t1.template_mode, "none");
+  await view.cleanup();
+
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === "PUT") {
+      saved = JSON.parse(options.body).config;
+      return response({ config: saved });
+    }
+    return response({ config: saved, templates, emailTemplates });
+  };
+  const reopened = await mount(options);
+  await tick();
+  assert.match(reopened.container.querySelector('[data-testid="select-cpd-email-template"]').textContent, /Course follow-up/);
+  await reopened.click('[data-testid="select-cpd-email-template"]');
+  const defaultOption = [...document.querySelectorAll('[role="option"]')]
+    .find(item => item.textContent === "Default certificate email (existing message)");
+  assert.ok(defaultOption);
+  await act(async () => defaultOption.click());
+  await reopened.click('[data-testid="save-draft"]');
+  assert.equal(config.eventRule.email_template_id, null);
+  await reopened.cleanup();
 });

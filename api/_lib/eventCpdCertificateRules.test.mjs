@@ -49,6 +49,7 @@ function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config
   emailTemplates = [],
   templates = [{ id: template, status: 'active', name: 'Certificate', version: 2, source_sha256: 'sha', source_path: 'private.pdf' }] } = {}) {
   const calls = [];
+  let storedConfig = stored;
   const db = {
     from(table) {
       const filters = [];
@@ -63,7 +64,7 @@ function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config
           if (table === 'event' || table === 'complex_event') {
             return Promise.resolve({ data: event, error: null });
           }
-          if (table === 'event_cpd_certificate_config') return Promise.resolve({ data: stored ? { config: stored } : null, error: null });
+          if (table === 'event_cpd_certificate_config') return Promise.resolve({ data: storedConfig ? { config: storedConfig } : null, error: null });
           if (table === 'cpd_certificate_template') {
             return Promise.resolve({ data: templates.find(t => t.id === filters.find(([key]) => key === 'id')?.[1]) || null, error: null });
           }
@@ -81,6 +82,7 @@ function mockDb({ saved = null, stored = null, event = { id: 'e', pricing_config
     },
     async rpc(name, args) {
       calls.push([name, args]);
+      storedConfig = saved || args.p_config;
       return { data: saved || args.p_config, error: null };
     },
   };
@@ -114,7 +116,7 @@ for (const eventType of ['simple', 'complex']) {
   test(`${eventType} saves/reopens email selection and only exposes tenant-owned safe metadata`, async () => {
     const selected = config();
     selected.eventRule.email_template_id = emailId;
-    const { db, calls } = mockDb({ stored: selected, emailTemplates: [emailTemplate(),
+    const { db, calls } = mockDb({ emailTemplates: [emailTemplate(),
       { ...emailTemplate(), id: '77777777-7777-4777-8777-777777777777', tenant_id: 'other' }] });
     const res = response();
     await handleCertificateRules({ method: 'PUT', body: { event_type: eventType, event_id: 'e', config: selected } }, res, deps(db));
@@ -126,8 +128,34 @@ for (const eventType of ['simple', 'complex']) {
     assert.deepEqual(res.data.emailTemplates, [{ id: emailId, name: 'Certificate email', is_active: true, unavailable: false }]);
     const policy = await resolveEventCpdCertificate(db, { tenantId: 'tenant1', eventType, eventId: 'e', ticketId: 'member' });
     assert.equal(policy.email_template_id, emailId);
+    assert.equal(policy.email_selection_missing, false);
+    assert.equal(policy.template_id, null); // ticket's PDF suppression does not suppress event-wide email selection
   });
 }
+
+test('a legacy PDF-only save cannot erase a selected email; explicit null clears it', async () => {
+  const stored = config();
+  stored.eventRule.email_template_id = emailId;
+  const { db, calls } = mockDb({ stored, emailTemplates: [emailTemplate()] });
+  const res = response();
+  await handleCertificateRules({ method: 'PUT', body: {
+    event_type: 'simple', event_id: 'e', config: config(),
+  } }, res, deps(db));
+  assert.equal(res.code, 200);
+  assert.equal(calls[0][1].p_config.eventRule.email_template_id, emailId);
+  const selected = await resolveEventCpdCertificate(db, { tenantId: 'tenant1', eventType: 'simple', eventId: 'e', ticketId: 'member' });
+  assert.equal(selected.email_template_id, emailId);
+  const cleared = config();
+  cleared.eventRule.email_template_id = null;
+  await handleCertificateRules({ method: 'PUT', body: {
+    event_type: 'simple', event_id: 'e', config: cleared,
+  } }, res, deps(db));
+  assert.equal(res.code, 200);
+  assert.equal(calls[1][1].p_config.eventRule.email_template_id, null);
+  const policy = await resolveEventCpdCertificate(db, { tenantId: 'tenant1', eventType: 'simple', eventId: 'e', ticketId: 'member' });
+  assert.equal(policy.email_template_id, null);
+  assert.equal(policy.email_selection_missing, false);
+});
 
 test('missing, foreign, inactive, wrong-category and empty-content selections remain visible but cannot save', async () => {
   for (const record of [null, { ...emailTemplate(), tenant_id: 'other' },

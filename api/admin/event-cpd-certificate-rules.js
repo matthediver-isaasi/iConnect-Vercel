@@ -92,7 +92,18 @@ export async function handleCertificateRules(req, res, {
       if (error) throw error;
       ids = (data || []).map(ticket => String(ticket.id));
     }
-    const config = validateCertificateConfig(req.body?.config, ids, activeTemplates.map(template => template.id),
+    // Older editors omit the email field entirely. A PDF/date-only save from
+    // one of those editors must not silently replace a newer email selection.
+    // An explicit null remains the only way to clear the selection.
+    const incoming = req.body?.config;
+    const configWithEmail = incoming?.eventRule && !Object.hasOwn(incoming.eventRule, 'email_template_id')
+      ? { ...incoming, eventRule: {
+        ...incoming.eventRule,
+        email_template_id: (await loadCertificateConfig(db, context.tenantId, eventType, eventId))
+          .eventRule?.email_template_id ?? null,
+      } }
+      : incoming;
+    const config = validateCertificateConfig(configWithEmail, ids, activeTemplates.map(template => template.id),
       activeEmailTemplates.map(template => template.id));
     const { data, error } = await db.rpc('replace_event_cpd_certificate_config', {
       p_tenant_id: context.tenantId, p_event_type: DB_EVENT_TYPES[eventType],
