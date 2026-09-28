@@ -89,8 +89,33 @@ from the current index and ignored; earlier history/checkpoints were not purged.
 ## Migration status
 
 No database schema migrations were needed or applied. None remain outstanding
-for this import. Held rows require explicit identity/ticket decisions, not a
-schema migration.
+for this import. The 69 held rows above are the historical execution result,
+not a count of rows presently eligible for a further import. Identity and
+conflicting attendance-day holds still require individual review.
+
+## Follow-on ticket matching instruction (not yet applied)
+
+For the CPD import, any ticket for the **same attendance day** is acceptable
+when the attendee's exact role/category ticket is unavailable or has the wrong
+CPD allocation; the precise ticket category is not required. Prefer a
+CPD-valid exact role ticket where available, including when several exact role
+tickets exist. Otherwise choose a deterministic same-event/day ticket only
+when its effective registration CPD rule awards the verified day amount:
+Both Days **8**, Thursday Only **5**, Friday Only **3**. Effective ticket
+overrides take precedence over event-wide rules. Do not choose a different day
+or a single-day ticket for a multi-day attendee (or vice versa); do not guess
+when an award is absent or differs. Multiple eligible tickets with the same
+verified day award are ordered by ticket ID within the preferred exact-role
+pool, then within same-day alternatives. A mismatched exact role ticket does
+not block a CPD-valid same-day alternative. Existing identity checks, conflicting-day holds,
+booking reuse requirements, and certificate checks remain in force.
+
+This is a change to follow-on preflight matching logic only. The executed
+50-registration manifest and its CPD verification above remain historical
+evidence; this instruction does **not** authorize applying another import.
+Produce and review a fresh private read-only preflight against live destination
+state before deciding whether any held rows can now be imported. No current
+follow-on match/hold counts are asserted here.
 
 ## Operator tooling
 
@@ -105,4 +130,6 @@ schema migration.
 
 Never re-import using a newly generated manifest without reviewing new live
 state. Follow-on member imports and operator ticket changes may alter previously
-held mappings.
+held mappings. Never run `--apply` merely because the day-based fallback
+produces additional ready rows; review source identities, attendance days,
+effective awards, certificates and existing bookings first.

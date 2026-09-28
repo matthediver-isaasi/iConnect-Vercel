@@ -77,12 +77,30 @@ export function matchMember(row, members) {
   return emailMatches.length === 1 ? { member: emailMatches[0] }
     : { reason: emailMatches.length ? 'ambiguous_email' : 'member_missing_no_creation' };
 }
-export function matchTicket(row, member, tickets) {
-  const matches = tickets.filter(t => row.sheet === 'Friday Only'
-    ? t.name === 'Friday only'
-    : t.name?.startsWith(row.sheet === 'Both Days' ? 'Full meeting - ' : 'Thursday only - ')
-      && Array.isArray(t.role_ids) && t.role_ids.includes(member.role_id));
-  return matches.length === 1 ? { ticket: matches[0] } : { reason: matches.length ? 'ambiguous_ticket' : 'role_has_no_ticket' };
+// The verified destination awards 8 / 5 / 3 registration points for these
+// attendance days (docs/annual-meeting-import-evidence.md). Ticket category is
+// not authoritative when a delegate's role has no CPD-valid ticket.
+const DAY_TICKETS = {
+  'Both Days': { prefix: 'Full meeting - ', points: 8 },
+  'Thursday Only': { prefix: 'Thursday only - ', points: 5 },
+  'Friday Only': { name: 'Friday only', points: 3 },
+};
+const correctDayPoints = (rule, day) => rule
+  && new RegExp(`^${day.points}(?:\\.0+)?$`).test(String(rule.points_value));
+export function matchTicket(row, member, tickets, rules = []) {
+  const day = DAY_TICKETS[row.sheet];
+  if (!day) return { reason: 'unknown_attendance_day' };
+  const dayTickets = tickets.filter(t => day.name ? t.name === day.name : t.name?.startsWith(day.prefix));
+  // Every candidate, including an exact-role ticket, must award the verified
+  // day amount. Prefer valid exact-role choices; a wrong-point exact ticket
+  // cannot block a valid same-day alternative.
+  const eligible = dayTickets.filter(t => correctDayPoints(ruleFor(rules, t), day))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)) || String(a.name).localeCompare(String(b.name)));
+  const exact = eligible.filter(t => row.sheet === 'Friday Only'
+    || (Array.isArray(t.role_ids) && t.role_ids.includes(member.role_id)));
+  if (exact.length) return { ticket: exact[0] };
+  return eligible.length ? { ticket: eligible[0] }
+    : { reason: dayTickets.length ? 'day_ticket_cpd_allocation_unavailable' : 'day_has_no_ticket' };
 }
 function ruleFor(rules, ticket) {
   const active = rules.filter(r => r.active);
@@ -140,12 +158,13 @@ export function preflight(source, state) {
     if (!matched.member) result.reasons.push(matched.reason);
     else {
       result.member = matched.member;
-      const selected = matchTicket(row, matched.member, pricing?.ticket_classes || []);
+      const selected = matchTicket(row, matched.member, pricing?.ticket_classes || [], state.rules);
       if (!selected.ticket) result.reasons.push(selected.reason);
       else {
         result.ticket = selected.ticket;
         result.rule = ruleFor(state.rules, selected.ticket);
         if (!result.rule) result.reasons.push('registration_rule_unavailable');
+        else if (!correctDayPoints(result.rule, DAY_TICKETS[row.sheet])) result.reasons.push('ticket_cpd_allocation_mismatch');
         result.certificate = resolveEventCpdCertificatePolicy({
           config: state.certificate?.config, event: state.event,
           ticketReference: selected.ticket.id, templates: state.templates,

@@ -36,13 +36,62 @@ test('missing UUID permits exact email only; missing records never created', () 
   assert.equal(matchMember({ ...row, member_uuid: null }, [member]).member, member);
   assert.equal(matchMember({ ...row, member_uuid: null }, []).reason, 'member_missing_no_creation');
 });
-test('day + primary role ticket matching is exact and conservative', () => {
+test('day + primary role matching requires effective CPD and rejects unknown days', () => {
   const tickets = [{ id: 'full', name: 'Full meeting - Full member', role_ids: ['full'] }, { id: 'fri', name: 'Friday only', role_ids: [] }];
-  assert.equal(matchTicket(row, member, tickets).ticket.id, 'full');
-  assert.equal(matchTicket(row, { ...member, role_id: 'CPD Guest' }, tickets).reason, 'role_has_no_ticket');
-  assert.equal(matchTicket(row, member, [...tickets, tickets[0]]).reason, 'ambiguous_ticket');
-  assert.equal(matchTicket({ ...row, sheet: 'Friday Only' }, member, tickets).ticket.id, 'fri');
-  assert.equal(matchTicket({ ...row, sheet: 'Thursday Only' }, member, tickets).reason, 'role_has_no_ticket');
+  const rules = [
+    { active: true, ticket_id: 'full', trigger_type: 'registration', points_value: '8' },
+    { active: true, ticket_id: 'fri', trigger_type: 'registration', points_value: '3' },
+  ];
+  assert.equal(matchTicket(row, member, tickets, rules).ticket.id, 'full');
+  assert.equal(matchTicket(row, { ...member, role_id: 'CPD Guest' }, tickets).reason, 'day_ticket_cpd_allocation_unavailable');
+  assert.equal(matchTicket(row, member, [...tickets, tickets[0]], rules).ticket.id, 'full');
+  assert.equal(matchTicket({ ...row, sheet: 'Friday Only' }, member, tickets, rules).ticket.id, 'fri');
+  assert.equal(matchTicket({ ...row, sheet: 'Thursday Only' }, member, tickets).reason, 'day_has_no_ticket');
+  assert.equal(matchTicket({ ...row, sheet: 'Unknown' }, member, tickets, rules).reason, 'unknown_attendance_day');
+});
+test('role-less category fallback is same-day, deterministic and CPD-safe', () => {
+  const guest = { ...member, role_id: 'CPD Guest' };
+  const tickets = [
+    { id: 'z', name: 'Full meeting - Junior/Associate', role_ids: ['junior'] },
+    { id: 'a', name: 'Full meeting - Full member', role_ids: ['full'] },
+    { id: 'thursday', name: 'Thursday only - Full member', role_ids: ['full'] },
+    { id: 'friday', name: 'Friday only', role_ids: [] },
+  ];
+  const rules = [
+    { ticket_id: 'z', active: true, trigger_type: 'registration', points_value: '8.00' },
+    { ticket_id: 'a', active: true, trigger_type: 'registration', points_value: '8' },
+    { ticket_id: 'thursday', active: true, trigger_type: 'registration', points_value: '5' },
+    { ticket_id: 'friday', active: true, trigger_type: 'registration', points_value: '3' },
+  ];
+  assert.equal(matchTicket(row, guest, tickets, rules).ticket.id, 'a');
+  assert.equal(matchTicket(row, guest, [...tickets].reverse(), rules).ticket.id, 'a');
+  assert.equal(matchTicket(row, member, tickets, rules).ticket.id, 'a');
+  assert.equal(matchTicket({ ...row, sheet: 'Thursday Only' }, guest, tickets, rules).ticket.id, 'thursday');
+  assert.equal(matchTicket({ ...row, sheet: 'Friday Only' }, guest, tickets, rules).ticket.id, 'friday');
+  assert.equal(matchTicket(row, guest, tickets.filter(t => t.id !== 'a' && t.id !== 'z'), rules).reason, 'day_has_no_ticket');
+  assert.equal(matchTicket({ ...row, sheet: 'Thursday Only' }, guest, tickets.filter(t => t.id !== 'thursday'), rules).reason, 'day_has_no_ticket');
+  const mismatched = rules.map(r => r.ticket_id === 'a' ? { ...r, points_value: '5' } : r);
+  assert.equal(matchTicket(row, guest, tickets, mismatched).ticket.id, 'z');
+  assert.equal(matchTicket(row, guest, tickets, mismatched.map(r => r.ticket_id === 'z' ? { ...r, points_value: '3' } : r)).reason,
+    'day_ticket_cpd_allocation_unavailable');
+  assert.equal(matchTicket(row, guest, tickets, rules.filter(r => r.ticket_id !== 'a' && r.ticket_id !== 'z')).reason,
+    'day_ticket_cpd_allocation_unavailable');
+  assert.equal(matchTicket(row, guest, tickets, [
+    { ticket_id: null, active: true, trigger_type: 'registration', points_value: '8' },
+    { ticket_id: 'a', active: true, trigger_type: 'registration', points_value: '5' },
+  ]).ticket.id, 'z');
+  assert.equal(matchTicket(row, guest, tickets, rules.map(r => r.ticket_id === 'a'
+    ? { ...r, is_no_award: true } : r)).ticket.id, 'z');
+});
+test('multiple exact-role tickets select a deterministic valid exact before categories', () => {
+  const tickets = [
+    { id: 'z', name: 'Full meeting - Full member', role_ids: ['full'] },
+    { id: 'a', name: 'Full meeting - Other member', role_ids: ['full'] },
+    { id: '0', name: 'Full meeting - Junior/Associate', role_ids: ['junior'] },
+  ];
+  const rules = [{ active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' }];
+  assert.equal(matchTicket(row, member, tickets, rules).ticket.id, 'a');
+  assert.equal(matchTicket(row, member, [...tickets].reverse(), rules).ticket.id, 'a');
 });
 test('preflight excludes ineligible; holds existing records from either table; never changes rows', () => {
   const state = { event: { id: EVENT, tenant_id: TENANT, is_complex: false, pricing_config: { ticket_classes: [] } }, members: [member], bookings: [{ attendee_email: row.email, table: 'complex_event_booking' }], rules: [], templates: [] };
@@ -69,6 +118,41 @@ function fixture() {
   assert.equal(report.summary.ready, 1);
   return { source, manifest: { state, report } };
 }
+test('preflight applies approved day fallback while retaining identity, cross-day and CPD holds', () => {
+  const { source, manifest } = fixture();
+  const state = structuredClone(manifest.state);
+  state.members[0].role_id = 'CPD Guest';
+  state.event.pricing_config.ticket_classes.push({ id: 'other', name: 'Full meeting - Junior/Associate', role_ids: ['junior'] });
+  let report = preflight(source, state);
+  assert.equal(report.rows[0].disposition, 'ready');
+  assert.equal(report.rows[0].ticket.id, 'other');
+  assert.equal(report.rows[0].rule.points_value, '8');
+  state.rules.push({ id: 'override', active: true, ticket_id: 'other', trigger_type: 'registration', points_value: '5' });
+  state.rules.push({ id: 'override-original', active: true, ticket_id: 'ticket', trigger_type: 'registration', points_value: '5' });
+  report = preflight(source, state);
+  assert.equal(report.rows[0].disposition, 'held');
+  assert.ok(report.rows[0].reasons.includes('day_ticket_cpd_allocation_unavailable'));
+  state.rules.splice(-2);
+  state.members[0].email = 'other@example.org';
+  assert.ok(preflight(source, state).rows[0].reasons.includes('uuid_email_conflict'));
+  state.members[0].email = member.email;
+  source.rows.push({ ...source.rows[0], source_id: 'Friday Only:2', sheet: 'Friday Only' });
+  assert.ok(preflight(source, state).rows.every(r => r.reasons.includes('duplicate_source_email')));
+});
+test('a wrong-point exact role ticket falls back to a same-day correct-point category', () => {
+  const { source, manifest } = fixture();
+  const state = structuredClone(manifest.state);
+  state.event.pricing_config.ticket_classes.push({ id: 'alternative', name: 'Full meeting - Junior/Associate', role_ids: ['junior'] });
+  state.rules.push({ id: 'bad', active: true, ticket_id: 'ticket', trigger_type: 'registration', points_value: '5' });
+  const result = preflight(source, state).rows[0];
+  assert.equal(result.ticket.id, 'alternative');
+  assert.equal(result.disposition, 'ready');
+  assert.equal(result.rule.points_value, '8');
+  state.rules.push({ id: 'bad-alternative', active: true, ticket_id: 'alternative', trigger_type: 'registration', points_value: '5' });
+  const held = preflight(source, state).rows[0];
+  assert.equal(held.disposition, 'held');
+  assert.ok(held.reasons.includes('day_ticket_cpd_allocation_unavailable'));
+});
 function fakeClient(live, failInsert = false) {
   const calls = [];
   const client = { calls, async query(sql, args) {
