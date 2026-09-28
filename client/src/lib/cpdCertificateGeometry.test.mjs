@@ -33,3 +33,18 @@ test('normalization and fit calculations clamp invalid geometry', () => {
   assert.equal(calculateFitScale('fit-width', { width: 900 }, { width: 600 }), 1.5);
   assert.equal(calculateFitScale('fit-page', { width: 900, height: 800 }, { width: 600, height: 800 }), 1);
 });
+
+test('portrait and landscape fit the measured inner viewport without changing point coordinates', () => {
+  for (const page of [{ width: 612, height: 792 }, { width: 842, height: 595 }]) {
+    for (const viewport of [{ width: 1392, height: 720 }, { width: 342, height: 450 }]) {
+      const original = { ...page };
+      const width = calculateFitScale('fit-width', viewport, page);
+      assert.ok(Math.abs(pointsToPixels(page.width, width) - viewport.width) < 0.00001);
+      const fit = calculateFitScale('fit-page', viewport, page);
+      assert.ok(pointsToPixels(page.width, fit) <= viewport.width + 0.00001);
+      assert.ok(pointsToPixels(page.height, fit) <= viewport.height + 0.00001);
+      assert.equal(calculateFitScale(2, viewport, page), 2, 'manual zoom is independent of viewport size');
+      assert.deepEqual(page, original);
+    }
+  }
+});

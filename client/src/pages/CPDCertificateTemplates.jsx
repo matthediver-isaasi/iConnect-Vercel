@@ -13,9 +13,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
+import { useCertificateViewport } from '@/hooks/useCertificateViewport';
 import * as pdfjs from 'pdfjs-dist';
 import {
-  calculateFitScale, moveBox, normalizeBox, pointsToPixels, resizeBox,
+  moveBox, normalizeBox, pointsToPixels, resizeBox,
 } from '@/lib/cpdCertificateGeometry';
 import {
   certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
@@ -242,7 +243,7 @@ function TemplateLibrary() {
   );
 }
 
-function TemplateDesigner({ id }) {
+export function TemplateDesigner({ id }) {
   const navigate = useNavigate();
   const containerRef = useRef(null);
   const uploadRef = useRef(null);
@@ -252,7 +253,6 @@ function TemplateDesigner({ id }) {
   const [selectedId, setSelectedId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState('fit-width');
-  const [scale, setScale] = useState(1);
   const [preview, setPreview] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
   const [saving, setSaving] = useState(false);
   const [sourceUrl, setSourceUrl] = useState('');
@@ -278,16 +278,10 @@ function TemplateDesigner({ id }) {
   const pages = useMemo(() => templatePages(draft), [draft]);
   const page = pages[currentPage - 1] || pages[0];
   const selected = draft?.fields?.find(field => field.id === selectedId);
-
-  useEffect(() => {
-    const resize = () => {
-      const box = containerRef.current?.getBoundingClientRect();
-      setScale(calculateFitScale(zoom, { width: Math.max(200, (box?.width || 900) - 24), height: window.innerHeight - 250 }, page, 1));
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
-  }, [zoom, page]);
+  const viewing = preview || draft?.status === 'active';
+  const { scale, height: viewportHeight } = useCertificateViewport(containerRef, {
+    ready: !isLoading && !!draft, mode: viewing, zoom, page,
+  });
   useEffect(() => {
     if (!dirty) return undefined;
     const beforeUnload = e => { e.preventDefault(); e.returnValue = ''; };
@@ -331,7 +325,7 @@ function TemplateDesigner({ id }) {
     setSelectedId(copy.id);
   };
   const nudge = e => {
-    if (!selected || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    if (viewing || !selected || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
     e.preventDefault();
     const amount = e.shiftKey ? 10 : 1;
@@ -405,7 +399,7 @@ function TemplateDesigner({ id }) {
       {missing.length > 0 && <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-sm text-amber-900">
         Preview warning: {missing.length} field(s) have no sample value.
       </div>}
-      <div className="grid xl:grid-cols-[260px_minmax(480px,1fr)_300px]">
+      <div className={`grid grid-cols-1 ${viewing ? '' : 'xl:grid-cols-[260px_minmax(0,1fr)_300px]'}`}>
         {!preview && !isActive && <aside className="bg-white border-r p-4 space-y-5">
           <section><h2 className="font-semibold mb-2">Built-in fields</h2>
             <div className="space-y-1">{BUILTIN_FIELDS.map(([key, label, sample]) =>
@@ -414,40 +408,40 @@ function TemplateDesigner({ id }) {
             <CustomFieldForm onAdd={addField} />
           </section>
         </aside>}
-        <main className="min-w-0">
-          <div className="bg-white border-b p-2 flex justify-center items-center gap-2">
-            <Label>Page</Label><select className="border rounded h-9 px-2" value={currentPage} onChange={e => setCurrentPage(Number(e.target.value))}>
+        <main className="min-w-0 order-first xl:order-none">
+          <div className="bg-white border-b p-2 flex flex-wrap justify-center items-center gap-2">
+            <Label htmlFor="certificate-page-select">Page</Label><select id="certificate-page-select" aria-label="Page" className="border rounded h-9 px-2" value={currentPage} onChange={e => setCurrentPage(Number(e.target.value))}>
               {pages.map((_, i) => <option key={i} value={i + 1}>{i + 1} of {pages.length}</option>)}</select>
             <ZoomIn className="w-4 h-4 ml-3" />
-            <select className="border rounded h-9 px-2" value={zoom} onChange={e => setZoom(e.target.value.startsWith('fit') ? e.target.value : Number(e.target.value))}>
+            <select aria-label="Zoom" className="border rounded h-9 px-2" value={zoom} onChange={e => setZoom(e.target.value.startsWith('fit') ? e.target.value : Number(e.target.value))}>
               <option value="fit-width">Fit width</option><option value="fit-page">Fit page</option>
               <option value={0.5}>50%</option><option value={0.75}>75%</option><option value={1}>100%</option><option value={1.5}>150%</option><option value={2}>200%</option>
             </select>
             <span className="text-xs text-slate-500">{Math.round(scale * 100)}% · {page.width} × {page.height} pt</span>
           </div>
-          <div ref={containerRef} className="overflow-auto p-6 min-h-[calc(100vh-116px)]">
-            <div className="relative mx-auto bg-white shadow-xl overflow-hidden" style={{ width: pointsToPixels(page.width, scale), height: pointsToPixels(page.height, scale) }}>
+          <div ref={containerRef} data-testid="certificate-viewport" className="overflow-auto p-6" style={{ height: viewportHeight, scrollbarGutter: 'stable both-edges' }}>
+            <div data-testid="certificate-page" className="relative mx-auto bg-white shadow-xl overflow-hidden" style={{ width: pointsToPixels(page.width, scale), height: pointsToPixels(page.height, scale) }}>
               {sourceUrl ? <PdfPage sourceUrl={sourceUrl} pageNumber={currentPage} scale={scale} /> :
                 <div className="absolute inset-0 grid place-items-center text-slate-400"><FileText />PDF unavailable</div>}
               {draft.fields.filter(f => Number(f.page || 1) === currentPage).map(field => {
                 const active = field.id === selectedId;
                 const rawValue = field.sample || field.default_value;
-                const value = preview
+                const value = viewing
                   ? (rawValue ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
                   : `{{${field.key}}}`;
                 return <div key={field.id} onPointerDown={e => {
-                  if (preview) return; e.preventDefault(); setSelectedId(field.id);
+                  if (viewing) return; e.preventDefault(); setSelectedId(field.id);
                   interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'move' };
-                }} className={`absolute overflow-hidden ${preview ? '' : `cursor-move border ${active ? 'border-blue-600 bg-blue-50/30' : 'border-dashed border-blue-400'}`}`}
+                }} className={`absolute overflow-hidden ${viewing ? '' : `cursor-move border ${active ? 'border-blue-600 bg-blue-50/30' : 'border-dashed border-blue-400'}`}`}
                   style={{ left: pointsToPixels(field.x, scale), top: pointsToPixels(field.y, scale), width: pointsToPixels(field.width, scale), height: pointsToPixels(field.height, scale),
                     color: field.color, fontFamily: field.font_family, fontSize: pointsToPixels(field.font_size, scale), fontWeight: field.font_weight, fontStyle: field.font_style,
                     textAlign: field.align, whiteSpace: field.multiline ? 'pre-wrap' : 'nowrap', display: 'flex', alignItems: field.vertical_align === 'top' ? 'flex-start' : field.vertical_align === 'bottom' ? 'flex-end' : 'center',
                     justifyContent: field.align === 'center' ? 'center' : field.align === 'right' ? 'flex-end' : 'flex-start',
                   }} title={`${field.x.toFixed?.(1) ?? field.x}, ${field.y.toFixed?.(1) ?? field.y} pt`}>
-                  {preview
+                  {viewing
                     ? <PreviewText field={field} value={value} scale={scale} />
                     : <span className="overflow-hidden text-ellipsis" style={{ maxWidth: '100%' }}>{value}</span>}
-                  {!preview && active && <button aria-label="Resize field" className="absolute right-0 bottom-0 w-3 h-3 bg-blue-600 cursor-se-resize"
+                  {!viewing && active && <button aria-label="Resize field" className="absolute right-0 bottom-0 w-3 h-3 bg-blue-600 cursor-se-resize"
                     onPointerDown={e => { e.stopPropagation(); interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'resize' }; }} />}
                 </div>;
               })}
