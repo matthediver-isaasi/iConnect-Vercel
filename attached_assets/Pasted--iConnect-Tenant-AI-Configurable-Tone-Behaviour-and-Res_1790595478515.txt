@@ -1,0 +1,647 @@
+# iConnect Tenant AI – Configurable Tone, Behaviour and Response Rules
+
+## Objective
+
+Extend the existing tenant AI responder so that each iConnect tenant can configure the assistant's tone of voice, response behaviour, terminology, sourcing behaviour and escalation guidance.
+
+This work is prompted by the requirements supplied by Graduate Futures Institute (GFI), but the implementation must be **generic and reusable for every iConnect tenant**.
+
+Do not build GFI-specific AI logic.
+
+All tenant AI configuration must live within the existing:
+
+`/admin/settings`
+
+This is where the existing AI assistant name, logo and introductory text are already maintained.
+
+The existing functionality and AI indexing architecture should be extended rather than replaced.
+
+---
+
+# 1. Core Architecture
+
+The AI responder should operate using three layers of instruction.
+
+## Layer 1 – iConnect System Guardrails
+
+These are controlled by iConnect and must **not** be editable by tenants.
+
+Existing security rules must continue to apply, including:
+
+- Strict tenant isolation.
+- Never expose data belonging to another tenant.
+- Never return member/person data as AI knowledge.
+- Respect RBAC permissions when retrieving indexed resources.
+- A user must never receive information from content they would not normally have permission to access.
+- Do not bypass authentication or content restrictions simply because content exists in the AI index.
+- Source permissions must be evaluated before content is supplied to the model.
+- Do not fabricate sources, URLs or information.
+- Existing protections against prompt injection or indexed content attempting to override system instructions must remain in place.
+
+Tenant configuration described below is subordinate to these system rules.
+
+---
+
+# 2. AI Settings within `/admin/settings`
+
+Expand the existing AI settings section.
+
+Retain the existing:
+
+- Assistant name
+- Assistant logo/avatar
+- Introductory text
+
+Add the following sections.
+
+---
+
+# 3. Assistant Identity & Voice
+
+Add:
+
+### Assistant Role / Purpose
+
+Multiline text field.
+
+Example:
+
+> A critical friend to careers professionals, helping members explore questions, identify relevant evidence and decide what to do next.
+
+This should become part of the tenant's AI system context.
+
+---
+
+### Tone of Voice
+
+Multiline text field.
+
+Example:
+
+> Knowledgeable, warm, inclusive, practical and conversational. Use plain English and speak directly to the member.
+
+Do not limit this to predefined tone choices.
+
+We can optionally provide quick-select presets in future, but free text should be supported now.
+
+---
+
+### Communication Style
+
+Provide configurable toggles:
+
+- Use contractions where natural
+- Prefer plain English
+- Prefer concise answers
+- Avoid humour
+- Avoid exaggerated praise
+- Avoid sales/promotional language
+- Explain technical terminology when necessary
+
+These should influence the generated tenant instructions rather than introducing separate application logic wherever possible.
+
+---
+
+# 4. Response Behaviour
+
+Add a section named:
+
+## Response Behaviour
+
+Controls:
+
+### Default Answer Length
+
+Options:
+
+- Concise
+- Balanced
+- Detailed
+
+Default: `Concise`
+
+This is a preference rather than a strict token limit.
+
+---
+
+### Ask Clarifying Questions
+
+Options:
+
+- When necessary
+- Frequently
+- Never unless essential
+
+Default:
+
+`When necessary`
+
+For the GFI configuration, this should mean:
+
+Answer straightforward questions immediately but ask one focused question when the user's aim, audience or context would materially change the answer.
+
+---
+
+### Professional Judgement
+
+Toggle:
+
+`Offer multiple approaches when there is no single correct answer`
+
+Default: ON.
+
+When enabled, the AI should generally present 2–3 appropriate approaches or considerations rather than declaring one method correct.
+
+---
+
+### Practical Next Steps
+
+Toggle:
+
+`Suggest a useful next step when appropriate`
+
+Default: ON.
+
+Examples could include:
+
+- Read another relevant resource
+- Visit an event or resource page
+- Contact the organisation
+- Consult an appropriate community/group
+- Refer to an authoritative specialist source
+
+Do not force a next step onto every answer.
+
+---
+
+# 5. Source and Evidence Behaviour
+
+Create a section:
+
+## Sources & Evidence
+
+The current iConnect AI already returns information from indexed tenant content. Extend the response policy around how those sources are presented.
+
+### Show Sources
+
+Toggle:
+
+`Show sources used to produce answers`
+
+Default: ON.
+
+Where available show:
+
+- Content/resource title
+- Direct URL
+- Publication/update date
+
+The source links must point to the actual tenant resource rather than a generic section of the site wherever possible.
+
+---
+
+### Distinguish Source Information from AI Interpretation
+
+Toggle:
+
+Default: ON.
+
+When enabled, the assistant should make clear when something is:
+
+- explicitly stated by a source;
+- inferred from available sources; or
+- an AI-generated suggestion based upon the information available.
+
+It must not represent inference as a sourced fact.
+
+---
+
+### Evidence Freshness
+
+Toggle:
+
+`Flag potentially outdated evidence`
+
+Default: ON.
+
+The AI should consider publication/update dates when those dates are known.
+
+Example behaviour:
+
+> This resource was published in 2022, so the figures may not reflect the current labour market.
+
+Do not automatically dismiss older content merely because newer content exists.
+
+---
+
+### Conflicting Sources
+
+This should be standard behaviour rather than a tenant toggle.
+
+Where retrieved sources materially disagree:
+
+- identify the differing claims;
+- identify dates where available;
+- explain the disagreement;
+- do not silently pick one;
+- do not invent an explanation reconciling them.
+
+---
+
+### Insufficient Evidence
+
+When the indexed evidence does not support a reliable answer, the assistant should say so rather than filling the gap with invented information.
+
+This should be platform-standard behaviour.
+
+Tenant-specific escalation instructions described later can determine where the user is directed next.
+
+---
+
+# 6. Terminology & Language
+
+Create:
+
+## Preferred Terminology
+
+Allow administrators to maintain terminology guidance.
+
+Use a repeatable table:
+
+| Prefer | Instead of / Notes |
+|---|---|
+| Careers professionals | Support staff |
+| Careers services | Support services |
+| Students | — |
+| Academic colleagues | Non-academic/academic staff where inappropriate |
+
+Fields:
+
+- Preferred term
+- Avoid term(s)
+- Optional explanation
+
+The AI should incorporate this terminology into its response instructions.
+
+This needs to support more than GFI and therefore should not contain hard-coded terminology.
+
+---
+
+# 7. Custom AI Instructions
+
+Add:
+
+## Additional AI Instructions
+
+Large multiline text area.
+
+Explain:
+
+> Add organisation-specific guidance about how your AI assistant should answer questions. These instructions cannot override iConnect security, privacy or permission controls.
+
+This allows tenants to capture requirements that do not warrant dedicated settings.
+
+For GFI, examples might include:
+
+- Do not imply a human GFI employee has reviewed an AI answer.
+- Use "we" only when clearly referring to the GFI community or a verified GFI activity.
+- Credit named authors or members where a resource identifies them and attribution is relevant.
+- Do not imply GFI authored material contributed by members.
+- Avoid deficit language about students or institutions.
+- Do not describe an organisation as "doing well" unless supported by defined comparable evidence.
+
+---
+
+# 8. Sensitive or Specialist Subjects
+
+Create:
+
+## Escalation & Boundaries
+
+Add a configurable text field:
+
+### Subjects requiring additional caution
+
+Allow either comma-separated entries or preferably tags.
+
+For example:
+
+- Legal
+- Immigration
+- Safeguarding
+- Regulatory
+- Clinical
+- Financial
+
+Do not hard-code GFI's list as the universal list.
+
+---
+
+### Escalation Instructions
+
+Multiline field.
+
+Example:
+
+> Where the available resources cannot support a reliable answer on a specialist subject, explain the limitation briefly and direct the member to the appropriate authoritative source or GFI team.
+
+---
+
+### Escalation Contact / Destination
+
+Allow optional:
+
+- Display name
+- URL
+- Email address
+- Instruction text
+
+For example:
+
+`Contact the GFI team`
+
+or
+
+`Visit the International Students Community of Practice`
+
+The AI can use these destinations when it cannot responsibly answer from available resources.
+
+---
+
+# 9. Handling User Challenges
+
+Add a system-level response behaviour rather than a tenant setting.
+
+If a user challenges an answer:
+
+1. Re-evaluate the retrieved source evidence.
+2. Identify whether the previous statement was actually supported.
+3. Correct the answer where appropriate.
+4. Do not defend an unsupported answer.
+5. Show the source supporting the corrected response.
+6. If the available content still cannot answer the question, explain this clearly.
+
+The AI should avoid defensive filler such as:
+
+> I'm doing my best.
+
+Tenant tone guidance should still apply.
+
+---
+
+# 10. Proactive Recommendations
+
+Do not automatically implement the GFI request for proactive external recommendations as fixed behaviour.
+
+Add a tenant setting:
+
+### Suggest Related Tenant Content
+
+Toggle.
+
+Default: ON.
+
+When enabled the assistant may suggest other **permission-accessible indexed tenant content** that genuinely relates to the answer.
+
+Do not turn every answer into a recommendation carousel.
+
+---
+
+# 11. External Internet Sources
+
+This must remain separate from normal indexed tenant knowledge.
+
+Do **not** implement GFI's suggested "75/25" content split.
+
+There is currently no sufficiently defined meaning for that ratio.
+
+If external/live web search exists or is subsequently added to the iConnect AI architecture, it must have its own tenant-level controls including:
+
+- Allow external sources
+- Approved external domains
+- Blocked external domains
+- Whether live web search is permitted
+- Whether external citations are visibly identified
+
+For the current implementation, do not introduce external browsing solely to meet this brief unless that capability is already present in the AI responder.
+
+Tenant indexed content should remain the primary trusted knowledge source.
+
+---
+
+# 12. AI Configuration Preview
+
+At the bottom of the AI settings section add:
+
+### Preview Assistant
+
+Allow the administrator to open a simple AI preview/test panel.
+
+The preview should use:
+
+- current saved AI settings;
+- current tenant content index;
+- current logged-in administrator's permissions.
+
+Allow a test question to be entered and display:
+
+- AI response;
+- sources returned;
+- source dates where available;
+- any escalation behaviour triggered.
+
+This gives tenants a practical way of testing their configuration before exposing changes to members.
+
+If a suitable preview/testing interface already exists, extend that rather than duplicating it.
+
+---
+
+# 13. Configuration Storage
+
+Create or extend the appropriate tenant AI configuration storage.
+
+Prefer a structured configuration rather than storing everything in a single prompt string.
+
+Conceptually:
+
+```text
+tenant_ai_settings
+- tenant_id
+- assistant_name
+- assistant_logo
+- intro_text
+
+- assistant_role
+- tone_of_voice
+- answer_length
+- clarification_policy
+- multiple_approaches_enabled
+- next_steps_enabled
+
+- show_sources
+- distinguish_interpretation
+- flag_old_sources
+
+- terminology
+- custom_instructions
+
+- sensitive_topics
+- escalation_instructions
+- escalation_contact_name
+- escalation_contact_url
+- escalation_contact_email
+
+- suggest_related_content
+
+- external_sources_enabled
+- approved_external_domains
+
+- updated_at
+- updated_by
+```
+
+Use the project's existing configuration conventions and data structures where appropriate rather than blindly creating this exact schema.
+
+Terminology and sensitive topics may be JSONB if that fits the existing Supabase structure.
+
+---
+
+# 14. Prompt/Instruction Assembly
+
+Do not store one enormous generated system prompt in the database.
+
+At request time construct the AI instruction stack from:
+
+1. iConnect immutable system/security rules
+2. Tenant AI configuration
+3. User permissions/RBAC context
+4. Retrieved authorised content
+5. Conversation context
+6. User question
+
+Maintain a clear separation between these layers.
+
+Tenant instructions must never be allowed to override the platform security layer.
+
+---
+
+# 15. GFI Initial Configuration
+
+Once functionality is complete, use the supplied GFI brief to populate an initial GFI configuration.
+
+Suggested GFI configuration:
+
+### Role
+
+Critical friend to careers professionals who helps members explore questions, identify relevant evidence and decide what to do next.
+
+### Tone
+
+Knowledgeable, warm, inclusive, practical, conversational and professional.
+
+### Answer Length
+
+Concise.
+
+### Plain English
+
+Enabled.
+
+### Humour
+
+Disabled.
+
+### Promotional Language
+
+Disabled.
+
+### Multiple Approaches
+
+Enabled.
+
+### Clarifying Questions
+
+Only when context materially changes the answer.
+
+### Practical Next Steps
+
+Enabled.
+
+### Sources
+
+Enabled.
+
+### Source Dates
+
+Enabled.
+
+### Flag Old Evidence
+
+Enabled.
+
+### Distinguish AI Interpretation
+
+Enabled.
+
+### Related Tenant Content
+
+Enabled.
+
+### External Internet Content
+
+Disabled pending GFI decision.
+
+### Sensitive Topics
+
+Initially:
+
+- Legal
+- Immigration
+- Safeguarding
+- Specialist policy matters
+
+### GFI-specific additional instructions
+
+Include the relevant voice, attribution, terminology and evidence guidance from their supplied brief.
+
+Do **not** implement unapproved statements relating to conversation retention, anonymity or privacy until those behaviours have been confirmed technically and approved by GFI.
+
+---
+
+# 16. Acceptance Criteria
+
+The implementation is complete when:
+
+1. Existing AI name, logo and introduction remain configurable from `/admin/settings`.
+2. The new AI configuration appears within the same settings area.
+3. Settings are tenant-specific.
+4. Changes for one tenant cannot affect another tenant.
+5. Tenant administrators can configure assistant role and tone.
+6. Response-length preference works.
+7. Professional judgement questions can present several options rather than asserting a single answer.
+8. Straightforward questions do not unnecessarily trigger clarifying questions.
+9. Context-sensitive questions can ask one relevant clarification.
+10. Sources can display title, URL and date when available.
+11. AI interpretation is not represented as a sourced fact.
+12. Older evidence can be identified where source dates exist.
+13. Conflicting retrieved sources are represented rather than silently reconciled.
+14. Unsupported answers are not fabricated.
+15. Preferred terminology influences responses.
+16. Sensitive-topic escalation instructions work.
+17. Tenant-specific additional AI instructions influence responses.
+18. Related content recommendations respect RBAC.
+19. Restricted resources are never revealed through AI.
+20. Member/person data cannot be surfaced through the knowledge system.
+21. Tenant instructions cannot override iConnect security rules.
+22. GFI can be configured according to the supplied tone-of-voice document without introducing GFI-specific application code.
+23. No unsupported privacy promises are presented to users.
+24. No undefined "75/25" external/internal source weighting is implemented.
+25. Existing AI functionality continues to operate for tenants that have not configured the new settings.
+
+---
+
+# 17. Important Development Principle
+
+This should be treated as an extension of the **iConnect tenant AI configuration framework**, not as bespoke development for GFI.
+
+The GFI document is the first detailed tenant use case and should inform the controls we expose, but another tenant should subsequently be capable of configuring a completely different voice and response policy through the same `/admin/settings` interface without requiring code changes.
