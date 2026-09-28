@@ -235,6 +235,7 @@ test('ask and conversation scope stop at disabled tenant for members and admin p
   const askSource = readFileSync(new URL('../member-ai/ask.js', import.meta.url), 'utf8')
     .replace(/^import [\s\S]*? from .*?;\s*$/gm, '')
     .replace(/^export \{.*?;\s*$/gm, '')
+    .replace(/^export (async )?function /gm, '$1function ')
     .replace('export default async function handler', 'async function handler');
   const deny = async (_tenant, res) => {
     res.status(403).json({ code: 'assistant_disabled' });
@@ -264,6 +265,7 @@ test('enabled assistant still respects excluded-member RBAC in ask and history',
   const askSource = readFileSync(new URL('../member-ai/ask.js', import.meta.url), 'utf8')
     .replace(/^import [\s\S]*? from .*?;\s*$/gm, '')
     .replace(/^export \{.*?;\s*$/gm, '')
+    .replace(/^export (async )?function /gm, '$1function ')
     .replace('export default async function handler', 'async function handler');
   const ctx = async () => ({ isAuthenticated: true, tenantId: 'tenant-a' });
   const member = async () => ({ id: 'member-a', role_id: 'role-a', member_excluded_features: [] });
@@ -283,8 +285,10 @@ test('enabled assistant still respects excluded-member RBAC in ask and history',
   };
   const ask = new Function('supabase', 'getTenantContext', 'requireTenantAiAssistant',
     'getSessionMember', 'resolveMemberExclusions', 'makeFeatureAccessChecker',
+    'resolveMemberContentGroupIds', 'resolveAccessibleEventIds', 'resolveAccessibleSessionIds', 'makeStructuredAccessFingerprint',
     `${askSource}\nreturn handler;`)(
-      db, ctx, enabled, member, excludes, checker);
+      db, ctx, enabled, member, excludes, checker,
+      async () => new Set(), async () => new Set(), async () => new Set(), () => 'fixture');
   const askRes = response();
   await ask({ method: 'POST', headers: {}, body: { question: 'What is new?' } }, askRes);
   assert.equal(askRes.statusCode, 403);
@@ -343,17 +347,24 @@ test('disabling blocks existing history; re-enabling exposes unchanged owned con
     .replace(/^export /gm, '');
   const scope = new Function('getTenantContext', 'getSessionMember', 'requireTenantAiAssistant',
     'resolveMemberExclusions', 'makeFeatureAccessChecker', 'supabase',
+    'resolveMemberContentGroupIds', 'resolveAccessibleEventIds', 'makeStructuredAccessFingerprint',
     `${historySource}\nreturn resolveMemberScope;`)(
       async () => ({ isAuthenticated: true, tenantId: 'tenant-a' }),
       async () => ({ id: 'member-a' }),
       (tenantId, res) => requireTenantAiAssistant(tenantId, res, db),
-      async () => [], () => ({ canAccessFeature: () => true }), db);
+      async () => [], () => ({ canAccessFeature: () => true }), db,
+      async () => new Set(), async () => new Set(), () => 'fixture');
   const route = path => {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8')
       .replace(/^import [\s\S]*? from .*?;\s*$/gm, '')
       .replace('export default async function handler', 'async function handler');
-    return new Function('supabase', 'resolveMemberScope', 'MAX_MESSAGES',
-      `${source}\nreturn handler;`)(db, scope, 400);
+    const history = new Function('supabase', 'revalidateMemberContentCandidates',
+      `${historySource}\nreturn redactRevokedHistoryMessages;`)(db, async ({ candidates }) => {
+        assert.deepEqual(candidates, [], 'user-only history has no source evidence to revalidate');
+        return [];
+      });
+    return new Function('supabase', 'resolveMemberScope', 'MAX_MESSAGES', 'redactRevokedHistoryMessages',
+      `${source}\nreturn handler;`)(db, scope, 400, history);
   };
   const list = route('../member-ai/conversations.js');
   const detail = route('../member-ai/conversations/[id].js');

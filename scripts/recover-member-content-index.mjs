@@ -27,7 +27,7 @@ import {
   createMemberIndexPgClient,
   MEMBER_CONTENT_TYPES,
 } from './lib/member-index-pg-client.mjs';
-import { reindexAllMemberContent } from '../api/_lib/memberContentIndexer.js';
+import { reindexAllMemberContentGeneration as reindexAllMemberContent } from '../api/_lib/memberContentGenerationWriter.js';
 
 const RUN_TYPES = Object.freeze(['all', ...MEMBER_CONTENT_TYPES]);
 const MAX_ITEMS_DEFAULT = 2;

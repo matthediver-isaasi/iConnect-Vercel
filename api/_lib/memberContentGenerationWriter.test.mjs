@@ -57,6 +57,7 @@ function makeSupabase({
         state.limit = value;
         return b;
       },
+      maybeSingle() { state.single = true; return b; },
       then(resolve, reject) {
         operations.push({ ...state, filters: { ...state.filters } });
         try {
@@ -64,7 +65,7 @@ function makeSupabase({
             const rows = state.filters.id
               ? sources.filter((row) => row.id === state.filters.id)
               : sources;
-            resolve({ data: rows, error: null });
+            resolve({ data: state.single ? rows[0] || null : rows, error: null });
             return;
           }
           if (state.table === 'i_edit_page') {
@@ -104,7 +105,7 @@ function makeSupabase({
     rpc: async (name, args) => {
       operations.push({ rpc: name, args });
       if (
-        name === 'publish_member_content_repair' &&
+        (name === 'publish_member_content_repair' || name === 'publish_member_content_knowledge') &&
         args.p_tenant_id === null &&
         args.p_content_type === null &&
         args.p_source_id === null &&
@@ -120,7 +121,7 @@ function makeSupabase({
         const claim = claims[Math.min(claimIndex++, claims.length - 1)];
         return { data: [claim], error: null };
       }
-      if (name === 'publish_member_content_repair') {
+      if (name === 'publish_member_content_repair' || name === 'publish_member_content_knowledge') {
         if (onPublish) return onPublish(args);
         return { data: publish, error: null };
       }

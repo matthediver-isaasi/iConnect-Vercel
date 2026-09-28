@@ -2861,7 +2861,7 @@ export default async function handler(req, res) {
       }
 
       // Task #2363: keep the Member AI Knowledge Assistant index fresh on save.
-      if (['blogpost', 'newspost', 'event', 'resource', 'complexevent'].includes(entityNorm) && data && supabase) {
+      if (['blogpost', 'newspost', 'event', 'resource', 'complexevent', 'ieditpage', 'filerepository'].includes(entityNorm) && data && supabase) {
         reindexMemberContentEntitySafe(entity, data).catch(() => {});
       }
 

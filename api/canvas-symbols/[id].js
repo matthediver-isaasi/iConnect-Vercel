@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { reindexMemberContentEntitySafe } from '../_lib/memberContentReindexHook.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -54,6 +55,7 @@ export default async function handler(req, res) {
       .select()
       .single();
     if (error) return res.status(500).json({ error: 'Failed to update symbol' });
+    reindexMemberContentEntitySafe('CanvasSymbol', data).catch(() => {});
     return res.status(200).json({ symbol: data });
   }
 
@@ -64,6 +66,10 @@ export default async function handler(req, res) {
       .eq('id', id)
       .eq('tenant_id', tenantId);
     if (error) return res.status(500).json({ error: 'Failed to delete symbol' });
+    // Canvas pages referencing this symbol are reindexed/dropped by the
+    // lifecycle hook; the database generation trigger has already fail-closed
+    // any old dependent chunks before this asynchronous work begins.
+    reindexMemberContentEntitySafe('CanvasSymbol', { id, tenant_id: tenantId }).catch(() => {});
     return res.status(200).json({ ok: true });
   }
 

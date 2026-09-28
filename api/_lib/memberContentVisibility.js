@@ -23,9 +23,9 @@ export const CONTENT_TYPES = [
 ];
 
 // Canvas Builder page layout_types that are publicly viewable — the exact set
-// the public page renderer (api/public/page/[slug].js) serves. Only pages with
-// one of these layouts are indexed / retrievable; 'member'-only pages are never
-// surfaced by the assistant, mirroring the public browse boundary.
+// the public page renderer (api/public/page/[slug].js) serves. Member layout
+// pages are additionally indexed as authenticated-only projections by the
+// member knowledge corpus; public layouts may also have member-only blocks.
 export const PUBLIC_CANVAS_LAYOUT_TYPES = [
   'public',
   'hybrid',
@@ -40,6 +40,7 @@ export const PUBLIC_CANVAS_LAYOUT_TYPES = [
  *   - isAdmin {boolean}          authenticated tenant/admin user (no member RBAC)
  *   - roleId {string|null}       member role id
  *   - groupIds {Set<string>}     member's active group ids
+ *   - isAuthenticated {boolean}  trusted authenticated session
  *   - canAccessFeature {(key:string)=>boolean}
  *   - tenantId {string}          expected tenant (defence in depth)
  *   - now {Date}                 clock for published_date checks
@@ -52,6 +53,7 @@ export function isChunkVisibleToMember(chunk, ctx) {
   if (!chunk) return false;
   const {
     isAdmin = false,
+    isAuthenticated = true,
     roleId = null,
     groupIds = new Set(),
     canAccessFeature = () => true,
@@ -64,6 +66,7 @@ export function isChunkVisibleToMember(chunk, ctx) {
 
   // Feature-key RBAC gate (admins pass everything via canAccessFeature).
   if (chunk.feature_key && !canAccessFeature(chunk.feature_key)) return false;
+  if (chunk.access_scope === 'authenticated' && !isAuthenticated) return false;
 
   const type = chunk.content_type;
 
@@ -71,6 +74,13 @@ export function isChunkVisibleToMember(chunk, ctx) {
     if (chunk.status !== 'active') return false;
     if (!isResourceReleased(chunk, now)) return false;
     if (!isAdmin) {
+      // A resource which is not published to the public library is a
+      // member/role surface, not a tenant-wide shortcut.  The normal resource
+      // detail flow denies a member with no effective role even where an old
+      // row has an empty allowed_role_ids list, so retain that distinction in
+      // AI retrieval.  `null` is treated as non-public: missing access
+      // metadata must never broaden access.
+      if (chunk.is_public !== true && !roleId) return false;
       if (chunk.member_group_id && !groupIds.has(chunk.member_group_id)) {
         return false;
       }
@@ -113,8 +123,8 @@ export function isChunkVisibleToMember(chunk, ctx) {
     // Mirror the public page renderer (api/public/page/[slug].js): only
     // published pages surface. Canvas pages carry no role/group columns
     // (i_edit_page has none), so there is no per-role/per-group gating; the
-    // publicly-viewable layout_type is enforced at index time (isIndexable)
-    // and again by the null feature_key (public content, no RBAC gate).
+    // layout/scope is assigned by the indexer per projection; no feature key
+    // applies to portal pages themselves.
     if (chunk.status !== 'published') return false;
     return true;
   }

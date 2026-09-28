@@ -8,7 +8,8 @@
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
-- [Reindex concurrency guard](reindex-concurrency-guard.md) — reindex chain uses a fail-open defer-marker (system_settings global row + runId), NOT a hard lock; keep it best-effort or "restart is free" breaks.
+- [Reindex concurrency guard](reindex-concurrency-guard.md) — historical background-worker pattern; Member Content now uses the dedicated operation authority documented below, not system_settings.
+- [Member-content reindex operation authority](member-content-reindex-operations.md) — CRON_SECRET is fail-closed; use the dedicated service-only operations singleton/RPCs, never browser-writable system_settings.
 - [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.

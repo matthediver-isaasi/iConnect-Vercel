@@ -55,6 +55,7 @@ const TYPE_ICON = {
   complex_event: CalendarDays,
   news_post: Newspaper,
   blog_post: BookOpen,
+  canvas_page: FileText,
 };
 
 const TITLE_MAX = 80;
@@ -133,6 +134,36 @@ async function fetchConversation(id, tenantId, signal) {
 function deriveTitle(question) {
   const q = question.trim().replace(/\s+/g, " ");
   return q.length > TITLE_MAX ? `${q.slice(0, TITLE_MAX - 1).trimEnd()}…` : q;
+}
+
+function AnswerWithCitations({ content, sources, onSourceClick }) {
+  const byCitation = new Map(
+    (sources || [])
+      .filter((source) => source?.citationId)
+      .map((source) => [source.citationId, source])
+  );
+  const parts = String(content || "").split(/(\[[A-Za-z][A-Za-z0-9_-]{0,11}\])/g);
+  return (
+    <p className="whitespace-pre-wrap leading-relaxed text-foreground">
+      {parts.map((part, index) => {
+        const match = /^\[([A-Za-z][A-Za-z0-9_-]{0,11})\]$/.exec(part);
+        const source = match ? byCitation.get(match[1]) : null;
+        if (!source?.link) return <React.Fragment key={index}>{part}</React.Fragment>;
+        return (
+          <Link
+            key={index}
+            to={source.link}
+            onClick={onSourceClick}
+            className="font-medium text-primary underline underline-offset-2 hover:no-underline"
+            aria-label={`Open source: ${source.title}`}
+            data-testid={`link-member-ai-inline-citation-${source.citationId}`}
+          >
+            {part}
+          </Link>
+        );
+      })}
+    </p>
+  );
 }
 
 export default function MemberAiAssistant({ open, onOpenChange, config, identityKey }) {
@@ -223,7 +254,9 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
       {
         role: "assistant",
         content: answer.answer,
-        sources: Array.isArray(answer.sources) ? answer.sources : [],
+          // The API signs this exact response.  Browser-provided sources are
+          // never accepted by the history endpoint.
+          answerProvenance: answer.answerProvenance,
       },
     ];
     if (conversationId) {
@@ -291,6 +324,9 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
       // Persist the turn alongside the (stateless) ask flow. Saves must
       // surface errors — the chat keeps working, but the member is told.
       if (!historySupported) return;
+      // No-answer fallbacks deliberately have no source-provenance envelope;
+      // do not convert them into an unverifiable persisted assistant reply.
+      if (!data.answerProvenance) return;
       // Don't persist into the wrong tenant if the active tenant changed
       // between asking and answering.
       if (!mountedRef.current || variables.tenantId !== tenantId) return;
@@ -633,9 +669,9 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
                     <Sparkles className="h-7 w-7" />
                   </div>
                   <p className="max-w-md text-muted-foreground">
-                    Ask me about events, resources, news, or articles available
-                    to you. For example, "What events are coming up?" or "Where
-                    can I find the onboarding guide?"
+                    Ask me about events, resources, news, articles, or portal
+                    pages available to you. For example, "What events are coming
+                    up?" or "Where can I find the onboarding guide?"
                   </p>
                 </div>
               )}
@@ -663,20 +699,27 @@ export default function MemberAiAssistant({ open, onOpenChange, config, identity
                         className="rounded-md bg-muted px-4 py-2"
                         data-testid={`member-ai-answer-${i}`}
                       >
-                        <p className="whitespace-pre-wrap leading-relaxed text-foreground">
-                          {turn.content}
-                        </p>
+                        <AnswerWithCitations
+                          content={turn.content}
+                          sources={turn.sources}
+                          onSourceClick={() => onOpenChange(false)}
+                        />
                       </div>
-                      {Array.isArray(turn.sources) && turn.sources.length > 0 && (
+                      {Array.isArray(turn.sources) && turn.sources.some((source) => !source?._memberAiAnswerKind) && (
                         <div className="mt-2 flex flex-col gap-1.5">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             Sources
                           </p>
-                          {turn.sources.map((source, si) => {
+                          {turn.sources.filter((source) => !source?._memberAiAnswerKind).map((source, si) => {
                             const Icon = TYPE_ICON[source.type] || BookOpen;
                             const inner = (
                               <>
                                 <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                 {source.citationId && (
+                                   <span className="shrink-0 text-xs font-semibold text-primary">
+                                     [{source.citationId}]
+                                   </span>
+                                 )}
                                 <span className="truncate">{source.title}</span>
                                 {source.typeLabel && (
                                   <span className="ml-auto shrink-0 text-xs text-muted-foreground">

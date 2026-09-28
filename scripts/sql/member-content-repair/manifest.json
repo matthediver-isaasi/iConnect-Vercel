@@ -6,6 +6,8 @@
   "files": [
     "001-publish.sql",
     "002-canvas.sql",
-    "003-microsite-fence.sql"
+    "003-microsite-fence.sql",
+    "004-knowledge.sql",
+    "005-microsite-knowledge-eligibility.sql"
   ]
 }

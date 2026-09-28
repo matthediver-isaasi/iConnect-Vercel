@@ -73,6 +73,25 @@ test('resource: only active status is visible', () => {
   );
 });
 
+test('resource: private resource does not grant role-less members access', () => {
+  const chunk = {
+    tenant_id: TENANT,
+    content_type: 'resource',
+    status: 'active',
+    is_public: false,
+    allowed_role_ids: [],
+  };
+  assert.equal(
+    isChunkVisibleToMember(chunk, memberCtx({ roleId: null, groupIds: new Set() })),
+    false
+  );
+  assert.equal(isChunkVisibleToMember(chunk, memberCtx({ roleId: 'role-2' })), true);
+  assert.equal(
+    isChunkVisibleToMember(chunk, memberCtx({ isAdmin: true, roleId: null })),
+    true
+  );
+});
+
 test('resource: group-restricted hidden unless member is in the group', () => {
   const chunk = {
     tenant_id: TENANT,
@@ -258,6 +277,43 @@ test('canvas_page: published page visible to a member with no role or groups', (
     isChunkVisibleToMember(chunk, memberCtx({ roleId: null, groupIds: new Set() })),
     true
   );
+});
+
+test('authenticated-only chunk never becomes a guest candidate', () => {
+  const chunk = {
+    tenant_id: TENANT,
+    content_type: 'canvas_page',
+    status: 'published',
+    access_scope: 'authenticated',
+  };
+  assert.equal(
+    isChunkVisibleToMember(chunk, memberCtx({ isAuthenticated: false })),
+    false
+  );
+  assert.equal(isChunkVisibleToMember(chunk, memberCtx()), true);
+});
+
+test('two-tenant matrix denies every cross-tenant family despite otherwise matching entitlement', () => {
+  const tenantA = TENANT;
+  const tenantB = 'tenant-b';
+  const ctx = memberCtx({
+    tenantId: tenantA,
+    roleId: 'role-a',
+    groupIds: new Set(['group-a']),
+    isAuthenticated: true,
+  });
+  const cases = [
+    { content_type: 'resource', status: 'active', allowed_role_ids: ['role-a'], member_group_id: 'group-a' },
+    { content_type: 'event', status: 'published', event_state: 'published', member_group_id: 'group-a' },
+    { content_type: 'complex_event', status: 'published', event_state: 'published', member_group_id: 'group-a' },
+    { content_type: 'news_post', status: 'published' },
+    { content_type: 'blog_post', status: 'published' },
+    { content_type: 'canvas_page', status: 'published', access_scope: 'authenticated' },
+  ];
+  for (const chunk of cases) {
+    assert.equal(isChunkVisibleToMember({ ...chunk, tenant_id: tenantA }, ctx), true);
+    assert.equal(isChunkVisibleToMember({ ...chunk, tenant_id: tenantB }, ctx), false);
+  }
 });
 
 test('canvas_page: cross-tenant is never visible', () => {

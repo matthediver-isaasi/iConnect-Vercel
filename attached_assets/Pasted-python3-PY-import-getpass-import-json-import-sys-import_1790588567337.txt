@@ -1,0 +1,101 @@
+python3 - <<'PY'
+import getpass
+import json
+import sys
+import urllib.request
+import urllib.error
+from datetime import datetime, timezone
+
+TEAM = "team_6nULXm5hUGvUCNwvc7Axz6GF"
+PROJECT = "prj_iPFlb9rOOVNVtbobMRR1vyV934lf"
+BASELINE = "dpl_6hEq9mdejDLdB9eUukppK419dPWt"
+
+token = getpass.getpass("Paste your working Vercel token, then press Enter: ")
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(NoRedirect)
+
+def get(path):
+    request = urllib.request.Request(
+        "https://api.vercel.com" + path + "?teamId=" + TEAM,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    with opener.open(request, timeout=30) as response:
+        return json.load(response)
+
+def deployment_summary(value):
+    source = value.get("gitSource") or {}
+    return {
+        "id": value.get("id"),
+        "projectId": value.get("projectId")
+            or (value.get("project") or {}).get("id"),
+        "target": value.get("target"),
+        "state": value.get("readyState") or value.get("state"),
+        "gitSource": {
+            "type": source.get("type"),
+            "repoId": source.get("repoId"),
+            "sha": source.get("sha"),
+        },
+    }
+
+def project_summary(value):
+    crons = value.get("crons") or {}
+    return {
+        "id": value.get("id"),
+        "productionDeploymentId": (
+            (value.get("targets") or {}).get("production") or {}
+        ).get("id"),
+        "cronDeploymentId": crons.get("deploymentId"),
+        "cronDisabledAtPresent": "disabledAt" in crons,
+        "cronDisabledAt": crons.get("disabledAt"),
+        "goCardlessSchedules": [
+            {"path": item.get("path"), "schedule": item.get("schedule")}
+            for item in (crons.get("definitions") or [])
+            if item.get("path") == "/api/cron/reconcile-gocardless"
+        ],
+    }
+
+try:
+    before = project_summary(get("/v9/projects/" + PROJECT))
+    deployment_id = before["productionDeploymentId"]
+    if not deployment_id:
+        sys.exit("No active production deployment was returned. Stop here.")
+
+    production = deployment_summary(
+        get("/v13/deployments/" + deployment_id)
+    )
+    baseline = deployment_summary(
+        get("/v13/deployments/" + BASELINE)
+    )
+    after = project_summary(get("/v9/projects/" + PROJECT))
+
+    report = {
+        "observedAt": datetime.now(timezone.utc).isoformat(),
+        "teamId": TEAM,
+        "projectBefore": before,
+        "productionDeployment": production,
+        "baselineDeployment": baseline,
+        "projectAfter": after,
+        "configurationUnchangedDuringCheck": before == after,
+    }
+
+    print("\n--- BEGIN VERCEL CHECK ---")
+    print(json.dumps(report, indent=2))
+    print("--- END VERCEL CHECK ---")
+
+except urllib.error.HTTPError as error:
+    print("Vercel check stopped: HTTP", error.code)
+except urllib.error.URLError:
+    print("Vercel check stopped: network or TLS connection error.")
+except (ValueError, KeyError, TypeError):
+    print("Vercel check stopped: unexpected response format.")
+finally:
+    token = None
+PY

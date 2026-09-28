@@ -105,11 +105,22 @@ async function inspect(client, migrations) {
 }
 
 async function run() {
-  const migrations = loadMigrationManifest();
+  const knowledgeOnly = process.argv.includes('--knowledge-only');
+  const micrositeOnly = process.argv.includes('--microsite-eligibility-only');
+  if (knowledgeOnly && micrositeOnly) throw new Error('Choose one focused migration');
+  const migrations = loadMigrationManifest().filter((entry) =>
+    micrositeOnly ? entry.migration.endsWith('/005-microsite-knowledge-eligibility.sql')
+      : !knowledgeOnly || entry.migration.endsWith('/004-knowledge.sql'));
   // connectDestination rejects SOURCE/generic URLs and pins the published
   // Supabase CA with rejectUnauthorized=true.
   const client = await connectDestination();
   try {
+    if (knowledgeOnly) {
+      const { rows } = await client.query(`SELECT to_regprocedure(
+        'public.publish_member_content_repair_unfenced(uuid,text,uuid,bigint,uuid,jsonb)'
+      ) IS NOT NULL AS ready`);
+      if (!rows[0].ready) throw new Error('Task4447 repaired publisher must be installed before knowledge-only rollout');
+    }
     if (!APPLY) {
       await client.query('BEGIN READ ONLY');
       await client.query("SET LOCAL statement_timeout = '30s'");

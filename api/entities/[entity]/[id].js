@@ -2569,7 +2569,7 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       // Task #2363: keep the Member AI Knowledge Assistant index fresh on edit.
-      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent'].includes(entity) && (responseData || data) && supabase) {
+      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent', 'IEditPage', 'FileRepository'].includes(entity) && (responseData || data) && supabase) {
         reindexMemberContentEntitySafe(entity, responseData || data).catch(() => {});
       }
 
@@ -3553,7 +3553,14 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       // Task #2363: drop Member AI Knowledge Assistant chunks for deleted content.
-      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent'].includes(entity) && supabase) {
+      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent', 'IEditPage', 'FileRepository'].includes(entity) && supabase) {
+        // A deleted repository file is a dependency, not a corpus source. Its
+        // pre-delete URL lets the lifecycle hook rebuild linked resources
+        // without the removed PDF chunks; the DB trigger has already fenced
+        // the old file generation.
+        if (entity === 'FileRepository') {
+          reindexMemberContentEntitySafe(entity, deletedRecord).catch(() => {});
+        }
         deleteMemberContentEntitySafe(entity, id).catch(() => {});
       }
 

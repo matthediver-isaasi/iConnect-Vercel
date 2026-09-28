@@ -13,7 +13,7 @@
 import { supabase } from '../_lib/database.js';
 import {
   resolveMemberScope,
-  sanitizeMessages,
+  preparePersistedMessages,
   MAX_TITLE_LEN,
   MAX_MESSAGES,
 } from '../_lib/memberAiHistory.js';
@@ -48,9 +48,9 @@ export default async function handler(req, res) {
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
-      const messages = sanitizeMessages(req.body?.messages);
+      const messages = preparePersistedMessages(req.body?.messages, scope);
       if (!messages || messages.length === 0) {
-        return res.status(400).json({ error: 'Messages are required' });
+        return res.status(400).json({ error: 'Messages must be valid, server-issued chat turns.' });
       }
       if (messages.length > MAX_MESSAGES) {
         return res.status(400).json({ error: 'Too many messages' });

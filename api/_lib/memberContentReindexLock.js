@@ -8,8 +8,10 @@
 // parallel — correct, but doubles DB round-trips and can re-embed content that
 // changed between passes, burning OpenAI budget on large tenants.
 //
-// This guard stores a single "reindex in progress" marker in `system_settings`
-// (a global, null-tenant row) carrying a `runId` and a `heartbeatAt` timestamp:
+// This guard stores its single "reindex in progress" marker in the dedicated,
+// service-only `member_content_reindex_operation` table. It must never use
+// system_settings: that broad shared settings table has browser-facing mutation
+// paths and is not a safe authority boundary for an embedding worker.
 //
 //   - A fresh scheduled tick (hop 0) calls `acquireReindexRun`. If a live marker
 //     (heartbeat within RUN_STALE_MS) already exists it DEFERS instead of
@@ -27,11 +29,6 @@
 
 import crypto from 'crypto';
 
-const SETTING_KEY = 'member_content_reindex_run';
-// Separate, persistent marker recording when the last full pass finished. Unlike
-// the in-progress marker (deleted on completion so the next tick restarts free),
-// this one survives so the UI can show "last completed at" between runs.
-const LAST_COMPLETED_KEY = 'member_content_reindex_last_completed';
 // A healthy chain re-heartbeats at the start of every slice (~<=60s apart, since
 // Vercel caps the function at 60s). A marker older than this is treated as a
 // dead chain and reclaimed. Comfortably larger than one slice, far smaller than
@@ -40,79 +37,21 @@ export const RUN_STALE_MS = 5 * 60 * 1000;
 
 async function readMarker(supabase) {
   const { data, error } = await supabase
-    .from('system_settings')
-    .select('id, setting_value')
-    .is('tenant_id', null)
-    .eq('setting_key', SETTING_KEY)
+    .from('member_content_reindex_operation')
+    .select('run_id, scope, started_at, heartbeat_at, last_completed_at')
+    .eq('operation_key', 'global')
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  let value = null;
-  try {
-    value = data.setting_value ? JSON.parse(data.setting_value) : null;
-  } catch {
-    value = null;
-  }
-  return { id: data.id, value };
-}
-
-async function writeMarker(supabase, existingId, value) {
-  const setting_value = JSON.stringify(value);
-  if (existingId) {
-    const { error } = await supabase
-      .from('system_settings')
-      .update({ setting_value })
-      .eq('id', existingId);
-    if (error) throw error;
-    return;
-  }
-  const { error } = await supabase.from('system_settings').insert({
-    setting_key: SETTING_KEY,
-    setting_value,
-    setting_type: 'json',
-    description: 'Member-content reindex chain concurrency marker (Task #2372)',
-    tenant_id: null,
-  });
-  if (error) throw error;
-}
-
-async function readLastCompleted(supabase) {
-  const { data, error } = await supabase
-    .from('system_settings')
-    .select('id, setting_value')
-    .is('tenant_id', null)
-    .eq('setting_key', LAST_COMPLETED_KEY)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  let value = null;
-  try {
-    value = data.setting_value ? JSON.parse(data.setting_value) : null;
-  } catch {
-    value = null;
-  }
-  return { id: data.id, value };
-}
-
-async function writeLastCompleted(supabase, value) {
-  const existing = await readLastCompleted(supabase);
-  const setting_value = JSON.stringify(value);
-  if (existing) {
-    const { error } = await supabase
-      .from('system_settings')
-      .update({ setting_value })
-      .eq('id', existing.id);
-    if (error) throw error;
-    return;
-  }
-  const { error } = await supabase.from('system_settings').insert({
-    setting_key: LAST_COMPLETED_KEY,
-    setting_value,
-    setting_type: 'json',
-    description: 'Member-content reindex last-completed timestamp (Task #2377)',
-    tenant_id: null,
-  });
-  if (error) throw error;
+  return {
+    value: {
+      runId: data.run_id,
+      scope: data.scope,
+      startedAt: data.started_at,
+      heartbeatAt: data.heartbeat_at,
+      lastCompletedAt: data.last_completed_at,
+    },
+  };
 }
 
 function isFresh(value, staleMs) {
@@ -133,22 +72,22 @@ function isFresh(value, staleMs) {
 export async function acquireReindexRun({ supabase, scope = null, staleMs = RUN_STALE_MS } = {}) {
   const runId = crypto.randomUUID();
   try {
-    const marker = await readMarker(supabase);
-    if (marker && isFresh(marker.value, staleMs)) {
-      const ts = Date.parse(marker.value.heartbeatAt);
+    const { data, error } = await supabase.rpc('claim_member_content_reindex_operation', {
+      p_run_id: runId,
+      p_scope: scope || {},
+      p_stale_seconds: Math.round(staleMs / 1000),
+    });
+    if (error) throw error;
+    const claim = Array.isArray(data) ? data[0] : data;
+    if (!claim?.acquired) {
+      const ts = Date.parse(claim?.heartbeat_at);
       return {
         acquired: false,
-        activeRunId: marker.value.runId || null,
+        activeRunId: claim?.active_run_id || null,
         ageMs: Number.isNaN(ts) ? null : Date.now() - ts,
       };
     }
-    await writeMarker(supabase, marker?.id || null, {
-      runId,
-      scope: scope || null,
-      startedAt: new Date().toISOString(),
-      heartbeatAt: new Date().toISOString(),
-    });
-    return { acquired: true, runId, reclaimed: !!marker };
+    return { acquired: true, runId };
   } catch (err) {
     console.warn('[memberContentReindexLock] acquire failed (fail-open):', err?.message || err);
     return { acquired: true, runId, degraded: true };
@@ -166,20 +105,16 @@ export async function acquireReindexRun({ supabase, scope = null, staleMs = RUN_
 export async function renewReindexRun({ supabase, runId, scope = null } = {}) {
   if (!runId) return { owns: true, degraded: true };
   try {
-    const marker = await readMarker(supabase);
-    // Another run took over (different runId, still fresh) -> stand down.
-    if (marker && marker.value && marker.value.runId && marker.value.runId !== runId) {
-      if (isFresh(marker.value, RUN_STALE_MS)) {
-        return { owns: false, activeRunId: marker.value.runId };
-      }
-    }
-    await writeMarker(supabase, marker?.id || null, {
-      runId,
-      scope: scope || marker?.value?.scope || null,
-      startedAt: marker?.value?.startedAt || new Date().toISOString(),
-      heartbeatAt: new Date().toISOString(),
+    const { data, error } = await supabase.rpc('renew_member_content_reindex_operation', {
+      p_run_id: runId,
+      p_scope: scope || {},
     });
-    return { owns: true };
+    if (error) throw error;
+    const renewal = Array.isArray(data) ? data[0] : data;
+    return {
+      owns: renewal?.owns === true,
+      activeRunId: renewal?.active_run_id || null,
+    };
   } catch (err) {
     console.warn('[memberContentReindexLock] renew failed (fail-open):', err?.message || err);
     return { owns: true, degraded: true };
@@ -196,30 +131,11 @@ export async function renewReindexRun({ supabase, runId, scope = null } = {}) {
  */
 export async function completeReindexRun({ supabase, runId, completed = false } = {}) {
   try {
-    const marker = await readMarker(supabase);
-    const stillOwned =
-      !marker ||
-      !runId ||
-      !marker.value ||
-      !marker.value.runId ||
-      marker.value.runId === runId;
-    // Only delete the in-progress marker if we still own it (never remove one a
-    // newer run has claimed).
-    if (marker && stillOwned) {
-      const { error } = await supabase
-        .from('system_settings')
-        .delete()
-        .eq('id', marker.id);
-      if (error) throw error;
-    }
-    // Record the completion timestamp only when the pass genuinely finished and
-    // we still owned the run — dead-ends (hop cap / no origin / fatal) don't count.
-    if (completed && stillOwned) {
-      await writeLastCompleted(supabase, {
-        completedAt: new Date().toISOString(),
-        runId: runId || null,
-      });
-    }
+    const { error } = await supabase.rpc('complete_member_content_reindex_operation', {
+      p_run_id: runId || null,
+      p_completed: completed,
+    });
+    if (error) throw error;
   } catch (err) {
     console.warn('[memberContentReindexLock] complete failed (best-effort):', err?.message || err);
   }
@@ -234,10 +150,7 @@ export async function completeReindexRun({ supabase, runId, completed = false } 
  */
 export async function readReindexStatus({ supabase, staleMs = RUN_STALE_MS } = {}) {
   try {
-    const [marker, lastCompleted] = await Promise.all([
-      readMarker(supabase),
-      readLastCompleted(supabase),
-    ]);
+    const marker = await readMarker(supabase);
     const value = marker?.value || null;
     const hasMarker = !!(value && value.runId);
     const heartbeatAt = value?.heartbeatAt || null;
@@ -256,7 +169,7 @@ export async function readReindexStatus({ supabase, staleMs = RUN_STALE_MS } = {
       ageMs,
       scope: value?.scope || null,
       staleThresholdMs: staleMs,
-      lastCompletedAt: lastCompleted?.value?.completedAt || null,
+      lastCompletedAt: value?.lastCompletedAt || null,
     };
   } catch (err) {
     console.warn('[memberContentReindexLock] status read failed:', err?.message || err);

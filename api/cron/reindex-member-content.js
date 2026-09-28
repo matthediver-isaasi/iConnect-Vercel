@@ -53,10 +53,13 @@ const DISPATCH_ABORT_MS = 2000;
 const MAX_HOPS = 1000;
 
 function getOrigin(req) {
-  const forwardedProto = (req.headers['x-forwarded-proto'] || '').toString().split(',')[0].trim();
-  const forwardedHost = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().split(',')[0].trim();
-  const headerOrigin = forwardedHost ? `${forwardedProto || 'https'}://${forwardedHost}` : '';
-  return (process.env.VITE_APP_URL || headerOrigin || '').replace(/\/+$/, '');
+  // A caller-controlled Host header must never select where CRON_SECRET goes.
+  const configured = process.env.VITE_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+  if (!configured) return '';
+  const url = new URL(configured);
+  if (url.protocol !== 'https:' && url.hostname !== 'localhost') return '';
+  return url.origin;
 }
 
 async function dispatchContinuation(origin, body) {

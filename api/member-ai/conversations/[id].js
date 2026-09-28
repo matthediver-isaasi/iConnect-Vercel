@@ -12,7 +12,8 @@
 import { supabase } from '../../_lib/database.js';
 import {
   resolveMemberScope,
-  sanitizeMessages,
+  preparePersistedMessages,
+  redactRevokedHistoryMessages,
   MAX_MESSAGES,
 } from '../../_lib/memberAiHistory.js';
 
@@ -53,13 +54,14 @@ export default async function handler(req, res) {
         .order('position', { ascending: true })
         .limit(MAX_MESSAGES);
       if (error) throw error;
-      return res.status(200).json({ conversation, messages: messages || [] });
+      const safeMessages = await redactRevokedHistoryMessages(messages || [], scope);
+      return res.status(200).json({ conversation, messages: safeMessages });
     }
 
     if (req.method === 'POST') {
-      const messages = sanitizeMessages(req.body?.messages);
+      const messages = preparePersistedMessages(req.body?.messages, scope);
       if (!messages || messages.length === 0) {
-        return res.status(400).json({ error: 'Messages are required' });
+        return res.status(400).json({ error: 'Messages must be valid, server-issued chat turns.' });
       }
 
       // Next append position = current max + 1. A unique index on

@@ -414,6 +414,7 @@ function generationRows({
   existingRows,
   metadataOverride = null,
   provenanceOverride = null,
+  knowledgeSnapshot = false,
 }) {
   const metadata = metadataOverride || buildMetadata(contentType, item);
   const provenance =
@@ -436,7 +437,7 @@ function generationRows({
     const previous = existingByIndex.get(chunk.chunkIndex);
     const modelCompatible =
       previous &&
-      (previous.embedding_model == null ||
+      ((!knowledgeSnapshot && previous.embedding_model == null) ||
         previous.embedding_model === EMBEDDING_MODEL);
     const legacyHashMatches =
       previous &&
@@ -456,6 +457,10 @@ function generationRows({
       provenance,
       updated_at: nowIso,
     };
+    if (knowledgeSnapshot) {
+      row.access_scope = chunk.accessScope || metadata.access_scope || 'public';
+      row.provenance = chunk.provenance || provenance;
+    }
     if (reuse) {
       row.embedding = vectorForRpc(previous.embedding);
     } else {
@@ -544,6 +549,7 @@ export async function writeMemberContentGeneration(
     embedTexts: embedTextsFn = defaultEmbedTexts,
     capabilityProbe = null,
     publisherReady = false,
+    buildSnapshot = null,
   } = {}
 ) {
   if (!supabase) {
@@ -570,6 +576,17 @@ export async function writeMemberContentGeneration(
       throw new Error('capabilityProbe must be a function when provided');
     }
     await capabilityProbe(supabase);
+  }
+  // The knowledge adapter uses a separate additive publisher. Never broaden
+  // the production repair RPC's deliberately authored-only contract.
+  if (buildSnapshot) {
+    const client = supabase;
+    supabase = {
+      from: (...args) => client.from(...args),
+      rpc: (name, args) => client.rpc(
+        name === 'publish_member_content_repair' ? 'publish_member_content_knowledge' : name, args
+      ),
+    };
   }
   if (!publisherReady) await probePublisher(supabase);
 
@@ -630,7 +647,7 @@ export async function writeMemberContentGeneration(
     const invalidExisting = existing.find(
       (row) => !isAcceptedExistingProvenance(row.provenance)
     );
-    if (invalidExisting) {
+    if (invalidExisting && !buildSnapshot) {
       throw errorWithCode(
         MEMBER_CONTENT_PROVENANCE_CONFLICT,
         `existing member content rows for ${contentType}/${item.id} have unsupported provenance`
@@ -644,7 +661,13 @@ export async function writeMemberContentGeneration(
     let chunks;
     let metadataOverride = null;
     let provenanceOverride = null;
-    if (contentType === 'canvas_page') {
+    if (buildSnapshot) {
+      const snapshot = await buildSnapshot({ contentType, tenantId, sourceId: item.id, claim: claimed.claim });
+      canonical = snapshot.item;
+      chunks = snapshot.chunks;
+      metadataOverride = snapshot.metadata;
+      provenanceOverride = snapshot.provenance;
+    } else if (contentType === 'canvas_page') {
       const canvas = await buildCanvasGenerationSnapshot({
         supabase,
         tenantId,
@@ -691,13 +714,13 @@ export async function writeMemberContentGeneration(
     // replaced by the authored extractor.  A resource linked to an event is
     // the same unsupported extension as the historical event-linked resource
     // path and must defer rather than publish zero rows.
-    if (canonical && Array.isArray(canonical.linked_events) && canonical.linked_events.length) {
+    if (!buildSnapshot && canonical && Array.isArray(canonical.linked_events) && canonical.linked_events.length) {
       throw errorWithCode(
         MEMBER_CONTENT_UNSUPPORTED,
         `event-linked resource ${contentType}/${item.id} is not supported by authored repair`
       );
     }
-    if (!canonical || (contentType !== 'canvas_page' && !isIndexable(contentType, canonical))) {
+    if (!canonical || (!buildSnapshot && contentType !== 'canvas_page' && !isIndexable(contentType, canonical))) {
       await publishRows(
         supabase,
         tenantId,
@@ -755,6 +778,7 @@ export async function writeMemberContentGeneration(
       existingRows: existing,
       metadataOverride,
       provenanceOverride,
+      knowledgeSnapshot: !!buildSnapshot,
     });
     const maxEmbeddings = embeddingBudgetValue(
       embeddingBudget,

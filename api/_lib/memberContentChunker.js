@@ -8,6 +8,7 @@
 // split it at paragraph boundaries so embeddings stay focused.
 
 import { extractCanvasPageText } from '../../client/src/lib/canvasText.js';
+import { projectMemberOnlyGuest } from '../../shared/canvasMemberOnly.js';
 
 const MAX_CHUNK_CHARS = 1500;
 
@@ -137,10 +138,48 @@ export function buildMemberContentText(item, contentType) {
  * @returns {Array<{ chunkIndex:number, content:string }>}
  */
 export function chunkMemberContent(item, contentType) {
+  // Canvas pages can contain a public shell plus Custom HTML blocks which are
+  // only rendered after authentication.  Never put that combined projection in
+  // a public chunk: retain an independently retrievable guest projection and,
+  // where needed, a member-only projection.  The latter deliberately includes
+  // the surrounding readable page text so its embedding remains meaningful,
+  // but is marked authenticated and is never eligible for a guest request.
+  if (contentType === 'canvas_page') {
+    const symbols = item?.__symbols || {};
+    const guestSymbols = Object.fromEntries(
+      Object.entries(symbols).map(([id, symbol]) => [id, projectMemberOnlyGuest(symbol)])
+    );
+    const guestDesign = projectMemberOnlyGuest(item?.canvas_design || {});
+    const guestText = joinParts([
+      item?.title || '',
+      extractCanvasPageText(guestDesign, guestSymbols),
+    ]);
+    const memberText = joinParts([
+      item?.title || '',
+      extractCanvasPageText(item?.canvas_design || {}, symbols),
+    ]);
+    const isMemberLayout = item?.layout_type === 'member';
+    const projections = [];
+    if (!isMemberLayout && guestText) {
+      projections.push({ content: guestText, accessScope: 'public' });
+    }
+    if (memberText && (isMemberLayout || memberText !== guestText)) {
+      projections.push({ content: memberText, accessScope: 'authenticated' });
+    }
+    return projections.flatMap((projection, projectionIndex) =>
+      splitLargeChunk(projection.content).map((content, index) => ({
+        // Reserve a stable range per projection so switching a block from
+        // public to member-only cannot overwrite a still-public chunk.
+        chunkIndex: projectionIndex * 10000 + index,
+        content: content.trim(),
+        accessScope: projection.accessScope,
+      }))
+    ).filter((chunk) => chunk.content.length > 0);
+  }
   const text = buildMemberContentText(item, contentType);
   if (!text || !text.trim()) return [];
   const pieces = splitLargeChunk(text.trim());
   return pieces
-    .map((content, i) => ({ chunkIndex: i, content: content.trim() }))
+    .map((content, i) => ({ chunkIndex: i, content: content.trim(), accessScope: 'public' }))
     .filter((c) => c.content.length > 0);
 }

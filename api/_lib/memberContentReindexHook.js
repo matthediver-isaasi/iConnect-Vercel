@@ -13,7 +13,9 @@ import {
   deleteMemberContentChunks,
   getDefaultOpenAIClient,
   CONTENT_TYPE_CONFIG,
+  scheduleMemberContentReindex,
 } from './memberContentIndexer.js';
+import { collectCanvasSymbolIds } from '../../client/src/lib/canvasText.js';
 
 // Generic-entity name (as used by api/entities/[entity]) -> content type.
 const ENTITY_TO_CONTENT_TYPE = {
@@ -40,8 +42,60 @@ function resolveContentType(entity) {
  */
 export async function reindexMemberContentEntitySafe(entity, row) {
   try {
+    if (!supabase) return;
+    // PDF chunks inherit a file-repository version fence. Rebuild every
+    // resource which currently points at a changed media-library file so their
+    // embeddings are refreshed rather than merely fail-closed at query time.
+    if (String(entity).toLowerCase().replace(/[_-]/g, '') === 'filerepository' && row?.tenant_id && row?.file_url) {
+      const { data: resources, error } = await supabase
+        .from('resource')
+        .select(CONTENT_TYPE_CONFIG.resource.columns)
+        .eq('tenant_id', row.tenant_id)
+        .eq('target_url', row.file_url);
+      if (error) throw error;
+      const openai = getDefaultOpenAIClient();
+      if (!openai) {
+        for (const resource of resources || []) {
+          await scheduleMemberContentReindex('resource', resource, { supabase });
+        }
+        return;
+      }
+      await Promise.all(
+        (resources || []).map((resource) =>
+          reindexMemberContentItem('resource', resource, { supabase, openai })
+        )
+      );
+      return;
+    }
+    if (String(entity).toLowerCase().replace(/[_-]/g, '') === 'canvassymbol' && row?.tenant_id && row?.id) {
+      // Symbols are transcluded at render time. There is no relational
+      // dependency table, so find only the tenant's Canvas pages and compare
+      // their extracted symbol ids. This is bounded by one tenant and runs
+      // sequentially to avoid an edit storm starving normal source updates.
+      const { data: pages, error } = await supabase
+        .from('i_edit_page')
+        .select(CONTENT_TYPE_CONFIG.canvas_page.columns)
+        .eq('tenant_id', row.tenant_id)
+        .eq('builder_type', 'canvas')
+        .limit(5000);
+      if (error) throw error;
+      const impacted = (pages || []).filter((page) =>
+        collectCanvasSymbolIds(page.canvas_design).has(row.id)
+      );
+      const openai = getDefaultOpenAIClient();
+      if (!openai) {
+        for (const page of impacted) {
+          await scheduleMemberContentReindex('canvas_page', page, { supabase });
+        }
+        return;
+      }
+      for (const page of impacted) {
+        await reindexMemberContentItem('canvas_page', page, { supabase, openai });
+      }
+      return;
+    }
     const contentType = resolveContentType(entity);
-    if (!contentType || !row || !row.id || !supabase) return;
+    if (!contentType || !row || !row.id) return;
     if (!row.tenant_id) return;
 
     // Re-fetch the canonical columns so metadata is complete even when the
@@ -69,6 +123,7 @@ export async function reindexMemberContentEntitySafe(entity, row) {
         console.warn(
           `[memberContentReindex] no OpenAI key; deferring ${contentType}/${row.id} to cron`
         );
+        await scheduleMemberContentReindex(contentType, item, { supabase });
         return;
       }
       // Not indexable -> just drop any existing chunks.

@@ -383,6 +383,7 @@ export async function buildCanvasGenerationSnapshot({
   tenantId,
   sourceId,
   claim = null,
+  includeMemberContent = false,
 } = {}) {
   if (!claim || normalisePositiveGeneration(claim.generation) == null) {
     throw adapterError(
@@ -403,7 +404,9 @@ export async function buildCanvasGenerationSnapshot({
       reason: 'missing',
     });
   }
-  if (!isPublicCanvasPage(canonical)) {
+  if (!isPublicCanvasPage(canonical) && !(includeMemberContent &&
+      canonical.builder_type === 'canvas' && canonical.status === 'published' &&
+      canonical.layout_type === 'member')) {
     return emptyCanvasResult({
       tenantId,
       sourceId,
@@ -452,7 +455,9 @@ export async function buildCanvasGenerationSnapshot({
     dependencies,
     symbolVersions,
   } = await readStableCanvasSymbols(supabase, tenantId, symbolIds);
-  const item = publicCanvasItem(canonical, symbols);
+  const item = includeMemberContent
+    ? { ...canonical, __symbols: Object.fromEntries(symbols.map((symbol) => [symbol.id, symbol])) }
+    : publicCanvasItem(canonical, symbols);
   const link = buildCanvasPageLink(item, {
     micrositePrefix: microsite?.path_prefix || null,
   });

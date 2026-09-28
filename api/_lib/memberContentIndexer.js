@@ -12,91 +12,18 @@
 // while serverless endpoints use the server-scoped clients. Reuses the exact
 // key resolution + embedding model as the Help pipeline.
 
-import crypto from 'node:crypto';
 import { chunkMemberContent } from './memberContentChunker.js';
-import { getDefaultOpenAIClient, embedTexts, EMBEDDING_MODEL } from './helpArticleIndexer.js';
+import { getDefaultOpenAIClient, EMBEDDING_MODEL } from './helpArticleIndexer.js';
 import { CONTENT_TYPES, PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
-import { collectCanvasSymbolIds } from '../../client/src/lib/canvasText.js';
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
+import { writeMemberContentGeneration } from './memberContentGenerationWriter.js';
 import {
-  writeMemberContentGeneration,
-  reindexAllMemberContentGeneration,
-} from './memberContentGenerationWriter.js';
-import {
-  deleteMemberContentGenerationTombstone,
   sweepMemberContentGenerationTombstones,
+  deleteMemberContentGenerationTombstone,
 } from './memberContentGenerationTombstones.js';
+import { buildCanvasGenerationSnapshot } from './memberContentCanvasGeneration.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
-
-// The deployed destination has a newer, generation-aware publication contract
-// which this legacy writer cannot satisfy. Probe the capability once per
-// indexing run, rather than allowing every item to embed and then fail at its
-// upsert. The context is deliberately caller-owned and short-lived: a module
-// cache could hide a schema change indefinitely.
-export const MEMBER_CONTENT_SCHEMA_MISMATCH = 'MEMBER_CONTENT_SCHEMA_MISMATCH';
-const LEGACY_MEMBER_CONTENT_SCHEMA = 'legacy';
-const GENERATION_MEMBER_CONTENT_SCHEMA = 'generation';
-
-export function createMemberContentSchemaContext() {
-  return { capability: null };
-}
-
-function schemaMismatchError() {
-  const error = new Error(
-    `${MEMBER_CONTENT_SCHEMA_MISMATCH}: member_content_chunk.source_generation exists; ` +
-      'the legacy member-content writer cannot safely mutate a generation-aware index'
-  );
-  error.code = MEMBER_CONTENT_SCHEMA_MISMATCH;
-  return error;
-}
-
-/**
- * Confirm that this writer is only pointed at the legacy member-content
- * schema. A missing source_generation column is the expected legacy signal
- * (Postgres 42703). Any other probe error is real and must remain visible.
- *
- * @param {object} supabase
- * @param {object} schemaContext run-scoped context from
- *   createMemberContentSchemaContext()
- */
-export async function preflightMemberContentSchema(
-  supabase,
-  schemaContext = createMemberContentSchemaContext()
-) {
-  await detectMemberContentSchema(supabase, schemaContext);
-  if (schemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
-    throw schemaMismatchError();
-  }
-  return schemaContext;
-}
-
-/**
- * Detect the destination capability without applying the legacy-writer guard.
- * Item/bulk dispatchers use this to select the generation-safe writer; direct
- * delete and legacy sweep callers continue using preflightMemberContentSchema
- * below and therefore still fail closed on the generation schema.
- */
-export async function detectMemberContentSchema(
-  supabase,
-  schemaContext = createMemberContentSchemaContext()
-) {
-  if (schemaContext.capability) return schemaContext;
-  const { error } = await supabase
-    .from('member_content_chunk')
-    .select('source_generation')
-    .limit(0);
-
-  if (!error) {
-    schemaContext.capability = GENERATION_MEMBER_CONTENT_SCHEMA;
-    return schemaContext;
-  }
-  if (error.code === '42703') {
-    schemaContext.capability = LEGACY_MEMBER_CONTENT_SCHEMA;
-    return schemaContext;
-  }
-  throw error;
-}
 
 // Per-type config: the source table, its RBAC feature key, and the columns we
 // need to build text + visibility metadata.
@@ -105,7 +32,7 @@ export const CONTENT_TYPE_CONFIG = {
     table: 'resource',
     feature: 'content.resources',
     columns:
-      'id, tenant_id, title, description, resource_type, author_name, tags, subcategories, status, member_group_id, allowed_role_ids, is_public, linked_events',
+      'id, tenant_id, title, description, target_url, resource_type, author_name, tags, subcategories, status, member_group_id, allowed_role_ids, is_public, linked_events',
   },
   event: {
     table: 'event',
@@ -136,15 +63,311 @@ export const CONTENT_TYPE_CONFIG = {
     // Public-facing content: no member RBAC feature gates page viewing.
     feature: null,
     columns:
-      'id, tenant_id, title, slug, canvas_design, status, layout_type, builder_type',
+      'id, tenant_id, title, slug, canvas_design, status, layout_type, builder_type, microsite_id',
     // Only Canvas Builder pages (never legacy iEdit element pages) are indexed;
     // applied to every generic fetch / existence check for this type.
     filterEq: { builder_type: 'canvas' },
   },
 };
 
-function hashChunk(content) {
-  return crypto.createHash('sha256').update(content).digest('hex');
+const MAX_RESOURCE_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_RESOURCE_PDF_PAGES = 40;
+const MAX_RESOURCE_PDF_PAGE_CHARS = 6000;
+const RESOURCE_PDF_TIMEOUT_MS = 12_000;
+
+function pdfIndexError(code) {
+  const error = new Error(`Resource PDF could not be indexed: ${code}`);
+  error.code = code;
+  return error;
+}
+
+// Read incrementally: arrayBuffer()/blob() allocate the entire remote object
+// before checking its length, so a false Content-Length bypasses a memory cap.
+export async function readBoundedPdfStream(stream, {
+  maxBytes = MAX_RESOURCE_PDF_BYTES,
+  signal = AbortSignal.timeout(RESOURCE_PDF_TIMEOUT_MS),
+} = {}) {
+  if (!stream?.getReader) throw pdfIndexError('PDF_MISSING_BODY');
+  const reader = stream.getReader();
+  const parts = [];
+  let size = 0;
+  const cancel = () => { reader.cancel().catch(() => {}); };
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) throw pdfIndexError('PDF_SIZE_LIMIT');
+      parts.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
+    return bytes;
+  } finally {
+    signal.removeEventListener('abort', cancel);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+async function downloadPdfStream(bucket, path, signal) {
+  const pending = Promise.resolve(bucket.download(path).asStream());
+  // The storage SDK does not accept an AbortSignal for download headers.
+  // Bound waiting, and cancel a late response rather than consume its bytes.
+  let abort;
+  const stopped = new Promise((_, reject) => {
+    abort = () => reject(pdfIndexError('PDF_DOWNLOAD_TIMEOUT'));
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  pending.then(({ data }) => {
+    if (signal.aborted) data?.cancel().catch(() => {});
+  }, () => {});
+  try {
+    signal.throwIfAborted();
+    return await Promise.race([pending, stopped]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
+/**
+ * Only index a PDF when it is a tenant-owned media-library object. Resource
+ * target_url can also be an iframe, a form route, or an arbitrary external
+ * link; fetching those would create an SSRF boundary and prove no file access.
+ */
+export function isTrustedTenantStoragePdf(targetUrl, file, storageUrl = process.env.SUPABASE_URL) {
+  if (!targetUrl || !file || file.file_url !== targetUrl) return false;
+  const filename = String(file.file_name || targetUrl).toLowerCase();
+  const declaredType = String(file.file_type || file.mime_type || '').toLowerCase();
+  if (!filename.endsWith('.pdf') && declaredType !== 'pdf' && declaredType !== 'application/pdf') {
+    return false;
+  }
+  // Private repository files are represented by our secure-url route. The
+  // bytes are fetched through the service client from the exact recorded
+  // bucket/path below — never by dereferencing a caller-provided URL.
+  if (file.bucket && file.storage_path && targetUrl.startsWith('/api/storage/secure-url?')) {
+    try {
+      const reference = new URL(targetUrl, 'https://portal.local');
+      return (
+        reference.origin === 'https://portal.local' &&
+        reference.pathname === '/api/storage/secure-url' &&
+        reference.searchParams.get('bucket') === file.bucket &&
+        reference.searchParams.get('path') === file.storage_path
+      );
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const target = new URL(targetUrl);
+    const storage = new URL(storageUrl || 'https://invalid.local');
+    const publicObject = target.pathname.match(/^\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+    if (!publicObject) return false;
+    // Public repository records also carry bucket/storage_path. They are not
+    // private secure-url references: validate their exact stored object instead
+    // of rejecting every migrated public PDF with storage metadata.
+    if (file.bucket && decodeURIComponent(publicObject[1]) !== file.bucket) return false;
+    if (file.storage_path && decodeURIComponent(publicObject[2]) !== file.storage_path) return false;
+    return (
+      target.protocol === 'https:' &&
+      target.username === '' &&
+      target.password === '' &&
+      target.search === '' &&
+      target.hash === '' &&
+      target.origin === storage.origin &&
+      !decodeURIComponent(publicObject[2]).split('/').some((part) => part === '..' || part === '.')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeGeneration(value) {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value)) return Number(value);
+  return null;
+}
+
+/**
+ * Dependency records are versioned by the same registry as primary content.
+ * We persist only ids/generations, never file paths or private URLs. Missing
+ * registry rows deliberately produce no dependency entry; the retrieval
+ * authorizer fails such a legacy/provenance-incomplete chunk closed.
+ */
+async function getDependencyGenerations(supabase, tenantId, dependencies) {
+  const wanted = (dependencies || []).filter((entry) => entry?.contentType && entry?.sourceId);
+  if (!wanted.length) return [];
+  const ids = [...new Set(wanted.map((entry) => entry.sourceId))];
+  const { data, error } = await supabase
+    .from('member_content_source')
+    .select('content_type, source_id, generation')
+    .eq('tenant_id', tenantId)
+    .in('source_id', ids);
+  if (error) throw error;
+  const versions = new Map(
+    (data || []).map((row) => [`${row.content_type}:${row.source_id}`, normalizeGeneration(row.generation)])
+  );
+  return wanted.flatMap((entry) => {
+    const generation = versions.get(`${entry.contentType}:${entry.sourceId}`);
+    return generation === null || generation === undefined
+      ? []
+      : [{ contentType: entry.contentType, sourceId: entry.sourceId, generation }];
+  });
+}
+
+/**
+ * A source trigger increments its registry generation before this worker starts.
+ * Claiming that exact generation serializes same-generation workers. If a source
+ * changes during embeddings, activation rejects this worker's stale claim.
+ */
+export async function claimMemberContentGeneration(contentType, item, { supabase } = {}) {
+  const { data, error } = await supabase.rpc('claim_member_content_generation', {
+    p_tenant_id: item.tenant_id,
+    p_content_type: contentType,
+    p_source_id: item.id,
+  });
+  if (error) throw error;
+  const claim = Array.isArray(data) ? data[0] : data;
+  const generation = normalizeGeneration(claim?.generation);
+  if (!claim?.claim_token || generation === null) {
+    return null;
+  }
+  return {
+    generation,
+    claimToken: claim.claim_token,
+    alreadyActive: claim.already_active === true,
+  };
+}
+
+export async function scheduleMemberContentReindex(contentType, item, { supabase } = {}) {
+  const { error } = await supabase
+    .from('member_content_reindex_job')
+    .upsert({
+      tenant_id: item.tenant_id,
+      content_type: contentType,
+      source_id: item.id,
+      attempts: 0,
+      available_at: new Date().toISOString(),
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'tenant_id,content_type,source_id' });
+  if (error) throw error;
+}
+
+async function deferMemberContentReindexJob(contentType, item, error, { supabase } = {}) {
+  const attempts = Math.min(Number(item?._reindexAttempts || 0) + 1, 20);
+  const delaySeconds = Math.min(60 * (2 ** Math.min(attempts, 8)), 6 * 60 * 60);
+  const { error: writeError } = await supabase
+    .from('member_content_reindex_job')
+    .upsert({
+      tenant_id: item.tenant_id,
+      content_type: contentType,
+      source_id: item.id,
+      attempts,
+      available_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),
+      last_error: String(error?.message || error || 'reindex failed').slice(0, 1000),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'tenant_id,content_type,source_id' });
+  if (writeError) throw writeError;
+}
+
+export async function extractResourcePdfChunks(item, supabase) {
+  if (item?.resource_type !== 'download' || !item?.target_url || !item?.tenant_id) return [];
+  const fileColumns = 'id, tenant_id, file_url, file_name, file_type, mime_type, file_size, bucket, storage_path, updated_at';
+  const { data: file, error } = await supabase
+    .from('file_repository')
+    .select(fileColumns)
+    .eq('tenant_id', item.tenant_id)
+    .eq('file_url', item.target_url)
+    .maybeSingle();
+  if (error) throw error;
+  // Use the injected client's destination, not the unrelated legacy workspace
+  // SUPABASE_URL. CLI backfills deliberately inject a DEST client.
+  if (!isTrustedTenantStoragePdf(item.target_url, file, supabase.supabaseUrl || process.env.SUPABASE_URL)) return [];
+  const declaredSize = Number(file.file_size);
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_RESOURCE_PDF_BYTES) throw pdfIndexError('PDF_SIZE_LIMIT');
+  const fileDependencies = await getDependencyGenerations(
+    supabase,
+    item.tenant_id,
+    [{ contentType: 'file_repository', sourceId: file.id }]
+  );
+
+  if (fileDependencies.length !== 1) throw pdfIndexError('PDF_MISSING_DEPENDENCY');
+  const { data: currentFile, error: currentError } = await supabase.from('file_repository')
+    .select(fileColumns).eq('tenant_id', item.tenant_id).eq('id', file.id).maybeSingle();
+  if (currentError) throw currentError;
+  if (JSON.stringify(currentFile) !== JSON.stringify(file)) throw pdfIndexError('PDF_SOURCE_CHANGED');
+  const signal = AbortSignal.timeout(RESOURCE_PDF_TIMEOUT_MS);
+  let bytes;
+  if (file.bucket && file.storage_path) {
+    const { data: stream, error: downloadError } = await downloadPdfStream(
+      supabase.storage.from(file.bucket), file.storage_path, signal
+    );
+    if (downloadError || !stream) throw pdfIndexError('PDF_DOWNLOAD_FAILED');
+    bytes = await readBoundedPdfStream(stream, { signal });
+  } else {
+    const response = await fetch(item.target_url, {
+      redirect: 'error',
+      signal,
+    });
+    const contentType = response.headers.get('content-type') || '';
+    const length = Number(response.headers.get('content-length'));
+    if (
+      !response.ok ||
+      (!/application\/pdf/i.test(contentType) && !String(file.file_name).toLowerCase().endsWith('.pdf')) ||
+      (Number.isFinite(length) && length > MAX_RESOURCE_PDF_BYTES)
+    ) {
+      await response.body?.cancel();
+      throw pdfIndexError('PDF_RESPONSE_REJECTED');
+    }
+    bytes = await readBoundedPdfStream(response.body, { signal });
+  }
+  if (!new TextDecoder().decode(bytes.subarray(0, 5)).startsWith('%PDF-')) {
+    throw pdfIndexError('PDF_INVALID_SIGNATURE');
+  }
+
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = pdfjs.getDocument({ data: bytes, useWorkerFetch: false, isEvalSupported: false });
+  const destroy = () => { task.destroy().catch(() => {}); };
+  signal.addEventListener('abort', destroy, { once: true });
+  try {
+    signal.throwIfAborted();
+    const pdf = await task.promise;
+    if (pdf.numPages > MAX_RESOURCE_PDF_PAGES) throw pdfIndexError('PDF_PAGE_LIMIT');
+    const chunks = [];
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      const page = await pdf.getPage(pageNo);
+      signal.throwIfAborted();
+      const text = (await page.getTextContent()).items
+        .map((part) => (typeof part?.str === 'string' ? part.str : ''))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text.length > MAX_RESOURCE_PDF_PAGE_CHARS) throw pdfIndexError('PDF_PAGE_TEXT_LIMIT');
+      if (text) {
+        chunks.push({
+          chunkIndex: 20000 + pageNo,
+          content: `${item.title || 'Resource'}\n\nDocument: ${file.file_name || 'PDF'} • Page ${pageNo}\n${text}`,
+          accessScope: 'public',
+          provenance: {
+            kind: 'resource_pdf',
+            fileId: file.id,
+            dependencies: fileDependencies,
+            page: pageNo,
+          },
+        });
+      }
+    }
+    if (!chunks.length) throw pdfIndexError('PDF_NO_TEXT');
+    return chunks;
+  } finally {
+    signal.removeEventListener('abort', destroy);
+    await task.destroy();
+  }
 }
 
 /**
@@ -166,8 +389,13 @@ export function buildMemberContentLink(contentType, item) {
     case 'blog_post':
       return `/ArticleView?slug=${encodeURIComponent(slug || id)}`;
     case 'canvas_page':
-      // Canvas Builder pages render at the tenant-root slug via DynamicPage.
-      return slug ? `/${slug}` : null;
+      // Microsite pages never resolve at a bare tenant-root slug.
+      if (item._micrositePrefix) {
+        return slug
+          ? `/${encodeURIComponent(item._micrositePrefix)}/${encodeURIComponent(slug)}`
+          : `/${encodeURIComponent(item._micrositePrefix)}`;
+      }
+      return slug ? `/${encodeURIComponent(slug)}` : null;
     default:
       return null;
   }
@@ -184,13 +412,6 @@ export function isIndexable(contentType, item) {
   if (!item) return false;
   switch (contentType) {
     case 'resource':
-      // Public/browse rules also hide resources tied to events.
-      if (
-        Array.isArray(item.linked_events) &&
-        item.linked_events.length > 0
-      ) {
-        return false;
-      }
       return item.status === 'active';
     case 'event':
       return isPublicSimpleEventStatus(item.status) && item.event_state !== 'draft';
@@ -203,43 +424,19 @@ export function isIndexable(contentType, item) {
       return item.status === 'published';
     case 'canvas_page':
       // Mirror the public page renderer: Canvas Builder page, published, and a
-      // publicly-viewable layout_type. 'member'-only pages are never indexed.
+      // publicly-viewable or member layout.  Chunk access scope controls
+      // retrieval of member-only projections.
       return (
         item.builder_type === 'canvas' &&
         item.status === 'published' &&
-        PUBLIC_CANVAS_LAYOUT_TYPES.includes(item.layout_type)
+        (PUBLIC_CANVAS_LAYOUT_TYPES.includes(item.layout_type) || item.layout_type === 'member')
       );
     default:
       return false;
   }
 }
 
-async function resolveGenerationTenantForDelete(supabase, contentType, sourceId) {
-  const { data, error } = await supabase
-    .from('member_content_source')
-    .select('tenant_id')
-    .eq('content_type', contentType)
-    .eq('source_id', sourceId)
-    .limit(2);
-  if (error) throw error;
-  const tenants = Array.from(
-    new Set(
-      (Array.isArray(data) ? data : data ? [data] : [])
-        .map((row) => row?.tenant_id)
-        .filter((value) => typeof value === 'string' && value.length > 0)
-    )
-  );
-  if (tenants.length !== 1) {
-    const errorWithCode = new Error(
-      'Generation-safe deletion requires exactly one tenant registry row'
-    );
-    errorWithCode.code = 'MEMBER_CONTENT_TOMBSTONE_TENANT_REQUIRED';
-    throw errorWithCode;
-  }
-  return tenants[0];
-}
-
-function buildMetadata(contentType, item) {
+export function buildMemberContentMetadata(contentType, item) {
   const cfg = CONTENT_TYPE_CONFIG[contentType];
   return {
     tenant_id: item.tenant_id,
@@ -256,67 +453,27 @@ function buildMetadata(contentType, item) {
       ? item.allowed_role_ids
       : null,
     is_public: item.is_public ?? null,
+    linked_events: Array.isArray(item.linked_events) ? item.linked_events : null,
+    subcategories: Array.isArray(item.subcategories) ? item.subcategories : null,
+    layout_type: item.layout_type ?? null,
+    microsite_id: item.microsite_id ?? null,
     published_date: item.published_date ?? null,
     start_date: item.start_date ?? null,
     feature_key: cfg?.feature || null,
   };
 }
 
-/**
- * Canvas pages resolve referenced symbols at render time; the chunker's text
- * extraction needs those symbol designs to capture text a member would see.
- * Fetch the (top-level) referenced symbol designs and stash them on the item so
- * buildMemberContentText can resolve them. Best-effort scope matches the public
- * page endpoint: only symbols used by THIS page, within the same tenant.
- */
-async function attachCanvasSymbols(item, supabase) {
-  item.__symbols = {};
-  if (!item?.canvas_design || !item?.tenant_id) return;
-  const ids = collectCanvasSymbolIds(item.canvas_design);
-  if (ids.size === 0) return;
-  const { data, error } = await supabase
-    .from('canvas_symbol')
-    .select('id, design')
-    .eq('tenant_id', item.tenant_id)
-    .in('id', Array.from(ids));
-  if (error) throw error;
-  const map = {};
-  for (const row of data || []) map[row.id] = row;
-  item.__symbols = map;
-}
-
-export async function deleteMemberContentChunks(
-  contentType,
-  sourceId,
-  { supabase, tenantId = null, schemaContext = null } = {}
-) {
-  if (!supabase) throw new Error('deleteMemberContentChunks requires a supabase client');
-  const context = await detectMemberContentSchema(
-    supabase,
-    schemaContext || createMemberContentSchemaContext()
-  );
-  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
-    const resolvedTenant =
-      tenantId || (await resolveGenerationTenantForDelete(supabase, contentType, sourceId));
-    return deleteMemberContentGenerationTombstone({
-      contentType,
-      sourceId,
-      tenantId: resolvedTenant,
-      supabase,
-    });
+export async function deleteMemberContentChunks(contentType, sourceId, { supabase, tenantId = null } = {}) {
+  if (!tenantId) {
+    const { data, error } = await supabase.from('member_content_source')
+      .select('tenant_id').eq('content_type', contentType).eq('source_id', sourceId).limit(2);
+    if (error) throw error;
+    if (data?.length !== 1) throw new Error('A unique tenant is required for knowledge deletion');
+    tenantId = data[0].tenant_id;
   }
-  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
-    throw schemaMismatchError();
-  }
-
-  let query = supabase
-    .from('member_content_chunk')
-    .delete()
-    .eq('content_type', contentType)
-    .eq('source_id', sourceId);
-  if (tenantId) query = query.eq('tenant_id', tenantId);
-  const { error } = await query;
-  if (error) throw error;
+  return deleteMemberContentGenerationTombstone({
+    contentType, sourceId, tenantId, supabase, writeGeneration: reindexMemberContentItem,
+  });
 }
 
 /**
@@ -331,108 +488,11 @@ export async function deleteMemberContentChunks(
  * @param {object} deps { supabase, tenantId?, contentType? }
  * @returns {Promise<object>} per-type orphan removal counts
  */
-export async function sweepOrphanedMemberContentChunks({
-  supabase,
-  tenantId = null,
-  contentType = null,
-  schemaContext = null,
-  maxItems = 50,
-  deadlineMs = null,
-  cursor = null,
-} = {}) {
-  if (!supabase) throw new Error('sweepOrphanedMemberContentChunks requires a supabase client');
-  const context = await detectMemberContentSchema(
-    supabase,
-    schemaContext || createMemberContentSchemaContext()
-  );
-  if (context.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
-    const swept = await sweepMemberContentGenerationTombstones({
-      supabase,
-      tenantId,
-      contentType,
-      maxItems,
-      deadlineMs,
-      cursor,
-    });
-    return {
-      ...swept,
-      removedChunks: 0,
-      removedSources: swept.tombstoned || 0,
-    };
-  }
-  if (context.capability !== LEGACY_MEMBER_CONTENT_SCHEMA) {
-    throw schemaMismatchError();
-  }
-
-  const types = contentType ? [contentType] : CONTENT_TYPES;
-  const summary = { removedChunks: 0, removedSources: 0, byType: {} };
-  const PAGE = 1000;
-
-  for (const type of types) {
-    const cfg = CONTENT_TYPE_CONFIG[type];
-    if (!cfg) continue;
-
-    // 1. Collect every source_id currently represented in the index for this type.
-    const chunkSourceIds = new Set();
-    let from = 0;
-    for (;;) {
-      let q = supabase
-        .from('member_content_chunk')
-        .select('source_id')
-        .eq('content_type', type)
-        .order('source_id', { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (tenantId) q = q.eq('tenant_id', tenantId);
-      const { data, error } = await q;
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      for (const r of data) if (r.source_id) chunkSourceIds.add(r.source_id);
-      if (data.length < PAGE) break;
-      from += PAGE;
-    }
-
-    let removedChunks = 0;
-    let removedSources = 0;
-
-    if (chunkSourceIds.size > 0) {
-      // 2. Of those, find which source ids still exist in the source table.
-      const existing = new Set();
-      const ids = [...chunkSourceIds];
-      const BATCH = 200;
-      for (let i = 0; i < ids.length; i += BATCH) {
-        const batch = ids.slice(i, i + BATCH);
-        let sq = supabase.from(cfg.table).select('id').in('id', batch);
-        if (tenantId) sq = sq.eq('tenant_id', tenantId);
-        if (cfg.filterEq) {
-          for (const [k, v] of Object.entries(cfg.filterEq)) sq = sq.eq(k, v);
-        }
-        const { data, error } = await sq;
-        if (error) throw error;
-        for (const r of data || []) existing.add(r.id);
-      }
-
-      // 3. Delete chunks for source ids that no longer exist.
-      const orphans = ids.filter((id) => !existing.has(id));
-      for (const orphanId of orphans) {
-        const delQuery = supabase
-          .from('member_content_chunk')
-          .delete({ count: 'exact' })
-          .eq('content_type', type)
-          .eq('source_id', orphanId);
-        const scoped = tenantId ? delQuery.eq('tenant_id', tenantId) : delQuery;
-        const { error, count } = await scoped;
-        if (error) throw error;
-        removedSources += 1;
-        removedChunks += count || 0;
-      }
-    }
-
-    summary.byType[type] = { removedChunks, removedSources };
-    summary.removedChunks += removedChunks;
-    summary.removedSources += removedSources;
-  }
-
-  return summary;
+export async function sweepOrphanedMemberContentChunks(options = {}) {
+  const result = await sweepMemberContentGenerationTombstones({
+    ...options, writeGeneration: reindexMemberContentItem,
+  });
+  return { ...result, removedSources: result.tombstoned || 0 };
 }
 
 /**
@@ -443,130 +503,122 @@ export async function sweepOrphanedMemberContentChunks({
  * @param {object} deps        { supabase, openai }
  * @returns {Promise<object>}  summary
  */
-export async function reindexMemberContentItem(
-  contentType,
-  item,
-  {
-    supabase,
-    openai,
-    schemaContext = null,
-    embeddingBudget = null,
-    embedTexts: embedTextsFn = null,
-    capabilityProbe = null,
-  } = {}
-) {
+export async function reindexMemberContentItem(contentType, item, { supabase, openai, embeddingBudget = null } = {}) {
   if (!supabase) throw new Error('reindexMemberContentItem requires a supabase client');
   if (!CONTENT_TYPE_CONFIG[contentType]) {
     throw new Error(`Unknown content type: ${contentType}`);
   }
   const sourceId = item?.id;
   if (!sourceId) throw new Error('reindexMemberContentItem requires item.id');
+  if (!item?.tenant_id) throw new Error('reindexMemberContentItem requires item.tenant_id');
 
-  const runSchemaContext = schemaContext || createMemberContentSchemaContext();
-  await detectMemberContentSchema(supabase, runSchemaContext);
-  if (runSchemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
-    return writeMemberContentGeneration(contentType, item, {
-      supabase,
-      openai,
-      embeddingBudget,
-      capabilityProbe,
-      ...(embedTextsFn ? { embedTexts: embedTextsFn } : {}),
-    });
+  return writeMemberContentGeneration(contentType, item, {
+    supabase, openai, embeddingBudget,
+    buildSnapshot: async ({ tenantId, sourceId, claim }) => {
+      let canonical;
+      let canvas;
+      if (contentType === 'canvas_page') {
+        canvas = await buildCanvasGenerationSnapshot({
+          supabase, tenantId, sourceId, claim, includeMemberContent: true,
+        });
+        canonical = canvas.indexable ? canvas.item : null;
+      } else {
+        const { data, error } = await supabase.from(CONTENT_TYPE_CONFIG[contentType].table)
+          .select(CONTENT_TYPE_CONFIG[contentType].columns)
+          .eq('tenant_id', tenantId).eq('id', sourceId).maybeSingle();
+        if (error) throw error;
+        canonical = isIndexable(contentType, data) ? data : null;
+      }
+      if (!canonical) return { item: null, chunks: [] };
+      let chunks = chunkMemberContent(canonical, contentType);
+      if (contentType === 'resource') chunks.push(...await extractResourcePdfChunks(canonical, supabase));
+      chunks = chunks.map((chunk, index) => ({
+        ...chunk, chunkIndex: index,
+        provenance: {
+          ...(chunk.provenance || {}), kind: chunk.provenance?.kind || 'knowledge',
+          dependencies: [...(canvas?.dependencies || []), ...(chunk.provenance?.dependencies || [])],
+        },
+      }));
+      return {
+        item: canonical, chunks,
+        metadata: canvas?.metadata || buildMemberContentMetadata(contentType, canonical),
+      };
+    },
+  });
+}
+
+/**
+ * Drain mutation jobs ahead of the broad reconciliation scan. We intentionally
+ * take at most one due source per tenant in a slice so a noisy tenant cannot
+ * monopolise embedding capacity; later invocations rotate through the remaining
+ * due rows. Failed rows get durable exponential backoff instead of being lost
+ * behind a keyset cursor.
+ */
+export async function processDueMemberContentReindexJobs({
+  supabase,
+  openai,
+  limit = 12,
+  embeddingBudget = null,
+  deadlineMs = null,
+} = {}) {
+  if (!supabase || !openai) return { processed: 0, errors: 0 };
+  const { data, error } = await supabase
+    .from('member_content_reindex_job')
+    .select('tenant_id, content_type, source_id, attempts')
+    .lte('available_at', new Date().toISOString())
+    .order('available_at', { ascending: true })
+    .limit(Math.max(limit * 8, 32));
+  if (error) throw error;
+  const selected = [];
+  const tenants = new Set();
+  for (const job of data || []) {
+    if (!job?.tenant_id || !job?.content_type || !job?.source_id || tenants.has(job.tenant_id)) continue;
+    tenants.add(job.tenant_id);
+    selected.push(job);
+    if (selected.length >= limit) break;
   }
-
-  if (!isIndexable(contentType, item)) {
-    await deleteMemberContentChunks(contentType, sourceId, {
-      supabase,
-      schemaContext: runSchemaContext,
-    });
-    return { contentType, sourceId, chunks: 0, embedded: 0, reused: 0, removed: true };
-  }
-
-  if (contentType === 'canvas_page') {
-    await attachCanvasSymbols(item, supabase);
-  }
-
-  const built = chunkMemberContent(item, contentType);
-  if (!built.length) {
-    await deleteMemberContentChunks(contentType, sourceId, {
-      supabase,
-      schemaContext: runSchemaContext,
-    });
-    return { contentType, sourceId, chunks: 0, embedded: 0, reused: 0, removed: true };
-  }
-
-  const meta = buildMetadata(contentType, item);
-
-  const { data: existing, error: exErr } = await supabase
-    .from('member_content_chunk')
-    .select('chunk_index, content_hash, embedding')
-    .eq('content_type', contentType)
-    .eq('source_id', sourceId);
-  if (exErr) throw exErr;
-  const existingByIdx = new Map((existing || []).map((r) => [r.chunk_index, r]));
-
-  const rows = [];
-  const toEmbedIdx = [];
-  const toEmbedInput = [];
-  const nowIso = new Date().toISOString();
-
-  for (const ch of built) {
-    const hash = hashChunk(ch.content);
-    const prev = existingByIdx.get(ch.chunkIndex);
-    const reuse = prev && prev.content_hash === hash && prev.embedding != null;
-
-    const row = {
-      ...meta,
-      chunk_index: ch.chunkIndex,
-      content: ch.content,
-      content_hash: hash,
-      updated_at: nowIso,
-    };
-
-    if (reuse) {
-      row.embedding = prev.embedding;
-    } else {
-      toEmbedIdx.push(ch.chunkIndex);
-      toEmbedInput.push(`${meta.title}\n\n${ch.content}`);
+  const result = { processed: 0, errors: 0 };
+  for (const job of selected) {
+    if (deadlineMs != null && Date.now() >= deadlineMs) break;
+    const cfg = CONTENT_TYPE_CONFIG[job.content_type];
+    if (!cfg) continue;
+    try {
+      let query = supabase
+        .from(cfg.table)
+        .select(cfg.columns)
+        .eq('tenant_id', job.tenant_id)
+        .eq('id', job.source_id);
+      if (cfg.filterEq) {
+        for (const [column, value] of Object.entries(cfg.filterEq)) query = query.eq(column, value);
+      }
+      const { data: item, error: itemError } = await query.maybeSingle();
+      if (itemError) throw itemError;
+      if (item) {
+        await reindexMemberContentItem(job.content_type, {
+          ...item,
+          _reindexAttempts: job.attempts,
+        }, { supabase, openai, embeddingBudget });
+      } else {
+        await deleteMemberContentChunks(job.content_type, job.source_id, {
+          supabase,
+          tenantId: job.tenant_id,
+        });
+      }
+      result.processed++;
+    } catch (err) {
+      result.errors++;
+      await deferMemberContentReindexJob(job.content_type, {
+        tenant_id: job.tenant_id,
+        id: job.source_id,
+        _reindexAttempts: job.attempts,
+      }, err, { supabase });
+      console.error(
+        `[processDueMemberContentReindexJobs] ${job.content_type}/${job.source_id} error:`,
+        err?.message || err
+      );
     }
-    rows.push(row);
   }
-
-  let embedded = 0;
-  if (toEmbedInput.length) {
-    if (!openai) {
-      throw new Error('reindexMemberContentItem needs an OpenAI client to embed new/changed chunks');
-    }
-    const embeddings = await embedTexts(openai, toEmbedInput);
-    toEmbedIdx.forEach((idx, k) => {
-      const row = rows.find((r) => r.chunk_index === idx);
-      row.embedding = embeddings[k];
-    });
-    embedded = embeddings.length;
-  }
-
-  // Remove now-stale trailing chunks (content shrank), then upsert.
-  const { error: delErr } = await supabase
-    .from('member_content_chunk')
-    .delete()
-    .eq('content_type', contentType)
-    .eq('source_id', sourceId)
-    .gte('chunk_index', built.length);
-  if (delErr) throw delErr;
-
-  const { error: upErr } = await supabase
-    .from('member_content_chunk')
-    .upsert(rows, { onConflict: 'content_type,source_id,chunk_index' });
-  if (upErr) throw upErr;
-
-  return {
-    contentType,
-    sourceId,
-    chunks: rows.length,
-    embedded,
-    reused: rows.length - embedded,
-    removed: false,
-  };
+  return result;
 }
 
 /**
@@ -599,33 +651,10 @@ export async function reindexAllMemberContent({
   deadlineMs = null,
   cursor = null,
   maxItems = 50,
+  maxEmbeddingChunks = 20,
   embeddingBudget = null,
-  maxEmbeddingChunks = null,
-  embedTexts: embedTextsFn = null,
-  capabilityProbe = null,
 } = {}) {
   if (!supabase) throw new Error('reindexAllMemberContent requires a supabase client');
-
-  const schemaContext = createMemberContentSchemaContext();
-  // Detect once, before reading source rows. Generation-aware destinations are
-  // dispatched to the claim/re-read/CAS writer; legacy destinations retain the
-  // old guarded delete/upsert path below.
-  await detectMemberContentSchema(supabase, schemaContext);
-  if (schemaContext.capability === GENERATION_MEMBER_CONTENT_SCHEMA) {
-    return reindexAllMemberContentGeneration({
-      supabase,
-      openai,
-      tenantId,
-      contentType,
-      deadlineMs,
-      cursor,
-      maxItems,
-      embeddingBudget: embeddingBudget ?? {},
-      maxEmbeddingChunks,
-      capabilityProbe,
-      ...(embedTextsFn ? { embedTexts: embedTextsFn } : {}),
-    });
-  }
 
   const allTypes = contentType ? [contentType] : CONTENT_TYPES;
   const results = {
@@ -639,6 +668,26 @@ export async function reindexAllMemberContent({
   };
 
   const overBudget = () => deadlineMs != null && Date.now() >= deadlineMs;
+  const budget = embeddingBudget && typeof embeddingBudget === 'object'
+    ? embeddingBudget : { maxEmbeddingChunks: typeof embeddingBudget === 'number' ? embeddingBudget : maxEmbeddingChunks };
+  const initialBudget = budget.maxEmbeddingChunks;
+  if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 50 ||
+      !Number.isInteger(initialBudget) || initialBudget < 0 || initialBudget > 100) {
+    throw new Error('Knowledge indexing requires maxItems 1–50 and maxEmbeddingChunks 0–100');
+  }
+  const finish = (result) => ({ ...result, embeddingChunksSpent: initialBudget - budget.maxEmbeddingChunks });
+
+  // A scoped operator rebuild is intentional and should not consume unrelated
+  // tenants' retry queue. The scheduled/global pass drains durable mutations
+  // first, retaining a fair tenant spread before the broad keyset scan.
+  if (!tenantId && !contentType && !cursor && maxItems > 0) {
+    const retries = await processDueMemberContentReindexJobs({
+      supabase, openai, embeddingBudget: budget, limit: Math.min(12, maxItems), deadlineMs,
+    });
+    results.items += retries.processed;
+    results.items += retries.errors;
+    results.errors += retries.errors;
+  }
 
   // Resume state derived from the incoming cursor.
   const startInSweep = cursor?.phase === 'sweep';
@@ -660,8 +709,8 @@ export async function reindexAllMemberContent({
       let lastId = ti === 0 && resumeType === type ? resumeAfterId : null;
 
       for (;;) {
-        if (overBudget()) {
-          return { ...results, nextCursor: { type, lastId }, done: false };
+        if (overBudget() || results.items >= maxItems) {
+          return finish({ ...results, nextCursor: { type, lastId }, done: false });
         }
 
         let query = supabase
@@ -681,11 +730,7 @@ export async function reindexAllMemberContent({
 
         for (const item of rows) {
           try {
-            const summary = await reindexMemberContentItem(type, item, {
-              supabase,
-              openai,
-              schemaContext,
-            });
+            const summary = await reindexMemberContentItem(type, item, { supabase, openai, embeddingBudget: budget });
             results.items++;
             results.chunks += summary.chunks;
             results.embedded += summary.embedded;
@@ -693,6 +738,19 @@ export async function reindexAllMemberContent({
             if (summary.removed) results.removed++;
           } catch (err) {
             results.errors++;
+            results.items++;
+            if (err.code === 'MEMBER_CONTENT_EMBEDDING_BUDGET') {
+              return finish({ ...results, nextCursor: { type, lastId }, done: false,
+                stopReason: 'embedding_budget', errorCode: err.code });
+            }
+            try {
+              await deferMemberContentReindexJob(type, item, err, { supabase });
+            } catch (queueError) {
+              console.error(
+                `[reindexAllMemberContent] failed to persist retry for ${type}/${item.id}:`,
+                queueError?.message || queueError
+              );
+            }
             results.details.push({
               contentType: type,
               sourceId: item.id,
@@ -704,8 +762,8 @@ export async function reindexAllMemberContent({
             );
           }
           lastId = item.id;
-          if (overBudget()) {
-            return { ...results, nextCursor: { type, lastId }, done: false };
+          if (overBudget() || results.items >= maxItems) {
+            return finish({ ...results, nextCursor: { type, lastId }, done: false });
           }
         }
 
@@ -716,7 +774,7 @@ export async function reindexAllMemberContent({
     // Indexing complete for the scoped pass. Hand the orphan sweep its own slice
     // if the budget is already spent, so a large index pass never crowds it out.
     if (overBudget()) {
-      return { ...results, nextCursor: { phase: 'sweep' }, done: false };
+      return finish({ ...results, nextCursor: { phase: 'sweep' }, done: false });
     }
   }
 
@@ -724,19 +782,20 @@ export async function reindexAllMemberContent({
   // on-save hooks (retrieval is the security boundary — stale chunks must go).
   try {
     const swept = await sweepOrphanedMemberContentChunks({
-      supabase,
-      tenantId,
-      contentType,
-      schemaContext,
+      supabase, tenantId, contentType, deadlineMs, maxItems: Math.max(1, maxItems - results.items),
+      cursor: cursor?.phase === 'sweep' ? cursor.sweepCursor : null,
     });
     results.orphansRemoved = swept.removedSources;
     results.orphanChunksRemoved = swept.removedChunks;
     results.removed += swept.removedSources;
+    results.errors += swept.errors || 0;
+    if (!swept.done) return finish({ ...results,
+      nextCursor: { phase: 'sweep', sweepCursor: swept.nextCursor }, done: false });
   } catch (err) {
     results.errors++;
     results.details.push({ contentType: 'orphan-sweep', sourceId: null, error: err?.message || String(err) });
     console.error('[reindexAllMemberContent] orphan sweep error:', err?.message || err);
   }
 
-  return { ...results, nextCursor: null, done: true };
+  return finish({ ...results, nextCursor: null, done: true });
 }
