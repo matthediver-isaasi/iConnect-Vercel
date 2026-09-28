@@ -2,14 +2,15 @@
 // persisted placeholder shape. Values are intentionally separate: render
 // accepts only a values map and never persists sample data as certificate data.
 import { certificateDatePlaceholderValues } from '../../../shared/eventCpdCertificatePolicy.js';
+import { certificateDisplayValue } from '../../../shared/cpdCertificateDisplay.js';
 
 export function serializeCertificatePlaceholder(field) {
   return {
     placeholder_key: field.key,
     label: field.label || field.key,
     field_type: field.field_type || 'text',
-    sample_value: field.sample || '',
-    default_value: field.default_value || null,
+    sample_value: field.sample ?? '',
+    default_value: field.default_value === '' ? null : field.default_value ?? null,
     display_order: Number(field.display_order || 0),
     multiline: !!field.multiline,
     shrink_to_fit: field.shrink_to_fit !== false,
@@ -33,7 +34,7 @@ export function serializeCertificatePlaceholder(field) {
 }
 
 export function certificateSampleValues(fields) {
-  return Object.fromEntries((fields || []).map((field) => [field.key, field.sample || '']));
+  return Object.fromEntries((fields || []).map((field) => [field.key, field.sample ?? '']));
 }
 
 // Keep browser sample/preview placeholder names in lockstep with the shared
@@ -43,6 +44,17 @@ export function certificateDateRangeValues(policy) {
 }
 
 export function formatCertificateValue(value, field = {}) {
+  if ((field.key || field.placeholder_key) === 'cpd.cpd_points' && typeof value === 'string' && !value.trim()) return value;
+  return certificateDisplayValue(field.key || field.placeholder_key, formatValue(value, field));
+}
+
+export function certificatePreviewValue(field) {
+  return field.sample === null || field.sample === undefined || field.sample === ''
+    ? field.default_value
+    : field.sample;
+}
+
+function formatValue(value, field = {}) {
   if (value === null || value === undefined) return '';
   const format = field.field_type === 'date'
     ? field.date_format || field.format

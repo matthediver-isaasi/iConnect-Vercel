@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { degrees, PDFDocument } from 'pdf-lib';
+import { degrees, PDFDocument, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { inspectPdf, layoutPlaceholder, renderCpdCertificatePdf, visualToPdfPoint } from './cpdCertificatePdf.js';
 
@@ -12,6 +12,42 @@ async function compressedPdf() {
   // the old regex parser could not inspect.
   return Buffer.from(await doc.save({ useObjectStreams: true }));
 }
+
+test('points suffix is measured and drawn as one styled PDF text run', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.CourierBoldOblique);
+  const base = {
+    placeholder_key: 'cpd.cpd_points', page_number: 1, x: 20, y: 20,
+    width: 90, height: 40, font_family: 'Courier', font_style: 'bolditalic',
+    font_size: 24, minimum_font_size: 8, alignment: 'center', color: '#123456',
+    shrink_to_fit: true, line_height: 1.2,
+  };
+  const values = { 'cpd.cpd_points': 8 };
+  const layout = layoutPlaceholder(base, values, font);
+  assert.equal(layout.value, '8 points');
+  assert.deepEqual(layout.lines, ['8 points']);
+  assert.ok(layout.size < 24);
+  assert.ok(font.widthOfTextAtSize(layout.value, layout.size) <= base.width);
+  const wrapped = layoutPlaceholder({ ...base, width: 60, height: 100, multiline: true, shrink_to_fit: false }, values, font);
+  assert.ok(wrapped.lines.length > 1);
+  const output = await renderCpdCertificatePdf(await compressedPdf(), [base], values);
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(output), disableWorker: true }).promise;
+  const page = await pdf.getPage(1);
+  const text = await page.getTextContent();
+  assert.equal(text.items.map(item => item.str).join(''), '8 points');
+  const item = text.items[0];
+  assert.ok(item);
+  assert.ok(text.items.every(part => part.fontName === item.fontName && part.transform[0] === layout.size));
+  assert.equal(item.transform[0], layout.size);
+  const textWidth = text.items.reduce((sum, part) => sum + part.width, 0);
+  assert.ok(Math.abs(item.transform[4] - (20 + (90 - textWidth) / 2)) < .001);
+  const ops = await page.getOperatorList();
+  const fonts = ops.fnArray.flatMap((op, i) => op === pdfjs.OPS.setFont ? [ops.argsArray[i][0]] : []);
+  assert.ok(fonts.some(id => page.commonObjs.get(id).name === 'Courier-BoldOblique'));
+  const colors = ops.fnArray.flatMap((op, i) => op === pdfjs.OPS.setFillRGBColor ? [ops.argsArray[i]] : []);
+  assert.ok(colors.some(color => String(color).includes('#123456') || String(color) === '18,52,86'));
+  await pdf.destroy();
+});
 
 test('inspectPdf accepts object-stream PDFs and reports every page', async () => {
   const source = await compressedPdf();

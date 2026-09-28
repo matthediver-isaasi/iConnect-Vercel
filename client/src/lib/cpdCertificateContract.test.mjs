@@ -2,9 +2,46 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   certificateDateRangeValues, certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
-  serializeCertificatePlaceholder,
+  serializeCertificatePlaceholder, certificatePreviewValue,
 } from './cpdCertificateContract.js';
 import { readFileSync } from 'node:fs';
+import { layoutPlaceholder } from '../../../api/_lib/cpdCertificatePdf.js';
+
+test('points decoration agrees across preview and PDF, without changing raw samples', () => {
+  const key = 'cpd.cpd_points';
+  for (const [raw, format, expected] of [
+    [8, null, '8 points'], [1, null, '1 points'], [0, null, '0 points'],
+    [6.5, 'number:2', '6.50 points'], [12500.5, 'number', '12,500.5 points'],
+    ['8 points', null, '8 points'], ['8 points', 'number:2', '8 points'],
+  ]) {
+    const field = { key, format, sample: raw };
+    const placeholder = { placeholder_key: key, format, width: 300, height: 30, font_size: 12 };
+    const browser = formatCertificateValue(raw, field);
+    assert.equal(browser, expected);
+    assert.equal(formatCertificateValue(browser, field), expected);
+    assert.equal(layoutPlaceholder(placeholder, { [key]: raw }).value, expected);
+    assert.equal(layoutPlaceholder(placeholder, { [key]: browser }).value, expected);
+    assert.equal(certificateSampleValues([field])[key], raw);
+  }
+  for (const raw of [null, undefined, '']) {
+    const field = { key, sample: raw, default_value: 0 };
+    assert.equal(formatCertificateValue(certificatePreviewValue(field), field), '0 points');
+    const base = { placeholder_key: key, width: 300, height: 30, font_size: 12 };
+    assert.equal(layoutPlaceholder({ ...base, default_value: 0 }, { [key]: raw }).value, '0 points');
+    assert.equal(layoutPlaceholder(base, { [key]: raw }).value, '');
+    assert.equal(layoutPlaceholder({ ...base, missing_policy: 'literal' }, { [key]: raw }).value, `{{${key}}}`);
+    assert.throws(() => layoutPlaceholder({ ...base, missing_policy: 'error' }, { [key]: raw }), /Missing value/);
+  }
+  assert.equal(formatCertificateValue(null, { key }), '');
+  assert.equal(formatCertificateValue('', { key }), '');
+  assert.equal(formatCertificateValue('', { key, format: 'number:2' }), '');
+  assert.equal(layoutPlaceholder({ placeholder_key: key, default_value: '', format: 'number:2', width: 300, height: 30 }, {}).value, '');
+  assert.equal(certificatePreviewValue({ sample: 0, default_value: 8 }), 0);
+  for (const key of ['cpd.cpd_hours', 'custom.points']) {
+    assert.equal(formatCertificateValue(8, { key }), '8');
+    assert.equal(layoutPlaceholder({ placeholder_key: key, width: 300, height: 30 }, { [key]: 8 }).value, '8');
+  }
+});
 
 test('placeholder serialization matches the certificate API contract', () => {
   const result = serializeCertificatePlaceholder({

@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { PDFDocument, rgb } from "pdf-lib";
 import { readFile } from "node:fs/promises";
+import { serializeCertificatePlaceholder } from '../client/src/lib/cpdCertificateContract.js';
+import { layoutPlaceholder } from '../api/_lib/cpdCertificatePdf.js';
 
 // The application code and PDF.js run through the existing Vite preview.
 // Only the HTML shell, access hook, certificate API and PDF bytes are fixture-owned.
@@ -88,7 +90,7 @@ function html({ react, dependency }) {
     </script></body></html>`;
 }
 
-async function mount(page, request, { active = false, direct = true, delay = 80 } = {}) {
+async function mount(page, request, { active = false, direct = true, delay = 80, fields } = {}) {
   const fixtureHtml = html(await modules(request));
   const state = { writes: [], unexpected: [], errors: [], consoleErrors: [], failedRequests: [], pdfRequests: [] };
   page.on("pageerror", error => state.errors.push(error.stack || error.message));
@@ -107,7 +109,7 @@ async function mount(page, request, { active = false, direct = true, delay = 80 
     id: "fixture-template", name: "Certificate fixture", version: 1,
     status: active ? "active" : "draft", pdf_metadata: { pages: [
       { number: 1, ...SIZE.portrait }, { number: 2, ...SIZE.landscape },
-    ] }, placeholders: [FIELD, { ...FIELD, id: "landscape-field", page: 2 }],
+    ] }, placeholders: fields || [FIELD, { ...FIELD, id: "landscape-field", page: 2 }],
   };
   await page.route("**/*", async route => {
     const req = route.request();
@@ -307,6 +309,38 @@ test("active template opens preview-only with no editing actions", async ({ page
   const geometry = await measure(page);
   expect(geometry.viewport.width).toBeGreaterThan(geometry.screenWidth * 0.9);
   aligned(geometry, SIZE.portrait);
+  expect(state.unexpected).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test("points preview preserves persisted styling and shrinks the complete suffix", async ({ page, request }) => {
+  const savedPoints = serializeCertificatePlaceholder({
+    ...FIELD, id: 'default', y: 220, key: 'cpd.cpd_points', sample: '', default_value: 6.5,
+    field_type: 'number', number_format: 'number:2', font_family: 'Helvetica',
+  });
+  const pdfValue = layoutPlaceholder(savedPoints, {}).value;
+  expect(pdfValue).toBe('6.50 points');
+  const state = await mount(page, request, { fields: [
+    { ...FIELD, key: 'cpd.cpd_points', sample: 8, width: 90, height: 40,
+      font_family: 'Courier', font_style: 'bolditalic', font_size: 24, color: '#123456', align: 'center', shrink_to_fit: true },
+    { ...FIELD, id: 'zero', y: 160, key: 'cpd.cpd_points', sample: 0 },
+    { ...savedPoints, id: 'default' },
+    { ...FIELD, id: 'missing', y: 280, key: 'cpd.cpd_points', sample: '' },
+  ] });
+  await page.getByRole('combobox', { name: 'Zoom' }).selectOption('1');
+  const text = page.getByTestId('certificate-page').getByText('8 points', { exact: true });
+  await expect(text).toHaveText('8 points');
+  await expect(text).toHaveCSS('font-family', 'Courier');
+  await expect(text).toHaveCSS('font-weight', '700');
+  await expect(text).toHaveCSS('font-style', 'italic');
+  await expect(text).toHaveCSS('color', 'rgb(18, 52, 86)');
+  await expect(text).toHaveCSS('text-align', 'center');
+  await expect.poll(() => text.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeLessThan(24);
+  expect(await text.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
+  await expect(page.getByText('0 points', { exact: true })).toBeVisible();
+  await expect(page.getByText(pdfValue, { exact: true })).toBeVisible();
+  await expect(page.getByText('Missing: Member full name', { exact: true })).toBeVisible();
+  await page.screenshot({ path: '/tmp/task-4808-points-preview.png', fullPage: true });
   expect(state.unexpected).toEqual([]);
   expect(state.errors).toEqual([]);
 });

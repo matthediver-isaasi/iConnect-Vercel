@@ -19,7 +19,7 @@ import {
   moveBox, normalizeBox, pointsToPixels, resizeBox,
 } from '@/lib/cpdCertificateGeometry';
 import {
-  certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
+  certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue, certificatePreviewValue,
   serializeCertificatePlaceholder,
 } from '@/lib/cpdCertificateContract';
 
@@ -105,10 +105,13 @@ function normalizeField(field) {
     color: field.color || field.text_colour || '#111827',
     sample: field.sample ?? field.sample_value ?? '',
     default_value: field.default_value ?? '',
+    font_weight: field.font_weight || (['bold', 'bolditalic'].includes(field.font_style) ? 'bold' : 'normal'),
+    font_style: ['italic', 'bolditalic'].includes(field.font_style) ? 'italic' : 'normal',
     multiline: field.multiline ?? field.overflow_policy === 'wrap',
     shrink_to_fit: field.shrink_to_fit ?? field.overflow_policy === 'shrink',
     required: field.required ?? field.missing_policy === 'error',
     date_format: field.date_format || field.format || DEFAULT_FIELD.date_format,
+    number_format: field.number_format || field.format || DEFAULT_FIELD.number_format,
   };
 }
 
@@ -380,7 +383,7 @@ export function TemplateDesigner({ id }) {
     } catch (e) { toast.error(e.message); }
   };
   const leave = () => { if (!dirty || window.confirm('Discard unsaved certificate changes?')) navigate('/CPDCertificateTemplates'); };
-  const missing = draft?.fields?.filter(f => !String(f.sample || f.default_value || '').trim()) || [];
+  const missing = draft?.fields?.filter(f => !String(certificatePreviewValue(f) ?? '').trim()) || [];
 
   if (isLoading || !draft) return <div className="p-12 text-center">{error ? error.message : 'Loading designer…'}</div>;
   const isActive = draft.status === 'active';
@@ -432,9 +435,9 @@ export function TemplateDesigner({ id }) {
                 <div className="absolute inset-0 grid place-items-center text-slate-400"><FileText />PDF unavailable</div>}
               {draft.fields.filter(f => Number(f.page || 1) === currentPage).map(field => {
                 const active = field.id === selectedId;
-                const rawValue = field.sample || field.default_value;
+                const rawValue = certificatePreviewValue(field);
                 const value = viewing
-                  ? (rawValue ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
+                  ? (rawValue !== null && rawValue !== undefined && rawValue !== '' ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
                   : `{{${field.key}}}`;
                 return <div key={field.id} onPointerDown={e => {
                   if (viewing) return; e.preventDefault(); setSelectedId(field.id);
