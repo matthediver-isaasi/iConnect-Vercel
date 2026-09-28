@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantAiAssistant } from "@/hooks/useTenantAiAssistant";
 import { createViewerRequestLease } from "@/lib/canvasViewerValues";
 import {
   acquireViewerSessionRequest,
@@ -1077,6 +1078,13 @@ export default function Layout({ children, currentPageName }) {
     sessionRoleSnapshot,
     setSessionRoleSnapshot,
     setRetrySessionRole: setContextRetrySessionRole,
+    forcePublicLayout,
+    forceBlankLayout,
+    chromeReady,
+    pageOwned,
+    authResolved,
+    sessionValidated,
+    confirmPortalShell,
   } = useLayoutContext();
   
   // Initialize from sessionStorage immediately to prevent flicker
@@ -1261,22 +1269,32 @@ const { data: memberRecord } = useQuery({
   },
 });
 
-// Task #2401: AI help persona for the Ask AI launcher button (shared query key with MemberAiAssistant)
-const { data: aiPersona, isFetched: aiPersonaFetched } = useQuery({
-  queryKey: ["/ai-help-persona"],
-  queryFn: async () => {
-    const res = await fetch("/api/public/ai-help-persona", {
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("Failed to load assistant");
-    return res.json();
-  },
-  staleTime: 5 * 60 * 1000,
-  enabled: !!memberInfo,
+const { config: aiPersona, identityKey: aiIdentityKey } = useTenantAiAssistant({
+  memberId: memberInfo?.id,
+  memberTenantId: memberInfo?.tenant_id,
+  sessionValidated: authResolved && sessionValidated,
+  sessionScope: viewerSessionScope,
 });
+const aiEnabled = aiPersona?.enabled === true;
+useEffect(() => {
+  if (!aiEnabled) setAiAssistantOpen(false);
+}, [aiEnabled]);
 const aiPersonaName = (aiPersona?.name || "Dougal").trim() || "Dougal";
 const aiPersonaAvatarUrl = aiPersona?.avatarUrl || dougalAvatar;
 const aiPersonaInitial = aiPersonaName.charAt(0).toUpperCase();
+const aiLauncherStyle = (() => {
+  const color = aiPersona?.backgroundColor?.trim();
+  if (!color || !/^#[\da-f]{6}$/i.test(color)) return undefined;
+  const channels = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
+  const luminance = channels.map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const light = luminance > 0.179;
+  const hoverColor = `#${channels.map((v) => {
+    const original = Math.round(v * 255);
+    return Math.round(original * 0.88 + (light ? 0 : 255 * 0.12)).toString(16).padStart(2, "0");
+  }).join("")}`;
+  return { "--ai-bg": color, color: light ? "#111827" : "#ffffff", "--ai-hover": hoverColor };
+})();
 
 // Task #3349: fetch the role_access_item DB tree so exclusion matching can
 // resolve an item's parent page/module as the Role Management UI displays it
@@ -1849,17 +1867,6 @@ useEffect(() => {
     };
     setContextRefreshOrganizationInfo(refreshFn);
   }, [memberInfo, setContextRefreshOrganizationInfo]);
-
-  // Get layout context for dynamic pages that need to force public layout
-  const {
-    forcePublicLayout,
-    forceBlankLayout,
-    chromeReady,
-    pageOwned,
-    authResolved,
-    sessionValidated,
-    confirmPortalShell,
-  } = useLayoutContext();
 
   useEffect(() => {
     // Reset the per-session guard whenever the signed-in member changes so a new
@@ -2808,24 +2815,23 @@ useEffect(() => {
               <SubmissionStatsBar />
 
               {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
-              {memberInfo && !isFeatureExcluded('support.member-ai') && (
+              {memberInfo && aiEnabled && !isFeatureExcluded('support.member-ai') && (
                 <div className="mb-2 group-data-[collapsible=icon]:px-0">
                   <Button
                     type="button"
                     onClick={() => setAiAssistantOpen(true)}
-                    className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                    className={`w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 ${aiLauncherStyle ? "bg-[var(--ai-bg)] hover:bg-[var(--ai-hover)] focus-visible:bg-[var(--ai-hover)]" : ""}`}
+                    style={aiLauncherStyle}
+                    aria-label={`Ask ${aiPersonaName}`}
+                    title={`Ask ${aiPersonaName}`}
                     data-testid="button-ask-ai"
                   >
-                    {aiPersonaFetched ? (
-                      <Avatar className="h-5 w-5 shrink-0">
-                        <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
-                        <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
-                      </Avatar>
-                    ) : (
-                      <Sparkles className="h-4 w-4 shrink-0" />
-                    )}
+                    <Avatar className="h-5 w-5 shrink-0">
+                      <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
+                      <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
+                    </Avatar>
                     <span className="group-data-[collapsible=icon]:hidden">
-                      {aiPersonaFetched ? `Ask ${aiPersonaName}` : "Ask\u2026"}
+                      {`Ask ${aiPersonaName}`}
                     </span>
                   </Button>
                 </div>
@@ -3004,8 +3010,8 @@ useEffect(() => {
             </SidebarFooter>
           </Sidebar>
 
-          {memberInfo && !isFeatureExcluded('support.member-ai') && (
-            <MemberAiAssistant open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
+          {memberInfo && aiEnabled && !isFeatureExcluded('support.member-ai') && (
+            <MemberAiAssistant key={aiIdentityKey} identityKey={aiIdentityKey} config={aiPersona} open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
           )}
 
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

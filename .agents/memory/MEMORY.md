@@ -61,7 +61,6 @@
 - [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
-- [Public directory field privacy](public-directory-field-privacy.md) — public projections must enforce both member eligibility and tenant field visibility server-side.
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
@@ -69,12 +68,10 @@
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
-- [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.
-- [Cross-tenant member cleanup references](cross-tenant-member-cleanup-references.md) — tenant-scoped member deletion must fail closed when another tenant's rows reference candidate UUIDs.
-- [Bulk Member deletion FK indexes](bulk-member-delete-fk-indexes.md) — missing child FK indexes can turn bulk Member deletion into thousands of full-table scans.
-- [Tenant-scoped admin password resets](tenant-admin-password-reset-scope.md) — multi-tenant admins must reset the request tenant, not their default; reset links must never trust Origin.
+- [Directory access and privacy topics](directory-access-privacy-index.md) — scope, eligibility, field visibility, export, file access, and deleted-member history.
+- [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
@@ -111,7 +108,6 @@
 - [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.
 - [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
-- [Directory Data Studio file access](directory-data-studio-file-access.md) — directory opt-in is not publication consent; file downloads must recheck source permissions, not just tenant membership.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
 - [Email column release gate](email-column-release-gate.md) — received-client approval and its CSS-evidence waiver; browser tests alone are not Gmail/Outlook proof.
 - [Transactional preference identity](transactional-preference-boundary.md) — personalization identity is not recipient authority; resolve after the final envelope and footer, separate from campaigns.
@@ -120,8 +116,6 @@
 - [Verification boundaries](browser-verification-index.md) — isolated tests vs production checks, browser route contracts, parallel output, and animation-safe assertions.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
-- [Organisation access revocation](organisation-access-revocation.md) — restoration must not revive old sessions; fence concurrent member creation without revoking unrelated organisations.
-- [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility, not name-list roles; viewer organisation is authorization-relevant.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
 - [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
@@ -131,7 +125,6 @@
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
-- [Deleted-member relationships](deleted-member-relationship-visibility.md) — intentional identity suppression is not a missing endpoint; retain history and apply eligibility before paging.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.

@@ -10,6 +10,7 @@
 import { getSessionMember } from './session.js';
 import { getTenantContext } from './tenantContext.js';
 import { supabase } from './database.js';
+import { requireTenantAiAssistant } from './tenantAiAssistant.js';
 import {
   resolveMemberExclusions,
   makeFeatureAccessChecker,
@@ -55,6 +56,7 @@ export async function resolveMemberScope(req, res) {
     res.status(400).json({ error: 'Tenant context required' });
     return null;
   }
+  if (!await requireTenantAiAssistant(ctx.tenantId, res)) return null;
   const member = await getSessionMember(req);
   if (!member) {
     res.status(403).json({

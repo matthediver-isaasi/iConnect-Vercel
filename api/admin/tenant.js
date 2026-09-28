@@ -2,6 +2,7 @@ import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
 import { clearTenantEmailCache } from '../_lib/emailService.js';
+import { validateMemberAiAssistant } from '../_lib/tenantAiAssistant.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -73,7 +74,18 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
 
-      if (updates.settings) {
+      if (updates.settings !== undefined) {
+        if (!updates.settings || typeof updates.settings !== 'object' || Array.isArray(updates.settings)) {
+          return res.status(400).json({ error: 'settings must be an object' });
+        }
+        let assistantUpdates;
+        if (Object.prototype.hasOwnProperty.call(updates.settings, 'member_ai_assistant')) {
+          try {
+            assistantUpdates = validateMemberAiAssistant(updates.settings.member_ai_assistant);
+          } catch (error) {
+            return res.status(400).json({ error: error.message });
+          }
+        }
         if (updates.settings.ga4_measurement_id !== undefined && updates.settings.ga4_measurement_id !== null) {
           const ga4Id = String(updates.settings.ga4_measurement_id).trim();
           if (ga4Id && !/^G-[A-Z0-9]{4,20}$/.test(ga4Id)) {
@@ -81,20 +93,30 @@ export default async function handler(req, res) {
           }
         }
 
-        const { data: currentTenant } = await supabase
+        const { data: currentTenant, error: readError } = await supabase
           .from('tenant')
           .select('settings')
           .eq('id', tenantId)
           .single();
+        if (readError || !currentTenant || !currentTenant.settings ||
+            typeof currentTenant.settings !== 'object' || Array.isArray(currentTenant.settings)) {
+          return res.status(503).json({ error: 'Tenant settings are unavailable' });
+        }
         
-        const currentSettings = currentTenant?.settings || {};
+        const currentSettings = currentTenant.settings;
         const incomingSettings = updates.settings;
+        const currentAssistant = currentSettings.member_ai_assistant;
+        const mergedAssistant = assistantUpdates === undefined
+          ? currentAssistant
+          : { ...(currentAssistant && typeof currentAssistant === 'object' && !Array.isArray(currentAssistant)
+            ? currentAssistant : {}), ...assistantUpdates };
         
         if (incomingSettings.email_from_name || incomingSettings.email_from_address) {
           const currentEmailDomain = currentSettings.email_domain || {};
           updates.settings = {
-            ...currentSettings,
+              ...currentSettings,
             ...incomingSettings,
+              ...(assistantUpdates !== undefined && { member_ai_assistant: mergedAssistant }),
             email_domain: {
               ...currentEmailDomain,
               from_name: incomingSettings.email_from_name || currentEmailDomain.from_name,
@@ -105,6 +127,7 @@ export default async function handler(req, res) {
           updates.settings = {
             ...currentSettings,
             ...incomingSettings,
+            ...(assistantUpdates !== undefined && { member_ai_assistant: mergedAssistant }),
             email_domain: currentSettings.email_domain
           };
         }

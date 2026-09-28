@@ -35,6 +35,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import OutlookConnection from "@/components/OutlookConnection";
 import { base44, setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
+import MemberAiAssistantSettings from "@/components/admin/MemberAiAssistantSettings";
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -1122,6 +1123,7 @@ export default function AdminSettings() {
         </form>
 
         <div className="mt-8 space-y-6">
+          <MemberAiAssistantSettings key={tenant?.id} tenantId={tenant?.id} />
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <CardTitle className="text-white">Xero Integration</CardTitle>

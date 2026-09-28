@@ -27,6 +27,7 @@ import { isResourceReleased } from '../../shared/resourceRelease.js';
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { requireTenantAiAssistant } from '../_lib/tenantAiAssistant.js';
 import {
   resolveMemberExclusions,
   makeFeatureAccessChecker,
@@ -265,6 +266,7 @@ export default async function handler(req, res) {
     if (!ctx.tenantId) {
       return res.status(400).json({ error: 'Tenant context required' });
     }
+    if (!await requireTenantAiAssistant(ctx.tenantId, res)) return;
 
     let exclusions = [];
     let roleId = null;

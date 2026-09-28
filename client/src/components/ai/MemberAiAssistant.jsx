@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { getActiveTenantId } from "@/api/base44Client";
 import {
   Dialog,
   DialogContent,
@@ -60,27 +59,33 @@ const TYPE_ICON = {
 
 const TITLE_MAX = 80;
 
-function tenantHeaders() {
-  const tenantId = getActiveTenantId();
+function tenantHeaders(tenantId) {
   return {
     "Content-Type": "application/json",
     ...(tenantId ? { "X-Tenant-Id": tenantId } : {}),
   };
 }
 
-async function askMemberAi({ question, history }) {
+async function askMemberAi({ question, history, tenantId, signal }) {
   const res = await fetch("/api/member-ai/ask", {
     method: "POST",
     credentials: "include",
-    headers: tenantHeaders(),
+    headers: tenantHeaders(tenantId),
+    signal,
     body: JSON.stringify({ question, history }),
   });
   if (!res.ok) {
     let message = "We couldn't answer that right now. Please try again.";
     try {
       const body = await res.json();
+      if (body?.code === "assistant_disabled") {
+        const error = new Error("This assistant is no longer available.");
+        error.code = body.code;
+        throw error;
+      }
       if (body?.error) message = body.error;
-    } catch {
+    } catch (error) {
+      if (error?.code === "assistant_disabled") throw error;
       // keep default
     }
     throw new Error(message);
@@ -88,10 +93,11 @@ async function askMemberAi({ question, history }) {
   return res.json();
 }
 
-async function fetchConversations() {
+async function fetchConversations(tenantId, signal) {
   const res = await fetch("/api/member-ai/conversations", {
     credentials: "include",
-    headers: tenantHeaders(),
+    headers: tenantHeaders(tenantId),
+    signal,
   });
   if (res.status === 403) {
     let body = null;
@@ -101,18 +107,26 @@ async function fetchConversations() {
       // ignore
     }
     if (body?.code === "not_member") return { notMember: true, conversations: [] };
-    throw new Error(body?.error || "Failed to load chat history");
+    const error = new Error(body?.error || "Failed to load chat history");
+    error.code = body?.code;
+    throw error;
   }
   if (!res.ok) throw new Error("Failed to load chat history");
   return res.json();
 }
 
-async function fetchConversation(id) {
+async function fetchConversation(id, tenantId, signal) {
   const res = await fetch(`/api/member-ai/conversations/${id}`, {
     credentials: "include",
-    headers: tenantHeaders(),
+    headers: tenantHeaders(tenantId),
+    signal,
   });
-  if (!res.ok) throw new Error("Failed to load conversation");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const error = new Error(body?.error || "Failed to load conversation");
+    error.code = body?.code;
+    throw error;
+  }
   return res.json();
 }
 
@@ -121,7 +135,7 @@ function deriveTitle(question) {
   return q.length > TITLE_MAX ? `${q.slice(0, TITLE_MAX - 1).trimEnd()}…` : q;
 }
 
-export default function MemberAiAssistant({ open, onOpenChange }) {
+export default function MemberAiAssistant({ open, onOpenChange, config, identityKey }) {
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState([]); // { role: 'user'|'assistant', content, sources? }
   const [activeConversationId, setActiveConversationId] = useState(null);
@@ -133,7 +147,24 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
   const { toast } = useToast();
   // History is strictly scoped to the active tenant: the tenant id is part of
   // every history query key, and all local thread state resets when it changes.
-  const tenantId = getActiveTenantId() || null;
+  const tenantId = config.tenantId;
+  const requestController = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestController.current?.abort();
+    };
+  }, []);
+  const closeIfDisabled = async (res) => {
+    if (res.status !== 403) return false;
+    const body = await res.clone().json().catch(() => null);
+    if (body?.code !== "assistant_disabled") return false;
+    queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant"] });
+    if (mountedRef.current) onOpenChange(false);
+    return true;
+  };
 
   useEffect(() => {
     setActiveConversationId(null);
@@ -142,27 +173,15 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
     setDeleteTarget(null);
   }, [tenantId]);
 
-  const { data: persona } = useQuery({
-    queryKey: ["/ai-help-persona"],
-    queryFn: async () => {
-      const res = await fetch("/api/public/ai-help-persona", {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load assistant");
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const aiName = (persona?.name || "Dougal").trim() || "Dougal";
-  const aiAvatarUrl = persona?.avatarUrl || dougalAvatar;
+  const aiName = (config.name || "Dougal").trim() || "Dougal";
+  const aiAvatarUrl = config.avatarUrl || dougalAvatar;
   const aiInitial = aiName.charAt(0).toUpperCase();
-  const aiDescription = (persona?.description || "").trim();
+  const aiDescription = (config.description || "").trim();
 
   // --- Chat history (best-effort on the read path; chat works without it) ---
   const listQuery = useQuery({
-    queryKey: ["/member-ai-conversations", tenantId],
-    queryFn: fetchConversations,
+    queryKey: ["/member-ai-conversations", tenantId, identityKey],
+    queryFn: ({ signal }) => fetchConversations(tenantId, signal),
     enabled: open,
     staleTime: 30 * 1000,
   });
@@ -170,11 +189,17 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
   const conversations = listQuery.data?.conversations || [];
 
   const detailQuery = useQuery({
-    queryKey: ["/member-ai-conversations", tenantId, activeConversationId],
-    queryFn: () => fetchConversation(activeConversationId),
+    queryKey: ["/member-ai-conversations", tenantId, identityKey, activeConversationId],
+    queryFn: ({ signal }) => fetchConversation(activeConversationId, tenantId, signal),
     enabled: open && !!activeConversationId,
     staleTime: 0,
   });
+  useEffect(() => {
+    if (listQuery.error?.code === "assistant_disabled" || detailQuery.error?.code === "assistant_disabled") {
+      queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant"] });
+      onOpenChange(false);
+    }
+  }, [listQuery.error, detailQuery.error, queryClient, onOpenChange]);
 
   // Hydrate turns when a selected conversation's thread arrives.
   useEffect(() => {
@@ -205,16 +230,19 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
       const res = await fetch(`/api/member-ai/conversations/${conversationId}`, {
         method: "POST",
         credentials: "include",
-        headers: tenantHeaders(),
+        headers: tenantHeaders(tenantId),
         body: JSON.stringify({ messages }),
       });
-      if (!res.ok) throw new Error("append_failed");
+      if (!res.ok) {
+        await closeIfDisabled(res);
+        throw new Error("append_failed");
+      }
       return conversationId;
     }
     const res = await fetch("/api/member-ai/conversations", {
       method: "POST",
       credentials: "include",
-      headers: tenantHeaders(),
+      headers: tenantHeaders(tenantId),
       body: JSON.stringify({ title: deriveTitle(question), messages }),
     });
     if (res.status === 403) {
@@ -225,6 +253,7 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
         // ignore
       }
       if (body?.code === "not_member") return null; // persistence unsupported (admin preview)
+      if (body?.code === "assistant_disabled") await closeIfDisabled(res);
       throw new Error("create_failed");
     }
     if (!res.ok) throw new Error("create_failed");
@@ -233,8 +262,23 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
   };
 
   const askMutation = useMutation({
-    mutationFn: askMemberAi,
+    mutationFn: async (variables) => {
+      const controller = new AbortController();
+      requestController.current = controller;
+      try {
+        return await askMemberAi({ ...variables, signal: controller.signal });
+      } catch (error) {
+        if (error.code === "assistant_disabled") {
+          queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant"] });
+          if (mountedRef.current) onOpenChange(false);
+        }
+        throw error;
+      } finally {
+        if (requestController.current === controller) requestController.current = null;
+      }
+    },
     onSuccess: async (data, variables) => {
+      if (!mountedRef.current) return;
       setTurns((prev) => [
         ...prev,
         { role: "user", content: variables.question },
@@ -249,13 +293,14 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
       if (!historySupported) return;
       // Don't persist into the wrong tenant if the active tenant changed
       // between asking and answering.
-      if (variables.tenantId !== (getActiveTenantId() || null)) return;
+      if (!mountedRef.current || variables.tenantId !== tenantId) return;
       try {
         const savedId = await persistTurn({
           conversationId: variables.conversationId,
           question: variables.question,
           answer: data,
         });
+        if (!mountedRef.current) return;
         if (savedId && !variables.conversationId) {
           hydratedIdRef.current = savedId; // local turns are canonical
           setActiveConversationId(savedId);
@@ -283,7 +328,7 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
   const handleAsk = (e) => {
     e.preventDefault();
     const q = question.trim();
-    if (q.length < 3 || askMutation.isPending) return;
+    if (q.length < 3 || askMutation.isPending || !config.enabled) return;
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     askMutation.mutate({
       question: q,
@@ -311,7 +356,7 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
     askMutation.reset();
     setHistoryOpen(false);
     queryClient.invalidateQueries({
-      queryKey: ["/member-ai-conversations", tenantId, id],
+      queryKey: ["/member-ai-conversations", tenantId, identityKey, id],
     });
   };
 
@@ -320,17 +365,21 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
       const res = await fetch(`/api/member-ai/conversations/${id}`, {
         method: "DELETE",
         credentials: "include",
-        headers: tenantHeaders(),
+        headers: tenantHeaders(tenantId),
       });
-      if (!res.ok) throw new Error("Failed to delete conversation");
+      if (!res.ok) {
+        await closeIfDisabled(res);
+        throw new Error("Failed to delete conversation");
+      }
       return id;
     },
     onSuccess: (id) => {
+      if (!mountedRef.current) return;
       queryClient.invalidateQueries({
         queryKey: ["/member-ai-conversations", tenantId],
       });
       queryClient.removeQueries({
-        queryKey: ["/member-ai-conversations", tenantId, id],
+        queryKey: ["/member-ai-conversations", tenantId, identityKey, id],
       });
       if (id === activeConversationId) {
         setActiveConversationId(null);
