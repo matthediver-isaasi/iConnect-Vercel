@@ -17,6 +17,7 @@ import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, acti
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
 import { resolveCertificateSurveyGrant, certificateSurveyTokenHash } from '../_lib/certificateSurveyGrants.js';
+import { isSurveyInvitationConflict, surveySubmissionDiagnostic } from '../_lib/surveySubmissionErrors.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
@@ -1426,7 +1427,8 @@ export default async function handler(req, res, dependencies = {}) {
       // Duplicate-submission guard: persist the key so retries/second tabs
       // hit the unique index instead of creating a second row.
       ...(idemKey && { idempotency_key: idemKey }),
-      ...(!surveyIsAnonymous && {
+      // Survey RPCs accept response data, not ordinary-form lifecycle state.
+      ...(!isSurvey && {
         communication_finalization_state: initialCommunicationSnapshot,
       }),
       ...(usesSubmissionEmailLifecycle && {
@@ -1505,11 +1507,19 @@ export default async function handler(req, res, dependencies = {}) {
     // Race safety for survey respondent dedupe: the unique partial index on
     // (form_id, survey_respondent_key) rejects the concurrent loser — return
     // the same 409 the pre-insert check would have produced.
-    if (certificateInvitation && insertError?.code === 'P0001') {
+    if (isSurvey && insertError) {
+      console.error('[Public Form Submission] Survey RPC failed:', {
+        ...surveySubmissionDiagnostic(insertError),
+        rpc: certificateInvitation ? 'create_certificate_survey_submission' : 'create_survey_submission',
+        tenantId: tenantData.id, formId: form.id,
+        assignmentId: surveyAssignment?.id || null,
+      });
+    }
+    if (certificateInvitation && isSurveyInvitationConflict(insertError)) {
       return res.status(409).json({ error: 'This invitation is no longer available or has already been answered' });
     }
-    if (certificateInvitation && insertError?.code === '23505') {
-      return res.status(409).json({ error: 'A response has already been recorded' });
+    if (certificateInvitation && insertError) {
+      return res.status(500).json({ error: 'Failed to save survey response. Please try again.', code: 'SURVEY_SUBMISSION_FAILED' });
     }
     if (insertError && insertError.code === '23505'
         && surveyRespondentKey
@@ -1567,7 +1577,7 @@ export default async function handler(req, res, dependencies = {}) {
     }
 
     if (insertError) {
-      console.error('[Public Form Submission] Insert error:', insertError);
+      if (!isSurvey) console.error('[Public Form Submission] Insert error:', insertError);
       return res.status(500).json({ error: 'Failed to save submission' });
     }
 

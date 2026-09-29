@@ -32,7 +32,7 @@ test('booking invitations reject member/entity/communication pipelines and side-
   assert.equal(anonymous.feedback, 'Good session');
 });
 
-test('guest invitation submission cannot run member pipelines and persists booking identity, never forged email', async () => {
+function certificateSurveyFixture() {
   const token = 'a'.repeat(43);
   const form = {
     ...affectedFormFixture(), form_type: 'survey', entity_action: 'none',
@@ -64,6 +64,11 @@ test('guest invitation submission cannot run member pipelines and persists booki
   const version = { id: 'version-1', form_id: form.id, tenant_id: form.tenant_id,
     version_number: 1, fields: form.fields, pages: [], visibility_rules: [],
     survey_settings: form.survey_settings };
+  return { token, form, assignment, grant, certificateSurvey, version };
+}
+
+test('guest invitation submission cannot run member pipelines and persists booking identity, never forged email', async () => {
+  const { token, form, assignment, grant, certificateSurvey, version } = certificateSurveyFixture();
   const run = async () => {
     const db = makePublicSubmissionBoundaryDb(form, { certificateSurvey, surveyVersion: version });
     const { response, res } = makeResponseRecorder();
@@ -90,6 +95,8 @@ test('guest invitation submission cannot run member pipelines and persists booki
   form.entity_pipelines.members = [];
   const accepted = await run();
   assert.equal(accepted.response.statusCode, 201);
+  assert.equal(Object.hasOwn(accepted.db.insertedSubmissions[0], 'communication_finalization_state'), false);
+  assert.equal(Object.hasOwn(accepted.db.certificateSubmissionRpcs[0].p_submission, 'communication_finalization_state'), false);
   assert.equal(accepted.db.insertedSubmissions[0].submission_data.email, grant.recipient_email);
   assert.equal(accepted.db.insertedSubmissions[0].submitted_by_email, grant.recipient_email);
   assert.equal(accepted.pipelineCalls, 0);
@@ -97,6 +104,8 @@ test('guest invitation submission cannot run member pipelines and persists booki
   form.survey_settings.response_identity = 'anonymous';
   const anonymous = await run();
   assert.equal(anonymous.response.statusCode, 201);
+  assert.equal(Object.hasOwn(anonymous.db.insertedSubmissions[0], 'communication_finalization_state'), false);
+  assert.equal(Object.hasOwn(anonymous.db.certificateSubmissionRpcs[0].p_submission, 'communication_finalization_state'), false);
   assert.equal(anonymous.db.insertedSubmissions[0].submitted_by_email, null);
   assert.equal(anonymous.db.insertedSubmissions[0].submission_data.email, undefined);
   assert.equal(anonymous.db.insertedSubmissions[0].submission_data.full_name, undefined);
@@ -112,6 +121,101 @@ test('guest invitation submission cannot run member pipelines and persists booki
   assert.doesNotMatch(JSON.stringify(rpc), /booking@example\.test|forged@example\.test|Booked Guest|Forged Person|\+441234567890/);
   assert.ok(rpc.p_answers.every(answer => answer.field_id === 'rating'));
   assert.equal(anonymous.mailCalls, 0);
+});
+
+test('ordinary form inserts retain communication finalization state', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const db = makePublicSubmissionBoundaryDb(form);
+  const { response, res } = makeResponseRecorder();
+  await handler({
+    method: 'POST', headers: { host: 'student-join.test' },
+    body: { form_id: form.id, form_name: form.name, submission_data: { student_first_name: 'Student' } },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async () => ({ success: true, durable: true, emails: [] }),
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(db.insertedSubmissions.length, 1);
+  assert.equal(Object.hasOwn(db.insertedSubmissions[0], 'communication_finalization_state'), true);
+});
+
+test('certificate survey RPC errors classify only exact invitation conflicts and emit redacted diagnostics', async (t) => {
+  const secretToken = 'sensitive-grant-token-4846';
+  const secretAnswer = 'private-answer-4846';
+  const secretDetail = 'raw-database-detail-4846';
+  const scenarios = [
+    { name: 'nested submission column error', error: {
+      code: 'P0001', message: `Disallowed form_submission column: ${secretAnswer}`,
+    }, status: 500, reason: 'submission_column_contract' },
+    { name: 'nested answer column error', error: {
+      code: 'P0001', message: `Disallowed survey_answer column: ${secretAnswer}`,
+    }, status: 500, reason: 'answer_column_contract' },
+    ...[
+      'Certificate survey invitation unavailable',
+      'Certificate survey invitation scope or publication changed',
+      'Certificate survey booking event changed',
+      'Certificate survey booking is no longer confirmed for this recipient',
+    ].map(message => ({ name: message, error: { code: 'P0001', message },
+      status: 409, reason: 'invitation_conflict' })),
+    { name: 'P0001 invitation-like message with added text', error: {
+      code: 'P0001', message: `Certificate survey invitation unavailable: ${secretAnswer}`,
+    }, status: 500, reason: 'unexpected_validation' },
+    { name: 'unrelated unique constraint', error: {
+      code: '23505', message: `duplicate key value violates unique constraint ${secretAnswer}`,
+    }, status: 500, reason: 'unique_constraint' },
+  ];
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const { token, form, assignment, certificateSurvey, version } = certificateSurveyFixture();
+      const db = makePublicSubmissionBoundaryDb(form, {
+        certificateSurvey, surveyVersion: version,
+        certificateSurveyRpcError: {
+          ...scenario.error,
+          details: `DETAIL: ${secretDetail}; token=${secretToken}`,
+          hint: `answer=${secretAnswer}`,
+        },
+      });
+      const { response, res } = makeResponseRecorder();
+      const diagnostics = [];
+      const originalError = console.error;
+      console.error = (...args) => { diagnostics.push(args); };
+      try {
+        await handler({
+          method: 'POST', headers: { host: 'student-join.test' },
+          body: { form_id: form.id, form_name: form.name,
+            assignment_token: assignment.token, certificate_survey_grant: token,
+            submission_data: { feedback: secretAnswer, rating: { score: 4 } } },
+        }, res, {
+          supabase: db.client,
+          tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+          getSessionMember: async () => null, getSession: async () => null,
+        });
+      } finally {
+        console.error = originalError;
+      }
+      assert.equal(db.certificateSubmissionRpcs.length, 1);
+      assert.equal(response.statusCode, scenario.status);
+      assert.deepEqual(response.body, scenario.status === 409
+        ? { error: 'This invitation is no longer available or has already been answered' }
+        : { error: 'Failed to save survey response. Please try again.', code: 'SURVEY_SUBMISSION_FAILED' });
+      assert.equal(diagnostics.length, 1);
+      assert.equal(diagnostics[0][0], '[Public Form Submission] Survey RPC failed:');
+      assert.deepEqual(diagnostics[0][1], {
+        code: scenario.error.code, reason: scenario.reason,
+        rpc: 'create_certificate_survey_submission',
+        tenantId: form.tenant_id, formId: form.id, assignmentId: assignment.id,
+      });
+      const publicAndDiagnostic = JSON.stringify({ response: response.body, diagnostics });
+      for (const secret of [token, secretToken, secretAnswer, secretDetail, 'details', 'hint']) {
+        assert.equal(publicAndDiagnostic.includes(secret), false, `${scenario.name} leaked ${secret}`);
+      }
+    });
+  }
 });
 import {
   FORM_NOT_LISTED_LABELS_KEY,
@@ -229,6 +333,7 @@ function makePublicSubmissionBoundaryDb(
     failReadyOnce = false,
     failCheckpointOnce = false,
     certificateSurvey = null,
+    certificateSurveyRpcError = null,
     members = [],
   } = {},
 ) {
@@ -392,6 +497,9 @@ function makePublicSubmissionBoundaryDb(
       async rpc(name, parameters) {
         if (name === 'create_certificate_survey_submission' && certificateSurvey) {
           certificateSubmissionRpcs.push(structuredClone(parameters));
+          if (certificateSurveyRpcError) {
+            return { data: null, error: certificateSurveyRpcError };
+          }
           insertedSubmissions.push(parameters.p_submission);
           submissionRow = { id: 'certificate-survey-response', ...structuredClone(parameters.p_submission) };
           return { data: [structuredClone(submissionRow)], error: null };

@@ -1,3 +1,4 @@
+- [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 
 Focused index for durable form, submission, mapping, validation, and payment-entry rules:

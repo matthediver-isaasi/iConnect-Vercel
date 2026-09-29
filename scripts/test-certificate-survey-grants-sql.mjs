@@ -1,5 +1,21 @@
 #!/usr/bin/env node
 // Only an empty, local, disposable database. Never connect to DEST or SOURCE.
+/*
+ * Run against a newly bootstrapped disposable local PostgreSQL instance
+ * (requires initdb, pg_ctl, createdb, Node dependencies; do not use live DBs):
+ *
+ *   set -eu
+ *   tmp=$(mktemp -d)
+ *   trap 'pg_ctl -D "$tmp/db" -m immediate stop >/dev/null 2>&1 || :; rm -rf "$tmp"' EXIT
+ *   port=$(node -e 'const s=require("node:net").createServer(); s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+ *   initdb -D "$tmp/db" -A trust -U "$(id -un)" >/dev/null
+ *   pg_ctl -D "$tmp/db" -o "-h 127.0.0.1 -p $port -k $tmp" -l "$tmp/postgres.log" -w start >/dev/null
+ *   createdb -h 127.0.0.1 -p "$port" -U "$(id -un)" certificate_survey_test
+ *   CERTIFICATE_SURVEY_TEST_DATABASE_URL="postgres://$(id -un)@127.0.0.1:$port/certificate_survey_test" \
+ *     node scripts/test-certificate-survey-grants-sql.mjs
+ *
+ * Execute in a single shell session so the trap shuts down and removes the DB.
+ */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -38,18 +54,18 @@ try {
       id uuid PRIMARY KEY, tenant_id uuid, booking_source text, booking_id uuid, status text);
     CREATE TABLE public.form_submission(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid,
       form_id uuid, event_id uuid, complex_event_id uuid, survey_assignment_id uuid,
-      survey_version_id uuid, submitted_by_email text);
-    CREATE FUNCTION public.create_survey_submission(p_submission jsonb, p_answers jsonb)
-      RETURNS SETOF public.form_submission LANGUAGE plpgsql SECURITY DEFINER
-      SET search_path = public AS $f$
-      BEGIN
-        RETURN QUERY INSERT INTO public.form_submission(tenant_id,form_id,event_id,complex_event_id,
-          survey_assignment_id,survey_version_id,submitted_by_email)
-        VALUES ((p_submission->>'tenant_id')::uuid,(p_submission->>'form_id')::uuid,
-          (p_submission->>'event_id')::uuid,(p_submission->>'complex_event_id')::uuid,
-          (p_submission->>'survey_assignment_id')::uuid,(p_submission->>'survey_version_id')::uuid,
-          p_submission->>'submitted_by_email') RETURNING *;
-      END $f$;`);
+      survey_version_id uuid, submitted_by_email text, is_anonymous boolean NOT NULL DEFAULT false,
+      survey_respondent_key text, submission_data jsonb, created_date timestamptz DEFAULT now());`);
+  // Install the production nested RPC verbatim, not a stub: the real allowlists,
+  // linkage checks, answer writes and transaction rollback must all execute.
+  const surveySql = await readFile(new URL('../supabase/migrations/20260804_event_survey_assignment.sql', import.meta.url), 'utf8');
+  const surveyFunction = surveySql.match(/CREATE OR REPLACE FUNCTION public\.create_survey_submission\(.*?\n\$fn\$;/s)?.[0];
+  if (!surveyFunction) throw new Error('Production create_survey_submission definition not found');
+  const scoreSql = await readFile(new URL('../supabase/migrations/20260804_survey_form_type_score.sql', import.meta.url), 'utf8');
+  const answerTable = scoreSql.match(/CREATE TABLE IF NOT EXISTS survey_answer \(.*?\n\);/s)?.[0];
+  if (!answerTable) throw new Error('Production survey_answer schema not found');
+  await client.query(answerTable);
+  await client.query(surveyFunction);
   const sql = await readFile(new URL('../supabase/migrations/20261121_certificate_survey_grants.sql', import.meta.url), 'utf8');
   await client.query(sql);
   const campaignSql = await readFile(new URL('../supabase/migrations/20261122_campaign_survey_delivery.sql', import.meta.url), 'utf8');
@@ -84,7 +100,7 @@ try {
     survey_version_id: version, submitted_by_email: 'guest@example.org',
   };
   const claim = () => client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
-    [payload, [], tokenHash]);
+    [payload, '[]', tokenHash]);
   await client.query('SET ROLE anon');
   await assert.rejects(claim(), /permission denied/);
   await assert.rejects(client.query('SELECT * FROM certificate_survey_entitlement'), /permission denied/);
@@ -131,7 +147,7 @@ try {
   await client.query(`UPDATE attendee_cpd_certificate_delivery SET status='accepted' WHERE id=$1`, [secondDelivery]);
   const secondPayload = { ...payload, submitted_by_email: 'other@example.org' };
   const secondClaim = () => client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
-    [secondPayload, [], secondHash]);
+    [secondPayload, '[]', secondHash]);
   await client.query(`UPDATE attendee_cpd_certificate_delivery SET status='failed' WHERE id=$1`, [secondDelivery]);
   await assert.rejects(secondClaim(), /invitation unavailable/);
   await client.query(`UPDATE attendee_cpd_certificate_delivery SET status='unknown' WHERE id=$1`, [secondDelivery]);
@@ -147,7 +163,7 @@ try {
   await assert.rejects(secondClaim(), /scope or publication/);
   await client.query('UPDATE event_survey_assignment SET status=$1 WHERE id=$2', ['active', assignment]);
   await assert.rejects(client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
-    [{ ...secondPayload, form_id: id() }, [], secondHash]), /scope or publication/);
+    [{ ...secondPayload, form_id: id() }, '[]', secondHash]), /scope or publication/);
   await client.query('UPDATE form SET survey_settings=$1 WHERE id=$2',
     [{ status: 'draft', current_version: 1 }, form]);
   await assert.rejects(secondClaim(), /scope or publication/);
@@ -179,7 +195,7 @@ try {
     const racePayload = { ...payload, submitted_by_email: 'race@example.org' };
     const result = await Promise.allSettled([client, otherClient].map(connection =>
       connection.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
-        [racePayload, [], raceHash])));
+        [racePayload, '[]', raceHash])));
     assert.deepEqual(result.map(item => item.status).sort(), ['fulfilled', 'rejected']);
     assert.equal((await client.query('SELECT count(*)::int AS n FROM form_submission')).rows[0].n, 2);
   } finally {
@@ -207,7 +223,7 @@ try {
   [campaignEntitlement, deliveryId, hash]);
   await insertCredential(failedDelivery, campaignHash);
   const campaignClaim = hash => client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
-    [{ ...payload, submitted_by_email: 'campaign@example.org' }, [], hash]);
+    [{ ...payload, submitted_by_email: 'campaign@example.org' }, '[]', hash]);
   await assert.rejects(campaignClaim(campaignHash), /invitation unavailable/);
   await client.query("UPDATE campaign_survey_delivery SET status='failed',resolved_at=now() WHERE id=$1", [failedDelivery]);
   await assert.rejects(campaignClaim(campaignHash), /invitation unavailable/);
@@ -238,7 +254,146 @@ try {
   assert.equal((await campaignClaim(testHash)).rowCount, 1);
   await assert.rejects(campaignClaim(liveHash), /invitation unavailable/);
   await client.query('RESET ROLE');
-  console.log('Disposable SQL certificate + campaign provenance, role, retry, scope and atomic shared completion checks passed');
+
+  // Exercise real nested insertion for both delivery ledgers, both event
+  // sources and both privacy modes. Each attempt has its own booking/grant.
+  const fixture = async (kind, anonymous, complex = false) => {
+    const eventId = id(); const assignmentId = id(); const bookingId = id();
+    const recipient = `${id()}@example.org`;
+    const source = complex ? 'complex' : 'standard';
+    const eventType = complex ? 'complex_event' : 'event';
+    await client.query(`INSERT INTO ${complex ? 'complex_event' : 'event'}(id) VALUES($1)`, [eventId]);
+    await client.query(`INSERT INTO event_survey_assignment
+      (id,tenant_id,form_id,event_type,event_id,complex_event_id,status)
+      VALUES($1,$2,$3,$4,$5,$6,'active')`,
+    [assignmentId, tenant, form, eventType, complex ? null : eventId, complex ? eventId : null]);
+    await client.query(`INSERT INTO ${complex ? 'complex_event_booking' : 'booking'}
+      (id,tenant_id,event_id,status,attendee_email) VALUES($1,$2,$3,'confirmed',$4)`,
+    [bookingId, tenant, eventId, recipient]);
+    const grantId = (await client.query(`INSERT INTO certificate_survey_entitlement
+      (tenant_id,booking_source,booking_id,assignment_id,recipient_email,expires_at)
+      VALUES($1,$2,$3,$4,$5,now()+interval '1 day') RETURNING id`,
+    [tenant, source, bookingId, assignmentId, recipient])).rows[0].id;
+    const hash = id().replaceAll('-', '').padEnd(64, 'a');
+    let deliveryId;
+    if (kind === 'certificate') {
+      deliveryId = id();
+      await client.query(`INSERT INTO attendee_cpd_certificate_delivery
+        (id,tenant_id,booking_source,booking_id,status)
+        VALUES($1,$2,$3,$4,'pending')`, [deliveryId, tenant, source, bookingId]);
+      await client.query(`INSERT INTO certificate_survey_credential
+        (entitlement_id,delivery_id,token_hash,expires_at)
+        VALUES($1,$2,$3,now()+interval '1 day')`, [grantId, deliveryId, hash]);
+      await client.query("UPDATE attendee_cpd_certificate_delivery SET status='accepted' WHERE id=$1", [deliveryId]);
+    } else {
+      const campaignId = id(); const campaignRecipientId = id();
+      await client.query('INSERT INTO email_campaign(id,tenant_id) VALUES($1,$2)', [campaignId, tenant]);
+      await client.query(`INSERT INTO email_campaign_recipient(id,campaign_id,email,status)
+        VALUES($1,$2,$3,'processing')`, [campaignRecipientId, campaignId, recipient]);
+      deliveryId = (await client.query(`INSERT INTO campaign_survey_delivery
+        (tenant_id,campaign_id,campaign_recipient_id,purpose,booking_source,booking_id,
+         event_type,event_id,source_email,destination_email)
+        VALUES($1,$2,$3,'live',$4,$5,$6,$7,$8,$8) RETURNING id`,
+      [tenant, campaignId, campaignRecipientId, source, bookingId, eventType, eventId, recipient])).rows[0].id;
+      await client.query(`INSERT INTO certificate_survey_credential
+        (entitlement_id,campaign_delivery_id,token_hash,expires_at)
+        VALUES($1,$2,$3,now()+interval '1 day')`, [grantId, deliveryId, hash]);
+      await client.query("UPDATE campaign_survey_delivery SET status='accepted',resolved_at=now() WHERE id=$1", [deliveryId]);
+    }
+    const submission = {
+      tenant_id: tenant, form_id: form, survey_version_id: version,
+      survey_assignment_id: assignmentId,
+      ...(complex ? { complex_event_id: eventId } : { event_id: eventId }),
+      is_anonymous: anonymous,
+      ...(!anonymous ? { submitted_by_email: recipient } : {}),
+    };
+    const answer = { tenant_id: tenant, form_id: form, survey_version_id: version,
+      field_id: 'rating', raw_score: 3 };
+    const submit = (answers = [answer], override = submission) =>
+      client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
+        [override, JSON.stringify(answers), hash]);
+    const counts = async () => {
+      const response = await client.query(`SELECT e.response_id, e.completed_at,
+        (SELECT count(*)::int FROM form_submission WHERE survey_assignment_id=$1) AS submissions,
+        (SELECT count(*)::int FROM survey_answer a JOIN form_submission s ON s.id=a.submission_id
+          WHERE s.survey_assignment_id=$1) AS answers
+        FROM certificate_survey_entitlement e WHERE e.id=$2`, [assignmentId, grantId]);
+      return response.rows[0];
+    };
+    return { submit, counts, grantId, hash, answer, submission };
+  };
+  for (const kind of ['certificate', 'campaign']) {
+    for (const anonymous of [false, true]) {
+      for (const complex of [false, true]) {
+        const { submit, counts } = await fixture(kind, anonymous, complex);
+        const response = await submit();
+        assert.equal(response.rowCount, 1, `${kind} anonymous=${anonymous} complex=${complex}`);
+        assert.equal(response.rows[0].is_anonymous, anonymous);
+        assert.equal(response.rows[0].submitted_by_email === null, anonymous);
+        const state = await counts();
+        assert.equal(state.response_id, response.rows[0].id);
+        assert.ok(state.completed_at);
+        assert.equal(state.submissions, 1);
+        assert.equal(state.answers, 1);
+        await assert.rejects(submit(), /invitation unavailable/);
+        assert.equal((await counts()).submissions, 1);
+      }
+    }
+    for (const state of ['expired credential', 'revoked credential', 'expired entitlement', 'revoked entitlement']) {
+      const item = await fixture(kind, false);
+      if (state === 'expired credential' || state === 'revoked credential') {
+        await client.query(`UPDATE certificate_survey_credential
+          SET ${state.startsWith('expired') ? 'expires_at' : 'revoked_at'}=now()-interval '1 minute'
+          WHERE token_hash=$1`, [item.hash]);
+      } else {
+        await client.query(`UPDATE certificate_survey_entitlement
+          SET ${state.startsWith('expired') ? 'expires_at' : 'revoked_at'}=now()-interval '1 minute'
+          WHERE id=$1`, [item.grantId]);
+      }
+      await assert.rejects(item.submit(), /invitation unavailable/, `${kind}: ${state}`);
+      assert.equal((await item.counts()).submissions, 0);
+      assert.equal((await item.counts()).answers, 0);
+      assert.equal((await item.counts()).completed_at, null);
+    }
+    // A nested answer failure must undo the already-inserted response as well
+    // as leave the entitlement claimable for a valid retry.
+    const rollback = await fixture(kind, true);
+    await assert.rejects(rollback.submit([{ ...rollback.answer, tenant_id: id() }]), /survey_answer linkage mismatch/);
+    assert.equal((await rollback.counts()).submissions, 0);
+    assert.equal((await rollback.counts()).answers, 0);
+    assert.equal((await rollback.counts()).completed_at, null);
+    await assert.rejects(rollback.submit([{ ...rollback.answer, injected: true }]), /Disallowed survey_answer column/);
+    assert.equal((await rollback.counts()).submissions, 0);
+    await assert.rejects(rollback.submit([rollback.answer, rollback.answer]), /unique constraint/);
+    assert.equal((await rollback.counts()).submissions, 0);
+    assert.equal((await rollback.counts()).answers, 0);
+    await assert.rejects(rollback.submit([], {
+      ...rollback.submission, communication_finalization_state: { status: 'pending' },
+    }), /Disallowed form_submission column: communication_finalization_state/);
+    assert.equal((await rollback.counts()).submissions, 0);
+    assert.equal((await rollback.counts()).completed_at, null);
+    assert.equal((await rollback.submit()).rowCount, 1);
+    assert.equal((await rollback.counts()).answers, 1);
+
+    const race = await fixture(kind, false);
+    const peer = new pg.Client({ connectionString: url });
+    await peer.connect();
+    try {
+      const results = await Promise.allSettled([
+        race.submit(), peer.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
+          [race.submission, JSON.stringify([race.answer]), race.hash]),
+      ]);
+      assert.deepEqual(results.map(result => result.status).sort(), ['fulfilled', 'rejected']);
+      assert.match(results.find(result => result.status === 'rejected').reason.message, /invitation unavailable/);
+      const winner = results.find(result => result.status === 'fulfilled').value.rows[0];
+      assert.equal((await race.counts()).response_id, winner.id);
+      assert.equal((await race.counts()).submissions, 1);
+      assert.equal((await race.counts()).answers, 1);
+    } finally {
+      await peer.end();
+    }
+  }
+  console.log('Disposable SQL real nested survey RPC: certificate/campaign, privacy, complex, expiry, revocation, rollback and concurrency checks passed');
 } finally {
   await client.end();
 }
