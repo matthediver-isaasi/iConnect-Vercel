@@ -8,6 +8,7 @@ import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPo
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
 import { resolveCertificateSurveyGrantState } from '../../_lib/certificateSurveyGrants.js';
+import { buildSurveyInvitationPrefill } from '../../../shared/surveyInvitationPrefill.js';
 
 /**
  * Task #3331: serve a survey via its event-assignment token.
@@ -218,11 +219,9 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(200).json({
       ...baseResponse,
       form: publicForm,
-      ...(invited && { invitation_prefill: {
-        email: invited.grant.recipient_email,
-        first_name: invited.booking.attendee_first_name || '',
-        last_name: invited.booking.attendee_last_name || '',
-      } }),
+      ...(invited && { invitation_prefill: buildSurveyInvitationPrefill(
+        publicForm.fields, invited.booking, snapshot.survey_settings,
+      ) }),
     });
   } catch (err) {
     console.error('[Survey Assignment API] Failed to load survey');

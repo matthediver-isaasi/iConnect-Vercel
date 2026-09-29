@@ -79,3 +79,16 @@ personalisation context, not access authority by itself.
 Only accepted delivery authorises a credential. Never fabricate certificate
 delivery for a campaign. Keep invitation fragments out of click-tracking URLs,
 and disable provider tracking for invitation-bearing messages.
+
+## Invitation prefill must not use purchaser identity
+Booking member/organisation references can identify the purchaser, not the
+attendee. A survey grant alone cannot authorize loading that purchaser's profile.
+
+**Why:** Extending invitation prefill through ordinary member-ID queries could
+expose someone else's details for multi-attendee bookings.
+
+**How to apply:** Populate published field IDs from verified attendee booking
+values; preserve drafts/edits and redact mapped identity fields in anonymous
+responses. Member/custom/relationship enrichment requires a separately
+authoritative attendee association. Do not infer historical prefill source from
+the current editable form.

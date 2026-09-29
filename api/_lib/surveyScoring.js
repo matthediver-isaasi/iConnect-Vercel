@@ -126,7 +126,9 @@ export function validateSurveyForPublish(fields, surveySettings = {}) {
  */
 export const IDENTITY_FIELD_TYPES = [
   'email', 'tel', 'contact', 'signature', 'file',
-  'user_name', 'user_email', 'user_organization', 'user_job_title'
+  'user_name', 'user_email', 'user_organization', 'user_job_title',
+  'first_name', 'last_name', 'user_first_name', 'user_last_name',
+  'organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'
 ];
 
 const IDENTITY_NAME_RE = /(e-?mail|phone|mobile|telephone|first.?name|last.?name|full.?name|surname|your.?name|contact)/i;
@@ -143,7 +145,14 @@ export function redactIdentityAnswers(fields = [], submissionData = {}) {
   for (const [fieldId, value] of Object.entries(submissionData || {})) {
     const field = byId.get(fieldId);
     const label = field ? `${field.label || ''} ${fieldId}` : fieldId;
-    const isIdentity = (field && IDENTITY_FIELD_TYPES.includes(field.type)) || IDENTITY_NAME_RE.test(label);
+    // Published mappings are identity evidence even when a field has an opaque
+    // ID/label. Invitation prefill must not turn anonymous answers into an
+    // attendee/profile export. Custom member/org values may also identify them.
+    const mapping = String(field?.prefill_field || '');
+    const mappedIdentity = /^(member:|org:|member_custom:|org_custom:|custom:)/.test(mapping)
+      || /^(booking:)?(attendee_|guest_organisation_name$|booking_reference$|job_title$)/.test(mapping)
+      || IDENTITY_NAME_RE.test(mapping);
+    const isIdentity = mappedIdentity || (field && IDENTITY_FIELD_TYPES.includes(field.type)) || IDENTITY_NAME_RE.test(label);
     if (isIdentity) {
       redactedFieldIds.push(fieldId);
     } else {

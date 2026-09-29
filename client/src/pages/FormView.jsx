@@ -1,5 +1,6 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
+import { mergeSurveyInvitationPrefill } from '../../../shared/surveyInvitationPrefill.js';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -167,6 +168,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
   const [emptyRepeatableFieldIds, setEmptyRepeatableFieldIds] = useState(() => new Set());
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
+  const invitationEditedFieldsRef = useRef(new Set());
+  const invitationInitializedRef = useRef(null);
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
@@ -232,7 +235,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const formSlug = slugProp || urlParams.get('slug');
   const urlPrefillMemberId = urlParams.get('member_id');
   const urlPrefillOrgId = urlParams.get('organization_id');
-  const prefillBookingId = urlParams.get('booking_id');
+  const prefillBookingId = certificateGrant ? null : urlParams.get('booking_id');
   const draftToken = urlParams.get('draft');
   const applicantContinuationStorageKey = `form-applicant-continuation:${formSlug || ''}`;
   const applicantContinuationTokenFromUrl = urlParams.get('applicant_continuation_token');
@@ -289,7 +292,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       }
       return null;
     },
-    enabled: !!memberInfo?.id
+    enabled: !certificateGrant && !!memberInfo?.id
   });
 
   const { data: loadedForm, isLoading, error: formError } = useQuery({
@@ -380,18 +383,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Assignment metadata (event context + window state) when opened via an
   // assignment link; null for slug-based access.
   const assignmentMeta = rawForm?.__assignment || null;
-  useEffect(() => {
-    if (!certificateGrant || !defaultsInitialized || !assignmentMeta?.invitation_prefill || !rawForm?.fields) return;
-    const attendee = assignmentMeta.invitation_prefill;
-    const values = {};
-    for (const field of rawForm.fields) {
-      const label = `${field.id || ''} ${field.label || ''}`.toLowerCase();
-      if (field.type === 'email' || field.type === 'user_email' || /\bemail\b/.test(label)) values[field.id] = attendee.email;
-      else if (field.type === 'user_name' || /\bfull name\b/.test(label)) values[field.id] =
-        [attendee.first_name, attendee.last_name].filter(Boolean).join(' ');
-    }
-    if (Object.keys(values).length) setFormValues(previous => ({ ...previous, ...values }));
-  }, [certificateGrant, defaultsInitialized, assignmentMeta?.invitation_prefill?.email, rawForm?.id]);
   const accessPayload = rawForm || (formError?.errorData?.access
     ? { __access: formError.errorData.access }
     : null);
@@ -506,13 +497,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // precedence; anonymous viewers get no fallback. Gated on the loaded form's
   // prefill_source so forms without prefill behave exactly as before.
   const { prefillMemberId, prefillOrgId } = resolveEffectivePrefillIds({
-    urlMemberId: urlPrefillMemberId,
+    urlMemberId: certificateGrant ? null : urlPrefillMemberId,
     // Applicant authority is server-bound to one organisation. Once verified,
     // use that trusted organisation for every prefill query as well as submit.
-    urlOrgId: applicantContinuationGrant?.organization_id || urlPrefillOrgId,
+    urlOrgId: certificateGrant ? null : (applicantContinuationGrant?.organization_id || urlPrefillOrgId),
     prefillSource: form?.prefill_source,
-    viewerMemberId: memberInfo?.id,
-    viewerOrgId: memberInfo?.organization_id || organizationInfo?.id,
+    viewerMemberId: certificateGrant ? null : memberInfo?.id,
+    viewerOrgId: certificateGrant ? null : (memberInfo?.organization_id || organizationInfo?.id),
   });
 
 
@@ -756,7 +747,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     queryFn: async () => {
       return publicClient.getPrefillBookingForViewer(form?.slug || formSlug);
     },
-    enabled: shouldFetchViewerBookingPrefill({
+    enabled: !certificateGrant && shouldFetchViewerBookingPrefill({
       prefillSource: form?.prefill_source,
       urlBookingId: prefillBookingId,
       authResolved,
@@ -952,15 +943,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
     queryFn: async () => await publicClient.getOrganizationDomains(selectedOrgId) || null,
-    enabled: !!selectedOrgId && !!rawForm && !formAccess.restricted,
+    enabled: !certificateGrant && !!selectedOrgId && !!rawForm && !formAccess.restricted,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
   // Compute effective organization for email domain validation
   // Priority: selected org from form > prefill org > logged-in user's org
   const effectiveOrganizationInfo = useMemo(() => {
+    if (certificateGrant) return null;
     return selectedOrg || prefillOrg || organizationInfo;
-  }, [selectedOrg, prefillOrg, organizationInfo]);
+  }, [certificateGrant, selectedOrg, prefillOrg, organizationInfo]);
 
   // Effective guest-access info for the selected org (only set when an org is
   // actually selected via the form's org dropdown or URL prefill). Used by
@@ -1014,7 +1006,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     formSlug: form?.slug || formSlug,
     formValues,
     setFormValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized
+    enabled: !certificateGrant && !!form && !formAccess.restricted && defaultsInitialized
       && String(defaultsInitializedFormId) === String(form?.id)
       && (!draftToken || draftLoaded || draftFetchError),
     protectedFieldIds: [
@@ -1027,7 +1019,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     form,
     formSlug: form?.slug || formSlug,
     formValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+    enabled: !certificateGrant && !!form && !formAccess.restricted && defaultsInitialized,
   });
   
   // Reset page navigation state when form changes
@@ -1036,6 +1028,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     setCurrentStep(transitionRestoreNavigation?.currentStep ?? 0);
     setSubmitted(false);
     setPrefillApplied(!!transitionRestoreNavigation);
+    invitationInitializedRef.current = null;
+    invitationEditedFieldsRef.current = new Set();
     setDefaultsInitialized(false);
     setDefaultsInitializedFormId(null);
     const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
@@ -1126,11 +1120,31 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [draftData, draftLoaded, defaultsInitialized]);
 
   // Prefill: Populate form values when prefill entity loads (one-time only)
+  useEffect(() => {
+    const payload = assignmentMeta?.invitation_prefill;
+    if (!certificateGrant || !payload || !defaultsInitialized
+      || String(defaultsInitializedFormId) !== String(form?.id)
+      || (draftToken && !draftLoaded) || invitationInitializedRef.current === form?.id) return;
+    invitationInitializedRef.current = form.id;
+    const protectedIds = [
+      ...invitationEditedFieldsRef.current,
+      ...Object.keys(draftData?.draft?.draft_data || {}),
+      ...Object.keys(transitionInitialValues || {}),
+    ];
+    setFormValues(previous => mergeSurveyInvitationPrefill(previous, payload, form.fields, protectedIds));
+    if (payload.unavailable?.length) {
+      toast.warning('Some details could not be safely prefilled. Please check and complete the remaining fields.');
+    }
+  }, [certificateGrant, assignmentMeta?.invitation_prefill, defaultsInitialized,
+    defaultsInitializedFormId, form?.id, draftToken, draftLoaded, draftData, transitionInitialValues]);
+
+  // Ordinary member/query-id prefill is independent of invitation authority.
   // Must wait for defaultsInitialized to ensure boolean defaults are set first
   // Get the effective org entity (direct prefill org or member's org)
   const effectiveOrgEntity = form?.prefill_source === 'organization' ? prefillOrg : (prefillMemberOrg || prefillOrg);
   
   useEffect(() => {
+    if (certificateGrant) return;
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
@@ -1777,6 +1791,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [formValues, form, submitted, submitFormMutation.isPending]);
 
   const handleFieldChange = (fieldId, newValue) => {
+    invitationEditedFieldsRef.current.add(fieldId);
     departmentCurrentSet.markEdited();
     lastChangedFieldRef.current = {
       formId: form?.id,
@@ -2887,7 +2902,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
-  const memberData = memberRecord || memberInfo;
+  const memberData = certificateGrant ? null : (memberRecord || memberInfo);
 
   if (form.layout_type === 'card_swipe') {
     // Filter visible fields for card swipe layout

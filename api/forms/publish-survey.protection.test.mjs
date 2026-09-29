@@ -80,7 +80,8 @@ test('publish-survey remains unchanged for unrelated forms', async () => {
       };
       return query;
     },
-    async rpc(name) {
+    async rpc(name, args) {
+      assert.deepEqual(args.p_survey_settings.invitation_prefill_config, { source: 'none' });
       queries.push(['rpc', name]);
       return {
         data: {

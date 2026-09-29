@@ -3,9 +3,12 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { JSDOM } from 'jsdom';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { prepareCpdEmail } from './eventCpdEmail.js';
 import { sendEmail } from './emailService.js';
 import surveyAssignmentHandler from '../public/survey-assignment/[token].js';
+import { mergeSurveyInvitationPrefill } from '../../shared/surveyInvitationPrefill.js';
 import {
   certificateSurveyTokenHash, prepareCertificateSurveyLinks,
   resolveCertificateSurveyGrant, resolveCertificateSurveyGrantState, setCertificateSurveyGrantsDelivery,
@@ -132,8 +135,20 @@ test('logged-out assignment GET serves accepted grant and rejects invalid, expir
   db.rows.event = [];
   db.rows.survey_version = [{
     form_id: form.id, tenant_id: tenant.id, version_number: 1,
-    fields: [{ id: 'feedback', type: 'text', label: 'Feedback' }], pages: [],
+    fields: [
+      { id: 'feedback', type: 'text', label: 'Feedback' },
+      { id: 'first', type: 'text', prefill_field: 'member:first_name' },
+      { id: 'last', type: 'text', prefill_field: 'booking:attendee_last_name' },
+      { id: 'email', type: 'email', prefill_field: 'member:email' },
+      { id: 'org', type: 'text', prefill_field: 'org:name' },
+      { id: 'private', type: 'text', prefill_field: 'member_custom:private-field' },
+    ], pages: [],
   }];
+  Object.assign(db.rows.booking[0], {
+    attendee_last_name: 'Attendee', member_id: 'other-booker',
+    organization_id: 'other-organization',
+  });
+  db.rows.form[0].fields = [{ id: 'unpublished', prefill_field: 'booking:attendee_email' }];
   const deliveryId = '11111111-1111-4111-8111-111111111111';
   const links = await prepareCertificateSurveyLinks({
     db, tenant, eventType: 'event', eventId: 'event-1', bookingSource: 'standard',
@@ -159,6 +174,48 @@ test('logged-out assignment GET serves accepted grant and rejects invalid, expir
   assert.equal(allowed.status, 200);
   assert.equal(allowed.body.form.id, form.id);
   assert.equal(allowed.body.require_authentication, undefined);
+  assert.deepEqual(allowed.body.invitation_prefill.values, {
+    first: 'Guest', last: 'Attendee', email: 'guest@example.org',
+  });
+  assert.deepEqual(allowed.body.invitation_prefill.unavailable.map(item => item.field_id), ['org', 'private']);
+  assert.deepEqual(mergeSurveyInvitationPrefill(
+    { feedback: 'Draft feedback' }, allowed.body.invitation_prefill, allowed.body.form.fields,
+  ), { feedback: 'Draft feedback', first: 'Guest', last: 'Attendee', email: 'guest@example.org' });
+  // Exercise the GET payload through the same client initializer into actual
+  // rendered inputs, without a browser request, bearer URL, or real submission.
+  const dom = new JSDOM('<div id="root"></div>');
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(dom.window.document.getElementById('root'));
+  try {
+    const values = mergeSurveyInvitationPrefill({}, allowed.body.invitation_prefill, allowed.body.form.fields);
+    await act(async () => root.render(React.createElement('form', null,
+      allowed.body.form.fields.map(field => React.createElement('input', {
+        key: field.id, name: field.id, value: values[field.id] || '', readOnly: true,
+      })))));
+    assert.equal(dom.window.document.querySelector('[name="first"]').value, 'Guest');
+    assert.equal(dom.window.document.querySelector('[name="last"]').value, 'Attendee');
+    assert.equal(dom.window.document.querySelector('[name="email"]').value, 'guest@example.org');
+    assert.equal(dom.window.document.querySelector('[name="org"]').value, '');
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+    dom.window.close();
+  }
+  assert.equal(JSON.stringify(allowed.body.invitation_prefill).includes('other-booker'), false);
+  const originalTenant = db.rows.booking[0].tenant_id;
+  db.rows.booking[0].tenant_id = 'other-tenant';
+  assert.equal((await invoke(token)).status, 403);
+  db.rows.booking[0].tenant_id = originalTenant;
+  db.rows.booking[0].status = 'cancelled';
+  assert.equal((await invoke(token)).status, 403);
+  db.rows.booking[0].status = 'confirmed';
   const ordinary = await invoke(null);
   assert.equal(ordinary.body.require_authentication, true);
   assert.equal(ordinary.body.form, undefined);

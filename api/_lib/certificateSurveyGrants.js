@@ -31,7 +31,7 @@ export async function resolveCertificateSurveyGrantState(db, tenantId, assignmen
     .eq('booking_source', grant.booking_source).eq('booking_id', grant.booking_id).maybeSingle());
   if (delivery?.status !== 'accepted') return null;
   const table = grant.booking_source === 'standard' ? 'booking' : 'complex_event_booking';
-  const booking = checked(await db.from(table).select('id, event_id, tenant_id, status, attendee_email, attendee_first_name, attendee_last_name')
+  const booking = checked(await db.from(table).select('*')
     .eq('id', grant.booking_id).eq('tenant_id', tenantId).maybeSingle());
   if (!booking || booking.status !== 'confirmed'
     || booking.attendee_email?.trim().toLowerCase() !== grant.recipient_email

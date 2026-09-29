@@ -78,7 +78,7 @@ export async function handlePublishSurvey(req, res, dependencies = {}) {
 
     const { data: form, error: formError } = await db
       .from('form')
-      .select('id, tenant_id, form_type, fields, pages, visibility_rules, survey_settings, survey_audit_log')
+      .select('id, tenant_id, form_type, fields, pages, visibility_rules, survey_settings, survey_audit_log, prefill_source')
       .eq('id', form_id)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
@@ -122,7 +122,10 @@ export async function handlePublishSurvey(req, res, dependencies = {}) {
         p_fields: form.fields || [],
         p_pages: form.pages || [],
         p_visibility_rules: form.visibility_rules || [],
-        p_survey_settings: { ...(form.survey_settings || {}), status: 'published' },
+        p_survey_settings: {
+          ...(form.survey_settings || {}), status: 'published',
+          invitation_prefill_config: { source: form.prefill_source || 'none' },
+        },
         p_published_by: actor
       });
     if (publishError || !result?.version_id) {
