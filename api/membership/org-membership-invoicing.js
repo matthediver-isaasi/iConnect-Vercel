@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
@@ -22,7 +22,7 @@ import {
   zeroDuePaymentFields,
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
-import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule, toDateString } from '../_lib/annualRenewalPolicy.js';
 import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
 
 export default async function handler(req, res) {
@@ -43,6 +43,9 @@ export default async function handler(req, res) {
     } else if (req.method === 'PUT') {
       return handlePut(req, res, tenantId, tenantContext);
     } else if (req.method === 'POST') {
+      if (!await hasAdminAccess(tenantContext)) {
+        return res.status(403).json({ error: 'Tenant admin access required' });
+      }
       if (req.body?.advance === true) {
         return handleAdvanceInvoice(req, res, tenantId, tenantContext);
       }
@@ -262,7 +265,13 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
-  const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+  if (requestedYear && simResult.membershipYear?.label !== requestedYear) {
+    return res.status(400).json({
+      error: 'The calculated membership year does not match the requested invoice year.',
+      code: 'membership_year_mismatch',
+    });
+  }
+  const renewalEligibility = await resolveOrganisationAdminInvoiceEligibility({
     tenantId,
     organizationId,
     config: simResult.config,
@@ -274,6 +283,9 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       code: renewalEligibility.code,
       lifecycle: renewalEligibility.lifecycle,
     });
+  }
+  if (!pricedTermMatchesEligibility(simResult, renewalEligibility)) {
+    return res.status(400).json({ error: 'The eligible membership term does not match the priced year. Please review the membership history.', code: 'membership_year_mismatch' });
   }
   if (!simResult.goLiveDate) {
     return res.status(400).json({ error: 'Organisation does not have a Go Live date set. A go-live date is required before membership can be renewed.' });
@@ -502,8 +514,34 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   });
 }
 
+function pricedTermMatchesEligibility(simResult, eligibility) {
+  if (eligibility.lifecycle?.kind === 'recurring') return true;
+  return eligibility.lifecycle?.termStart === toDateString(simResult.membershipYear?.start)
+    && eligibility.lifecycle?.termEnd === toDateString(simResult.membershipYear?.end);
+}
+
+// Organisation admin invoicing predates member self-service renewal windows.
+// Exempt only the two temporal blockers; keep policy-derived successor dates,
+// monthly reservations and existing-target blockers intact. Never use this for
+// individual memberships or public/self-service renewal.
+async function resolveOrganisationAdminInvoiceEligibility(options) {
+  const eligibility = await resolveEntityAnnualRenewalEligibility(supabase, options);
+  if (['annual_renewal_not_open', 'annual_renewal_grace_expired'].includes(eligibility.code)) {
+    const message = 'Organisation administrator invoicing is not restricted by the self-service renewal window.';
+    return {
+      ...eligibility,
+      eligible: true,
+      state: 'open',
+      code: undefined,
+      message,
+      lifecycle: { ...eligibility.lifecycle, kind: 'open', message },
+    };
+  }
+  return eligibility;
+}
+
 async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
-  const { organizationId, membershipYear: requestedYear, asOfDate } = req.body;
+  const { organizationId, membershipYear: requestedYear } = req.body;
 
   if (!organizationId) {
     return res.status(400).json({ error: 'organizationId is required' });
@@ -513,17 +551,24 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     return res.status(400).json({ error: 'membershipYear is required' });
   }
 
+  // Match manual invoicing: the simulator selects future pricing while keeping
+  // the server-derived requested window. Never accept a client pricing clock.
   const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
     source: 'manual',
     mode: 'manual',
     targetYear: requestedYear,
-    asOfDate: asOfDate || null,
   });
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
-  const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+  if (simResult.membershipYear?.label !== requestedYear) {
+    return res.status(400).json({
+      error: 'The calculated membership year does not match the requested invoice year.',
+      code: 'membership_year_mismatch',
+    });
+  }
+  const renewalEligibility = await resolveOrganisationAdminInvoiceEligibility({
     tenantId,
     organizationId,
     config: simResult.config,
@@ -535,6 +580,9 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       code: renewalEligibility.code,
       lifecycle: renewalEligibility.lifecycle,
     });
+  }
+  if (!pricedTermMatchesEligibility(simResult, renewalEligibility)) {
+    return res.status(400).json({ error: 'The eligible membership term does not match the priced year. Please review the membership history.', code: 'membership_year_mismatch' });
   }
 
   if (!simResult.goLiveDate) {

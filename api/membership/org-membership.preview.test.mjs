@@ -332,12 +332,14 @@ test('future scheduled structure with a different start month keeps the next pre
   const nextYear = nextWindow(oldConfig);
   assert.equal(nextYear.label, '2027/2028');
 
-  // This is the actual calculator, not a stub: without asOfDate the future
-  // configuration shifts the target to 2026/2027 instead of 2027/2028.
+  // The real calculator preserves its server-selected window even when the
+  // future pricing configuration changes the schedule's start month.
   const withoutBoundary = await simulator.simulateMembershipForOrg('tenant', 'org', {
     source: 'tab', targetYear: nextYear.label,
   });
-  assert.equal(withoutBoundary.membershipYear?.label, '2026/2027');
+  assert.equal(withoutBoundary.membershipYear?.label, '2027/2028');
+  assert.equal(withoutBoundary.membershipYear.start.toISOString().slice(0, 10), '2027-08-01');
+  assert.equal(withoutBoundary.config.id, futureConfig.id);
 
   const previewResponse = await get({
     db, resolveConfig: resolver.getConfigForOrganisation,

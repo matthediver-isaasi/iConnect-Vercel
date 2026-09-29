@@ -1,6 +1,49 @@
-# GFI renewal rejection — read-only diagnosis
+# GFI organisation invoicing rejection — diagnosis and correction
 
-Evidence collected 29 September 2026. No application or database behavior was changed.
+## Corrected incident context
+
+On 29 September 2026, the user confirmed that this was **established organisation invoicing for 2026/2027**, not a first-year purchase. Organisation administrative invoicing must retain its pre-individual-membership behaviour; individual membership grace enforcement must not change.
+
+Read-only production DEST queries verified candidate organisation `d2f0832d-6ae7-46ed-88a8-f99ffdc9e39f` belongs to GFI (`fd82da65-aab7-4a5c-85b8-b2febeb2003d`). Its go-live value is 2021-07-16 and its organisation type is University. Its single history row is annual 2025/2026, Year 6, active, created 2026-05-26, with null payment status, dates and commitment snapshot, and no accounting/Xero invoice linkage. No monthly billing agreements were returned. Its 2026/2027 invoicing settings are manual with fees approved.
+
+Both matching University structures have August 1 starts and explicit zero opening/grace days. The older structure runs from 2025-08-01 through 2027-07-31; the newer starts 2026-08-01 with no end. Their overlap is not proof of the rejection's cause.
+
+**Supported root cause:** organisation administrative invoicing acquired the shared annual renewal time-window restriction used for individual membership. With the candidate's prior-year history, the shared resolver derives expiry 2026-07-31 and rejects a 2026/2027 invoice on 2026-09-29. Zero means zero days in that classifier; it must not be redefined globally as unlimited. The correction is scoped to organisation administrative invoicing rather than weakening individual membership policy or ignoring unpaid history.
+
+The exact original request and deployed revision are still unavailable. Current tenant-scoped evidence and the user's correction support this reproduction, not a historical request-log attribution. No production application mutation was invoked.
+
+The original investigation below is retained as dated evidence; its proposed administrative override and policy-extension options are **not** the selected correction.
+
+### Implemented correction and verification
+
+- Manual processing and Invoice Now require administrator access and use an endpoint-local eligibility wrapper. Only `annual_renewal_not_open` and `annual_renewal_grace_expired` cease to block these organisation administrative actions. Shared annual policy and individual simulation code are unchanged.
+- The prior commitment still determines successor dates. Requests whose priced window differs from those dates fail before writes; this does not permit skipping a year.
+- Organisation fixed-year simulation rejects unsupported labels instead of silently substituting next year, and retains the selected window when resolving future pricing. Both invoice paths reject requested/calculated year disagreement. Invoice Now no longer trusts client-supplied `asOfDate`.
+- Existing-target/duplicate checks, recurring-plan reservations, fee approvals and provider invoice creation remain in their existing paths. The new tests exercise these with an in-memory database and stubbed providers, not live financial systems.
+
+Verification:
+
+1. Organisation target-year, rollover and preview suites: **34 passing**.
+2. New actual-handler/simulator/policy fixtures: **27 passing**, covering both organisation actions, established zero-grace history, genuine initial terms, exact prices/dates, early invoicing, approval, duplicate and recurring reservations, tenant isolation, non-admin denial and mismatches.
+3. Shared annual policy, expiry enforcement and rolling lifecycle/commitment/monthly regressions: **69 passing**, including saved zero-grace policy, UTC boundaries, pause/admin/access protections and Stripe/GoCardless reservation/retry behaviour.
+4. Intercepted browser component fixtures: **4 passing**. Displayed 2026/2027, manual/Invoice Now request payloads, success and failure feedback were exercised; unexpected network operations were blocked. This is component/fixture verification, not an authenticated full production flow or a screenshot of the affected organisation.
+
+Commands:
+
+```sh
+node scripts/run-isolated-tests.mjs node --test api/_lib/membershipSimulationCore.target-year.test.mjs api/_lib/membershipSimulationCore.rollover.test.mjs api/membership/org-membership.preview.test.mjs api/membership/org-membership.preview-year.test.mjs
+node scripts/run-isolated-tests.mjs node --test api/membership/org-membership-invoicing.task4858.test.mjs
+node scripts/run-isolated-tests.mjs node --test api/_lib/annualRenewalPolicy.test.mjs api/_lib/annualMembershipExpiryEnforcement.test.mjs api/_lib/rollingMembershipLifecycle.test.mjs api/_lib/rollingMembershipCommitment.test.mjs api/_lib/rollingMonthlyRenewal.test.mjs
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v chromium) npx playwright test --config=tests/task-4858-org-membership-tab.config.mjs
+```
+
+The application workflow restarted and serves requests. Its ordinary local preview still reports “Tenant not found” against the documented legacy workspace database. Authenticated deployed verification remains separate; no production deployment or financial action was performed.
+
+**Current migration status:** no schema migration or data repair was needed or applied to DEST, SOURCE or any other database; none is outstanding. Only read-only production evidence queries were made.
+
+## Original read-only investigation
+
+Evidence collected 29 September 2026. At that stage no application or database behavior was changed.
 
 ## Conclusion
 

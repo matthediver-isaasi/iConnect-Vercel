@@ -5,6 +5,7 @@ import {
   classifyAnnualRenewal,
   deriveAnnualTerm,
   normalizeAnnualRenewalConfig,
+  resolveEntityAnnualRenewalEligibility,
 } from './annualRenewalPolicy.js';
 
 const config = {
@@ -33,6 +34,60 @@ test('annual renewal uses the persisted term boundary and keeps a full next year
   assert.equal(result.state, 'open');
   assert.equal(result.target.start.toISOString().slice(0, 10), '2026-01-01');
   assert.equal(result.target.end.toISOString().slice(0, 10), '2026-12-31');
+});
+
+function historyClient(history = [], agreements = []) {
+  return { from(table) {
+    const filters = [];
+    const q = {
+      select() { return q; },
+      eq(key, value) { filters.push(row => row[key] === value); return q; },
+      in(key, values) { filters.push(row => values.includes(row[key])); return q; },
+      order() { return q; }, limit() { return q; },
+      then(resolve, reject) {
+        const rows = table === 'membership_billing_agreements' ? agreements : history;
+        return Promise.resolve({ data: rows.filter(row => filters.every(f => f(row))), error: null }).then(resolve, reject);
+      },
+    };
+    return q;
+  } };
+}
+
+test('sanitized GFI candidate is an established renewal, not proof of a first-year failure', async () => {
+  const history = [{
+    tenant_id: 'tenant', organization_id: 'org', membership_year: '2025/2026',
+    year_number: 6, billing_period: 'annual', status: 'active', payment_status: null,
+    commitment_snapshot: null, term_start_date: null, term_end_date: null,
+  }];
+  const tier = { start_mode: 'fixed_date', billing_period: 'annual',
+    membership_start_month: 8, membership_start_day: 1, renewal_open_days: 0, renewal_grace_days: 0 };
+  for (const label of ['2026/2027', '2027/2028']) {
+    const result = await resolveEntityAnnualRenewalEligibility(historyClient(history), {
+      tenantId: 'tenant', organizationId: 'org', config: tier,
+      membershipYear: { label, start: `${label.slice(0, 4)}-08-01`, end: `${label.slice(5)}-07-31` },
+      now: new Date('2026-09-29T12:00:00Z'),
+    });
+    assert.equal(result.code, 'annual_renewal_grace_expired');
+    assert.equal(result.lifecycle.renewalGraceEndDate, '2026-07-31');
+    assert.equal(result.lifecycle.termStart, '2026-08-01');
+  }
+  const first = await resolveEntityAnnualRenewalEligibility(historyClient(), {
+    tenantId: 'tenant', organizationId: 'org', config: tier,
+    membershipYear: { label: '2026/2027', start: '2026-08-01', end: '2027-07-31' },
+    now: new Date('2026-09-29T12:00:00Z'),
+  });
+  assert.equal(first.state, 'initial');
+  assert.equal(first.eligible, true);
+  assert.equal(first.lifecycle.termStart, '2026-08-01');
+});
+
+test('saved zero-grace policy cannot be replaced by a more permissive live policy', () => {
+  const result = classifyAnnualRenewal({
+    previousRecord: { ...previous, commitment_snapshot: { config: { renewal_grace_days: 0 } } },
+    targetMembershipYear, config: { renewal_grace_days: 90 },
+    now: new Date('2026-01-01T00:00:00Z'),
+  });
+  assert.equal(result.code, 'annual_renewal_grace_expired');
 });
 
 test('opening and grace boundaries are inclusive, including zero-day settings', () => {

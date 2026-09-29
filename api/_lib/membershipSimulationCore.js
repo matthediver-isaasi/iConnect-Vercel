@@ -230,20 +230,25 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   // The first resolution above uses today's date (or any caller-supplied asOfDate),
   // which selects the config valid right now — wrong when simulating a future year
   // that may be governed by a different, future-scheduled config. We bootstrap the
-  // target year window from the just-resolved config (only to derive the date), then
+  // target year window from the just-resolved config, then
   // re-resolve as of that date so future-scheduled configs are honoured.
   let configResolutionDate = asOfDate || null;
-  if (!explicitConfigId && !rollingContext) {
+  let fixedTargetWindow;
+  if (!rollingContext) {
     const referenceDate = asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock();
     const bootstrapCurrentYear = calculateMembershipYearWindow(config, referenceDate);
     const bootstrapNextYear = calculateNextMembershipYearWindow(config, referenceDate);
     let targetWindow;
-    if (targetYear) {
-      targetWindow = targetYear === bootstrapCurrentYear.label ? bootstrapCurrentYear : bootstrapNextYear;
+    if (targetYear != null) {
+      targetWindow = [bootstrapCurrentYear, bootstrapNextYear].find(window => window.label === targetYear);
+      if (!targetWindow) {
+        return { success: false, steps, code: 'unsupported_membership_year', error: `Unsupported membership year "${targetYear}". Expected ${bootstrapCurrentYear.label} or ${bootstrapNextYear.label}.` };
+      }
     } else {
       targetWindow = source === 'simulate' ? bootstrapNextYear : bootstrapCurrentYear;
     }
-    if (targetWindow.label === bootstrapNextYear.label) {
+    fixedTargetWindow = targetWindow;
+    if (!explicitConfigId && targetWindow.label === bootstrapNextYear.label) {
       const targetStartDate = targetWindow.start.toISOString().split('T')[0];
       configResolutionDate = targetStartDate;
       const reResolved = await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, targetStartDate);
@@ -293,10 +298,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let membershipYear;
   if (rollingContext) {
     membershipYear = rollingContext.window;
-  } else if (targetYear) {
-    membershipYear = targetYear === currentYear.label ? currentYear : nextYear;
   } else {
-    membershipYear = source === 'simulate' ? nextYear : currentYear;
+    // Pricing config changes must not retarget the already selected fixed term.
+    membershipYear = fixedTargetWindow;
   }
 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
