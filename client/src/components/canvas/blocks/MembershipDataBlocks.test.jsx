@@ -39,6 +39,23 @@ const live = {
     plannedPayment: { date: '2029-10-01', amount: 21.5, currency: 'GBP' }, mandateStatus: 'active',
   },
 };
+
+test('grace shows original paid year and expiry separately from renewal with explicit fallback label', () => {
+  const data = {
+    membership: { state: 'expired', membershipYear: '2025/2026', expiryDate: '2026-09-23',
+      grace: { inGrace: true, graceEndDate: '2026-12-22', policySource: 'display_only_renewal_boundary' } },
+    payment: { state: 'paid', method: 'upfront' }, renewal: { eligible: true },
+  };
+  for (const type of ['membership-summary', 'payment-details']) {
+    const html = render({ type, result: { status: 'ready', data } });
+    assert.match(html, /In grace period — renewal due/);
+    assert.match(html, /2025\/2026/);
+    assert.match(html, /23 September 2026/);
+    assert.match(html, /22 December 2026/);
+    assert.match(html, /DISPLAY ONLY/);
+    assert.match(html, /Renewal payment is separate/);
+  }
+});
 function render(overrides = {}) {
   return renderToStaticMarkup(<MembershipDataView
     block={{ id: 'membership-test', content: {} }}

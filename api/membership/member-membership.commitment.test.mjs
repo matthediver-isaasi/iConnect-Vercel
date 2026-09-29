@@ -166,6 +166,50 @@ test('handler keeps live config separate while the recorded legacy price wins an
   assert.equal(simulations, 0);
 });
 
+test('member API retains grace term and exposes historical simulation errors after grace', async () => {
+  const memberId = 'fixture-member';
+  const owner = { id: memberId, tenant_id: BNMS };
+  const row = legacyCurrent({ member_id: memberId, term_end_date: '2026-09-23', final_cost: null, total_with_vat: null });
+  const policy = { id: 'fixture-policy', tenant_id: BNMS, structure_scope_type: 'member',
+    renewal_open_days: 10, renewal_grace_days: 90, effective_from: '2026-09-01' };
+  const tables = { member: [owner], member_membership_history: [row], membership_tier_config: [policy] };
+  const db = { from(table) {
+    const result = { data: tables[table] || [], error: null };
+    const chain = {
+      select() { return chain; }, eq() { return chain; }, order() { return chain; },
+      range() { return Promise.resolve(result); },
+      maybeSingle() { return Promise.resolve({ data: result.data[0] || null, error: null }); },
+      then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+    };
+    return chain;
+  } };
+  for (const [today, grace] of [['2026-09-24', true], ['2026-12-22', true], ['2026-12-23', false]]) {
+    const handler = createMemberMembershipHandler({
+      db, getTenantContext: async () => ({ tenantId: BNMS }),
+      getSessionMember: async () => owner, hasAdminAccess: async () => true,
+      getConfigForMember: async () => ({ ...policy, billing_period: 'annual', membership_start_month: 1, membership_start_day: 1 }),
+      simulateMembershipForMember: async () => ({ success: false, error: 'Historical term start and pricing snapshot are missing' }),
+      enrichMembershipHistoryPrices: async () => {}, getNow: () => new Date(`${today}T12:00:00Z`),
+    });
+    let payload;
+    await handler({ method: 'GET', query: { memberId } }, {
+      status() { return this; }, json(value) { payload = value; return value; },
+    });
+    assert.equal(!!payload.legacyCurrentMembership?.grace, grace, JSON.stringify(payload));
+    if (grace) {
+      assert.equal(payload.legacyCurrentMembership.membershipYear, '2025/2026');
+      assert.equal(payload.legacyCurrentMembership.endDate, '2026-09-23');
+      assert.equal(payload.legacyCurrentMembership.startDate, null);
+      assert.equal(payload.legacyCurrentMembership.paidAmount, null);
+      assert.equal(payload.currentYearCost, null);
+    } else {
+      assert.match(payload.pricingErrors.currentYear, /Historical term start/);
+      assert.match(payload.pricingErrors.nextYear, /Historical term start/);
+      assert.equal(payload.history.length, 1);
+    }
+  }
+});
+
 test('shapes an immutable rolling commitment without live pricing substitution', () => {
   const commitment = shapePersistedCommitment({
     id: 'term-1',

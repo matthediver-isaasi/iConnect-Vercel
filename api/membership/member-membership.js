@@ -16,6 +16,7 @@ import { loadStripeCollectionSchedule, unavailableCollectionSchedule } from '../
 import { loadGoCardlessSchedule } from '../_lib/gocardlessCollectionScheduleChange.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
+import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -1182,8 +1183,27 @@ async function handleGet(req, res, tenantId, db = supabase, {
   });
   await enrichHistoryPrices(history, { db, tenantId });
   await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
-  const legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
-  const commitments = shapePersistedCommitments(history);
+  let legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
+  // Display only: retain the paid term, not a fabricated successor or price.
+  const today = new Date(now).toISOString().slice(0, 10);
+  for (const record of personalHistory) {
+    if (!record.term_end_date || record.term_end_date >= today) continue;
+    const grace = await loadCanvasRenewalEligibility(db, {
+      selected: { record }, owner: { ...member, membership_paused: pause?.paused },
+      history: personalHistory, today,
+    });
+    if (!grace.inGrace) continue;
+    legacyCurrentMembership = {
+      id: record.id, source: 'personal', membershipYear: record.membership_year,
+      tierLabel: record.tier_label, startDate: record.term_start_date || null,
+      endDate: record.term_end_date, renewalDate: record.membership_renewal_date || null,
+      paidAmount: record.total_with_vat ?? record.final_cost ?? null,
+      currency: record.currency || 'GBP', paymentMethod: record.payment_method,
+      paymentStatus: 'paid', readOnly: true, grace,
+    };
+    break;
+  }
+  const commitments = shapePersistedCommitments(history, now);
   const canEditSchedule = isAdmin && (!adminContext?.roleId || (
     await checkFeature(adminContext.roleId, 'commerce.gocardless-dd')
     && await checkFeature(adminContext.roleId, 'commerce.monthly-finance-report')
@@ -1225,7 +1245,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
       // particular paid row is the current membership year. It is never used
       // to simulate a new price or to manufacture a future year.
       const historicalCurrentYear = calculateMembershipYearWindow(historicalConfig);
-      if (historicalRecord.membership_year !== historicalCurrentYear.label) continue;
+      if (historicalRecord.membership_year !== historicalCurrentYear.label
+          || (historicalRecord.term_end_date && historicalRecord.term_end_date < today)) continue;
 
       const hasExplicitSelector = await hasExplicitMemberTierSelector(
         db,
@@ -1316,6 +1337,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
 
   let currentYearCost = null;
   let nextYearPreview = null;
+  const pricingErrors = {};
 
   // Pricing and simulation remain member-scoped. Organisation history is
   // included in the ledger display above, but must not make a member's
@@ -1323,7 +1345,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
   const currentYearRecord = legacyCurrentMembership
     ? null
     : personalRollingRecord || historicalSnapshot?.record
-      || personalHistory.find(h => h.membership_year === currentYear.label);
+      || personalHistory.find(h => h.membership_year === currentYear.label
+        && (!h.term_end_date || h.term_end_date >= today));
 
   if (currentYearRecord) {
     const recAnnual = parseFloat(currentYearRecord.annual_cost);
@@ -1376,8 +1399,9 @@ async function handleGet(req, res, tenantId, db = supabase, {
       });
       if (simResult.success) {
         currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
-      }
+      } else pricingErrors.currentYear = simResult.error || 'Current year pricing unavailable';
     } catch (simErr) {
+      pricingErrors.currentYear = simErr.message || 'Current year pricing unavailable';
       console.warn('[Member Membership] Current year simulation failed:', simErr.message);
     }
   }
@@ -1391,8 +1415,9 @@ async function handleGet(req, res, tenantId, db = supabase, {
       });
       if (nextSimResult.success) {
         nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
-      }
+      } else pricingErrors.nextYear = nextSimResult.error || 'Next year pricing unavailable';
     } catch (simErr) {
+      pricingErrors.nextYear = simErr.message || 'Next year pricing unavailable';
       console.warn('[Member Membership] Next year simulation failed:', simErr.message);
     }
   }
@@ -1418,6 +1443,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     commitments,
     currentCommitments,
     currentYear: currentYear.label,
+    pricingErrors,
     pricingCapability,
   });
 }

@@ -50,7 +50,12 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
   const anchor = rolling ? next : end;
   const opens = addDays(anchor, -policy.windowDays).toISOString().slice(0, 10);
   const closes = addDays(anchor, policy.graceDays).toISOString().slice(0, 10);
-  return { eligible: today >= opens && today <= closes };
+  return {
+    eligible: today >= opens && today <= closes,
+    inGrace: today > end && today <= closes,
+    graceEndDate: closes,
+    paidThroughDate: end,
+  };
 }
 
 export async function loadCanvasRenewalEligibility(db, { selected, owner, history, today, plan }) {
@@ -75,6 +80,7 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
     if (agreements.some(row => row.tenant_id !== tenantId || row.member_id !== owner.id
         || !['cancelled', 'canceled', 'expired', 'completed'].includes(row.status))) return hidden();
     let config = record.commitment_snapshot?.config;
+    let policySource = config ? 'saved_snapshot' : 'saved_history_config';
     if (!config && record.config_id) {
       const configs = await read(db.from('membership_tier_config').select('*')
         .eq('tenant_id', tenantId).eq('id', record.config_id));
@@ -82,6 +88,7 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       config = configs[0];
     }
     if (!config) {
+      policySource = 'display_only_renewal_boundary';
       const expiry = day(record.term_end_date);
       if (!expiry || !shapeLegacyCurrentMembership(record, tenantId, new Date(`${expiry}T00:00:00Z`))) return hidden();
       const configs = await read(db.from('membership_tier_config').select('*').eq('tenant_id', tenantId));
@@ -99,7 +106,8 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       });
       config = configs.find(row => row.id === projection.nextStructureId);
     }
-    return canvasRenewalEligibility({ record, config, history, today });
+    const result = canvasRenewalEligibility({ record, config, history, today });
+    return result.graceEndDate ? { ...result, policySource } : result;
   } catch {
     // Eligibility is optional display evidence. Read failure never enables a
     // CTA or destroys the independently available payment details.

@@ -166,9 +166,17 @@ export function MembershipDataView({
         <h2 id={`${id}-heading`} {...role('heading')}>{copy.heading}</h2>
         {ready && !paymentCard && <span {...role('status', { color: stateColors[state], display: 'inline-flex', alignItems: 'center', gap: 8 })}>
           <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
-          {copy.status}
+          {summary.membership.grace ? 'In grace period — renewal due' : copy.status}
         </span>}
       </div>
+      {ready && summary.membership.grace && <p {...role('supporting', { marginTop: 16 })}>
+        In grace period — renewal due. Grace ends {formatMembershipDate(summary.membership.grace.graceEndDate)}.
+        {' '}Recorded paid term {summary.membership.membershipYear}: paid through {formatMembershipDate(summary.membership.expiryDate)}.
+        {' '}Renewal payment is separate.
+        {summary.membership.grace.policySource === 'display_only_renewal_boundary'
+          ? ' DISPLAY ONLY — policy matched at the renewal boundary; historical policy unavailable.'
+          : ' Saved renewal policy.'}
+      </p>}
       {!ready ? (
         <p {...role('supporting', { marginTop: 16 })} role={result?.status === 'error' || result?.status === 'denied' ? 'alert' : 'status'}>
           {content.messages[result?.status] || content.messages.error}
@@ -219,11 +227,13 @@ export function MembershipDataView({
             <dt {...role('fieldLabel')}>{content.fields.method}</dt>
             <dd {...role('value')}>{displayMethod}</dd>
           </dl>}
-          {copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>{copy.supporting}</p>}
+          {copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>
+            {summary.membership.grace ? 'The recorded prior term is paid; renewal payment is due separately.' : copy.supporting}
+          </p>}
         </div>
       ) : (
         <>
-          <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>
+          {!summary.membership.grace && <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>}
           <dl className="membership-fields">
             {summary.membership.expiryDate && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>

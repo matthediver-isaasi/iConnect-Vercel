@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasRenewalEligibility } from './canvasRenewalEligibility.js';
+import { canvasRenewalEligibility, loadCanvasRenewalEligibility } from './canvasRenewalEligibility.js';
 
 const config = { tenant_id: 'tenant', structure_scope_type: 'member', renewal_open_days: 10, renewal_grace_days: 5 };
 const record = {
@@ -65,4 +65,93 @@ test('reviewed expiry-only legacy evidence supports grace without fabricated sta
   assert.equal(eligible('2026-10-22', input), false);
   assert.equal(eligible('2026-10-16', { ...input, record: { ...legacy, notes: null } }), false);
   assert.equal(JSON.stringify(legacy), before);
+});
+
+test('grace display preserves inclusive paid-through and grace boundaries', () => {
+  for (const [today, inGrace] of [
+    ['2026-12-30', false], ['2026-12-31', false], ['2027-01-01', true],
+    ['2027-01-05', true], ['2027-01-06', false],
+  ]) {
+    const result = canvasRenewalEligibility({ record, config, today });
+    assert.equal(result.inGrace, inGrace, today);
+    assert.equal(result.paidThroughDate, '2026-12-31');
+    assert.equal(result.graceEndDate, '2027-01-05');
+  }
+});
+
+const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const legacyRecord = {
+  id: 'fixture-legacy', member_id: 'fixture-member', tenant_id: tenant,
+  membership_source: 'personal', membership_year: '2025/2026',
+  status: 'active', payment_status: 'paid', payment_method: 'upfront',
+  billing_period: 'annual', term_end_date: '2026-09-23',
+  currency: 'GBP', tier_label: 'Full',
+  final_cost: null, total_with_vat: null,
+  notes: { source: 'bnms_non_dd_current_backfill' },
+};
+const boundaryConfig = {
+  ...config, id: 'new-policy', tenant_id: tenant, name: 'Full',
+  effective_from: '2026-09-01', renewal_grace_days: 90,
+  structure_field_id: 'core:member_class', structure_match_value: 'Full',
+};
+const fixtureOwner = { id: 'fixture-member', tenant_id: tenant, member_class: 'Full' };
+function fixtureDb(tables) {
+  return { from(table) {
+    let filters = [];
+    const query = {
+      select() { return query; },
+      eq(key, value) { filters.push(row => row[key] === value); return query; },
+      order() { return query; },
+      range() { return Promise.resolve({ data: (tables[table] || []).filter(row => filters.every(f => f(row))), error: null }); },
+    };
+    return query;
+  } };
+}
+async function loaded({ row = legacyRecord, configs = [boundaryConfig], owner = fixtureOwner,
+  history = [row], agreements = [], today = '2026-09-24' } = {}) {
+  return loadCanvasRenewalEligibility(fixtureDb({
+    member: [owner], membership_tier_config: configs,
+    membership_billing_agreements: agreements,
+  }), { selected: { record: row }, owner, history, today });
+}
+test('legacy fallback is labelled display-only, matched at boundary not today; no record mutation', async () => {
+  const before = JSON.stringify(legacyRecord);
+  const configs = [
+    { ...boundaryConfig, id: 'old', effective_from: '2025-01-01', effective_to: '2026-08-31', renewal_grace_days: 0 },
+    { ...boundaryConfig, effective_to: '2026-10-01' },
+    { ...boundaryConfig, id: 'future', effective_from: '2026-10-02', renewal_grace_days: 0 },
+  ];
+  for (const [today, inGrace] of [['2026-09-22', false], ['2026-09-23', false],
+    ['2026-09-24', true], ['2026-12-22', true], ['2026-12-23', false]]) {
+    const result = await loaded({ configs, today });
+    assert.equal(result.inGrace, inGrace, today);
+    assert.equal(result.graceEndDate, '2026-12-22');
+    assert.equal(result.policySource, 'display_only_renewal_boundary');
+  }
+  assert.equal(JSON.stringify(legacyRecord), before);
+});
+test('ambiguous or missing selector and excluded evidence never create grace display', async () => {
+  for (const input of [
+    { configs: [boundaryConfig, { ...boundaryConfig, id: 'duplicate' }] },
+    { owner: { ...fixtureOwner, member_class: null } },
+    { owner: { ...fixtureOwner, membership_paused: true } },
+    { row: { ...legacyRecord, status: 'cancelled' } },
+    { row: { ...legacyRecord, payment_method: 'direct_debit' } },
+    { history: [legacyRecord, { ...record, id: 'successor', previous_term_id: legacyRecord.id }] },
+    { agreements: [{ tenant_id: tenant, member_id: fixtureOwner.id, status: 'active' }] },
+  ]) assert.equal((await loaded(input)).inGrace, undefined);
+});
+test('saved history config and snapshot policy take priority including explicit zero grace', async () => {
+  const saved = { ...boundaryConfig, id: 'saved', renewal_grace_days: 0 };
+  const historyResult = await loaded({
+    row: { ...record, tenant_id: tenant, term_end_date: '2026-09-23', config_id: 'saved' }, configs: [saved, boundaryConfig],
+  });
+  assert.equal(historyResult.inGrace, false);
+  assert.equal(historyResult.policySource, 'saved_history_config');
+  const snapshotResult = await loaded({
+    row: { ...record, tenant_id: tenant, term_end_date: '2026-09-23',
+      commitment_snapshot: { config: saved } },
+  });
+  assert.equal(snapshotResult.inGrace, false);
+  assert.equal(snapshotResult.policySource, 'saved_snapshot');
 });

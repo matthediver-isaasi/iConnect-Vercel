@@ -238,6 +238,11 @@ export function normalizeCanvasMembershipSummary(value) {
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,
       renewalDate: isoDate(membership.renewalDate),
       ...(isoDate(membership.expiryDate) ? { expiryDate: isoDate(membership.expiryDate) } : {}),
+      ...(membership.grace?.inGrace && isoDate(membership.grace.graceEndDate) ? {
+        grace: { inGrace: true, graceEndDate: isoDate(membership.grace.graceEndDate),
+          policySource: membership.grace.policySource },
+        membershipYear: typeof membership.membershipYear === 'string' ? membership.membershipYear : null,
+      } : {}),
       paymentHistoryFrom: isoDate(membership.paymentHistoryFrom),
     },
     payment: {

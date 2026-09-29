@@ -1369,15 +1369,22 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
               <CalendarDays className="w-4 h-4" />
               Current Membership
-              <Badge variant="secondary">Current</Badge>
-              <Badge variant="outline">Paid legacy record · read-only</Badge>
+              <Badge variant="secondary">{legacyCurrentMembership.grace ? 'In grace period — renewal due' : 'Current'}</Badge>
+              <Badge variant="outline">Paid recorded term · read-only</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {legacyCurrentMembership.grace && <p className="text-sm mb-4">
+              Grace ends {formatMembershipDate(legacyCurrentMembership.grace.graceEndDate)}.
+              {legacyCurrentMembership.grace.policySource === 'display_only_renewal_boundary'
+                ? ' DISPLAY ONLY — policy matched at the renewal boundary; historical policy unavailable.'
+                : ' Saved renewal policy.'}
+              {' '}Paid-through date is unchanged; renewal payment is separate.
+            </p>}
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <div>
                 <dt className="text-muted-foreground">Membership Start Date</dt>
-                <dd className="font-medium" data-testid="text-legacy-current-start">Unknown</dd>
+                <dd className="font-medium" data-testid="text-legacy-current-start">{legacyCurrentMembership.startDate ? formatMembershipDate(legacyCurrentMembership.startDate) : 'Unknown'}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Current Term End</dt>
@@ -1618,7 +1625,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 />
               ) : (
                 <div className="text-center py-4 text-muted-foreground">
-                  <p className="text-sm" data-testid="text-member-no-current-tier">No tier matched for the current year</p>
+                  <p className="text-sm" data-testid="text-member-no-current-tier">{data?.pricingErrors?.currentYear || 'No tier matched for the current year'}</p>
                 </div>
               )}
             </CardContent>
@@ -1661,7 +1668,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                   />
                 ) : (
                   <div className="text-center py-4 text-muted-foreground">
-                    <p className="text-sm" data-testid="text-member-no-next-tier">No tier matched for the next year</p>
+                    <p className="text-sm" data-testid="text-member-no-next-tier">{data?.pricingErrors?.nextYear || 'No tier matched for the next year'}</p>
                   </div>
                 )}
               </CardContent>

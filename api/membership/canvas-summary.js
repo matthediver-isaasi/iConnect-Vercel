@@ -449,6 +449,13 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
       });
       summary.renewal = await loadCanvasRenewalEligibility(db, { selected, owner, history: personal, today, plan });
+      if (summary.renewal.inGrace) {
+        summary.membership.grace = summary.renewal;
+        summary.membership.membershipYear = selected.record.membership_year;
+        summary.membership.expiryDate = selected.record.term_end_date;
+        // Payment remains the recorded prior term, never the unpaid renewal.
+        summary.payment.state = 'paid';
+      }
       return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });

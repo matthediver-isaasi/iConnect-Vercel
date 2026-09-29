@@ -169,7 +169,7 @@ test('self-scoped endpoint exposes only eligibility for assigned upfront renewal
     const h = harness({ rows: { member_membership_history: [row], membership_tier_config: configs } });
     const result = await h.request();
     assert.equal(result.statusCode, 200);
-    assert.deepEqual(result.payload.renewal, { eligible: expected });
+    assert.equal(result.payload.renewal.eligible, expected);
   }
 });
 
@@ -182,7 +182,7 @@ test('legacy assignment uses unique canonical report matching and fails closed f
       rows: { member: [owner], member_membership_history: [legacyTerm()], membership_tier_config: configs } });
     const result = await h.request();
     assert.equal(result.statusCode, 200);
-    assert.deepEqual(result.payload.renewal, { eligible: expected });
+    assert.equal(result.payload.renewal.eligible, expected);
   }
 });
 
@@ -195,7 +195,15 @@ test('legacy endpoint permits after-expiry grace without reviving current entitl
       rows: { member: [owner], member_membership_history: [legacyTerm()], membership_tier_config: [config] } });
     const result = await h.request();
     assert.equal(result.statusCode, 200);
-    assert.deepEqual(result.payload.renewal, { eligible: expected }, currentDay);
+    assert.equal(result.payload.renewal.eligible, expected, currentDay);
+    assert.equal(!!result.payload.membership.grace, expected);
+    if (expected) {
+      assert.equal(result.payload.payment.state, 'paid');
+      assert.equal(result.payload.membership.membershipYear, '2025/2026');
+      assert.equal(result.payload.membership.expiryDate, '2026-10-16');
+      assert.equal(result.payload.membership.grace.graceEndDate, '2026-10-21');
+      assert.equal(result.payload.membership.grace.policySource, 'display_only_renewal_boundary');
+    }
     assert.notEqual(result.payload.membership.state, 'active');
     assert.equal(result.payload.membership.memberSince, null);
     assert.equal(result.payload.membership.renewalDate, null);
