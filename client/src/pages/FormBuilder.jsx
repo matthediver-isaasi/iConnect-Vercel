@@ -13710,7 +13710,7 @@ export default function FormBuilderPage() {
                           {mutationAccessAssessment.mutationTargets.includes('member')
                             ? 'Member mappings can change a record that already exists. '
                             : ''}
-                          Require login automatically uses verified record-owner access. Compatible public member signup forms automatically allow new members; existing records still require their verified owner.
+                          Require login automatically uses verified record-owner access. Compatible public member signup forms automatically allow new members; existing records still require their verified owner. Compatible public organisation update forms use server-issued applicant continuation links, not anonymous ownership.
                           Save &amp; Continue saves answers, not permission to update a selected record.
                         </p>
                         {!mutationAccessAssessment.ok && (

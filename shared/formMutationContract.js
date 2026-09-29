@@ -457,5 +457,19 @@ export function normalizeFormMutationAccess(form = {}) {
     ...form,
     mutation_access_policy: { version: FORM_MUTATION_ACCESS_POLICY_VERSION, mode },
   };
-  return assessFormMutationAccess(candidate).ok ? candidate : form;
+  if (assessFormMutationAccess(candidate).ok) return candidate;
+  // A public organisation update cannot use member-only signup. Default to
+  // scoped continuation only when that same contract passes its own checks.
+  if (form.require_authentication !== true
+    && classifyFormMutationContract(form).mutationTargets.includes('organization')) {
+    const continuation = {
+      ...form,
+      mutation_access_policy: {
+        version: FORM_MUTATION_ACCESS_POLICY_VERSION,
+        mode: FORM_MUTATION_ACCESS_MODES.APPLICANT_CONTINUATION,
+      },
+    };
+    if (assessFormMutationAccess(continuation).ok) return continuation;
+  }
+  return form;
 }

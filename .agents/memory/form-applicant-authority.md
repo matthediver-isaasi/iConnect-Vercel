@@ -56,3 +56,15 @@ turning every form into an invitation-only application.
 per-invitation organisation selection from form-wide configuration. Preserve
 record-owner checks and existing explicit policies; simplifying setup is not
 approval to grant anonymous updates or change live form admission settings.
+
+Automatic setup may derive the existing applicant-continuation policy for a
+compatible public organisation-update form; this is save-time configuration,
+not authority for an arbitrary visitor.
+
+**Why:** Requiring the administrator to select advanced access manually blocked
+the normal trusted workflow-email application flow. Existing organisation
+workflow emails can issue the scoped authority without applicant involvement.
+
+**How to apply:** Validate the derived policy, preserve explicit policies and
+runtime ownership checks, and never treat a bare organisation ID as permission.
+Fixing Automatic save does not repair an already-sent or stripped email link.

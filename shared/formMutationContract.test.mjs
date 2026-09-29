@@ -11,7 +11,7 @@ import {
   validateFormMutationAccessSave,
 } from './formMutationContract.js';
 
-test('save derives normal policies, preserves explicit contracts and never grants public organisation authority', () => {
+test('save derives normal policies, preserves explicit contracts and never grants anonymous organisation authority', () => {
   const member = { is_active: true, require_authentication: false,
     entity_pipelines: { members: [{ mappings: [{ target_field: 'email' }] }] } };
   const org = { ...member, entity_pipelines: {
@@ -21,9 +21,10 @@ test('save derives normal policies, preserves explicit contracts and never grant
   assert.equal(save(member).policy.mode, 'public_member_signup');
   assert.equal(save({ ...member, require_authentication: true }).policy.mode, 'authenticated_owner');
   assert.equal(save({ ...org, require_authentication: true }).policy.mode, 'authenticated_owner');
-  assert.equal(save(org).ok, false);
-  assert.equal(normalizeFormMutationAccess(org), org);
-  assert.match(save(org).error, /Require login.*reference-only enquiry.*Advanced access/);
+  assert.equal(save(org).ok, true);
+  assert.equal(save(org).policy.mode, 'applicant_continuation');
+  assert.equal(normalizeFormMutationAccess(org).mutation_access_policy.mode, 'applicant_continuation');
+  assert.equal(assessFormMutationAccess(org).ok, false, 'normalization is save-time, not runtime authority');
   const explicit = { ...org, mutation_access_policy: { version: 1, mode: 'applicant_continuation' } };
   assert.equal(normalizeFormMutationAccess(explicit), explicit);
   assert.equal(save({ ...explicit, require_authentication: true }).policy.mode, 'applicant_continuation');
@@ -38,6 +39,43 @@ test('save derives normal policies, preserves explicit contracts and never grant
     form: { ...org, require_authentication: true }, previousForm: org,
   });
   assert.equal(authToggle.policy.mode, 'authenticated_owner');
+});
+
+test('automatic public organisation continuation accepts mixed mapped mutations only when compatible', () => {
+  const org = {
+    is_active: true,
+    require_authentication: false,
+    entity_pipelines: {
+      organisations: [{ mappings: [{ target_field: 'phone' }] }],
+      members: [{ mappings: [{ target_field: 'first_name' }] }],
+    },
+  };
+  const normalized = normalizeFormMutationAccess(org);
+  assert.deepEqual(classifyFormMutationContract(org).mutationTargets, ['member', 'organization']);
+  assert.equal(normalized.mutation_access_policy.mode, 'applicant_continuation');
+  assert.equal(validateFormMutationAccessSave({ form: org, isCreate: true }).policy.mode, 'applicant_continuation');
+  assert.equal(supportsApplicantContinuationIssuance(normalized), true);
+
+  for (const action of [
+    { operation: 'update_selected', target: { kind: 'custom_object' } },
+    { operation: 'resolve_record_reference', target: { kind: 'organization' },
+      not_listed_operation: 'upsert' },
+  ]) {
+    const unsupported = { ...org, structured_actions: { actions: [action] } };
+    assert.equal(normalizeFormMutationAccess(unsupported), unsupported);
+    assert.equal(validateFormMutationAccessSave({ form: unsupported, isCreate: true }).ok, false);
+  }
+
+  const invalid = { ...org, mutation_access_policy: { version: 99, mode: 'applicant_continuation' } };
+  assert.equal(normalizeFormMutationAccess(invalid), invalid);
+  assert.equal(validateFormMutationAccessSave({ form: invalid, isCreate: true }).code,
+    'INVALID_FORM_MUTATION_ACCESS_POLICY');
+  const explicitSignup = { ...org, mutation_access_policy: { version: 1, mode: 'public_member_signup' } };
+  assert.equal(normalizeFormMutationAccess(explicitSignup), explicitSignup);
+  assert.equal(validateFormMutationAccessSave({ form: explicitSignup, isCreate: true }).ok, false);
+  const explicitOwner = { ...org, mutation_access_policy: { version: 1, mode: 'authenticated_owner' } };
+  assert.equal(normalizeFormMutationAccess(explicitOwner), explicitOwner);
+  assert.equal(validateFormMutationAccessSave({ form: explicitOwner, isCreate: true }).ok, false);
 });
 
 test('both server write boundaries persist derived policy without requiring it in the request', () => {
@@ -466,19 +504,21 @@ test('inactive drafts save and unchanged active legacy forms remain compatible',
     previousForm: legacy,
   }).legacyCompatibility, true);
   const draft = validateFormMutationAccessSave({
-    form: { ...legacy, is_active: false, fields: [{ id: 'changed' }] },
+    form: { ...legacy, is_active: false, fields: [{ id: 'changed' }],
+      structured_actions: { actions: [{ operation: 'update', target: { kind: 'organization' } }] } },
     previousForm: legacy,
   });
   assert.equal(draft.ok, true);
-  assert.match(draft.draftWarning, /Require login/);
+  assert.match(draft.draftWarning, /Structured Record/);
   assert.equal(validateFormMutationAccessSave({
-    form: { ...legacy, fields: [{ id: 'changed' }] },
+    form: { ...legacy, fields: [{ id: 'changed' }],
+      structured_actions: { actions: [{ operation: 'update', target: { kind: 'organization' } }] } },
     previousForm: legacy,
   }).ok, false);
   assert.equal(validateFormMutationAccessSave({
     form: legacy,
     isCreate: true,
-  }).ok, false, 'new and copied-active forms must declare authority');
+  }).policy.mode, 'applicant_continuation', 'new and copied-active forms derive scoped continuation');
 });
 
 test('mutation config comparison ignores metadata but catches mappings', () => {
