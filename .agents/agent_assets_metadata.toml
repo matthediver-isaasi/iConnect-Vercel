@@ -1083,3 +1083,17 @@ mtime_ms = 1790666294023
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b5b0ab7-5bbd-48df-9acb-57fcc3a2ff78/94d72df9-61dc-4308-87b8-f22a0b75f199"
 storage_version_token = "1790666345131900"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "CC4CWgWBM6cvaq1HbaXYx"
+uri = "file://private/annual-meeting/outstanding-reconciliation.xlsx"
+type = "table"
+title = "Outstanding registrations — private reconciliation"
+description = "74 source rows with booking IDs, corrections, exclusions, three unresolved identities, and verification evidence. No surveys sent."
+logical_id = "30ceaea8-8d43-42c1-afb7-c7ac91ca6b8d"
+content_hash = "sha256:5e78eadd90a495c66fbeb6c351011617b45fa4a084d8405096fdba335c75d908"
+size = 44334
+mtime_ms = 1790688178151
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/30ceaea8-8d43-42c1-afb7-c7ac91ca6b8d/93baaf31-6e6b-4995-ae71-7051f49bbbd7"
+storage_version_token = "1790688291910163"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

@@ -154,3 +154,4 @@
 - [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js browser compatibility.
 - [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
+- [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — distinguish exact cohort invariants from concurrent production activity; disclose drift without weakening core checks.
