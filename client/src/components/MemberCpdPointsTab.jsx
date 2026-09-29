@@ -280,7 +280,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
         <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>CPD certificate — {preview?.item?.event_name}</DialogTitle>
-            <DialogDescription>Preview your certificate and download the PDF.</DialogDescription>
+            <DialogDescription>Preview the certificate and download the PDF.</DialogDescription>
           </DialogHeader>
           {pdfBusy && <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading certificate…</p>}
           {pdfError && <p role="alert" className="text-sm text-destructive">{pdfError}</p>}

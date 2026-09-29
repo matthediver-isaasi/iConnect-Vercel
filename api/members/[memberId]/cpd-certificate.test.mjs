@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
-import { createMemberCpdCertificateHandler } from './cpd-certificate.js';
+
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('../../_lib/roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { createMemberCpdCertificateHandler } = await import('./cpd-certificate.js');
 
 const tenant = '11111111-1111-4111-8111-111111111111';
 const memberId = '22222222-2222-4222-8222-222222222222';
@@ -80,6 +84,7 @@ async function request(f, query = { ledger_entry_id: awardId, format: 'pdf' }, o
   };
   const handler = createMemberCpdCertificateHandler({
     db: f.db, getSessionMember: async () => member,
+    getTenantContext: async () => null,
     resolveMemberExclusions: async () => [], ...overrides,
   });
   await handler({ method: 'GET', query: { memberId,
@@ -99,6 +104,117 @@ test('both event types render actual ledger-backed PDFs, without email or survey
     assert.equal((await PDFDocument.load(result.body)).getPageCount(), 1);
     assert.equal(f.queried.includes('event_cpd_points_rule'), false);
   }
+});
+
+test('independent tenant administration serves metadata and actual PDF for either event type', async () => {
+  for (const source of ['booking', 'complex_event_booking']) {
+    const f = await fixture(source);
+    const inputs = [];
+    const options = {
+      getSessionMember: async () => null,
+      resolveMemberExclusions: async () => assert.fail('admin must not require self-service access'),
+      getTenantContext: async () => ({ tenantId: tenant, isAuthenticated: true, tenantUserId: 'admin' }),
+      hasAdminAccess: async context => {
+        assert.equal(context.tenantId, tenant);
+        return true;
+      },
+      resolveAttendeeCertificate: async (db, input) => {
+        inputs.push(input);
+        const { resolveAttendeeCertificate } = await import('../../_lib/attendeeCpdCertificate.js');
+        return resolveAttendeeCertificate(db, input);
+      },
+    };
+    const metadata = await request(f, { ledger_entry_ids: awardId }, {
+      ...options, renderAttendeeCertificate: async () => assert.fail('metadata must not render'),
+    });
+    assert.equal(metadata.statusCode, 200, JSON.stringify(metadata.body));
+    assert.equal(metadata.body.certificates[awardId].available, true);
+    const download = await request(f, {}, options);
+    assert.equal(download.statusCode, 200, JSON.stringify(download.body));
+    assert.equal(download.headers['Content-Type'], 'application/pdf');
+    assert.equal((await PDFDocument.load(download.body)).getPageCount(), 1);
+    assert.deepEqual(inputs, Array(3).fill(null).map(() => ({
+      tenantId: tenant, bookingId, bookingSource: source === 'booking' ? 'standard' : 'complex',
+      memberCertificateId: memberId,
+    })));
+    assert.equal(f.queried.includes('email_template'), false);
+    assert.equal(f.queried.includes('certificate_survey_entitlement'), false);
+  }
+});
+
+test('admin selects the path member, never the admin identity, for attendee and ticket overrides', async () => {
+  for (const source of ['booking', 'complex_event_booking']) {
+    const f = await fixture(source);
+    const options = {
+      getSessionMember: async () => ({ ...member, id: 'admin', role_id: null }),
+      getTenantContext: async () => ({ tenantId: tenant, isAuthenticated: true, tenantUserId: 'admin' }),
+      hasAdminAccess: async () => true,
+      resolveMemberExclusions: async () => assert.fail('admin role must not be required'),
+    };
+    const booking = f.db.rows[source][0];
+    booking.member_id = 'admin';
+    // The purchaser does not replace the attendee even on the admin path.
+    assert.equal((await request(f, { ledger_entry_ids: awardId }, options)).body.certificates[awardId].available, true);
+    f.db.rows.event_cpd_certificate_config[0].config.ticketRules.ticket = {
+      template_mode: 'none', date_mode: 'inherit',
+    };
+    assert.equal((await request(f, { ledger_entry_ids: awardId }, options)).body.certificates[awardId].available, false);
+    assert.equal((await request(f, {}, options)).statusCode, 409);
+    f.db.rows.event_cpd_certificate_config[0].config.ticketRules = {};
+    booking.attendee_email = 'purchaser@example.test';
+    assert.equal((await request(f, { ledger_entry_ids: awardId }, options)).body.certificates[awardId].available, false);
+    assert.equal((await request(f, {}, options)).statusCode, 404);
+  }
+});
+
+test('admin fails closed for cross-tenant and forged IDs, ordinary callers and mismatched contexts', async () => {
+  const f = await fixture();
+  const admin = {
+    getSessionMember: async () => null,
+    getTenantContext: async () => ({ tenantId: tenant, isAuthenticated: true, tenantUserId: 'admin' }),
+    hasAdminAccess: async () => true,
+  };
+  const foreign = '88888888-8888-4888-8888-888888888888';
+  for (const query of [
+    { memberId: foreign },
+    { ledger_entry_id: foreign },
+    { memberId: foreign, ledger_entry_ids: awardId },
+    { ledger_entry_ids: foreign },
+  ]) {
+    const result = await request(f, query, admin);
+    if (query.ledger_entry_ids) assert.equal(result.body.certificates[query.ledger_entry_ids].available, false);
+    else assert.equal(result.statusCode, 404);
+  }
+  for (const options of [
+    { ...admin, getTenantContext: async () => ({ tenantId: foreign, isAuthenticated: true, tenantUserId: 'admin' }) },
+    { ...admin, getTenantContext: async () => ({ tenantId: tenant, tenantMismatch: true }), hasAdminAccess: async () => true },
+    { ...admin, getTenantContext: async () => null },
+    { ...admin, hasAdminAccess: async () => false },
+    { ...admin, hasAdminAccess: async () => { throw new Error('admin unavailable'); } },
+    { getSessionMember: async () => ({ ...member, id: foreign }), getTenantContext: async () => ({
+      tenantId: tenant, isAuthenticated: true, memberId: foreign,
+    }), hasAdminAccess: async () => false },
+  ]) {
+    const result = await request(f, {}, options);
+    assert.notEqual(result.statusCode, 200);
+    assert.notEqual(result.headers['Content-Type'], 'application/pdf');
+  }
+  f.db.rows.member_cpd_points_ledger[0].tenant_id = foreign;
+  const result = await request(f, { ledger_entry_ids: awardId }, admin);
+  assert.equal(result.body.certificates[awardId].available, false);
+  assert.equal((await request(f, {}, admin)).statusCode, 404);
+});
+
+test('admin fallback survives a dangling self role but uses the authorized context tenant', async () => {
+  const f = await fixture();
+  const result = await request(f, {}, {
+    getSessionMember: async () => ({ ...member, tenant_id: 'untrusted-tenant' }),
+    resolveMemberExclusions: async () => { throw new Error('dangling role'); },
+    getTenantContext: async () => ({ tenantId: tenant, isAuthenticated: true, tenantUserId: 'admin' }),
+    hasAdminAccess: async () => true,
+  });
+  assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+  assert.equal((await PDFDocument.load(result.body)).getPageCount(), 1);
 });
 
 test('batch metadata is bounded and does not render PDFs or expose private paths', async () => {
@@ -168,4 +284,50 @@ test('missing/suppressed config, failed render and post-render reversal fail clo
   } });
   assert.equal(changed.statusCode, 409);
   assert.notEqual(changed.headers['Content-Type'], 'application/pdf');
+});
+
+test('admin metadata and PDF reject reversal, deleted event, render failure and post-render changes', async () => {
+  for (const source of ['booking', 'complex_event_booking']) {
+    const f = await fixture(source);
+    const options = {
+      getSessionMember: async () => null,
+      getTenantContext: async () => ({ tenantId: tenant, isAuthenticated: true, tenantUserId: 'admin' }),
+      hasAdminAccess: async () => true,
+    };
+    const reversal = { id: 'reversal', tenant_id: tenant, member_id: memberId, reversal_of: awardId };
+    f.db.rows.member_cpd_points_ledger.push(reversal);
+    assert.equal((await request(f, { ledger_entry_ids: awardId }, options)).body.certificates[awardId].available, false);
+    assert.equal((await request(f, {}, options)).statusCode, 404);
+    f.db.rows.member_cpd_points_ledger.pop();
+    const event = f.db.rows[source === 'booking' ? 'event' : 'complex_event'].pop();
+    assert.equal((await request(f, { ledger_entry_ids: awardId }, options)).body.certificates[awardId].available, false);
+    assert.equal((await request(f, {}, options)).statusCode, 404);
+    f.db.rows[source === 'booking' ? 'event' : 'complex_event'].push(event);
+    const failed = await request(f, {}, { ...options, renderAttendeeCertificate: async () => {
+      throw new Error('private source path');
+    } });
+    assert.equal(failed.statusCode, 503);
+    assert.doesNotMatch(JSON.stringify(failed.body), /private source path/);
+    const changed = await request(f, {}, { ...options, renderAttendeeCertificate: async () => {
+      f.db.rows.member_cpd_points_ledger.push(reversal);
+      return Buffer.from('not a PDF');
+    } });
+    assert.equal(changed.statusCode, 409);
+    assert.notEqual(changed.headers['Content-Type'], 'application/pdf');
+    f.db.rows.member_cpd_points_ledger.pop();
+    const replacedBooking = await request(f, {}, { ...options, renderAttendeeCertificate: async () => {
+      f.db.rows.member_cpd_points_ledger[0].booking_id = '99999999-9999-4999-8999-999999999999';
+      f.db.rows[source].push({ ...f.db.rows[source][0], id: '99999999-9999-4999-8999-999999999999' });
+      return Buffer.from('not a PDF');
+    } });
+    assert.equal(replacedBooking.statusCode, 409);
+    assert.notEqual(replacedBooking.headers['Content-Type'], 'application/pdf');
+    f.db.rows.member_cpd_points_ledger[0].booking_id = bookingId;
+    const changedEvent = await request(f, {}, { ...options, renderAttendeeCertificate: async () => {
+      f.db.rows[source === 'booking' ? 'event' : 'complex_event'].pop();
+      return Buffer.from('not a PDF');
+    } });
+    assert.equal(changedEvent.statusCode, 409);
+    assert.notEqual(changedEvent.headers['Content-Type'], 'application/pdf');
+  }
 });

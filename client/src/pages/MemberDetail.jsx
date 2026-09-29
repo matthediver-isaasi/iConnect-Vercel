@@ -2175,6 +2175,7 @@ export default function MemberDetail() {
         <TabsContent value="cpd-points" className="space-y-6">
           <MemberCpdPointsTab
             memberId={id}
+            certificates
             enabled={isAccessReady && activeTab === 'cpd-points'}
             canCorrect={isAccessReady && isFeatureExcluded && !isFeatureExcluded('cpd.points-corrections')}
           />

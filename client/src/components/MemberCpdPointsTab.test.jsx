@@ -31,6 +31,8 @@ test("Activity retains member since and timeline but no CPD; dedicated tab keeps
   const cpd = source.split('<TabsContent value="cpd-points"')[1].split("</TabsContent>")[0];
   assert.match(cpd, /enabled=\{isAccessReady && activeTab === 'cpd-points'\}/);
   assert.match(cpd, /canCorrect=\{isAccessReady && isFeatureExcluded && !isFeatureExcluded\('cpd.points-corrections'\)\}/);
+  assert.match(cpd, /\s+certificates\s/);
+  assert.doesNotMatch(cpd, /cpd\.member_cpd/);
 });
 
 async function mountTab(run) {
@@ -239,7 +241,7 @@ test("renders signed balance, reversal states, snapshot fields and pagination", 
   assert.match(html, />Next</);
 });
 
-test("member history alone opts into bounded certificate metadata; admin and disabled tabs do not", async () => {
+test("certificate-enabled history opts into bounded metadata independently of corrections; disabled tabs do not", async () => {
   await mountTab(async ({ render, container }) => {
     const calls = [];
     globalThis.fetch = async url => {
@@ -288,6 +290,44 @@ test("certificate lookup failure and retryable unavailability never expose an un
     assert.equal(button("View certificate"), undefined);
     await click("Retry certificates");
     assert.equal(attempt, 3);
+  });
+});
+
+test("switching selected members aborts an open PDF and never reuses their certificate metadata", async () => {
+  await mountTab(async ({ render, container }) => {
+    const calls = [];
+    let resolvePdf;
+    let pdfSignal;
+    globalThis.fetch = async (url, options) => {
+      calls.push(url);
+      assert.ok(!url.includes("/admin/"), "certificate viewing must not query corrections");
+      if (url.includes("ledger_entry_id=")) {
+        pdfSignal = options.signal;
+        return new Promise(resolve => { resolvePdf = resolve; });
+      }
+      if (url.includes("ledger_entry_ids=")) return json({ certificates: {
+        award: { available: true, filename: "first-member.pdf" },
+        second: { available: false, reason: "No certificate configured" },
+      } });
+      return json({ balance: 5, total: 1, items: [
+        url.includes("/second-member/") ? { ...award, id: "second", event_name: "Second member event" } : award,
+      ] });
+    };
+    await render({ certificates: true, canCorrect: false });
+    await click("View certificate");
+    assert.match(document.body.textContent, /Loading certificate/);
+    await render({ memberId: "second-member", certificates: true, canCorrect: false });
+    assert.equal(pdfSignal.aborted, true);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.match(container.textContent, /Second member event/);
+    assert.equal(button("View certificate"), undefined);
+    assert.ok(calls.some(url => url.includes("/second-member/cpd-certificate?ledger_entry_ids=second")));
+    assert.ok(!calls.some(url => url.includes("/second-member/cpd-certificate?ledger_entry_ids=award")));
+    await act(async () => resolvePdf(new Response("%PDF-1.7", {
+      headers: { "Content-Type": "application/pdf" },
+    })));
+    await settle();
+    assert.equal(document.querySelector('[role="dialog"]'), null);
   });
 });
 

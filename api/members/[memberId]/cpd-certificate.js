@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getSessionMember } from '../../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { makeFeatureAccessChecker, resolveMemberExclusions } from '../../_lib/memberFeatureAccess.js';
 import { resolveMember } from '../../_lib/eventCpdBadgeService.js';
 import { resolveAttendeeCertificate, renderAttendeeCertificate } from '../../_lib/attendeeCpdCertificate.js';
@@ -39,6 +40,8 @@ async function eligibility(db, tenantId, memberId, entryId) {
 export function createMemberCpdCertificateHandler(deps = {}) {
   const db = deps.db || supabase;
   const sessionMember = deps.getSessionMember || getSessionMember;
+  const tenantContext = deps.getTenantContext || getTenantContext;
+  const adminAccess = deps.hasAdminAccess || hasAdminAccess;
   const resolveExclusions = deps.resolveMemberExclusions || resolveMemberExclusions;
   const resolveCertificate = deps.resolveAttendeeCertificate || resolveAttendeeCertificate;
   const render = deps.renderAttendeeCertificate || renderAttendeeCertificate;
@@ -48,18 +51,31 @@ export function createMemberCpdCertificateHandler(deps = {}) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     if (!db) return res.status(503).json({ error: 'Database not configured' });
     try {
-      const member = await sessionMember(req);
-      if (!member?.id || !member.role_id || String(member.id) !== String(req.query?.memberId)) {
-        return res.status(403).json({ error: 'Forbidden' });
+      const memberId = req.query?.memberId;
+      let tenantId = null;
+      const ownMember = await sessionMember(req).catch(() => null);
+      if (ownMember?.id && String(ownMember.id) === String(memberId) && ownMember.role_id) {
+        try {
+          const exclusions = await resolveExclusions({
+            roleId: ownMember.role_id, memberExcludedFeatures: ownMember.member_excluded_features,
+          }, db, { requireRole: true });
+          if (makeFeatureAccessChecker(exclusions).canAccessFeature('cpd.member_cpd')) {
+            tenantId = ownMember.tenant_id || ownMember.organization?.tenant_id || null;
+          }
+        } catch {
+          // Self-service role resolution may fail; administration is independent.
+        }
       }
-      const tenantId = member.tenant_id || member.organization?.tenant_id;
-      if (!tenantId) return res.status(403).json({ error: 'Forbidden' });
-      const exclusions = await resolveExclusions({
-        roleId: member.role_id, memberExcludedFeatures: member.member_excluded_features,
-      }, db, { requireRole: true });
-      if (!makeFeatureAccessChecker(exclusions).canAccessFeature('cpd.member_cpd')) {
-        return res.status(403).json({ error: 'Forbidden' });
+      // History administration is independent of both self-service feature access
+      // and CPD correction permissions. Never use the caller's member identity
+      // or a request-supplied tenant to resolve the selected member's award.
+      if (!tenantId) {
+        const context = await tenantContext(req).catch(() => null);
+        if (context?.tenantId && !context.tenantMismatch && await adminAccess(context)) {
+          tenantId = context.tenantId;
+        }
       }
+      if (!tenantId || !memberId) return res.status(403).json({ error: 'Forbidden' });
       const { ledger_entry_id: singleId, ledger_entry_ids: batchIds, format } = req.query || {};
       if (batchIds !== undefined && singleId !== undefined) {
         return res.status(400).json({ error: 'Choose a single or batch certificate request' });
@@ -75,11 +91,11 @@ export function createMemberCpdCertificateHandler(deps = {}) {
         const certificates = {};
         for (const id of ids) {
           try {
-            const row = await eligibility(db, tenantId, member.id, id);
+            const row = await eligibility(db, tenantId, memberId, id);
             if (!row) { certificates[id] = unavailable('Certificate unavailable for this award.'); continue; }
             const resolved = await resolveCertificate(db, {
               tenantId, bookingId: row.booking_id, bookingSource: sources[row.booking_type],
-              memberCertificateId: member.id,
+              memberCertificateId: memberId,
             });
             certificates[id] = resolved.available
               ? { available: true, reason: null, retryable: false, filename: `cpd-certificate-${id}.pdf` }
@@ -93,15 +109,18 @@ export function createMemberCpdCertificateHandler(deps = {}) {
       if (typeof singleId !== 'string' || !UUID.test(singleId) || format !== 'pdf') {
         return res.status(400).json({ error: 'A valid ledger_entry_id and format=pdf are required' });
       }
-      const row = await eligibility(db, tenantId, member.id, singleId);
+      const row = await eligibility(db, tenantId, memberId, singleId);
       if (!row) return res.status(404).json({ error: 'Certificate unavailable for this award.' });
       const input = { tenantId, bookingId: row.booking_id, bookingSource: sources[row.booking_type],
-        memberCertificateId: member.id };
+        memberCertificateId: memberId };
       const resolved = await resolveCertificate(db, input);
       if (!resolved.available) return res.status(409).json({ error: resolved.reason || 'Certificate unavailable.' });
       const pdf = await render(db, resolved);
-      const currentRow = await eligibility(db, tenantId, member.id, singleId);
-      if (!currentRow) return res.status(409).json({ error: 'Award changed. Reload before downloading.' });
+      const currentRow = await eligibility(db, tenantId, memberId, singleId);
+      if (!currentRow || ['booking_id', 'booking_type', 'event_id', 'points_value']
+        .some(key => String(currentRow[key]) !== String(row[key]))) {
+        return res.status(409).json({ error: 'Award changed. Reload before downloading.' });
+      }
       const current = await resolveCertificate(db, input);
       if (!current.available || current.fingerprint !== resolved.fingerprint) {
         return res.status(409).json({ error: 'Certificate changed. Reload before downloading.' });
