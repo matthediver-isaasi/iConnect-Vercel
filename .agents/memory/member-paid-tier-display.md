@@ -22,3 +22,13 @@ inventing missing commencement dates, paid amounts or purchase snapshots.
 date, label grace and separate renewal charges. Do not use display fallback to
 alter billing, access enforcement or historical records; exclude paused,
 cancelled and superseded terms.
+
+Keep policy provenance and historical-evidence diagnostics out of member-facing
+portal copy; reserve them for administrative views.
+
+**Why:** The user rejected technical “DISPLAY ONLY / renewal boundary” wording
+on the portal. Members need the grace deadline and renewal action, not the
+internal policy-resolution explanation.
+
+**How to apply:** Use a short grace notice and label a past term-end date as
+“Previous membership ended”, not “Membership valid until”.

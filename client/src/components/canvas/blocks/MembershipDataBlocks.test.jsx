@@ -40,7 +40,7 @@ const live = {
   },
 };
 
-test('grace shows original paid year and expiry separately from renewal with explicit fallback label', () => {
+test('grace uses member-friendly copy without internal policy diagnostics', () => {
   const data = {
     membership: { state: 'expired', membershipYear: '2025/2026', expiryDate: '2026-09-23',
       grace: { inGrace: true, graceEndDate: '2026-12-22', policySource: 'display_only_renewal_boundary' } },
@@ -48,12 +48,12 @@ test('grace shows original paid year and expiry separately from renewal with exp
   };
   for (const type of ['membership-summary', 'payment-details']) {
     const html = render({ type, result: { status: 'ready', data } });
-    assert.match(html, /In grace period — renewal due/);
-    assert.match(html, /2025\/2026/);
+    assert.match(html, /Your membership is in its grace period until/);
     assert.match(html, /23 September 2026/);
     assert.match(html, /22 December 2026/);
-    assert.match(html, /DISPLAY ONLY/);
-    assert.match(html, /Renewal payment is separate/);
+    assert.match(html, /Please renew by this date to continue your membership/);
+    assert.doesNotMatch(html, /DISPLAY ONLY|renewal boundary|historical policy|recorded prior term|Recorded paid term|Renewal payment is separate/);
+    if (type === 'payment-details') assert.match(html, /Previous membership ended/);
   }
 });
 function render(overrides = {}) {

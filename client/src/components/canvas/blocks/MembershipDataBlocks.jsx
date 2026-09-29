@@ -170,12 +170,8 @@ export function MembershipDataView({
         </span>}
       </div>
       {ready && summary.membership.grace && <p {...role('supporting', { marginTop: 16 })}>
-        In grace period — renewal due. Grace ends {formatMembershipDate(summary.membership.grace.graceEndDate)}.
-        {' '}Recorded paid term {summary.membership.membershipYear}: paid through {formatMembershipDate(summary.membership.expiryDate)}.
-        {' '}Renewal payment is separate.
-        {summary.membership.grace.policySource === 'display_only_renewal_boundary'
-          ? ' DISPLAY ONLY — policy matched at the renewal boundary; historical policy unavailable.'
-          : ' Saved renewal policy.'}
+        Your membership is in its grace period until {formatMembershipDate(summary.membership.grace.graceEndDate)}.
+        {' '}Please renew by this date to continue your membership.
       </p>}
       {!ready ? (
         <p {...role('supporting', { marginTop: 16 })} role={result?.status === 'error' || result?.status === 'denied' ? 'alert' : 'status'}>
@@ -220,15 +216,15 @@ export function MembershipDataView({
             {summary.payment.collectionStructure && structureNotice?.trim() && <p {...role('supporting', { marginTop: 8 })}>{structureNotice}</p>}
           </div>}
           {summary.membership.expiryDate && <dl style={{ marginTop: 16 }}>
-            <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
+            <dt {...role('fieldLabel')}>{summary.membership.grace ? 'Previous membership ended' : content.fields.expiryDate}</dt>
             <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
           </dl>}
           {summary.payment.state === 'paid' && summary.payment.method === 'upfront' && <dl style={{ marginTop: 16 }}>
             <dt {...role('fieldLabel')}>{content.fields.method}</dt>
             <dd {...role('value')}>{displayMethod}</dd>
           </dl>}
-          {copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>
-            {summary.membership.grace ? 'The recorded prior term is paid; renewal payment is due separately.' : copy.supporting}
+          {!summary.membership.grace && copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>
+            {copy.supporting}
           </p>}
         </div>
       ) : (
