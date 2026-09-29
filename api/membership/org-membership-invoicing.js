@@ -2,6 +2,8 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
+import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
@@ -792,6 +794,46 @@ async function handleApproval(req, res, tenantId) {
 
   if (!['approve', 'unapprove'].includes(action)) {
     return res.status(400).json({ error: 'action must be "approve" or "unapprove"' });
+  }
+
+  // A preview warning is not a price commitment. Recalculate the requested
+  // year before persisting approval so a failed or mismatched quote cannot be
+  // marked ready for invoicing. Unapproval remains available for recovery.
+  if (action === 'approve') {
+    let quote;
+    try {
+      // Match the GET tab's server-derived year window. A future effective
+      // structure can have a different start month: asking the simulator for
+      // that next year without its boundary date may resolve the wrong year.
+      const baseConfig = await getConfigForOrganisation(tenantId, organizationId, {}, null, { strict: true });
+      if (!baseConfig) {
+        return res.status(400).json({ error: 'No active membership tier configuration found', code: 'membership_preview_unavailable' });
+      }
+      const nextYear = calculateNextMembershipYearWindow(baseConfig);
+      const asOfDate = membershipYear === nextYear.label
+        ? nextYear.start.toISOString().split('T')[0] : null;
+      quote = await simulateMembershipForOrg(tenantId, organizationId, {
+        source: 'tab', targetYear: membershipYear,
+        ...(asOfDate ? { asOfDate } : {}),
+      });
+    } catch (error) {
+      return res.status(400).json({
+        error: 'Could not calculate membership fees. Please review the membership configuration before approving.',
+        code: error.code || 'membership_preview_unavailable',
+      });
+    }
+    if (!quote?.success) {
+      return res.status(400).json({
+        error: quote?.error || 'Could not calculate membership fees',
+        code: quote?.code || 'membership_preview_unavailable',
+      });
+    }
+    if (quote.membershipYear?.label !== membershipYear) {
+      return res.status(400).json({
+        error: 'The calculated membership year does not match the requested approval year.',
+        code: 'membership_year_mismatch',
+      });
+    }
   }
 
   await ensureColumns();

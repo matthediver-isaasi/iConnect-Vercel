@@ -14,6 +14,7 @@
     "test:monthly-membership-activation": "node scripts/run-regression-suite.mjs monthly-membership-activation",
     "test:department-current-set": "node scripts/run-regression-suite.mjs department-current-set",
     "test:form-processing": "node scripts/run-isolated-tests.mjs --shell \"node --test api/forms/processApplication*.test.mjs api/forms/process-application.current-set.test.mjs\"",
+    "test:membership-preview-warnings": "node scripts/run-isolated-tests.mjs --shell \"node --test api/membership/org-membership.preview*.test.mjs api/_lib/membershipConfigResolver.strict.test.mjs api/membership/incentive-rollover.integration.test.mjs api/_lib/membershipSimulationCore.rollover.test.mjs && node --import tsx --test client/src/components/OrgMembershipTab.previewWarnings.test.jsx\"",
     "test:duplicate-fields:browser": "playwright test --config=playwright.task4782.config.mjs",
     "test:certificate-preview:browser": "playwright test --config=tests/task-4804-certificate-preview.config.mjs",
     "test:safety-boundaries": "node scripts/run-isolated-tests.mjs --shell \"node --test scripts/testIsolationBoundary.test.mjs scripts/testStartupModes.test.mjs scripts/productionRelationshipVerification.test.mjs\"",

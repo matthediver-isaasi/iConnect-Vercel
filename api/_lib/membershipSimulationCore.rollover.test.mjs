@@ -157,6 +157,13 @@ test('unrecorded Year 1 flat-price preview is reconstructed only with unchanged 
   assert.equal(changed.code, 'new_member_incentive_review_required');
 });
 
+test('missing flat pricing is not fabricated as a zero-cost unrecorded preview', async () => {
+  for (const flat_cost of [null, '', 'invalid', -1]) {
+    await assert.rejects(simulate({ history: [], config: { ...original, flat_cost } },
+      { source: 'tab', targetYear: '2026/2027' }), /no valid agreed price/);
+  }
+});
+
 test('date-based config resolution also respects future asOfDate', async () => {
   const result = await simulate({}, { configId: null, asOfDate: '2027-08-01' });
   assert.equal(result.success, true, result.error);

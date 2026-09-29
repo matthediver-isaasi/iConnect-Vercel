@@ -101,8 +101,8 @@ async function getAllActiveConfigsStrict(tenantId, onDate = null) {
   return data || [];
 }
 
-async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides = {}, onDate = null) {
-  const allConfigs = await getAllActiveConfigs(tenantId, onDate);
+async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides = {}, onDate = null, { strict = false } = {}) {
+  const allConfigs = await (strict ? getAllActiveConfigsStrict : getAllActiveConfigs)(tenantId, onDate);
   if (!allConfigs || allConfigs.length === 0) return null;
 
   const configs = allConfigs.filter(c => (c.structure_scope_type || 'organization') === 'organization');
@@ -126,12 +126,13 @@ async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides
 
   const dbFieldIds = fieldIds.filter(id => !(id in fieldOverrides));
   if (dbFieldIds.length > 0) {
-    const { data: prefValues } = await supabase
+    const { data: prefValues, error } = await supabase
       .from('organization_preference_value')
       .select('field_id, value')
       .eq('organization_id', organisationId)
       .in('field_id', dbFieldIds);
 
+    if (strict && error) throw error;
     (prefValues || []).forEach(pv => {
       orgFieldMap[pv.field_id] = (pv.value || '').toString().toLowerCase().trim();
     });

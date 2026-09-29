@@ -350,8 +350,8 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let fieldValue = null;
 
   if (isFlat) {
-    if (rollingContext && (config.flat_cost == null || !Number.isFinite(Number(config.flat_cost)) || Number(config.flat_cost) < 0)) {
-      throw new Error('The rolling membership structure has no valid agreed price; review its pricing before renewal.');
+    if (config.flat_cost == null || config.flat_cost === '' || !Number.isFinite(Number(config.flat_cost)) || Number(config.flat_cost) < 0) {
+      throw new Error('The membership structure has no valid agreed price; review its pricing before renewal.');
     }
     annualCostRaw = parseFloat(config.flat_cost) || 0;
     annualCost = annualCostRaw;

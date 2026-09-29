@@ -61,6 +61,18 @@ function formatCost(value, currency) {
   return `${symbol}${parseFloat(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function YearPreviewWarning({ warning, testIdPrefix }) {
+  return (
+    <div role="alert" data-testid={`preview-warning-${testIdPrefix}`} className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
+      <div>
+        <p className="font-medium">Fees cannot yet be verified{warning.membershipYear ? ` for ${warning.membershipYear}` : ''}</p>
+        <p className="text-muted-foreground">{warning.message}</p>
+      </div>
+    </div>
+  );
+}
+
 export function YearCostSection({
   yearData,
   yearLabel,
@@ -1361,7 +1373,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     );
   }
 
-  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, currentYearCost, isNewOrg, goLiveDate, history, bands } = data;
+  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, currentYearCost, isNewOrg, goLiveDate, history, bands, previewWarnings } = data;
+  const currentYearWarning = !currentYearCost && previewWarnings?.currentYear;
+  const nextYearWarning = !nextYearPreview && previewWarnings?.nextYear;
   const currency = config.currency || 'GBP';
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
@@ -1394,10 +1408,14 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           {isFlat ? (
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
-                <p className="text-lg font-semibold" data-testid="text-annual-cost">
-                  {config.flat_cost != null ? formatCost(config.flat_cost, currency) : '-'}
-                </p>
+                {!currentYearWarning && (
+                  <>
+                    <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
+                    <p className="text-lg font-semibold" data-testid="text-annual-cost">
+                      {config.flat_cost != null ? formatCost(config.flat_cost, currency) : '-'}
+                    </p>
+                  </>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">Structure</p>
@@ -1462,10 +1480,14 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
 
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
-                  <p className="text-lg font-semibold" data-testid="text-annual-cost">
-                    {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
-                  </p>
+                  {!currentYearWarning && (
+                    <>
+                      <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
+                      <p className="text-lg font-semibold" data-testid="text-annual-cost">
+                        {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
+                      </p>
+                    </>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground">Structure</p>
@@ -1494,7 +1516,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                           ({band.minValue}{band.maxValue !== null ? `-${band.maxValue}` : '+'})
                         </span>
                       </span>
-                      <span>{formatCost(band.annualCost, currency)}</span>
+                      {!currentYearWarning && <span>{formatCost(band.annualCost, currency)}</span>}
                     </div>
                   ))}
                 </div>
@@ -1579,6 +1601,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onUnapprove={() => approvalMutation.mutate({ membershipYear: currentYearCost.membershipYear, action: 'unapprove' })}
                 approvePending={approvalMutation.isPending}
               />
+            ) : currentYearWarning ? (
+              <YearPreviewWarning warning={currentYearWarning} testIdPrefix="current-year" />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
                 <p className="text-sm">No tier matched for the current year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
@@ -1668,6 +1692,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 advanceInvoicePending={advanceInvoiceMutation.isPending}
                 advanceInvoiceRecord={nextYearAdvanceRecord}
               />
+            ) : nextYearWarning ? (
+              <YearPreviewWarning warning={nextYearWarning} testIdPrefix="next-year" />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
                 <p className="text-sm">No tier matched for the next year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>

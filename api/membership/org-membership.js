@@ -26,11 +26,11 @@ export default async function handler(req, res) {
     const { tenantId } = tenantContext;
 
     if (req.method === 'GET') {
-      return handleGet(req, res, tenantId);
+      return await handleGet(req, res, tenantId);
     } else if (req.method === 'PUT') {
-      return handlePut(req, res, tenantId);
+      return await handlePut(req, res, tenantId);
     } else if (req.method === 'POST') {
-      return handlePost(req, res, tenantId);
+      return await handlePost(req, res, tenantId);
     } else {
       return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -64,7 +64,7 @@ async function getBandsForConfig(configId, tenantId) {
     .order('display_order', { ascending: true, nullsFirst: false })
     .order('min_value', { ascending: true, nullsFirst: false });
 
-  if (error) return [];
+  if (error) throw error;
   return data || [];
 }
 
@@ -111,12 +111,12 @@ async function getOrgFieldValue(orgId, tenantId, config) {
       .eq('tenant_id', tenantId)
       .eq('organization_id', orgId);
 
-    if (error) return null;
+    if (error) throw error;
     return members?.length || 0;
   }
 
   if (config.field_id) {
-    const { data: pv } = await supabase
+    const { data: pv, error } = await supabase
       .from('organization_preference_value')
       .select('value, organization:organization!inner(tenant_id)')
       .eq('organization_id', orgId)
@@ -124,6 +124,7 @@ async function getOrgFieldValue(orgId, tenantId, config) {
       .eq('organization.tenant_id', tenantId)
       .maybeSingle();
 
+    if (error) throw error;
     if (pv?.value != null && pv.value !== '') {
       return pv.value;
     }
@@ -133,8 +134,7 @@ async function getOrgFieldValue(orgId, tenantId, config) {
 }
 
 async function getGoLiveFieldId(tenantId) {
-  try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('preference_field')
       .select('id')
       .eq('tenant_id', tenantId)
@@ -142,28 +142,23 @@ async function getGoLiveFieldId(tenantId) {
       .eq('is_active', true)
       .eq('name', 'go_live')
       .maybeSingle();
+    if (error) throw error;
     return data?.id || null;
-  } catch {
-    return null;
-  }
 }
 
 async function getOrgGoLiveDate(orgId, goLiveFieldId) {
   if (!goLiveFieldId) return null;
-  try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organization_preference_value')
       .select('value')
       .eq('organization_id', orgId)
       .eq('field_id', goLiveFieldId)
       .maybeSingle();
+    if (error) throw error;
     if (!data?.value) return null;
     const dateStr = String(data.value).trim();
     if (!dateStr || dateStr === 'null') return null;
     return dateStr.split('T')[0];
-  } catch {
-    return null;
-  }
 }
 
 function determineMembershipYearNumber(goLiveDate, targetYear, config) {
@@ -264,18 +259,19 @@ async function handleGet(req, res, tenantId) {
     return res.status(400).json({ error: 'organizationId is required' });
   }
 
-  const { data: org } = await supabase
+  const { data: org, error: orgError } = await supabase
     .from('organization')
     .select('id, name, tenant_id')
     .eq('id', organizationId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
 
+  if (orgError) throw orgError;
   if (!org) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  const config = await getConfigForOrganisation(tenantId, organizationId);
+  const config = await getConfigForOrganisation(tenantId, organizationId, {}, null, { strict: true });
 
   if (action === 'history') {
     return getHistory(req, res, tenantId, organizationId);
@@ -308,13 +304,14 @@ async function handleGet(req, res, tenantId) {
     annualCostRaw = parseFloat(matchedBand.annual_cost);
   }
 
-  const { data: historyRecords } = await supabase
+  const { data: historyRecords, error: historyError } = await supabase
     .from('organisation_membership_history')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .order('membership_year', { ascending: false });
 
+  if (historyError) throw historyError;
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
@@ -331,8 +328,36 @@ async function handleGet(req, res, tenantId) {
 
   let nextYearPreview = null;
   let currentYearCost = null;
+  const previewWarnings = { currentYear: null, nextYear: null };
 
-  if (annualCostRaw !== null) {
+  // Only calculations are recoverable here. Context/auth/history loads above
+  // must still fail the request rather than appearing as empty membership.
+  async function preview(key, year, startDate, options = {}) {
+    try {
+      const result = await simulateMembershipForOrg(tenantId, organizationId, {
+        source: 'tab', targetYear: year.label, ...options,
+      });
+      if (result.success && result.membershipYear?.label === year.label) {
+        return mapSimResultToYearData(result, startDate);
+      }
+      previewWarnings[key] = {
+        membershipYear: year.label,
+        code: result.success ? 'membership_year_mismatch' : result.code || 'membership_preview_unavailable',
+        message: result.success
+          ? 'The calculated membership year does not match this preview. Please review the membership schedule.'
+          : result.error || 'Could not calculate membership fees.',
+      };
+    } catch (error) {
+      previewWarnings[key] = {
+        membershipYear: year.label,
+        code: error.code || 'membership_preview_unavailable',
+        message: 'Could not calculate membership fees. Please try again or review the membership configuration.',
+      };
+    }
+    return null;
+  }
+
+  {
     const yearStartMidnight = new Date(currentYear.start);
     yearStartMidnight.setHours(0, 0, 0, 0);
     const yearEndMidnight = new Date(currentYear.end);
@@ -412,31 +437,12 @@ async function handleGet(req, res, tenantId) {
         recordedFromHistory: true,
       };
     } else {
-      try {
-        const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
-          source: 'tab',
-          targetYear: currentYear.label,
-        });
-        if (simResult.success) {
-          currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
-        } else {
-          return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees', code: simResult.code });
-        }
-      } catch (simErr) {
-        return res.status(400).json({ error: simErr.message, code: simErr.code });
-      }
+      currentYearCost = await preview('currentYear', currentYear, currentYearStartDate);
     }
 
-    const nextSimResult = await simulateMembershipForOrg(tenantId, organizationId, {
-      source: 'tab',
-      targetYear: nextYear.label,
+    nextYearPreview = await preview('nextYear', nextYear, nextYearStartDate, {
       asOfDate: nextYearStartDate,
     });
-    if (nextSimResult.success) {
-      nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
-    } else {
-      return res.status(400).json({ error: nextSimResult.error || 'Could not calculate renewal fees', code: nextSimResult.code });
-    }
   }
 
   const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
@@ -562,6 +568,7 @@ async function handleGet(req, res, tenantId) {
     },
     nextYearPreview,
     currentYearCost,
+    previewWarnings,
     isNewOrg,
     goLiveDate,
     overrides,
