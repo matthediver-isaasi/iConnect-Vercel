@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     // explicit return context was passed (Task #2661). Legacy DBs may predate
     // these columns — fall back to the base select so the editor keeps working
     // there (the page simply reads as a non-microsite, unfiled page).
-    const baseColumns = 'id, title, slug, status, layout_type, builder_type, canvas_design';
+    const baseColumns = 'id, title, slug, status, layout_type, builder_type, canvas_design, meta_title, meta_description, seo_title, seo_description, og_image_url';
     let { data, error } = await supabase
       .from('i_edit_page')
       .select(`${baseColumns}, microsite_id, folder_id`)
