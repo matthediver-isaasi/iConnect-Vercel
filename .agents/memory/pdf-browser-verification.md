@@ -14,3 +14,9 @@ Native PDF iframes do not reliably provide an in-dialog preview in headless Chro
 **Why:** A successful PDF response followed by blob-iframe navigation was treated as a download and reset the report; it initially looked like a development hot-reload problem.
 
 **How to apply:** Check browser download/navigation events before blaming reloads. Use in-dialog canvas rendering for predictable previews, and verify real rendering separately from mocked component tests.
+
+Validate actual rendered text widths, not only the PDF writer's wrap calculations.
+
+**Why:** jsPDF's built-in Helvetica wrapping and PDF.js's measured text widths differed enough for a supposedly margin-safe answer to extend about 1.6 mm into the right margin.
+
+**How to apply:** Assert extracted text x + width against page margins and visually inspect rendered output; retain a small wrap-width guard for standard-font exports.

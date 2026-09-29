@@ -6,6 +6,7 @@
 // byte-for-byte equivalent in behaviour.
 
 import { jsPDF } from 'jspdf';
+import { groupedQuestionPdfAnswers } from './groupedQuestionPdf.js';
 import { toWinAnsi } from './pdfWinAnsi.js';
 import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
 import {
@@ -73,6 +74,10 @@ export function formatFormSubmissionFieldValue(
   organisationGroupNamesById = {},
 ) {
   const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
+  if (field?.type === 'grouped_question') {
+    return groupedQuestionPdfAnswers(field, value)
+      .map(({ label, answer }) => `${label}\n${answer}`).join('\n\n') || 'No answers provided';
+  }
   if (isRepeatableRowsField(field)) {
     return formatRepeatableRowsText(field, value, {
       submissionData,
@@ -139,6 +144,55 @@ export function buildFormSubmissionPdf({
   const contentWidth = pageWidth - (margin * 2);
   let yPos = margin;
 
+  // Restrict the new layout to grouped fields; unrelated field presentation
+  // remains unchanged. Explicit baselines make paragraph spacing page-safe.
+  const lineHeight = 5;
+  const bottom = pageHeight - margin - 1;
+  const newPage = () => {
+    doc.addPage();
+    yPos = margin;
+  };
+  const splitGroupedText = (text, style, indent = 0) => {
+    doc.setFontSize(10);
+    doc.setFont('helvetica', style);
+    // Standard PDF font metrics vary slightly between viewers. Leave a small
+    // guard inside the right margin rather than wrapping exactly at its edge.
+    const wrapWidth = contentWidth - indent - 3;
+    return toWinAnsi(String(text)).replace(/\r\n?/g, '\n').split('\n')
+      .flatMap(paragraph => paragraph ? doc.splitTextToSize(paragraph, wrapWidth) : ['']);
+  };
+  const writeGroupedLines = (lines, style, indent = 0, reserveAfter = 0) => {
+    doc.setFont('helvetica', style);
+    // Keep a whole heading with the first answer line whenever it fits a page.
+    const required = (lines.length - 1) * lineHeight + reserveAfter;
+    if (reserveAfter > 0 && required <= bottom - margin && yPos + required > bottom) newPage();
+    lines.forEach((line, index) => {
+      const reserve = index === lines.length - 1 ? reserveAfter : 0;
+      if (yPos + reserve > bottom) newPage();
+      doc.text(line, margin + indent, yPos);
+      yPos += lineHeight;
+    });
+  };
+  const renderGroupedQuestion = (field, rawValue) => {
+    const answers = groupedQuestionPdfAnswers(field, rawValue);
+    const blocks = answers.map(({ label, answer }) => ({
+      label: splitGroupedText(label, 'bold', 4),
+      // Leading blank lines must not strand the heading above an empty answer.
+      answer: splitGroupedText(answer.replace(/^\s*\n/, ''), 'normal', 4),
+    }));
+    const heading = splitGroupedText(field.label || field.id || 'Questions', 'bold');
+    const firstBlockLines = blocks.length ? blocks[0].label.length + 1 : 1;
+    const headingReserve = Math.min(firstBlockLines * lineHeight, bottom - margin - lineHeight);
+    writeGroupedLines(heading, 'bold', 0, headingReserve);
+    if (!blocks.length) writeGroupedLines(['No answers provided'], 'normal', 4);
+    for (const block of blocks) {
+      writeGroupedLines(block.label, 'bold', 4, lineHeight);
+      writeGroupedLines(block.answer, 'normal', 4);
+      yPos += 3;
+    }
+    yPos += 3;
+  };
+
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   const titleLines = doc.splitTextToSize(toWinAnsi(title || 'Document'), contentWidth);
@@ -169,6 +223,10 @@ export function buildFormSubmissionPdf({
     }
 
     const rawValue = getSubmissionFieldValue(data, field);
+    if (field.type === 'grouped_question') {
+      renderGroupedQuestion(field, rawValue);
+      continue;
+    }
     const value = formatFormSubmissionFieldValue(
       field,
       rawValue,
