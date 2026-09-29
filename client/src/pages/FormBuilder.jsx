@@ -163,6 +163,7 @@ import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
   assessFormMutationAccess,
   normalizeFormMutationAccess,
+  resolveFormAccessOverride,
   FORM_MUTATION_ACCESS_MODES,
   supportsApplicantContinuationIssuance,
   validateFormMutationAccessSave,
@@ -13735,9 +13736,7 @@ export default function FormBuilderPage() {
                         value={formData.mutation_access_policy?.mode || 'none'}
                         onValueChange={(mode) => setFormData(prev => ({
                           ...prev,
-                          mutation_access_policy: mode === 'none'
-                            ? null
-                            : { version: 1, mode },
+                          mutation_access_policy: resolveFormAccessOverride(prev, mode),
                         }))}
                       >
                         <SelectTrigger id="mutation_access_policy" data-testid="select-mutation-access-policy">
@@ -13745,6 +13744,9 @@ export default function FormBuilderPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">Automatic — use normal form settings</SelectItem>
+                          <SelectItem value={FORM_MUTATION_ACCESS_MODES.LEGACY_PUBLIC_APPLICATION} disabled={formData.require_authentication}>
+                            Public application — existing record links
+                          </SelectItem>
                           <SelectItem
                             value={FORM_MUTATION_ACCESS_MODES.APPLICANT_CONTINUATION}
                             disabled={

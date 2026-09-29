@@ -70,6 +70,7 @@ export function compatibilityForm({ legacy = false, mutatePhone = false, hidden 
 }
 
 function makeBoundaryDatabase(form, organization = null, {
+  member = null,
   continuationGrant = null,
   draft = null,
 } = {}) {
@@ -117,6 +118,10 @@ function makeBoundaryDatabase(form, organization = null, {
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (this.table === 'member') {
+        return { data: member && this.filters.every(([op, key, value]) =>
+          op !== 'eq' || member[key] === value) ? structuredClone(member) : null, error: null };
+      }
       if (this.table === 'form') return { data: structuredClone(form), error: null };
       if (this.table === 'organization') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
@@ -162,6 +167,13 @@ function makeBoundaryDatabase(form, organization = null, {
       return { data: null, error: null };
     }
     then(resolve, reject) {
+      if (['organization', 'member'].includes(this.table)) {
+        const record = this.table === 'organization' ? organization : member;
+        const matches = record && this.filters.every(([op, key, value]) =>
+          op === 'eq' ? record[key] === value
+            : op === 'ilike' ? String(record[key]).toLowerCase() === String(value).toLowerCase() : true);
+        return Promise.resolve({ data: matches ? [structuredClone(record)] : [], error: null }).then(resolve, reject);
+      }
       if (this.table === 'form_submission' && this.deleteRequested && submission) {
         deletedSubmissionIds.push(submission.id);
         submission = null;
@@ -232,11 +244,13 @@ export async function submitThroughRealProcessor({
   continuationGrant = null,
   draft = null,
   prefillOrganizationId = null,
+  prefillMemberId = null,
   idempotencyKey = null,
   attempts = 1,
   failProcessorOnce = false,
 }) {
   const boundary = makeBoundaryDatabase(form, processorOptions.existingOrganization, {
+    member: processorOptions.existingMember,
     continuationGrant,
     draft,
   });
@@ -257,6 +271,7 @@ export async function submitThroughRealProcessor({
       applicant_continuation_token: applicantContinuationToken,
       resume_token: resumeToken,
       prefill_organization_id: prefillOrganizationId,
+      prefill_member_id: prefillMemberId,
       idempotency_key: idempotencyKey,
     },
   };
@@ -301,6 +316,11 @@ export async function submitThroughRealProcessor({
       const completed = processorResults.at(-1)?.response?.body;
       const result = await invokeProcessor(payload, {
         ...processorOptions,
+        submissionOverrides: {
+          ...processorOptions.submissionOverrides,
+          ...(boundary.insertedSubmissions[0]?.legacy_application_scope
+            ? { legacy_application_scope: boundary.insertedSubmissions[0].legacy_application_scope } : {}),
+        },
         applicantContinuationGrant: continuationGrant,
         ...(completed?.success ? {
           persistedCreatedMemberId: completed.created_member_id || completed.member_id || null,

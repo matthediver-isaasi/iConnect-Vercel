@@ -1,6 +1,7 @@
+import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplicantContinuation, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
-import { isPublicMemberSignup, preflightPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
+import { isPublicMemberSignup, preflightPublicMemberSignup, preflightApplicantTargets, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
 import { loadPersistedFormEntityCreations } from '../_lib/formEntityCreationProvenance.js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
@@ -296,6 +297,10 @@ export default async function handler(req, res, dependencies = {}) {
     });
     const applicantGrant = admission.applicantGrant;
     prefill_organization_id = admission.organizationId;
+    const legacyApplicationScope = await createLegacyApplicationScope({
+      db: supabase, form, organizationId: prefill_organization_id,
+      memberId: req.body.prefill_member_id,
+    });
 
     // Only the explicitly configured BNMS form can enter the current-set
     // lifecycle. The separate config table keeps privileged reconciliation
@@ -682,6 +687,15 @@ export default async function handler(req, res, dependencies = {}) {
       : null;
     // Run before idempotent/duplicate recovery, which may send mail or
     // finalize subscriptions. A draft or a prior response is not ownership.
+    if (legacyApplicationScope) await preflightApplicantTargets({
+      db: supabase, form, grant: legacyApplicationScope,
+      values: effectiveRepeatableRowSubmissionData(form, submission_data || {}, {
+        hiddenFieldIds: hiddenRelationshipFieldIds,
+      }),
+      hiddenFieldIds: hiddenRelationshipFieldIds,
+      memberIds: legacyApplicationScope.member_ids,
+      primaryMemberId: legacyApplicationScope.primary_member_id,
+    });
     await preflightPublicMemberSignup({
       db: supabase, form,
       values: effectiveRepeatableRowSubmissionData(
@@ -1404,6 +1418,7 @@ export default async function handler(req, res, dependencies = {}) {
       tenant_id: tenantData.id,
       ...(contract_instance_id && { contract_instance_id }),
       ...(prefill_organization_id && { organization_id: prefill_organization_id }),
+      ...(legacyApplicationScope && { legacy_application_scope: legacyApplicationScope }),
       // For event-linked forms, associate the submission with the form's
       // chosen event so admins can review submissions per event.
       // Survey assignments (Task #3331) take precedence: the event comes

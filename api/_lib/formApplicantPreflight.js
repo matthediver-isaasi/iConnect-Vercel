@@ -212,7 +212,7 @@ export async function preflightApplicantTargets({
   // The processor installs the grant's organization as its explicit prefill,
   // which wins over dropdowns, member organization and mapped name lookups.
   // A mapped name therefore updates this organization; it is not another target.
-  checks.push({ entity: 'organization', column: 'id', value: grant.organization_id });
+  if (grant.organization_id) checks.push({ entity: 'organization', column: 'id', value: grant.organization_id });
   const actions = Array.isArray(form.structured_actions) ? form.structured_actions : form.structured_actions?.actions || [];
   for (const action of actions) {
     // Dynamic selectors/row-scoped target resolvers require their own complete

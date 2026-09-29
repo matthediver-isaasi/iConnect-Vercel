@@ -3,6 +3,25 @@ name: Form applicant authority
 description: Legacy public organisation applications require explicit scoped capabilities, not inferred ownership.
 ---
 
+## Explicit legacy exception approved by the user
+
+The user explicitly accepted the disclosure risk of permanent organisation and
+member IDs and requested restoration for public applications that previously
+worked with those links. The scoped exception is `legacy_public_application`,
+not global ownership and not the default for new forms. The two fixture-proven
+forms are Partner Full Application and University Full Application in the GFI
+tenant. The approved migration cohort additionally includes Freelancer membership,
+PoC Join, Individual, Partner Individual Join, and HoS Join, whose current public
+member/organisation prefill and active mappings establish the historical contract.
+No-prefill forms remain unchanged. Preserve tenant validation and administrator-configured mappings; bind
+the resolved targets to immutable server-owned submission scope for processing
+and retries. Login-required forms and explicit secure invitation modes elsewhere
+remain protected. Do not apply this mode to every public form simply because it
+supports prefill. The migration must be reviewed/applied separately; code changes
+alone do not change production access settings.
+
+The rules below remain applicable outside that deliberately opted-in exception.
+
 Public application links containing an organisation ID are reference/prefill
 evidence, not permission to modify that organisation. Compatibility must preserve
 configured finance/contact updates using server-issued, scoped applicant

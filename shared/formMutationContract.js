@@ -1,5 +1,13 @@
 export const FORM_MUTATION_ACCESS_POLICY_VERSION = 1;
+export function resolveFormAccessOverride(form, mode) {
+  if (mode !== 'none') return { version: FORM_MUTATION_ACCESS_POLICY_VERSION, mode };
+  // Automatic must not revoke a saved, explicitly approved historical contract.
+  // New forms have no such policy and continue through normal safe defaults.
+  return form?.mutation_access_policy?.mode === 'legacy_public_application'
+    ? form.mutation_access_policy : null;
+}
 export const FORM_MUTATION_ACCESS_MODES = Object.freeze({
+  LEGACY_PUBLIC_APPLICATION: 'legacy_public_application',
   APPLICANT_CONTINUATION: 'applicant_continuation',
   AUTHENTICATED_OWNER: 'authenticated_owner',
   PUBLIC_MEMBER_SIGNUP: 'public_member_signup',
@@ -311,11 +319,34 @@ export function assessFormMutationAccess(form = {}) {
   const classification = classifyFormMutationContract(form);
   const policyValidation = validateMutationAccessPolicy(form.mutation_access_policy);
   if (!policyValidation.ok) return { ...classification, ...policyValidation };
-  if (!classification.hasExistingRecordMutation) {
+  if (!classification.hasExistingRecordMutation
+    && policyValidation.policy?.mode !== FORM_MUTATION_ACCESS_MODES.LEGACY_PUBLIC_APPLICATION) {
     return { ...classification, ok: true, policy: policyValidation.policy };
   }
 
   const mode = policyValidation.policy?.mode;
+  if (mode === FORM_MUTATION_ACCESS_MODES.LEGACY_PUBLIC_APPLICATION) {
+    const protectedTargets = new Set([
+      'password', 'password_hash', 'role_id', 'is_admin', 'login_enabled',
+      'member_login_blocked', 'member_login_blocked_at', 'member_login_blocked_by',
+      'member_login_revocation_generation', 'member_login_revoked_at',
+    ]);
+    const mappings = [
+      ...(form.field_mappings || []),
+      ...(Array.isArray(form.entity_pipelines) ? form.entity_pipelines
+        : Object.values(form.entity_pipelines || {}).flatMap(group => Array.isArray(group) ? group : []))
+        .flatMap(pipeline => pipeline.mappings || []),
+    ];
+    const hasAccountWrites = mappings.some(mapping =>
+      (mapping.target_type || 'core') === 'core'
+      && protectedTargets.has(mapping.target_field || mapping.target_field_id));
+    return {
+      ...classification,
+      ok: form.require_authentication !== true && !classification.hasUnsupportedApplicantContinuationMutation && !hasAccountWrites,
+      policy: policyValidation.policy,
+      error: 'Legacy public application links require a public form with supported organisation/member mappings.',
+    };
+  }
   if (mode === FORM_MUTATION_ACCESS_MODES.PUBLIC_MEMBER_SIGNUP) {
     if (form.require_authentication !== true
       && classification.mutationTargets.length === 1

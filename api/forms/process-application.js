@@ -1,3 +1,4 @@
+import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { preflightApplicantTargets, preflightPublicMemberSignup, isPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
@@ -918,7 +919,7 @@ export default async function handler(req, res, {
       verifiedAdminAccess: verified_admin_access,
     });
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
-      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes')
+      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes, legacy_application_scope')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
       supabase.from('form').select('*')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
@@ -1316,13 +1317,20 @@ export default async function handler(req, res, {
       persistedSubmission,
       requestedOrganizationId: prefill_organization_id,
     });
+    const legacyApplicationScope = await loadLegacyApplicationScope({
+      db: supabase, form: persistedForm, submission: persistedSubmission,
+    });
+    if (legacyApplicationScope) {
+      prefillTargets.organizationId = legacyApplicationScope.organization_id;
+      prefillTargets.memberId = legacyApplicationScope.primary_member_id || null;
+    }
     prefill_member_id = prefillTargets.memberId || null;
     prefill_organization_id = applicantGrant?.organization_id || prefillTargets.organizationId || null;
     const processingAuthorization = {
       isAdmin: authorizedAdmin,
       verifiedMemberId: authenticatedSubmitterMember?.id || null,
-      verifiedApplicantMemberIds: applicantMemberIds,
-      verifiedOrganizationId: applicantGrant?.organization_id || authenticatedSubmitterMember?.organization_id || null,
+      verifiedApplicantMemberIds: legacyApplicationScope?.member_ids || applicantMemberIds,
+      verifiedOrganizationId: legacyApplicationScope?.organization_id || applicantGrant?.organization_id || authenticatedSubmitterMember?.organization_id || null,
       // The form configuration is persisted by an administrator and reloaded
       // server-side. A signed submission flow may therefore create/upsert an
       // Organisation Group without granting the respondent general group
@@ -1726,10 +1734,10 @@ export default async function handler(req, res, {
     // Versioned structured actions are an authoritative persisted contract.
     // The executor reloads both the form configuration and answers; request
     // copies are deliberately ignored. Legacy processing below remains intact.
-    if (applicantGrant) await preflightApplicantTargets({
-      db: supabase, form: persistedForm, grant: applicantGrant, values: form_values,
+    if (applicantGrant || legacyApplicationScope) await preflightApplicantTargets({
+      db: supabase, form: persistedForm, grant: applicantGrant || legacyApplicationScope, values: form_values,
       hiddenFieldIds: hiddenSubmissionFieldIds,
-      memberIds: [...applicantMemberIds, authenticatedSubmitterMember?.id].filter(Boolean),
+      memberIds: [...(legacyApplicationScope?.member_ids || applicantMemberIds), authenticatedSubmitterMember?.id].filter(Boolean),
       primaryMemberId: singlePersistedCreationId(persistedEntityCreations, 'member') || prefill_member_id,
       createdMemberIds: persistedEntityCreations.member, applyTransformation,
     });
@@ -3653,7 +3661,7 @@ export default async function handler(req, res, {
           if (memberData.landline) memberUpdateData.landline = memberData.landline;
           
           // Determine effective role_id from multiple sources
-          const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured
+          const effectiveRoleIdForUpdate = legacyApplicationScope || primaryMemberRoleAssignment.configured
             ? undefined
             : (memberData.role_id !== undefined ? memberData.role_id : role_id);
           console.log('[AppProcessor] Role ID resolution (update):', { 
@@ -3717,7 +3725,7 @@ export default async function handler(req, res, {
           }
           
           // Add login_enabled from pipeline config if specified
-          if (memberData.login_enabled !== undefined) {
+          if (!legacyApplicationScope && memberData.login_enabled !== undefined) {
             memberUpdateData.login_enabled = memberData.login_enabled;
             console.log('[AppProcessor] Adding pipeline login_enabled to member update:', memberData.login_enabled);
           }
@@ -4674,6 +4682,12 @@ export default async function handler(req, res, {
           const checkpointMemberId = persistedPipelineTargetId('member', memberConfig);
           if (String(checkpointMemberId || '') !== String(existingMemberId)) {
             await assertLegacyExistingRecordAuthorized('member', existingMemberId);
+          }
+          // Application record links never authorize existing account-security changes.
+          if (legacyApplicationScope) {
+            for (const key of ['role_id', 'login_enabled', 'password', 'password_hash', 'is_admin']) {
+              delete additionalMemberData[key];
+            }
           }
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
 

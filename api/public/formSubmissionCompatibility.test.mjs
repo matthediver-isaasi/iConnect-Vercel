@@ -15,6 +15,71 @@ import {
 import { hashApplicantToken } from '../_lib/formApplicantContinuation.js';
 
 const ORGANIZATION_ID = '7dc51049-90dc-42cf-9567-2b128321c21c';
+test('legacy member-ID application submits and updates only configured member fields without login', async () => {
+  const form = { ...compatibilityForm(), organization_entity_action: 'none', member_entity_action: 'update',
+    mutation_access_policy: { version: 1, mode: 'legacy_public_application' },
+    fields: [{ id: 'email', type: 'email' }, { id: 'first', type: 'text' }],
+    entity_pipelines: { organisations: [], members: [{ id: 'primary-member', isPrimary: true, mappings: [
+      { id: 'email-map', source_type: 'field', source_field_id: 'email', target_type: 'core', target_field: 'email' },
+      { id: 'first-map', source_type: 'field', source_field_id: 'first', target_type: 'core', target_field: 'first_name' },
+    ] }] },
+  };
+  const result = await submitThroughRealProcessor({
+    form, prefillMemberId: 'existing-member', submissionData: { email: 'member@example.test', first: 'Updated', password_hash: 'forged' },
+    processorOptions: { existingMember: { id: 'existing-member', tenant_id: TENANT_ID, email: 'member@example.test', first_name: 'Before' } },
+  });
+  assert.equal(result.response.statusCode, 201, JSON.stringify(result.response.body));
+  assert.equal(result.processorResults[0].response.statusCode, 200, JSON.stringify(result.processorResults[0].response.body));
+  assert.ok(result.processorResults[0].updates.some(({ table, payload }) => table === 'member' && payload.first_name === 'Updated'));
+  assert.ok(!result.processorResults[0].updates.some(({ payload }) => payload?.password_hash));
+});
+test('legacy plain submission preflights unrelated contact before persisting or updating organisation', async () => {
+  const base = compatibilityForm({ mutatePhone: true });
+  const form = { ...base, member_entity_action: 'update',
+    mutation_access_policy: { version: 1, mode: 'legacy_public_application' },
+    fields: [...base.fields, { id: 'email', type: 'email' }],
+    entity_pipelines: { ...base.entity_pipelines, members: [{ id: 'primary-member', isPrimary: true, mappings: [
+      { source_type: 'field', source_field_id: 'email', target_type: 'core', target_field: 'email' },
+    ] }] },
+  };
+  const result = await submitThroughRealProcessor({
+    form, prefillOrganizationId: ORGANIZATION_ID,
+    submissionData: { organisation: ORGANIZATION_ID, org_phone: 'changed', email: 'unrelated@example.test' },
+    processorOptions: {
+      existingOrganization: { id: ORGANIZATION_ID, tenant_id: TENANT_ID, name: 'Selected' },
+      existingMember: { id: 'unrelated', tenant_id: TENANT_ID, organization_id: 'other', email: 'unrelated@example.test' },
+    },
+  });
+  assert.equal(result.response.statusCode, 403, JSON.stringify(result.response.body));
+  assert.equal(result.insertedSubmissions.length, 0);
+  assert.equal(result.handoffs.length, 0);
+});
+test('opted-in legacy public organisation link submits and updates through real processing without login', async () => {
+  const form = { ...compatibilityForm({ mutatePhone: true }),
+    require_authentication: false,
+    mutation_access_policy: { version: 1, mode: 'legacy_public_application' } };
+  const result = await submitThroughRealProcessor({
+    form, prefillOrganizationId: ORGANIZATION_ID,
+    submissionData: { organisation: ORGANIZATION_ID, org_phone: '020 7000 4710' },
+    processorOptions: { existingOrganization: { id: ORGANIZATION_ID, tenant_id: TENANT_ID, name: 'Selected organization', phone: 'old' } },
+  });
+  assert.equal(result.response.statusCode, 201, JSON.stringify(result.response.body));
+  assert.equal(result.processorResults[0].response.statusCode, 200, JSON.stringify(result.processorResults[0].response.body));
+  assert.ok(result.processorResults[0].updates.some(({ table }) => table === 'organization'));
+});
+test('opted-in legacy link rejects an organisation from another tenant before saving', async () => {
+  const form = { ...compatibilityForm({ mutatePhone: true }),
+    require_authentication: false,
+    mutation_access_policy: { version: 1, mode: 'legacy_public_application' } };
+  const result = await submitThroughRealProcessor({
+    form, prefillOrganizationId: ORGANIZATION_ID,
+    submissionData: { organisation: ORGANIZATION_ID, org_phone: '020 7000 4710' },
+    processorOptions: { existingOrganization: { id: ORGANIZATION_ID, tenant_id: 'other-tenant', name: 'Other tenant' } },
+  });
+  assert.notEqual(result.response.statusCode, 201);
+  assert.equal(result.insertedSubmissions.length, 0);
+  assert.equal(result.handoffs.length, 0);
+});
 for (const scenario of [
   { name: 'verified owner', memberTenant: TENANT_ID, memberOrg: ORGANIZATION_ID, status: 201 },
   { name: 'verified administrator', adminTenant: TENANT_ID, status: 201 },
@@ -292,6 +357,22 @@ test('partner incident: repaired policy rejects bare organisation IDs and legacy
 });
 
 for (const fixture of sanitizedFixtures) {
+  test(`sanitized GFI ${fixture.formId}: opted-in public link preserves configured application processing`, async () => {
+    const form = { ...continuationForm(fixture),
+      mutation_access_policy: { version: 1, mode: 'legacy_public_application' } };
+    const organization = { id: 'fixture-organization', tenant_id: form.tenant_id, name: 'Existing fixture organization' };
+    const result = await submitThroughRealProcessor({
+      form, submissionData: { ...fixtureAnswers(form, organization.id), password_hash: 'hostile-unconfigured-value' },
+      prefillOrganizationId: organization.id,
+      processorOptions: { existingOrganization: organization,
+        preferenceFields: fixturePreferenceFields(form), roles: fixtureRoles(form) },
+    });
+    assert.equal(result.response.statusCode, 201, JSON.stringify(result.response.body));
+    assert.equal(result.processorResults[0].response.statusCode, 200, JSON.stringify(result.processorResults[0].response.body));
+    assert.equal(result.insertedSubmissions[0].legacy_application_scope.organization_id, organization.id);
+    assert.ok(result.processorResults[0].updates.some(({ table }) => table === 'organization'));
+    assert.ok(!result.processorResults[0].updates.some(({ payload }) => payload?.password_hash));
+  });
   test(`sanitized GFI ${fixture.formId}: continuation preserves configured mutation scope`, async () => {
     const form = continuationForm(fixture);
     const token = 'C'.repeat(43);

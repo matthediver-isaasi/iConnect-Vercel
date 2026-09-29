@@ -127,7 +127,10 @@ function makeSupabase({
           return { data: null, error: idempotencyLookupError };
         }
         if (this.selected === 'organization_id') return { data: { organization_id: submission.organization_id || null }, error: null };
-        return { data: submission, error: null };
+        return { data: this.selected && this.selected !== '*'
+          ? Object.fromEntries(this.selected.split(',').map(key => key.trim())
+            .map(key => [key, submission[key]]))
+          : submission, error: null };
       }
       if (this.table === 'form_applicant_continuation') {
         const submissionId = this.filters.find(
@@ -263,6 +266,9 @@ function makeSupabase({
       }
       if (this.table === 'member' && !this.updatePayload) {
         const candidate = existingMember || submitterMember;
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const tenantId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'tenant_id')?.[2];
+        if (candidate && id === candidate.id && (!tenantId || candidate.tenant_id === tenantId)) data = [candidate];
         const email = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'email')?.[2];
         const organizationId = this.filters.find(
           filter => filter[0] === 'eq' && filter[1] === 'organization_id',

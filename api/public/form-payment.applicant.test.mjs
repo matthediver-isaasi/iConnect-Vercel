@@ -2,6 +2,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import handler from './form-payment.js';
 
+for (const action of ['create', 'create_monthly_card']) {
+  test(`legacy ${action} preflights unrelated mapped member before payment preparation`, async () => {
+    const form = { id: 'form', tenant_id: 'tenant', is_active: true, require_authentication: false,
+      mutation_access_policy: { version: 1, mode: 'legacy_public_application' },
+      member_entity_action: 'update', organization_entity_action: 'none',
+      fields: [{ id: 'email', type: 'email' }],
+      entity_pipelines: { organisations: [], members: [{ id: 'primary', isPrimary: true, mappings: [
+        { source_type: 'field', source_field_id: 'email', target_type: 'core', target_field: 'email' },
+      ] }, { id: 'additional', isPrimary: false, mappings: [
+        { source_type: 'field', source_field_id: 'email', target_type: 'core', target_field: 'email' },
+      ] }] },
+    };
+    const db = { from(table) {
+      assert.ok(['form', 'member'].includes(table), `No ${table} write or provider preparation before preflight`);
+      const filters = [];
+      return {
+        select() { return this; }, eq(key, value) { filters.push([key, value]); return this; },
+        ilike(key, value) { filters.push([key, value]); return this; }, limit() { return this; },
+        async single() { return { data: form }; },
+        async maybeSingle() { return { data: { id: 'permitted', tenant_id: 'tenant' } }; },
+        then(resolve, reject) {
+          return Promise.resolve({ data: filters.some(([key]) => key === 'email')
+            ? [{ id: 'unrelated' }] : [{ id: 'permitted' }], error: null }).then(resolve, reject);
+        },
+      };
+    } };
+    const res = { statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; } };
+    await handler({ method: 'POST', headers: {}, body: {
+      action, provider: 'stripe', form_id: 'form', prefill_member_id: 'permitted',
+      submission_data: { email: 'unrelated@example.test' },
+    } }, res, { supabase: db, tenantData: { id: 'tenant' } });
+    assert.equal(res.statusCode, 403, JSON.stringify(res.body));
+    assert.match(res.body.error, /outside.*scope/);
+  });
+}
+
 for (const action of ['quote', 'create', 'create_monthly_card']) {
   for (const scenario of [
     { name: 'owner', memberTenant: 'tenant', memberOrg: 'org', allowed: true },

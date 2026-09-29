@@ -46,6 +46,7 @@ const orgHistoryInput = page => page.getByRole("textbox").nth(1);
 async function fixture(page, {
   invalidToken = false,
   referenceOnly = false,
+  legacyPublicApplication = false,
   membershipPayment = false,
   boundDraft = false,
   authenticatedOwner = false,
@@ -112,7 +113,10 @@ async function fixture(page, {
       }],
     }],
   } : updateForm;
-  const form = referenceOnly ? {
+  const form = legacyPublicApplication ? {
+    ...baseForm,
+    mutation_access_policy: { version: 1, mode: "legacy_public_application" },
+  } : referenceOnly ? {
     ...baseForm,
     id: `${FORM_ID}-reference`,
     slug: `${SLUG}-reference`,
@@ -292,6 +296,41 @@ test("missing and invalid credentials warn before submit", async ({ page }) => {
   await expect(invalidPage.getByTestId("applicant-continuation-error")).toContainText("invalid or has expired");
   await expect(invalidPage.getByTestId("button-submit-form")).toBeDisabled();
   expect(invalid.state.submissions).toHaveLength(0);
+});
+
+test("legacy public application accepts an ordinary organisation link without a token", async ({ page }) => {
+  const { state, form } = await fixture(page, { legacyPublicApplication: true });
+  await page.goto(`/FormView?slug=${form.slug}&organization_id=${ORG_ID}`);
+  await expect(answerInput(page)).toBeVisible();
+  await answerInput(page).fill("Ordinary organisation application");
+  await expect(page.getByTestId("applicant-continuation-error")).toHaveCount(0);
+  await expect(page.getByTestId("button-submit-form")).toBeEnabled();
+  await page.getByTestId("button-submit-form").click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].prefill_organization_id).toBe(ORG_ID);
+  expect(state.submissions[0].applicant_continuation_token).toBeUndefined();
+  expect(state.submissions[0].resume_token).toBeUndefined();
+  expect(state.verifications).toEqual([]);
+  expect(state.unexpectedWrites).toEqual([]);
+  await expect(page.getByText("Success!", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "screenshots/legacy-public-application.jpg", type: "jpeg", fullPage: true });
+});
+
+test("legacy public application carries an ordinary member ID without a token", async ({ page }) => {
+  const memberId = "existing-applicant-member";
+  const { state, form } = await fixture(page, { legacyPublicApplication: true });
+  await page.goto(`/FormView?slug=${form.slug}&member_id=${memberId}`);
+  await expect(answerInput(page)).toBeVisible();
+  await answerInput(page).fill("Ordinary member application");
+  await expect(page.getByTestId("applicant-continuation-error")).toHaveCount(0);
+  await expect(page.getByTestId("button-submit-form")).toBeEnabled();
+  await page.getByTestId("button-submit-form").click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].prefill_member_id).toBe(memberId);
+  expect(state.submissions[0].applicant_continuation_token).toBeUndefined();
+  expect(state.submissions[0].resume_token).toBeUndefined();
+  expect(state.verifications).toEqual([]);
+  expect(state.unexpectedWrites).toEqual([]);
 });
 
 test("reference-only form is unaffected by disabled credential query", async ({ page }) => {

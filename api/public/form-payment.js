@@ -1,3 +1,4 @@
+import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 /**
  * POST /api/public/form-payment (Task #3483)
  *
@@ -337,22 +338,26 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form, depen
     requestedOrganizationId: req.body?.prefill_organization_id,
     verifiedMember, verifiedAdminAccess,
   });
-  if (applicantGrant && ['create', 'create_monthly_card'].includes(req.body?.action)) {
+  const legacyApplicationScope = await createLegacyApplicationScope({
+    db: supabase, form, organizationId, memberId: req.body?.prefill_member_id,
+  });
+  if ((applicantGrant || legacyApplicationScope) && ['create', 'create_monthly_card'].includes(req.body?.action)) {
     const answers = req.body.submission_data || {};
     const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
     const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
       db: supabase, tenantId: tenantData.id, form, formValues: answers, visibilityOptions,
     });
-    const memberIds = await loadApplicantMemberScope({ db: supabase, form, grant: applicantGrant });
+    const memberIds = legacyApplicationScope?.member_ids
+      || await loadApplicantMemberScope({ db: supabase, form, grant: applicantGrant });
     await preflightApplicantTargets({
-      db: supabase, form, grant: applicantGrant, hiddenFieldIds,
+      db: supabase, form, grant: applicantGrant || legacyApplicationScope, hiddenFieldIds,
       memberIds: [...memberIds, verifiedSubmitterMemberId].filter(Boolean),
-      primaryMemberId: verifiedSubmitterMemberId,
+      primaryMemberId: legacyApplicationScope?.primary_member_id || verifiedSubmitterMemberId,
       values: effectiveRepeatableRowSubmissionData(form, answers, { hiddenFieldIds }),
     });
   }
-  return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess, applicantGrant, organizationId };
+  return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess, applicantGrant, organizationId, legacyApplicationScope };
 }
 
 export async function validatePaymentRelationships(
@@ -829,6 +834,7 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData, dependenc
       payment_status: 'pending', payment_provider: 'stripe_monthly_card',
       ...(access.applicantGrant ? { organization_id: access.applicantGrant.organization_id } : {}),
       payment_amount: offer.monthlyAmount, payment_currency: offer.currency,
+      ...(access.legacyApplicationScope && { legacy_application_scope: access.legacyApplicationScope }),
       payment_meta: withFormPaymentAccessProof({ prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
         verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
         verified_admin_access: access.verifiedAdminAccess === true,
@@ -1368,6 +1374,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   }
   if (!submissionRow) {
     const insertRecord = {
+      ...(access.legacyApplicationScope && { legacy_application_scope: access.legacyApplicationScope }),
       form_id: form.id,
       form_name: form.name,
       tenant_id: tenantData.id,

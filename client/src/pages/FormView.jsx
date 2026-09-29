@@ -925,6 +925,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // usable without an applicant capability.
     const explicitlyGated = form?.mutation_access_policy?.mode === 'applicant_continuation';
     if (publicExistingOrganizationUpdate
+      && form?.mutation_access_policy?.mode !== 'legacy_public_application'
       && (explicitlyGated || !!resolvedOrgIdForSubmission)
       && !applicantContinuationGrant
       && !(applicantVerificationActive && applicantVerification.isPending)
@@ -2904,6 +2905,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       created_date: new Date().toISOString(),
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
+      ...(form?.mutation_access_policy?.mode === 'legacy_public_application' && urlPrefillMemberId
+        ? { prefill_member_id: urlPrefillMemberId } : {}),
       ...(applicantContinuationToken && {
         applicant_continuation_token: applicantContinuationToken,
       }),

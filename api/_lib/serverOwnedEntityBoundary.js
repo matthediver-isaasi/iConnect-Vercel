@@ -8,6 +8,7 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([
+  ['formsubmission', new Set(['legacy_application_scope'])],
   // This is retry bookkeeping owned by the due-diligence stage-action
   // processor. FormSubmissionDueDiligence itself remains available through
   // the generic entity API; only this server-owned field is protected.
