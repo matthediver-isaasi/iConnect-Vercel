@@ -1,6 +1,9 @@
 attached_assets/Individuals_to_import_into_iConnect_28.09.26_1790621340218.xlsx
 exports/bnms-september-import/
 node_modules
+# Private applicant examples are not regression fixtures.
+attached_assets/1790691133442-1ut5yo9-Leadership_Team_Member_Jennifer_Moorby_1790691965099.pdf
+attached_assets/Screenshot_2026-09-29_at_16.21.34_1790691719538.png
 dist
 .DS_Store
 server/public
