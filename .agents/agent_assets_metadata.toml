@@ -1069,3 +1069,17 @@ mtime_ms = 1790627343426
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/48e1deec-f9d1-4a7e-93b8-d06e213ffc80/711150e0-6b29-4061-b09d-0681b78d0613"
 storage_version_token = "1790627356139068"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "8B5UX9kB6tXK-wQG5itYk"
+uri = "file://guides/direct-debit-membership-renewals-user-guide.pdf"
+type = "pdf"
+title = "Direct Debit Membership Renewals — User Guide"
+description = "Searchable 10-page administrator guide with member journeys, worked examples, checklist and File Repository upload instructions."
+logical_id = "8b5b0ab7-5bbd-48df-9acb-57fcc3a2ff78"
+content_hash = "sha256:c3e59f3af7c55acf764e7121e3e7d55ca9eba858fec27549d84266c88b4fbc5e"
+size = 73445
+mtime_ms = 1790666294023
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b5b0ab7-5bbd-48df-9acb-57fcc3a2ff78/94d72df9-61dc-4308-87b8-f22a0b75f199"
+storage_version_token = "1790666345131900"
+content_type = "application/pdf"
