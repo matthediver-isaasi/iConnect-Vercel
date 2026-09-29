@@ -42,3 +42,17 @@ update the form without weakening record ownership checks.
 **How to apply:** Obtain approval for the exact production policy change. Do not
 equate a successful form edit with proof of anonymous applicant completion, or
 apply organisation-scoped policy wholesale to member-only signup forms.
+
+## Keep ordinary form setup based on existing settings
+Use Require login and Save & Continue as the ordinary administrator concepts.
+Do not introduce manual applicant invitations as the default workflow or ask for
+a duplicate access-policy decision when normal settings determine it safely.
+
+**Why:** The user explicitly rejected reinventing prefill and resume workflows
+around staff-issued invitations. Security must support those workflows without
+turning every form into an invitation-only application.
+
+**How to apply:** Keep exceptional scoped invitations advanced and distinguish
+per-invitation organisation selection from form-wide configuration. Preserve
+record-owner checks and existing explicit policies; simplifying setup is not
+approval to grant anonymous updates or change live form admission settings.

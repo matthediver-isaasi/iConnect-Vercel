@@ -385,7 +385,7 @@ export function assessFormMutationAccess(form = {}) {
       ? 'Public member pipelines resolve identity matches such as email as upserts, so they are not a create-only signup contract. Public collision-safe member creation is not currently supported: require login and choose authenticated-owner access. Existing-record updates will not be silently dropped.'
       : form.require_authentication
       ? 'Choose authenticated-owner access for existing member or organisation updates. Login alone does not authorize an arbitrary selected organisation.'
-      : 'Public existing-organisation updates require server-verified applicant continuation. Reference-only selection does not require this access.',
+      : 'This public form can update existing organisations. Turn on Require login so verified owners can update their records, or remove the organisation update mappings for a reference-only enquiry. If invited applicants must update an organisation without login, configure scoped invitation access in Advanced access. Login, an email match and Save & Continue do not grant ownership.',
   };
 }
 
@@ -412,7 +412,13 @@ export function validateFormMutationAccessSave({
   previousForm = null,
   isCreate = false,
 } = {}) {
-  const assessment = assessFormMutationAccess(form || {});
+  // Do not rewrite unchanged legacy configurations: continuation grants and
+  // drafts may be bound to their exact persisted configuration.
+  const unchanged = !isCreate && previousForm
+    && previousForm.is_active === form?.is_active
+    && !hasFormMutationConfigChanged(previousForm, form);
+  const normalized = unchanged ? form : normalizeFormMutationAccess(form);
+  const assessment = assessFormMutationAccess(normalized || {});
   if (assessment.code === 'INVALID_FORM_MUTATION_ACCESS_POLICY') return assessment;
   if (form?.is_active === false) {
     return assessment.ok
@@ -435,4 +441,21 @@ export function validateFormMutationAccessSave({
     return { ...assessment, ok: true, legacyCompatibility: true };
   }
   return assessment;
+}
+
+/**
+ * Save-time defaults only, never respondent/runtime authority. Explicit modes
+ * (including continuation) remain untouched and are validated independently.
+ */
+export function normalizeFormMutationAccess(form = {}) {
+  if (form.mutation_access_policy != null
+    || !classifyFormMutationContract(form).hasExistingRecordMutation) return form;
+  const mode = form.require_authentication === true
+    ? FORM_MUTATION_ACCESS_MODES.AUTHENTICATED_OWNER
+    : FORM_MUTATION_ACCESS_MODES.PUBLIC_MEMBER_SIGNUP;
+  const candidate = {
+    ...form,
+    mutation_access_policy: { version: FORM_MUTATION_ACCESS_POLICY_VERSION, mode },
+  };
+  return assessFormMutationAccess(candidate).ok ? candidate : form;
 }

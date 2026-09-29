@@ -6,9 +6,49 @@ import {
   classifyFormMutationContract,
   FORM_RECORD_ACCESS,
   hasFormMutationConfigChanged,
+  normalizeFormMutationAccess,
   supportsApplicantContinuationIssuance,
   validateFormMutationAccessSave,
 } from './formMutationContract.js';
+
+test('save derives normal policies, preserves explicit contracts and never grants public organisation authority', () => {
+  const member = { is_active: true, require_authentication: false,
+    entity_pipelines: { members: [{ mappings: [{ target_field: 'email' }] }] } };
+  const org = { ...member, entity_pipelines: {
+    organisations: [{ mappings: [{ target_field: 'phone' }] }],
+  } };
+  const save = form => validateFormMutationAccessSave({ form, isCreate: true });
+  assert.equal(save(member).policy.mode, 'public_member_signup');
+  assert.equal(save({ ...member, require_authentication: true }).policy.mode, 'authenticated_owner');
+  assert.equal(save({ ...org, require_authentication: true }).policy.mode, 'authenticated_owner');
+  assert.equal(save(org).ok, false);
+  assert.equal(normalizeFormMutationAccess(org), org);
+  assert.match(save(org).error, /Require login.*reference-only enquiry.*Advanced access/);
+  const explicit = { ...org, mutation_access_policy: { version: 1, mode: 'applicant_continuation' } };
+  assert.equal(normalizeFormMutationAccess(explicit), explicit);
+  assert.equal(save({ ...explicit, require_authentication: true }).policy.mode, 'applicant_continuation');
+  const owner = { ...org, require_authentication: false,
+    mutation_access_policy: { version: 1, mode: 'authenticated_owner' } };
+  assert.equal(save(owner).ok, false, 'auth toggle must not silently replace explicit authority');
+  assert.equal(save({ ...member, mutation_access_policy: { version: 99, mode: 'unknown' } }).ok, false);
+  const renamed = validateFormMutationAccessSave({ form: { ...member, name: 'New title' }, previousForm: member });
+  assert.equal(renamed.legacyCompatibility, true);
+  assert.equal(renamed.policy, undefined, 'unchanged legacy configuration is not rewritten');
+  const authToggle = validateFormMutationAccessSave({
+    form: { ...org, require_authentication: true }, previousForm: org,
+  });
+  assert.equal(authToggle.policy.mode, 'authenticated_owner');
+});
+
+test('both server write boundaries persist derived policy without requiring it in the request', () => {
+  for (const path of ['../api/entities/[entity]/index.js', '../api/entities/[entity]/[id].js']) {
+    const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.match(source, /if \(mutationAccessValidation.policy \|\| Object.prototype.hasOwnProperty.call\(sanitizedBody, 'mutation_access_policy'\)\)/);
+  }
+  const builder = readFileSync(new URL('../client/src/pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.match(builder, /assessFormMutationAccess\(normalizeFormMutationAccess\(formData\)\)/);
+  assert.match(builder, /<details[^>]*data-testid="advanced-form-access"[\s\S]*<ApplicantContinuationLinkGenerator[\s\S]*<\/details>/);
+});
 
 test('classifies current mapped updates and legacy create separately', () => {
   const current = classifyFormMutationContract({
@@ -378,10 +418,10 @@ test('public member signup is an explicit member-only save contract, not a draft
   const draft = { ...form, is_active: false, mutation_access_policy: null };
   assert.equal(validateFormMutationAccessSave({ form: draft, isCreate: true }).ok, true);
   assert.equal(assessFormMutationAccess(draft).ok, false, 'saving a draft grants no runtime authority');
-  assert.equal(validateFormMutationAccessSave({ form: { ...draft, is_active: true }, isCreate: true }).ok, false);
+  assert.equal(validateFormMutationAccessSave({ form: { ...draft, is_active: true }, isCreate: true }).policy.mode, 'public_member_signup');
 });
 
-test('six inactive legacy member drafts remain editable without gaining submission authority', () => {
+test('inactive legacy drafts remain editable; compatible member signup activates automatically', () => {
   const variations = [
     { entity_pipelines: { members: [{ mappings: [{ source_field_id: 'email', target_type: 'core', target_field: 'email' }] }], organisations: [] } },
     { entity_pipelines: null, create_entity_type: 'member', member_entity_action: 'update',
@@ -403,7 +443,7 @@ test('six inactive legacy member drafts remain editable without gaining submissi
     assert.equal(assessFormMutationAccess(form).ok, false);
     assert.equal(validateFormMutationAccessSave({
       form: { ...form, is_active: true }, isCreate: true,
-    }).ok, false);
+    }).ok, !variation.structured_actions);
   }
 });
 
@@ -430,7 +470,7 @@ test('inactive drafts save and unchanged active legacy forms remain compatible',
     previousForm: legacy,
   });
   assert.equal(draft.ok, true);
-  assert.match(draft.draftWarning, /applicant continuation/i);
+  assert.match(draft.draftWarning, /Require login/);
   assert.equal(validateFormMutationAccessSave({
     form: { ...legacy, fields: [{ id: 'changed' }] },
     previousForm: legacy,

@@ -1334,7 +1334,7 @@ export default async function handler(req, res, dependencies = {}) {
             mutation_targets: mutationAccessValidation.mutationTargets,
           });
         }
-        if (Object.prototype.hasOwnProperty.call(sanitizedBody, 'mutation_access_policy')) {
+        if (mutationAccessValidation.policy || Object.prototype.hasOwnProperty.call(sanitizedBody, 'mutation_access_policy')) {
           sanitizedBody.mutation_access_policy = mutationAccessValidation.policy;
         }
       }

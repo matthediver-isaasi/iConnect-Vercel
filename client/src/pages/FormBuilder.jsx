@@ -162,6 +162,7 @@ import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
   assessFormMutationAccess,
+  normalizeFormMutationAccess,
   FORM_MUTATION_ACCESS_MODES,
   supportsApplicantContinuationIssuance,
   validateFormMutationAccessSave,
@@ -11953,7 +11954,7 @@ export default function FormBuilderPage() {
   });
 
   const mutationAccessAssessment = useMemo(
-    () => assessFormMutationAccess(formData),
+    () => assessFormMutationAccess(normalizeFormMutationAccess(formData)),
     [formData],
   );
   const publicMemberSignupEligible = canUsePublicMemberSignup(formData);
@@ -13709,7 +13710,8 @@ export default function FormBuilderPage() {
                           {mutationAccessAssessment.mutationTargets.includes('member')
                             ? 'Member mappings can change a record that already exists. '
                             : ''}
-                          Choose how the server will verify the respondent. Selecting a record by itself never grants update access.
+                          Require login automatically uses verified record-owner access. Compatible public member signup forms automatically allow new members; existing records still require their verified owner.
+                          Save &amp; Continue saves answers, not permission to update a selected record.
                         </p>
                         {!mutationAccessAssessment.ok && (
                           <p className="text-xs font-medium text-amber-800">
@@ -13718,9 +13720,16 @@ export default function FormBuilderPage() {
                         )}
                       </div>
                     </div>
+                    <details className="space-y-3" data-testid="advanced-form-access">
+                      <summary className="cursor-pointer text-sm font-medium">Advanced access — existing policies and scoped invitations</summary>
+                      <p className="text-xs text-muted-foreground">
+                        Normal forms need no extra access setting or organisation selection.
+                        Existing explicit policies are preserved. If changing Require login conflicts with an existing policy, select Automatic below to deliberately replace it on save.
+                        Changing access configuration can invalidate previously issued invitation links.
+                      </p>
                     <div className="max-w-md space-y-1">
                       <Label htmlFor="mutation_access_policy" className="text-xs">
-                        Verified update access
+                        Access policy override
                       </Label>
                       <Select
                         value={formData.mutation_access_policy?.mode || 'none'}
@@ -13735,7 +13744,7 @@ export default function FormBuilderPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">Choose verified access…</SelectItem>
+                          <SelectItem value="none">Automatic — use normal form settings</SelectItem>
                           <SelectItem
                             value={FORM_MUTATION_ACCESS_MODES.APPLICANT_CONTINUATION}
                             disabled={
@@ -13774,7 +13783,7 @@ export default function FormBuilderPage() {
                         && !formData.require_authentication && (
                         <p className="text-xs font-medium text-amber-900">
                           Modern member pipelines match identities such as email as upserts, even when used for signup.
-                          Select public new-member signup to allow new records while requiring verified owner access for existing members.
+                          Compatible public member signup is configured automatically on save, while existing members still require verified owner access.
                           Existing-member updates will not be silently discarded.
                         </p>
                       )}
@@ -13789,6 +13798,7 @@ export default function FormBuilderPage() {
                         form={{ ...formData, id: formId }}
                       />
                     )}
+                    </details>
                   </div>
                 )}
                 <StructuredRecordActionsEditor

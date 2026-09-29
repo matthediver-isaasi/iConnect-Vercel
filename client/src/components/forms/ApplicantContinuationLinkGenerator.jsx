@@ -92,7 +92,8 @@ export default function ApplicantContinuationLinkGenerator({ form }) {
       <div>
         <h3 className="text-sm font-semibold">Secure applicant continuation link</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Select the organisation this applicant may update. The link is not sent automatically.
+          Select the organisation for this invitation only, not for the whole form. Each invitation is scoped to one applicant continuation.
+          The link is not sent automatically. Save any form changes before generating a link.
         </p>
       </div>
       <div className="space-y-2">
