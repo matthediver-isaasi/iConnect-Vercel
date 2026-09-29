@@ -257,7 +257,7 @@ export default function EmailCampaignEdit() {
     is_test_mode: false
   });
   const [editorMode, setEditorMode] = useState('visual');
-  const hasSurveyToken = /\{\{event_(?:survey_url|sponsors)\}\}|\[\[event\.(?:survey_url|sponsors)\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
+  const hasSurveyToken = /\{\{(?:event_(?:survey_url|survey_list|sponsors)|attendee_(?:first_name|last_name|name|email))\}\}|\[\[(?:event\.(?:survey_url|sponsors)|event_survey_list|attendee\.(?:first_name|last_name|email))\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
   const { data: surveyPreview, error: surveyPreviewError } = useQuery({
     queryKey: ['campaign-event-survey-preview', formData.event_survey_context, formData.subject, formData.html_content],
     enabled: hasSurveyToken,

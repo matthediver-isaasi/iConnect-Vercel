@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveCampaignEventSurvey, replaceEventSurvey, resolveEventEmailSurvey } from './campaignEventSurvey.js';
+import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { sanitizeSlotHtml } from './slotHtmlSanitizer.js';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -129,7 +130,7 @@ test('actual per-recipient send resolves subject, body and tracked button; retri
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer,
-    supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
+    supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
     isStandaloneCampaignPreferencePlaceholder,
     replacePlaceholders: text => text,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },

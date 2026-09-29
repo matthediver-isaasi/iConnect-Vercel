@@ -12,6 +12,7 @@ import { getHostFromRequest } from '../_lib/tenantResolver.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
+import { resolveCampaignAttendeeContent } from '../_lib/campaignAttendeeContent.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 25;
@@ -156,6 +157,7 @@ export default async function handler(req, res) {
     try {
       // The source path resolves dynamic slots and event context in the live pipeline.
       if (!sourceRecipient) {
+        await resolveCampaignAttendeeContent(supabase, campaign, tenantId, null);
         const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantId);
         const sponsors = await resolveCampaignEventSponsors(supabase, campaign, tenantId);
         if (sponsors !== null) campaign.html_content = replaceEventSponsors(campaign.html_content, sponsors);

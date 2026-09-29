@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
+import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
@@ -3423,6 +3424,9 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
       subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
     }
+    const attendeeContent = await resolveCampaignAttendeeContent(supabase, { ...campaign, html_content: html, subject }, tenantId, recipient);
+    html = attendeeContent.html;
+    subject = attendeeContent.subject;
     const surveyUrl = await resolveCampaignEventSurvey(supabase, { ...campaign, html_content: html, subject }, tenantId);
     const sponsors = await resolveCampaignEventSponsors(supabase, { ...campaign, html_content: html, subject }, tenantId);
     if (sponsors !== null) html = replaceEventSponsors(html, sponsors);

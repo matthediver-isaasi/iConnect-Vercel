@@ -6,6 +6,8 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey, resolveEventEmailSurvey } from './campaignEventSurvey.js';
+import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
+import { isStandaloneCampaignPreferencePlaceholder } from './campaignEmailComposition.js';
 import { sanitizeSlotHtml } from './slotHtmlSanitizer.js';
 import { resolveEventEmailPreview } from '../../client/src/lib/eventEmailPreview.js';
 
@@ -125,8 +127,8 @@ test('actual send adapter resolves current sponsors before tracking, rejects sta
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
-    process: { env: {} }, crypto, Buffer, supabase: f.db,
-    resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
+    process: { env: {} }, crypto, Buffer, supabase: f.db, isStandaloneCampaignPreferencePlaceholder,
+    resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
     replacePlaceholders: text => text,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },
     console: { error() {}, warn() {}, log() {} },
@@ -152,7 +154,7 @@ test('actual preview endpoint allows tenant admin or authorized group admin only
   for (const mode of ['admin', 'group', 'wrong-group', 'wrong-tenant', 'anonymous']) {
     const f = fixture();
     const { handler } = vm.runInNewContext(`${source};({handler})`, {
-      supabase: f.db, resolveCampaignEventSurvey, resolveCampaignEventSponsors,
+      supabase: f.db, resolveCampaignEventSurvey, resolveCampaignEventSponsors, resolveCampaignAttendeeContent,
       getTenantContext: async () => ({ isAuthenticated: mode !== 'anonymous', tenantId: 't' }),
       hasAdminAccess: async () => mode === 'admin',
       getCallerEmsAccess: async () => ({ error: mode === 'anonymous', tenantContext: { tenantId: mode === 'wrong-tenant' ? 'other' : 't' }, groups: mode === 'wrong-group' ? [] : ['g'] }),
