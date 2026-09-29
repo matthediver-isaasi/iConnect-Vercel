@@ -3284,19 +3284,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             {surveyIntroText(form) && (
               <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
             )}
-            {certificateGrant && assignmentMeta?.invitation_prefill?.association?.status === 'unlinked' && (
+            {certificateGrant && assignmentMeta?.invitation_prefill?.association?.status === 'unlinked' && assignmentMeta.invitation_prefill.association.can_confirm && (
               <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm" data-testid="survey-attendee-confirmation">
-                <p>Member and organisation details are not linked to this invitation. You can enter your answers yourself.</p>
-                {assignmentMeta.invitation_prefill.association.can_confirm ? (
                   <>
                     <p className="mt-1">If you are the attendee, you can use your member profile to fill the configured fields. Saved answers and edits will not be replaced. This also enables prefill when this invitation is reopened.</p>
                     <Button type="button" variant="outline" className="mt-2" disabled={confirmInvitationAttendee.isPending} onClick={() => confirmInvitationAttendee.mutate()}>
                       {confirmInvitationAttendee.isPending ? 'Loading member details…' : 'Use my member details'}
                     </Button>
                   </>
-                ) : !memberInfo && (
-                  <a className="mt-2 inline-block underline" href={memberSignupLoginUrl(window.location)}>Sign in to use your member details</a>
-                )}
               </div>
             )}
             {showSurveyProgress(form) && (() => {
