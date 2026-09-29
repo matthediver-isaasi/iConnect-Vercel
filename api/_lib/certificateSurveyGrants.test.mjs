@@ -35,6 +35,7 @@ function dbFixture() {
     form: [structuredClone(form)],
     certificate_survey_entitlement: [],
     certificate_survey_credential: [],
+    survey_invitation_attendee: [],
     attendee_cpd_certificate_delivery: [],
   };
   const writes = [];

@@ -92,3 +92,18 @@ values; preserve drafts/edits and redact mapped identity fields in anonymous
 responses. Member/custom/relationship enrichment requires a separately
 authoritative attendee association. Do not infer historical prefill source from
 the current editable form.
+
+## Explicit attendee profile confirmation
+Invitation profile enrichment requires an explicit matching authenticated
+attendee confirmation, never a historical email-to-member lookup. Keep that
+association service-only and return only published field-ID values.
+
+**Why:** purchaser IDs do not establish attendee identity; a once-valid
+confirmation can become stale during concurrent booking or account changes,
+including change-and-revert operations.
+
+**How to apply:** serialize confirmation with current authority and use monotonic
+revision fences, not just equality checks on email or a booking fingerprint.
+Invalidate stale associations and require reconfirmation. The mounted form may
+retain its original schema through transition state: refresh invitation metadata
+separately, without replacing answers or mixing different published versions.

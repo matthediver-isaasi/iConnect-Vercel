@@ -128,7 +128,7 @@ export const IDENTITY_FIELD_TYPES = [
   'email', 'tel', 'contact', 'signature', 'file',
   'user_name', 'user_email', 'user_organization', 'user_job_title',
   'first_name', 'last_name', 'user_first_name', 'user_last_name',
-  'organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'
+  'organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'
 ];
 
 const IDENTITY_NAME_RE = /(e-?mail|phone|mobile|telephone|first.?name|last.?name|full.?name|surname|your.?name|contact)/i;
@@ -149,7 +149,8 @@ export function redactIdentityAnswers(fields = [], submissionData = {}) {
     // ID/label. Invitation prefill must not turn anonymous answers into an
     // attendee/profile export. Custom member/org values may also identify them.
     const mapping = String(field?.prefill_field || '');
-    const mappedIdentity = /^(member:|org:|member_custom:|org_custom:|custom:)/.test(mapping)
+    const mappedIdentity = !!mapping || !!field?.relationship_config
+      || /^(member:|org:|member_custom:|org_custom:|custom:)/.test(mapping)
       || /^(booking:)?(attendee_|guest_organisation_name$|booking_reference$|job_title$)/.test(mapping)
       || IDENTITY_NAME_RE.test(mapping);
     const isIdentity = mappedIdentity || (field && IDENTITY_FIELD_TYPES.includes(field.type)) || IDENTITY_NAME_RE.test(label);

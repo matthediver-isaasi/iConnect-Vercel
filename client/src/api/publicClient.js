@@ -676,6 +676,16 @@ class PublicClient {
     });
   }
 
+  async confirmSurveyAttendee(token, certificateGrant) {
+    if (!token || !certificateGrant) throw new Error('Survey invitation is required');
+    return this._fetch(`/api/public/survey-assignment/${encodeURIComponent(token)}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Certificate-Survey-Grant': certificateGrant },
+      body: JSON.stringify({ action: 'confirm_attendee' }),
+    });
+  }
+
   async getFormDraft(token) {
     if (!token) return null;
     return this._fetch(`/api/public/form-draft?token=${encodeURIComponent(token)}`, { credentials: 'include' });

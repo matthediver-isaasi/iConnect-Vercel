@@ -8,7 +8,7 @@ import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPo
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
 import { resolveCertificateSurveyGrantState } from '../../_lib/certificateSurveyGrants.js';
-import { buildSurveyInvitationPrefill } from '../../../shared/surveyInvitationPrefill.js';
+import { resolveInvitationPrefill } from '../../_lib/surveyInvitationEnrichment.js';
 
 /**
  * Task #3331: serve a survey via its event-assignment token.
@@ -31,9 +31,14 @@ const PUBLIC_FORM_FIELDS = [
 export default async function handler(req, res, dependencies = {}) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  if (req.method !== 'GET') {
+  if (!['GET', 'POST'].includes(req.method)) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  const confirm = req.method === 'POST';
+  if (confirm && (req.body?.action !== 'confirm_attendee' || Object.keys(req.body || {}).some(key => key !== 'action'))) {
+    return res.status(400).json({ error: 'Explicit attendee confirmation is required' });
+  }
+  if (confirm && !req.headers?.['x-certificate-survey-grant']) return res.status(403).json({ error: 'Active survey invitation required' });
   const { token } = req.query;
   if (!token || typeof token !== 'string') {
     return res.status(400).json({ error: 'Assignment token is required' });
@@ -70,6 +75,9 @@ export default async function handler(req, res, dependencies = {}) {
     if (grantToken && !invitationState) return res.status(403).json({ error: 'Survey invitation unavailable' });
     const sessionMember = await (dependencies.getSessionMember || getSessionMember)(req).catch(() => null);
     const existingSession = invitationState ? await (dependencies.getSession || getSession)(req) : null;
+    if (confirm && (!sessionMember || invitationState?.status !== 'active')) {
+      return res.status(403).json({ error: 'Matching authenticated attendee and active invitation required' });
+    }
     if (invitationState && ((existingSession && !sessionMember)
       || sessionMember && ((sessionMember.tenant_id || sessionMember.organization?.tenant_id) !== tenant.id
       || sessionMember.email?.trim().toLowerCase() !== invitationState.grant.recipient_email))) {
@@ -219,12 +227,13 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(200).json({
       ...baseResponse,
       form: publicForm,
-      ...(invited && { invitation_prefill: buildSurveyInvitationPrefill(
-        publicForm.fields, invited.booking, snapshot.survey_settings,
-      ) }),
+      ...(invited && { invitation_prefill: await resolveInvitationPrefill({
+        db: supabase, tenantId: tenant.id, invited, fields: publicForm.fields,
+        settings: snapshot.survey_settings, sessionMember, confirm,
+      }) }),
     });
   } catch (err) {
     console.error('[Survey Assignment API] Failed to load survey');
-    return res.status(500).json({ error: 'Failed to load survey' });
+    return res.status(err.status === 403 ? 403 : 500).json({ error: err.status === 403 ? err.message : 'Failed to load survey' });
   }
 }

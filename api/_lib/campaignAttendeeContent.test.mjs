@@ -13,6 +13,7 @@ import submissionHandler from '../public/form-submission.js';
 
 function fixture() {
   const rows = {
+    survey_invitation_attendee: [],
     campaign_survey_delivery: [], certificate_survey_entitlement: [], certificate_survey_credential: [],
     email_campaign_recipient: [], form_submission: [],
     event: [{ id: 'event', tenant_id: 'tenant' }],

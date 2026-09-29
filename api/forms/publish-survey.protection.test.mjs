@@ -113,3 +113,45 @@ test('publish-survey remains unchanged for unrelated forms', async () => {
   assert.equal(response.statusCode, 200);
   assert.deepEqual(queries, [['read', 'form'], ['rpc', 'publish_survey']]);
 });
+
+test('publishing pins invitation mappings and source from saved form, never request data', async () => {
+  const fields = [
+    { id: 'score', type: 'score', label: 'Quality', score_style: 'numbers', score_min: 1, score_max: 5, weight: 1 },
+    { id: 'member-name', type: 'text', label: 'Name', prefill_field: 'member:first_name' },
+    { id: 'organisation-name', type: 'text', label: 'Organisation', prefill_field: 'org:name' },
+    { id: 'custom', type: 'text', label: 'Preference', prefill_field: 'custom:11111111-1111-1111-1111-111111111111' },
+    { id: 'organisation', type: 'organisation_dropdown', label: 'Organisation record' },
+  ];
+  const form = {
+    id: 'survey', tenant_id: 'tenant', form_type: 'survey',
+    fields, pages: [], visibility_rules: [], survey_audit_log: [],
+    prefill_source: 'member',
+    survey_settings: { invitation_prefill_config: { source: 'booking' } },
+  };
+  let published;
+  const db = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        async single() { return { data: form, error: null }; },
+      };
+    },
+    async rpc(name, args) {
+      assert.equal(name, 'publish_survey');
+      published = args;
+      return { data: { version_id: 'version', version_number: 2 }, error: null };
+    },
+  };
+  const { response, res } = responseRecorder();
+  await handlePublishSurvey({
+    method: 'POST', headers: {},
+    body: { form_id: form.id, prefill_source: 'organization', fields: [] },
+  }, res, {
+    supabase: db,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant' }),
+    hasAdminAccess: async () => true, env: {},
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(published.p_fields, fields);
+  assert.deepEqual(published.p_survey_settings.invitation_prefill_config, { source: 'member' });
+});

@@ -297,7 +297,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   const { data: loadedForm, isLoading, error: formError } = useQuery({
     queryKey: assignmentToken
-      ? ['public-survey-assignment', assignmentToken, !!memberInfo, certificateGrant ? 'invitation' : 'ordinary']
+      ? ['public-survey-assignment', assignmentToken, memberInfo?.id || null, certificateGrant ? 'invitation' : 'ordinary']
       : ['public-form-by-slug', formSlug, !!memberInfo],
     queryFn: async () => {
       // Task #3331: assignment links resolve everything server-side from the
@@ -382,7 +382,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Assignment metadata (event context + window state) when opened via an
   // assignment link; null for slug-based access.
-  const assignmentMeta = rawForm?.__assignment || null;
+  // The transition hook deliberately retains the mounted form; invitation
+  // confirmation refreshes metadata without replacing that form or its answers.
+  const assignmentMeta = loadedForm?.id === rawForm?.id
+    && loadedForm?.survey_settings?.current_version === rawForm?.survey_settings?.current_version
+    ? loadedForm?.__assignment || rawForm?.__assignment || null
+    : rawForm?.__assignment || null;
   const accessPayload = rawForm || (formError?.errorData?.access
     ? { __access: formError.errorData.access }
     : null);
@@ -1119,13 +1124,34 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
   }, [draftData, draftLoaded, defaultsInitialized]);
 
-  // Prefill: Populate form values when prefill entity loads (one-time only)
+  const confirmInvitationAttendee = useMutation({
+    mutationFn: () => publicClient.confirmSurveyAttendee(assignmentToken, certificateGrant),
+    onSuccess: (payload) => {
+      if (!payload?.form || !payload.invitation_prefill) {
+        toast.error('Member details are not available for this invitation.');
+        return;
+      }
+      if (payload.form.id !== form?.id
+        || payload.form.survey_settings?.current_version !== form?.survey_settings?.current_version) {
+        toast.error('This survey has changed. Save your answers and reopen the invitation to use the latest version.');
+        return;
+      }
+      queryClient.setQueryData(
+        ['public-survey-assignment', assignmentToken, memberInfo?.id || null, 'invitation'],
+        { ...payload.form, __assignment: payload },
+      );
+      toast.success('Your member details are available. Please check your answers.');
+    },
+    onError: (error) => toast.error(error.message || 'Unable to use your member details.'),
+  });
+
+  // Apply each server payload once; confirmation may supply additional fields.
   useEffect(() => {
     const payload = assignmentMeta?.invitation_prefill;
     if (!certificateGrant || !payload || !defaultsInitialized
       || String(defaultsInitializedFormId) !== String(form?.id)
-      || (draftToken && !draftLoaded) || invitationInitializedRef.current === form?.id) return;
-    invitationInitializedRef.current = form.id;
+      || (draftToken && !draftLoaded) || invitationInitializedRef.current === payload) return;
+    invitationInitializedRef.current = payload;
     const protectedIds = [
       ...invitationEditedFieldsRef.current,
       ...Object.keys(draftData?.draft?.draft_data || {}),
@@ -3257,6 +3283,21 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             </div>
             {surveyIntroText(form) && (
               <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
+            )}
+            {certificateGrant && assignmentMeta?.invitation_prefill?.association?.status === 'unlinked' && (
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm" data-testid="survey-attendee-confirmation">
+                <p>Member and organisation details are not linked to this invitation. You can enter your answers yourself.</p>
+                {assignmentMeta.invitation_prefill.association.can_confirm ? (
+                  <>
+                    <p className="mt-1">If you are the attendee, you can use your member profile to fill the configured fields. Saved answers and edits will not be replaced. This also enables prefill when this invitation is reopened.</p>
+                    <Button type="button" variant="outline" className="mt-2" disabled={confirmInvitationAttendee.isPending} onClick={() => confirmInvitationAttendee.mutate()}>
+                      {confirmInvitationAttendee.isPending ? 'Loading member details…' : 'Use my member details'}
+                    </Button>
+                  </>
+                ) : !memberInfo && (
+                  <a className="mt-2 inline-block underline" href={memberSignupLoginUrl(window.location)}>Sign in to use your member details</a>
+                )}
+              </div>
             )}
             {showSurveyProgress(form) && (() => {
               const progress = surveyProgress(form, effectiveHiddenFieldIds, formValues);
