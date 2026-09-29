@@ -19,3 +19,10 @@ The rich-text editor stores a typed `&` in an href as the entity `&amp;`. `rewri
 **Why:** one decode layer (the click redirect) can't undo an HTML entity — that's a separate decode.
 
 **How to apply:** decode HTML entities (`&amp;`, numeric `&#38;`/`&#x26;`, etc.) on the href *before* `encodeURIComponent` in `rewriteLinksForTracking`. Booking/token substitution must also run BEFORE `rewriteLinksForTracking` so resolved ids land inside the tracked URL.
+
+## Source-recipient tests favor content fidelity, not simulated attendee links
+Source-recipient tests should use the ordinary campaign personalization path with a separate delivery address. Booking, entrance QR, and survey links may therefore be real; campaign tracking, preference actions, and delivery-state updates must remain disabled.
+
+**Why:** the requested purpose is to verify fully populated event emails when the test destination is not an attendee. Fabricated attendee context would hide the failures the test is meant to expose.
+
+**How to apply:** retain the explicit warning against checking in or submitting surveys from test messages. Do not describe these tests as entirely side-effect-free: ordinary QR resolution may initialize missing tokens.

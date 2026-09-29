@@ -74,7 +74,7 @@ function campaign(status = 'draft', id = 'campaign-fixture', overrides = {}) {
   };
 }
 
-function fixtureDatabase(initialCampaign) {
+function fixtureDatabase(initialCampaign, extraTables = {}) {
   const state = {
     campaign: structuredClone(initialCampaign),
     recipients: initialCampaign.status === 'sending'
@@ -117,6 +117,10 @@ function fixtureDatabase(initialCampaign) {
         filters.push((row) => row?.[key] === value);
         return query;
       },
+      ilike(key, value) {
+        filters.push(row => String(row?.[key] || '').toLowerCase() === value.toLowerCase());
+        return query;
+      },
       is(key, value) {
         filters.push((row) => (row?.[key] ?? null) === value);
         return query;
@@ -145,6 +149,11 @@ function fixtureDatabase(initialCampaign) {
       maybeSingle() { single = true; return query; },
       then(resolve, reject) {
         Promise.resolve().then(() => {
+          if (Object.hasOwn(extraTables, table)) {
+            assert.equal(operation, 'select', 'source test must not mutate event or survey records');
+            const rows = extraTables[table].filter(row => filters.every(filter => filter(row)));
+            return { data: single ? rows[0] || null : rows, error: null };
+          }
           if (table === 'tenant') {
             return {
               data: {
@@ -242,6 +251,7 @@ function responseRecorder() {
   return {
     statusCode: 200,
     body: null,
+    setHeader() {},
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
   };
@@ -254,6 +264,140 @@ function request(body = {}) {
     headers: { host: 'fixture.example.test' },
   };
 }
+
+test('source lookup is paginated and test envelope uses source content without delivery state', async () => {
+  const saved = campaign('draft', 'campaign-fixture', {
+    subject: 'Hello {{first_name}} [[member.email]]',
+    html_content: '<p>{{recipient_name}} {{email}} [[member.email]]</p>',
+  });
+  const state = fixtureDatabase(saved);
+  const lookup = responseRecorder();
+  await tenantTestHandler(request({ campaignId: saved.id, action: 'search-sources', search: 'grace' }), lookup);
+  assert.equal(lookup.statusCode, 200);
+  assert.deepEqual(lookup.body.recipients, [{ email: 'grace@example.test', first_name: 'Grace', last_name: 'Hopper' }]);
+  const payload = await capture(async () => {
+    const res = responseRecorder();
+    await tenantTestHandler(request({
+      campaignId: saved.id, sourceRecipientEmail: 'grace@example.test', testEmail: 'reviewer@example.test',
+    }), res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  });
+  assert.deepEqual(payload.to, ['reviewer@example.test']);
+  assert.match(payload.subject, /Hello Grace grace@example.test/);
+  assert.match(payload.html, /Grace Hopper grace@example.test grace@example.test/);
+  assert.equal(payload['h:List-Unsubscribe'], undefined);
+  assert.equal(payload['o:tracking'], undefined);
+  assert.equal(state.recipients.length, 0);
+  assert.deepEqual(state.campaign, saved);
+});
+
+test('source outside current audience and foreign-tenant campaigns are rejected before transport', async () => {
+  const before = transportCalls.length;
+  fixtureDatabase(campaign());
+  const unauthorized = responseRecorder();
+  const unauthorizedRequest = request({ campaignId: 'campaign-fixture', action: 'search-sources' });
+  unauthorizedRequest.headers['x-fixture-unauthorized'] = 'true';
+  await tenantTestHandler(unauthorizedRequest, unauthorized);
+  assert.equal(unauthorized.statusCode, 403);
+  const invalidSource = responseRecorder();
+  await tenantTestHandler(request({
+    campaignId: 'campaign-fixture', sourceRecipientEmail: 'outsider@example.test', testEmail: 'reviewer@example.test',
+  }), invalidSource);
+  assert.equal(invalidSource.statusCode, 400);
+  assert.match(invalidSource.body.error, /campaign audience/);
+  fixtureDatabase(campaign('draft', 'campaign-fixture', { tenant_id: 'other-tenant' }));
+  for (const action of [undefined, 'search-sources']) {
+    const res = responseRecorder();
+    await tenantTestHandler(request({
+      campaignId: 'campaign-fixture', action, sourceRecipientEmail: 'grace@example.test', testEmail: 'reviewer@example.test',
+    }), res);
+    assert.equal(res.statusCode, 404);
+  }
+  assert.equal(transportCalls.length, before);
+});
+
+test('source search pages large audiences and does not accept member IDs or stale source emails', async () => {
+  const { searchCampaignTestSources, selectCampaignTestSource, campaignTestAudience } = await import('./campaignTestSource.js');
+  const audience = Array.from({ length: 61 }, (_, index) => ({
+    id: `member-${index}`, first_name: 'Audience', last_name: `${index}`, email: `person${index}@example.test`,
+  }));
+  const first = searchCampaignTestSources(audience, 'audience');
+  const second = searchCampaignTestSources(audience, 'audience', 25);
+  const last = searchCampaignTestSources(audience, 'audience', 50);
+  assert.equal(first.recipients.length, 25);
+  assert.equal(second.recipients.length, 25);
+  assert.equal(last.recipients.length, 11);
+  assert.equal(first.hasMore, true);
+  assert.equal(last.hasMore, false);
+  assert.notEqual(first.recipients[0].email, second.recipients[0].email);
+  assert.equal(searchCampaignTestSources(audience, 'nobody').recipients.length, 0);
+  assert.throws(() => selectCampaignTestSource(audience, 'member-1'), /campaign audience/);
+  assert.throws(() => selectCampaignTestSource([], 'person1@example.test'), /campaign audience/);
+  assert.equal(selectCampaignTestSource(audience, 'PERSON1@example.test').member_id, 'member-1');
+  assert.equal(selectCampaignTestSource([{ id: 'external-contact', member_id: null, email: 'external@example.test' }], 'external@example.test').member_id, null);
+  await assert.rejects(campaignTestAudience({ tenant_id: 'other' }, 'tenant-fixture'), /Campaign not found/);
+});
+
+test('source test personalization failure does not touch campaign or recipient delivery state', async () => {
+  const saved = campaign('draft', 'campaign-fixture', {
+    html_content: '<a href="{{event_survey_url}}">Survey</a>',
+    event_survey_context: null,
+  });
+  const state = fixtureDatabase(saved);
+  const before = transportCalls.length;
+  const res = responseRecorder();
+  await tenantTestHandler(request({
+    campaignId: saved.id, sourceRecipientEmail: 'grace@example.test', testEmail: 'reviewer@example.test',
+  }), res);
+  assert.equal(res.statusCode, 500);
+  assert.match(res.body.failures[0].error, /Event survey/);
+  assert.equal(transportCalls.length, before);
+  assert.equal(state.recipients.length, 0);
+  assert.deepEqual(state.campaign, saved);
+});
+
+test('shared live personalization resolves source booking, QR and explicit survey context, with test-only envelope', async () => {
+  const { sendToRecipient } = await import('./campaignService.js');
+  const saved = campaign('draft', 'campaign-fixture', {
+    target_type: 'event_attendees', target_ids: ['event-fixture'],
+    subject: '{{first_name}} [[booking.id]]',
+    html_content: '<p>[[booking.id]] {{email}}</p><img src="{{event_qr_image_url}}"><a href="{{event_survey_url}}">Survey</a>',
+    event_survey_context: { event_type: 'event', event_id: 'event-fixture' },
+  });
+  const state = fixtureDatabase(saved, {
+    event: [{ id: 'event-fixture', tenant_id: 'tenant-fixture', is_online: false }],
+    booking: [{
+      id: 'source-booking', tenant_id: 'tenant-fixture', event_id: 'event-fixture',
+      attendee_email: 'grace@example.test', member_id: 'member-fixture', status: 'confirmed', check_in_token: 'source-qr',
+    }, {
+      id: 'wrong-booking', tenant_id: 'other-tenant', event_id: 'event-fixture',
+      attendee_email: 'grace@example.test', status: 'confirmed', check_in_token: 'wrong-qr',
+    }],
+    event_survey_assignment: [{
+      id: 'assignment', tenant_id: 'tenant-fixture', event_type: 'event', event_id: 'event-fixture',
+      status: 'active', token: 'survey-token', form_id: 'form-fixture',
+    }],
+    form: [{
+      id: 'form-fixture', tenant_id: 'tenant-fixture', is_active: true, form_type: 'survey',
+      survey_settings: { status: 'published', current_version: 1 },
+    }],
+    survey_version: [{ id: 'version', tenant_id: 'tenant-fixture', form_id: 'form-fixture', version_number: 1 }],
+  });
+  const payload = await capture(async () => {
+    const result = await sendToRecipient({
+      id: 'test-source', member_id: 'member-fixture', email: 'grace@example.test', first_name: 'Grace',
+    }, saved, 'tenant-fixture', 'fixture', 'fixture.example.test', { skipFooter: false }, 'reviewer@example.test');
+    assert.equal(result.success, true, result.error);
+  });
+  assert.deepEqual(payload.to, ['reviewer@example.test']);
+  assert.match(payload.subject, /Grace source-booking/);
+  assert.match(payload.html, /source-booking grace@example.test/);
+  assert.match(payload.html, /checkin-qr\?token=source-qr/);
+  assert.match(payload.html, /\/survey\/survey-token/);
+  assert.doesNotMatch(payload.html, /wrong-booking|wrong-qr|\{\{event_|\[\[booking/);
+  assert.equal(state.recipients.length, 0);
+  assert.deepEqual(state.campaign, saved);
+});
 
 function normalizedPayload(payload) {
   const normalize = (value) => String(value || '')

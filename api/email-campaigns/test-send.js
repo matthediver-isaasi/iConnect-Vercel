@@ -1,9 +1,11 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import {
   getCampaign,
   rewriteLinksForTracking,
   validateCampaignSenderEmail,
+  sendToRecipient,
 } from '../_lib/campaignService.js';
+import { campaignTestAudience, selectCampaignTestSource, searchCampaignTestSources } from '../_lib/campaignTestSource.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
@@ -95,10 +97,24 @@ export default async function handler(req, res) {
   }
 
   const { tenantId, member } = tenantContext;
-  const { campaignId, testEmail, testEmails } = req.body || {};
+  if (!await hasAdminAccess(tenantContext)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  const { campaignId, testEmail, testEmails, sourceRecipientEmail, action, search, offset } = req.body || {};
 
   if (!campaignId) {
     return res.status(400).json({ error: 'Campaign ID required' });
+  }
+
+  if (action === 'search-sources') {
+    res.setHeader('Cache-Control', 'no-store');
+    const result = await getCampaign(campaignId, tenantId);
+    if (!result.success || !result.campaign) return res.status(404).json({ error: 'Campaign not found' });
+    try {
+      return res.json(searchCampaignTestSources(await campaignTestAudience(result.campaign, tenantId), search, offset));
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
   }
 
   const rawInput = (testEmails !== undefined && testEmails !== null)
@@ -129,13 +145,24 @@ export default async function handler(req, res) {
     if (!success || !campaign) {
       return res.status(404).json({ error: error || 'Campaign not found' });
     }
+    let sourceRecipient = null;
+    if (sourceRecipientEmail !== undefined && sourceRecipientEmail !== null) {
+      try {
+        sourceRecipient = selectCampaignTestSource(await campaignTestAudience(campaign, tenantId), sourceRecipientEmail);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+    }
     try {
-      const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantId);
-      const sponsors = await resolveCampaignEventSponsors(supabase, campaign, tenantId);
-      if (sponsors !== null) campaign.html_content = replaceEventSponsors(campaign.html_content, sponsors);
-      if (surveyUrl) {
-        campaign.html_content = replaceEventSurvey(campaign.html_content, surveyUrl);
-        campaign.subject = replaceEventSurvey(campaign.subject, surveyUrl);
+      // The source path resolves dynamic slots and event context in the live pipeline.
+      if (!sourceRecipient) {
+        const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantId);
+        const sponsors = await resolveCampaignEventSponsors(supabase, campaign, tenantId);
+        if (sponsors !== null) campaign.html_content = replaceEventSponsors(campaign.html_content, sponsors);
+        if (surveyUrl) {
+          campaign.html_content = replaceEventSurvey(campaign.html_content, surveyUrl);
+          campaign.subject = replaceEventSurvey(campaign.subject, surveyUrl);
+        }
       }
     } catch (error) {
       return res.status(400).json({ error: error.message });
@@ -176,7 +203,9 @@ export default async function handler(req, res) {
     const results = [];
     for (let i = 0; i < valid.length; i++) {
       // eslint-disable-next-line no-await-in-loop
-      const r = await sendTestToRecipient(valid[i], { ...ctxBase, recipientIndex: i });
+      const r = sourceRecipient
+        ? { ...await sendToRecipient(sourceRecipient, campaign, tenantId, tenantSlug, requestHost, composition, valid[i]), email: valid[i] }
+        : await sendTestToRecipient(valid[i], { ...ctxBase, recipientIndex: i });
       results.push(r);
     }
 

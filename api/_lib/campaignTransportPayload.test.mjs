@@ -403,7 +403,7 @@ test('live, scheduled, tenant-test and group-test paths share the campaign trans
   const worker = sources.get('live and scheduled worker');
   assert.match(worker, /const designInfo = getCampaignEmailComposition\(campaign\)/);
   assert.match(worker, /campaignPreferences:\s*\{\s*preferencesUrl,/);
-  assert.match(worker, /enableTracking:\s*true/);
+  assert.match(worker, /enableTracking:\s*!testDestination/);
   assert.match(worker, /unsubscribeUrl:\s*oneClickUnsubscribeUrl/);
   assert.match(worker, /processScheduledCampaigns[\s\S]*sendCampaign\(/);
 

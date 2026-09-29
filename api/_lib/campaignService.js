@@ -3407,7 +3407,7 @@ async function resolveRecipientBooking(recipient, campaign, tenantId) {
   return null;
 }
 
-async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo) {
+export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, testDestination = null) {
   try {
     let html = campaign.html_content || '';
     let subject = campaign.subject || '';
@@ -3463,9 +3463,9 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     // reserve their aliases until sendEmail has composed any runtime footer.
     // replacePlaceholders also deliberately preserves these reserved aliases.
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-    const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
-    const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
-    const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
+    const trackingToken = testDestination ? null : generateTrackingToken(campaign.id, recipient.id, 0);
+    const preferencesUrl = testDestination ? '#' : `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
+    const oneClickUnsubscribeUrl = testDestination ? undefined : `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
     // Resolve [[member.*]] / [[organization.*]] tokens for this recipient.
     // {{set_password_url}} is intentionally not minted in bulk campaigns
     // (see docs/email-placeholder-audit.md caveats).
@@ -3476,6 +3476,7 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
           .from('member')
           .select('organization_id, organization:organization_id(id,name,phone,invoicing_email)')
           .eq('id', recipient.member_id)
+          .eq('tenant_id', tenantId)
           .maybeSingle();
         if (memberRow?.organization) recipientOrg = memberRow.organization;
       } catch (orgErr) {
@@ -3520,25 +3521,27 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       subject = replaceBookingPlaceholders(subject, booking || {});
     }
 
-    html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
+    if (!testDestination) html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
 
     const result = await sendEmail({
-      to: recipient.email,
-      subject: subject,
+      to: testDestination || recipient.email,
+      subject: testDestination ? `[TEST] ${subject}` : subject,
       html: html,
       from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
       tenantId: tenantId,
       skipFooter: designInfo.skipFooter,
       contentWidth: designInfo.contentWidth,
-      enableTracking: true,
+      enableTracking: !testDestination,
       unsubscribeUrl: oneClickUnsubscribeUrl,
       campaignPreferences: {
         preferencesUrl,
       },
       resolveTransactionalPreferences: false,
-      testMode: !!campaign.is_test_mode
+      testMode: testDestination ? false : !!campaign.is_test_mode
     });
 
+    // Source identity is personalization only. Tests never claim or update delivery rows.
+    if (testDestination) return result;
     if (result.success) {
       await supabase
         .from('email_campaign_recipient')
@@ -3563,6 +3566,7 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     }
   } catch (err) {
     console.error(`[Campaign Service] Error sending to ${recipient.email}:`, err);
+    if (testDestination) return { success: false, error: err.message };
     await supabase
       .from('email_campaign_recipient')
       .update({

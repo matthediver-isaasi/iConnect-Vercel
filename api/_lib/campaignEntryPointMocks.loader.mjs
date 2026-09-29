@@ -12,7 +12,8 @@ export async function resolve(specifier, context, nextResolve) {
     return {
       shortCircuit: true,
       url: sourceUrl(`
-        export async function getTenantContext() {
+        export async function hasAdminAccess(context) { return context.isAuthenticated; }
+        export async function getTenantContext(req) {
           return {
             tenantId: ${JSON.stringify(tenantId)},
             memberId: 'admin-member',
@@ -22,7 +23,7 @@ export async function resolve(specifier, context, nextResolve) {
               first_name: 'Admin',
               last_name: 'User'
             },
-            isAuthenticated: true
+            isAuthenticated: req?.headers?.['x-fixture-unauthorized'] !== 'true'
           };
         }
       `),

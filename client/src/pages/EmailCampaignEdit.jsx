@@ -559,7 +559,7 @@ export default function EmailCampaignEdit() {
     }
   };
 
-  const handleTestSend = async (recipients) => {
+  const handleTestSend = async (recipients, sourceRecipientEmail = null) => {
     if (JSON.stringify(formData.event_survey_context) !== JSON.stringify(campaign?.event_survey_context || null)) {
       toast.error('Save the campaign event survey settings before sending a test.');
       return;
@@ -590,7 +590,8 @@ export default function EmailCampaignEdit() {
         credentials: 'include',
         body: JSON.stringify({
           campaignId: id,
-          testEmails: list
+          testEmails: list,
+          sourceRecipientEmail,
         })
       });
 
@@ -1735,6 +1736,7 @@ export default function EmailCampaignEdit() {
       </Dialog>
 
       <TestSendDialog
+        campaignId={id}
         open={showTestEmailDialog}
         onOpenChange={setShowTestEmailDialog}
         description="Send a test email to preview how the campaign will look"

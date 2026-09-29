@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import CampaignTestSourcePicker from "./CampaignTestSourcePicker";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +42,9 @@ export default function TestSendDialog({
   onSend,
   sending = false,
   testIdSuffix = "",
+  campaignId = null,
 }) {
+  const [sourceRecipientEmail, setSourceRecipientEmail] = useState(null);
   const [mode, setMode] = useState("manual");
   const [emailsText, setEmailsText] = useState("");
   const [emailError, setEmailError] = useState("");
@@ -53,6 +56,7 @@ export default function TestSendDialog({
 
   useEffect(() => {
     if (!open) {
+      setSourceRecipientEmail(null);
       setMode("manual");
       setEmailsText("");
       setEmailError("");
@@ -136,24 +140,27 @@ export default function TestSendDialog({
         return;
       }
       setEmailError("");
-      await onSend(valid);
+      await onSend(valid, sourceRecipientEmail);
       return;
     }
     const memberEmails = members.map((m) => m.email).filter(Boolean);
     if (!memberEmails.length) return;
-    await onSend(memberEmails);
+    await onSend(memberEmails, sourceRecipientEmail);
   };
 
   const tid = (base) => `${base}${testIdSuffix}`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
         <div className="space-y-4 py-4">
+          {campaignId && open && <CampaignTestSourcePicker campaignId={campaignId}
+            value={sourceRecipientEmail} onChange={setSourceRecipientEmail} disabled={sending} />}
+          {campaignId && <Label>Test destination — only these addresses receive the email</Label>}
           <Tabs
             value={mode}
             onValueChange={(v) => {
