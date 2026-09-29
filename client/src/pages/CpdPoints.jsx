@@ -39,7 +39,7 @@ export function CpdPointsPage({
         <h1 className="text-3xl font-bold tracking-tight">My CPD points</h1>
         <p className="text-muted-foreground mt-1">View your current balance and complete award history.</p>
       </div>
-      <HistoryComponent memberId={memberInfo.id} enabled />
+      <HistoryComponent memberId={memberInfo.id} enabled certificates />
       <SpeakerAwardsComponent endpoint="/api/members/me/speaker-awards" member />
     </div>
   );

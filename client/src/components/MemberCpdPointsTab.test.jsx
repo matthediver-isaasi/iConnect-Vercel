@@ -238,3 +238,114 @@ test("renders signed balance, reversal states, snapshot fields and pagination", 
   assert.match(html, /Page 1 of 2/);
   assert.match(html, />Next</);
 });
+
+test("member history alone opts into bounded certificate metadata; admin and disabled tabs do not", async () => {
+  await mountTab(async ({ render, container }) => {
+    const calls = [];
+    globalThis.fetch = async url => {
+      calls.push(url);
+      if (url.includes("cpd-certificate")) return json({ certificates: {
+        award: { available: true, filename: "conference.pdf" },
+        missing: { available: false, reason: "No certificate configured", retryable: false },
+      } });
+      return json({ balance: 5, total: 4, items: [
+        award, { ...award, id: "missing" }, { ...award, id: "reversed", is_reversed: true },
+        { ...award, id: "import", entry_kind: "imported_award" },
+      ] });
+    };
+    await render({ enabled: false, certificates: true });
+    assert.equal(calls.length, 0);
+    await render({ enabled: true });
+    assert.equal(calls.filter(url => url.includes("cpd-certificate")).length, 0);
+    await render({ enabled: true, certificates: true });
+    const metadata = calls.filter(url => url.includes("cpd-certificate"));
+    assert.equal(metadata.length, 1);
+    assert.match(metadata[0], /ledger_entry_ids=award,missing/);
+    assert.doesNotMatch(metadata[0], /reversed|import/);
+    assert.equal(container.querySelectorAll("button").length >= 2, true);
+    assert.match(container.textContent, /No certificate configured/);
+    assert.equal([...container.querySelectorAll("button")].filter(el => el.textContent.includes("View certificate")).length, 1);
+  });
+});
+
+test("certificate lookup failure and retryable unavailability never expose an unverified PDF", async () => {
+  await mountTab(async ({ render, container }) => {
+    let attempt = 0;
+    globalThis.fetch = async url => {
+      if (url.includes("ledger_entry_ids=")) {
+        attempt++;
+        if (attempt === 1) return json({ error: "Certificate service unavailable" }, false);
+        return json({ certificates: { award: { available: false, reason: "Evidence pending", retryable: true } } });
+      }
+      if (url.includes("ledger_entry_id=")) assert.fail("Unavailable certificates must not fetch a PDF");
+      return json({ balance: 5, total: 1, items: [award] });
+    };
+    await render({ certificates: true });
+    assert.match(container.textContent, /Could not check certificates/);
+    assert.equal(button("View certificate"), undefined);
+    await click("Retry certificates");
+    assert.match(container.textContent, /Evidence pending/);
+    assert.equal(button("View certificate"), undefined);
+    await click("Retry certificates");
+    assert.equal(attempt, 3);
+  });
+});
+
+test("PDF preview uses canvases, download uses authoritative ID, revokes temporary URL and reports retryable errors", async () => {
+  await mountTab(async ({ render, container }) => {
+    const oldCreate = URL.createObjectURL;
+    const oldRevoke = URL.revokeObjectURL;
+    const oldClick = dom.window.HTMLAnchorElement.prototype.click;
+    const oldContext = dom.window.HTMLCanvasElement.prototype.getContext;
+    const created = [];
+    const revoked = [];
+    const downloads = [];
+    let pdfFails = true;
+    let pdfReads = 0;
+    URL.createObjectURL = blob => { created.push(blob); return "blob:member-pdf"; };
+    URL.revokeObjectURL = url => revoked.push(url);
+    dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push({ href: this.href, filename: this.download }); };
+    dom.window.HTMLCanvasElement.prototype.getContext = () => ({});
+    const engine = { getDocument: ({ data }) => ({
+      promise: Promise.resolve({ numPages: 1, getPage: async () => ({
+        getViewport: () => ({ width: 200, height: 100 }),
+        render: () => ({ promise: Promise.resolve(), cancel() {} }),
+      }) }),
+      destroy() {},
+    }) };
+    globalThis.fetch = async (url, options) => {
+      if (url.includes("ledger_entry_id=")) {
+        assert.equal(options.credentials, "include");
+        assert.match(url, /ledger_entry_id=award&format=pdf/);
+        pdfReads++;
+        if (pdfFails) return json({ error: "Try again later" }, false);
+        return new Response(new Blob(["%PDF-1.7"], { type: "application/pdf" }), { headers: { "Content-Type": "application/pdf" } });
+      }
+      if (url.includes("ledger_entry_ids=")) return json({ certificates: { award: { available: true, filename: "conference.pdf" } } });
+      return json({ balance: 5, total: 1, items: [award] });
+    };
+    try {
+      await render({ certificates: true, pdfEngine: engine });
+      await click("View certificate");
+      assert.match(document.body.textContent, /Try again later/);
+      pdfFails = false;
+      await click("Retry PDF");
+      assert.equal(document.querySelectorAll('[data-testid="certificate-canvas-preview"] canvas').length, 1);
+      assert.equal(document.querySelector("iframe"), null);
+      await click("Download PDF");
+      assert.equal(downloads[0].filename, "conference.pdf");
+      assert.equal(created.length, 1);
+      assert.equal(pdfReads, 3);
+      await click("Close");
+      assert.equal(document.querySelectorAll('[data-testid="certificate-canvas-preview"] canvas').length, 0);
+      assert.ok(container.textContent.includes("Conference"));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)); });
+      assert.deepEqual(revoked, ["blob:member-pdf"]);
+    } finally {
+      URL.createObjectURL = oldCreate;
+      URL.revokeObjectURL = oldRevoke;
+      dom.window.HTMLAnchorElement.prototype.click = oldClick;
+      dom.window.HTMLCanvasElement.prototype.getContext = oldContext;
+    }
+  });
+});

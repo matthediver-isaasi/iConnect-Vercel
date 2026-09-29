@@ -104,7 +104,7 @@ async function guestCertificatePoints(db, { tenantId, booking, bookingSource, ev
     : { evidence };
 }
 
-export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource }) {
+export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource, memberCertificateId = null }) {
   const booking = await one(db, CERTIFICATE_BOOKINGS[bookingSource], tenantId, bookingId);
   if (!booking) throw Object.assign(new Error('Attendee booking not found'), { status: 404 });
   const eventType = bookingSource === 'complex' ? 'complex' : 'simple';
@@ -112,6 +112,9 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   if (!event) throw Object.assign(new Error('Event not found'), { status: 404 });
   // The booking member_id can be the purchaser of another person's ticket.
   const attendeeMemberId = await resolveMember(db, tenantId, booking);
+  if (memberCertificateId && String(attendeeMemberId) !== String(memberCertificateId)) {
+    return { available: false, reason: 'This award does not belong to the booking attendee.' };
+  }
   const member = attendeeMemberId ? await one(db, 'member', tenantId, attendeeMemberId) : null;
   const firstName = booking.attendee_first_name || member?.first_name || '';
   const lastName = booking.attendee_last_name || member?.last_name || '';
@@ -173,8 +176,8 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   };
   let pointsRows = [];
   let guestPointsEvidence = null;
-  const emailSelection = await loadCpdEmailTemplate(db, tenantId, policy.email_template_id);
-  if (!attendeeMemberId || (fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
+  const emailSelection = memberCertificateId ? null : await loadCpdEmailTemplate(db, tenantId, policy.email_template_id);
+  if (memberCertificateId || !attendeeMemberId || (fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
     || /\{\{\s*cpd_points\s*\}\}|\[\[\s*cpd_points\s*\]\]/.test(`${emailSelection.template?.subject || ''} ${emailSelection.template?.body || ''}`)) {
     if (attendeeMemberId) {
       // Matched members never receive speculative rule points for missing awards.
@@ -204,6 +207,16 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   const real = realCertificatePlaceholders(fields, values);
   if (!attendeeName || real.missing.length) return { ...base, reason: !attendeeName
     ? 'The attendee name is missing.' : `Required certificate data is unavailable: ${real.missing.join(', ')}.` };
+  if (memberCertificateId) {
+    // Self-service downloads are PDF-only; never prepare email, survey grants
+    // or guest rule points. Bind the rendered values to the booking ledger.
+    const fingerprint = certificateFingerprint({
+      bookingId, bookingSource, attendeeMemberId, template: template.source_sha256,
+      values, placeholders: real.placeholders, pointsRows,
+    });
+    return { ...base, available: true, fingerprint, template_name: template.name,
+      template, placeholders: real.placeholders, values };
+  }
   const emailValues = {
     attendee_name: attendeeName, attendee_first_name: firstName, attendee_last_name: lastName,
     attendee_email: recipient, organisation_name: values['organisation.name'], event_name: event.title || '',
