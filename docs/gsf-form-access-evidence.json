@@ -1,0 +1,1156 @@
+{
+  "schemaVersion": 1,
+  "project": "lvmzliemqnieeoruhkik",
+  "tenant": {
+    "id": "21296ad6-1350-483a-a90c-1b06ece70501",
+    "name": "gsf",
+    "slug": "gsf"
+  },
+  "snapshotAt": "2026-09-29T10:16:22.819Z",
+  "since": "2026-09-01T00:00:00Z",
+  "publicHostIdentityCorroboration": {
+    "source": "docs/gsf-form-deployment-evidence.md",
+    "endpoint": "https://gsf.iconn.app/api/public/tenant-branding",
+    "documentedName": "gsf",
+    "documentedSlug": "gsf",
+    "note": "Earlier public GET corroborates host identity; does not verify backend revision."
+  },
+  "transaction": "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT only; ROLLBACK",
+  "pagination": {
+    "pageSize": 10,
+    "pages": 2,
+    "databaseCount": 14,
+    "rowsRead": 14,
+    "reconciled": true
+  },
+  "counts": {
+    "active": 14,
+    "inactive": 0,
+    "mayMutateExisting": 5,
+    "accessAssessmentRejected": 5,
+    "changedSaveRejected": 5
+  },
+  "limits": "Static saved configuration, not runtime verification; submission counts do not establish successful processing. No respondent data or grants/tokens were retrieved.",
+  "forms": [
+    {
+      "id": "36a9549f-7e34-4ccf-964b-1588d1c3d050",
+      "name": "Reference Request",
+      "slug": "reference-request",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "none",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "cefd1584040c7fe321ddd134891036c5f2676c77bdbe67465fe49e8d04eab59b",
+      "mutationConfigDigestSha256": "37534b2178a70e0dc97b907c9efab0b0faf7d138d46d98269c128898aa09e27c",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 32
+        },
+        "unexpiredDrafts": 2,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "3c4124e1-05c6-4423-88e1-a5f91045152b",
+      "name": "Initial enquiry",
+      "slug": "enquiry",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "none",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [
+        {
+          "destination": "organisations",
+          "identityKey": "name",
+          "loginEnabled": null,
+          "hasRoleAssignment": false,
+          "mappings": {
+            "total": 9,
+            "core": 1,
+            "custom": 8,
+            "static": 1,
+            "date": 0,
+            "invoice": 0,
+            "other": 0
+          },
+          "implicitFieldMappingCount": 0
+        }
+      ],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": true,
+        "mutationTargets": [
+          "organization"
+        ],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "may_mutate_existing",
+            "evidence": [
+              {
+                "family": "entity_pipelines",
+                "access": "may_mutate_existing"
+              }
+            ]
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": true,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        },
+        "changed": {
+          "ok": false,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        }
+      },
+      "configDigestSha256": "b1318a7bd1e2a2f257dcb0b06a2135ecc21e4525f03028ab25466fc8e3cea03d",
+      "mutationConfigDigestSha256": "d201f21d66db44dcc675c03866faefb111683edd138b3ec930dffef74d71ac7d",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 39
+        },
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "3f993b8a-b8e1-4fc8-8a28-4499646b8adf",
+      "name": "Membership agreement",
+      "slug": "membership-agreement",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "none",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "7866fbdb0bc9efb49943c6b21e5ef3951e8c5fe9354c51879318ceddde2ff008",
+      "mutationConfigDigestSha256": "5e703ede836c2ca0d05f5b158ad28513343a927ef3dff9fc4cb5ba91069f678e",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 40,
+          "submitted": 2
+        },
+        "unexpiredDrafts": 6,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "498caad5-cfc7-4319-a107-52c27dcfe9b4",
+      "name": "Individual",
+      "slug": "individual-join",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [
+        {
+          "destination": "members",
+          "identityKey": "email",
+          "loginEnabled": true,
+          "hasRoleAssignment": true,
+          "mappings": {
+            "total": 7,
+            "core": 5,
+            "custom": 2,
+            "static": 0,
+            "date": 0,
+            "invoice": 0,
+            "other": 0
+          },
+          "implicitFieldMappingCount": 0
+        }
+      ],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": true,
+        "mutationTargets": [
+          "member"
+        ],
+        "targets": {
+          "member": {
+            "classification": "may_mutate_existing",
+            "evidence": [
+              {
+                "family": "entity_pipelines",
+                "access": "may_mutate_existing"
+              }
+            ]
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": true,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        },
+        "changed": {
+          "ok": false,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        }
+      },
+      "configDigestSha256": "aa574513976cdf543f63bcfd393180641979882d6f7dbcf6987cc5ff9118d9d3",
+      "mutationConfigDigestSha256": "634bc554772502990a52a3a4e90222639bbb11b8893ac1e4212723224125f1be",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {},
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "4c030808-8f38-4587-9a98-df9e6686ae0c",
+      "name": "SO Long form fees",
+      "slug": "so-application-fees",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "8ec7b0b397729b11c458b448f572abe82dc5b1bc1452eb3fd4504e9db04ce8ab",
+      "mutationConfigDigestSha256": "b816d04487619e9f1580eb8451aee9f4f8f1e3793d7568e17dde12082e3c8729",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {},
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "7b3646f2-a958-41f5-a4bc-c707bb6e246b",
+      "name": "SO fees renewal",
+      "slug": "so-renewal",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [
+        {
+          "destination": "organisations",
+          "identityKey": "name",
+          "loginEnabled": null,
+          "hasRoleAssignment": false,
+          "mappings": {
+            "total": 24,
+            "core": 4,
+            "custom": 20,
+            "static": 0,
+            "date": 1,
+            "invoice": 2,
+            "other": 0
+          },
+          "implicitFieldMappingCount": 0
+        }
+      ],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": true,
+        "mutationTargets": [
+          "organization"
+        ],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "may_mutate_existing",
+            "evidence": [
+              {
+                "family": "entity_pipelines",
+                "access": "may_mutate_existing"
+              }
+            ]
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": true,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        },
+        "changed": {
+          "ok": false,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        }
+      },
+      "configDigestSha256": "3557e09d907a712a614553e4b57939866ca0c03b44dc5cf7ade0f4fd4511c6c6",
+      "mutationConfigDigestSha256": "2d7768f8347e20f2f6c2eecf7ab47f2cdab757a2107d1ab4f8a69c0a09bf4ecf",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {},
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "9f954871-0ac8-4a3b-b976-3575de2bd8be",
+      "name": "ESO Long form fees",
+      "slug": "eso-application-fees",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "15dcb682b096a7e087c70caf605fe2423923f4f4914a774bde27c7e2a7d6e3a1",
+      "mutationConfigDigestSha256": "c127c43d7ff4412cd1c11ef8625dfb86f4c41af6b779add6ba934142caa75a2e",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {},
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "a115f8da-e97f-49e6-aaa0-d4cab030e418",
+      "name": "Newsletter",
+      "slug": "newsletter",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "none",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "4d24245b423a0e8c905528a91a0ed127f39483b73dc1cbd1ab0cc7a242c709a1",
+      "mutationConfigDigestSha256": "c4b35e9e96d4654b21f20b67e034fb89d27ee89456d01f5bb4abb6babfd0eb85",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 9
+        },
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "a224da72-fc6e-4d64-9b3c-5b08ea6d79d9",
+      "name": "Partner Long form",
+      "slug": "partner-application",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "a1f9794f3fb430e28e1ceca15e1b239da3462e9f0e2a937892702e2b4ffb4d41",
+      "mutationConfigDigestSha256": "96819c9d33a93548606129101654cb3e47f1b93b91e696eee18a0bf4e166ec5a",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 2
+        },
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "a9ec1559-495a-4705-9da9-d51517be7bb6",
+      "name": "ESO Long form",
+      "slug": "eso-application",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "640e39820750338cbbefa49939921050d91ec9eecbfbb8200361a86d15023182",
+      "mutationConfigDigestSha256": "5a9cf34f67416f6950c69b137c9eae487f17240a17601578679f8e9e3eec927f",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 4,
+          "submitted": 7
+        },
+        "unexpiredDrafts": 6,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "ae758d8e-be3e-4f85-a108-9136f2f1ccd3",
+      "name": "Snapshot",
+      "slug": "snapshot",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [
+        {
+          "destination": "members",
+          "identityKey": "email",
+          "loginEnabled": true,
+          "hasRoleAssignment": true,
+          "mappings": {
+            "total": 6,
+            "core": 5,
+            "custom": 1,
+            "static": 0,
+            "date": 0,
+            "invoice": 0,
+            "other": 0
+          },
+          "implicitFieldMappingCount": 0
+        }
+      ],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": true,
+        "mutationTargets": [
+          "member"
+        ],
+        "targets": {
+          "member": {
+            "classification": "may_mutate_existing",
+            "evidence": [
+              {
+                "family": "entity_pipelines",
+                "access": "may_mutate_existing"
+              }
+            ]
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": true,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        },
+        "changed": {
+          "ok": false,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        }
+      },
+      "configDigestSha256": "6a3d9c29197a583dbf9f9bbe089a80332a71d06cedb2dc5ed735905ebc065e38",
+      "mutationConfigDigestSha256": "2c4286b9a4a070a19ca81f41cadba89acec9fe24462bd5da9bedc278d32f3ca1",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 2
+        },
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "b174eddc-0935-4ad1-8666-401121a97eab",
+      "name": "Contact us",
+      "slug": "contact-us",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "none",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "6233048604369da00e864adb35aa35f5a3bc69f568e0cdb475628f38a3300f6b",
+      "mutationConfigDigestSha256": "739fafcbb148619b42f377841dce222229e9288a57f137553c4852e7af42d4d8",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 1
+        },
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "dd04a19b-019b-4cb2-9a7f-3a77027e9857",
+      "name": "SO Long form",
+      "slug": "so-application",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": false,
+        "mutationTargets": [],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "none",
+            "evidence": []
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": true,
+        "code": null
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        },
+        "changed": {
+          "ok": true,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": null
+        }
+      },
+      "configDigestSha256": "8894f2cbf01ae06be94116152ef8ed18bf5cde6f78448815c295be70e14ec348",
+      "mutationConfigDigestSha256": "86bc28804224def9ce6da89f12d2e1f2d55598de38c355a057baf1e2711f7a46",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {
+          "new": 14
+        },
+        "unexpiredDrafts": 20,
+        "grantsByStatus": {}
+      }
+    },
+    {
+      "id": "ea04df36-1ba6-4d2c-a9ad-2738795ca774",
+      "name": "ESO fees renewal",
+      "slug": "eso-renewal",
+      "isActive": true,
+      "requireAuthentication": false,
+      "accessPolicyConfigured": false,
+      "mutationAccessPolicy": null,
+      "prefillSource": "organization",
+      "legacyActions": {
+        "entity": "create",
+        "member": "none",
+        "organization": "none",
+        "createEntityType": "member",
+        "autoCreate": false
+      },
+      "pipelines": [
+        {
+          "destination": "organisations",
+          "identityKey": "name",
+          "loginEnabled": null,
+          "hasRoleAssignment": false,
+          "mappings": {
+            "total": 24,
+            "core": 3,
+            "custom": 21,
+            "static": 0,
+            "date": 1,
+            "invoice": 2,
+            "other": 0
+          },
+          "implicitFieldMappingCount": 0
+        }
+      ],
+      "legacyMappings": {
+        "total": 0,
+        "core": 0,
+        "custom": 0,
+        "static": 0,
+        "date": 0,
+        "invoice": 0,
+        "other": 0
+      },
+      "additionalMemberCreations": [],
+      "structuredActions": [],
+      "classification": {
+        "hasExistingRecordMutation": true,
+        "mutationTargets": [
+          "organization"
+        ],
+        "targets": {
+          "member": {
+            "classification": "none",
+            "evidence": []
+          },
+          "organization": {
+            "classification": "may_mutate_existing",
+            "evidence": [
+              {
+                "family": "entity_pipelines",
+                "access": "may_mutate_existing"
+              }
+            ]
+          }
+        },
+        "applicantContinuationUnsupported": []
+      },
+      "assessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+      },
+      "saveChecks": {
+        "unchanged": {
+          "ok": true,
+          "legacyCompatibility": true,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        },
+        "changed": {
+          "ok": false,
+          "legacyCompatibility": false,
+          "draftWarning": false,
+          "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT"
+        }
+      },
+      "configDigestSha256": "e02468a60161c6f14a873ca74e4960b64d8c96865e62ab7f6114ca08c6329bef",
+      "mutationConfigDigestSha256": "a5ddee560f084d84131ba9edbda11a9cd8cf5ada1c09de597ebc9df124d1f1d4",
+      "activity": {
+        "submissionsSince": "2026-09-01T00:00:00Z",
+        "submissionsByStatus": {},
+        "unexpiredDrafts": 0,
+        "grantsByStatus": {}
+      }
+    }
+  ]
+}
