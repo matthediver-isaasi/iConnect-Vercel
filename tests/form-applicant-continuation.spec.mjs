@@ -6,6 +6,9 @@ const ORG_ID = "applicant-organisation";
 const ORG_ID_2 = "second-applicant-organisation";
 const TOKEN = "secure-applicant-capability";
 const RESUME = "secure-draft-resume";
+const PREFILL_ORG_ID = "40bf035b-d93d-4384-ae5e-6d6af513af73";
+const PREFILL_ORG_NAME = "North Harbour Arts";
+const PREFILL_ORG_CUSTOM = "Established in 1984";
 
 const updateForm = {
   id: FORM_ID,
@@ -37,6 +40,8 @@ function json(route, body, status = 200) {
 }
 
 const answerInput = page => page.locator('input[type="text"]:visible').first();
+const orgNameInput = page => page.getByRole("textbox").first();
+const orgHistoryInput = page => page.getByRole("textbox").nth(1);
 
 async function fixture(page, {
   invalidToken = false,
@@ -44,12 +49,45 @@ async function fixture(page, {
   membershipPayment = false,
   boundDraft = false,
   authenticatedOwner = false,
+  organisationField = null,
+  holdVerification = false,
+  holdEntity = false,
 } = {}) {
+  let releaseVerification;
+  let releaseEntity;
+  const verificationGate = holdVerification
+    ? new Promise(resolve => { releaseVerification = resolve; }) : null;
+  const entityGate = holdEntity
+    ? new Promise(resolve => { releaseEntity = resolve; }) : null;
   const state = {
     verifications: [], draftSaves: [], submissions: [], unexpectedWrites: [],
     orgPrefills: [], draftBound: boundDraft, quotes: [], paymentCreates: [],
+    releaseVerification: () => releaseVerification?.(),
+    releaseEntity: () => releaseEntity?.(),
   };
-  const baseForm = membershipPayment ? {
+  const baseForm = organisationField ? {
+    ...updateForm,
+    prefill_source: "organization",
+    fields: [
+      { id: "org-name", type: "text", label: "Organisation name", prefill_field: "org:name" },
+      { id: "org-history", type: "text", label: "Organisation history", prefill_field: "org_custom:history" },
+      ...(organisationField === "dropdown"
+        ? [{ id: "org-selector", type: "organisation_dropdown", label: "Organisation" }]
+        : []),
+    ],
+    entity_pipelines: {
+      members: [],
+      organisations: [{
+        id: "org-update",
+        uniqueness_key: organisationField === "custom" ? "registered_name" : "name",
+        mappings: [{
+          source_type: "field",
+          source_field_id: organisationField === "dropdown" ? "org-selector" : "org-name",
+          target_field: organisationField === "custom" ? "registered_name" : "name",
+        }],
+      }],
+    },
+  } : membershipPayment ? {
     ...updateForm,
     fields: [
       updateForm.fields[0],
@@ -135,10 +173,12 @@ async function fixture(page, {
     if (path === "/api/public/form-applicant-continuation" && method === "POST") {
       const body = request.postDataJSON();
       state.verifications.push(body);
+      if (verificationGate) await verificationGate;
       if (invalidToken) return json(route, { error: "Applicant link is invalid or expired" }, 403);
       return json(route, {
         form_id: form.id,
-        organization_id: body.applicant_continuation_token === `${TOKEN}-2` ? ORG_ID_2 : ORG_ID,
+        organization_id: organisationField ? PREFILL_ORG_ID
+          : body.applicant_continuation_token === `${TOKEN}-2` ? ORG_ID_2 : ORG_ID,
         expires_at: "2099-01-01T00:00:00.000Z",
       });
     }
@@ -164,8 +204,15 @@ async function fixture(page, {
     }
     if (path.startsWith("/api/public/organisation/") && method === "GET") {
       const id = decodeURIComponent(path.split("/").pop());
+      if (path.endsWith("/preference-values")) {
+        return json(route, [{ field_id: "history", value: PREFILL_ORG_CUSTOM }]);
+      }
       state.orgPrefills.push(id);
-      return json(route, { id, name: `Organisation ${id}` });
+      if (entityGate) await entityGate;
+      return json(route, { id, name: id === PREFILL_ORG_ID ? PREFILL_ORG_NAME : `Organisation ${id}` });
+    }
+    if (path === "/api/public/organisations" && method === "POST") {
+      return json(route, [{ id: PREFILL_ORG_ID, name: PREFILL_ORG_NAME }]);
     }
     if (path === "/api/public/form-submission" && method === "POST") {
       state.submissions.push(request.postDataJSON());
@@ -301,4 +348,77 @@ test("bound resumed credential reaches membership quote and payment create", asy
   await expect.poll(() => state.paymentCreates.length).toBe(1);
   expect(state.paymentCreates[0].resume_token).toBe(RESUME);
   expect(state.paymentCreates[0].applicant_continuation_token).toBeNull();
+});
+
+for (const order of ["grant before entity", "entity before grant"]) {
+  test(`text org:name uniqueness preserves prefilled name and later edits (${order})`, async ({ page }) => {
+    const { state, form } = await fixture(page, {
+      organisationField: "text",
+      holdVerification: order === "entity before grant",
+      holdEntity: order === "grant before entity",
+    });
+    const url = `/FormView?slug=${form.slug}&organization_id=${PREFILL_ORG_ID}&applicant_continuation_token=${TOKEN}`;
+    try {
+      await page.goto(url);
+      if (order === "entity before grant") {
+        await expect(orgNameInput(page)).toHaveValue(PREFILL_ORG_NAME);
+        state.releaseVerification();
+      } else {
+        await expect.poll(() => state.verifications.length).toBe(1);
+        await expect.poll(() => state.orgPrefills.includes(PREFILL_ORG_ID)).toBe(true);
+        state.releaseEntity();
+      }
+      await expect(orgNameInput(page)).toHaveValue(PREFILL_ORG_NAME);
+      await expect(orgHistoryInput(page)).toHaveValue(PREFILL_ORG_CUSTOM);
+      await orgNameInput(page).fill("Revised North Harbour Arts");
+      await orgHistoryInput(page).fill("Updated supporting answer");
+      await expect(orgNameInput(page)).toHaveValue("Revised North Harbour Arts");
+      await page.getByTestId("button-submit-form").click();
+      await expect.poll(() => state.submissions.length).toBe(1);
+      expect(state.submissions[0].submission_data["org-name"]).toBe("Revised North Harbour Arts");
+      expect(state.submissions[0].submission_data["org-history"]).toBe("Updated supporting answer");
+      expect(state.submissions[0].prefill_organization_id).toBe(PREFILL_ORG_ID);
+      expect(state.unexpectedWrites).toEqual([]);
+    } finally {
+      state.releaseVerification();
+      state.releaseEntity();
+    }
+  });
+}
+
+test("custom uniqueness text mapping never receives the continuation organisation ID", async ({ page }) => {
+  const { state, form } = await fixture(page, { organisationField: "custom" });
+  await page.goto(`/FormView?slug=${form.slug}&applicant_continuation_token=${TOKEN}`);
+  await expect(orgNameInput(page)).toHaveValue(PREFILL_ORG_NAME);
+  await page.getByTestId("button-submit-form").click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].submission_data["org-name"]).toBe(PREFILL_ORG_NAME);
+  expect(state.submissions[0].prefill_organization_id).toBe(PREFILL_ORG_ID);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("real organisation dropdown retains its ID while text org:name retains its name", async ({ page }) => {
+  const { state, form } = await fixture(page, { organisationField: "dropdown" });
+  await page.goto(`/FormView?slug=${form.slug}&applicant_continuation_token=${TOKEN}`);
+  await expect(orgNameInput(page)).toHaveValue(PREFILL_ORG_NAME);
+  await expect(page.getByTestId("select-organisation-org-selector")).toContainText(PREFILL_ORG_NAME);
+  await page.getByTestId("button-submit-form").click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].submission_data["org-name"]).toBe(PREFILL_ORG_NAME);
+  expect(state.submissions[0].submission_data["org-selector"]).toBe(PREFILL_ORG_ID);
+  expect(state.submissions[0].prefill_organization_id).toBe(PREFILL_ORG_ID);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("non-continuation org:name prefill remains editable without a capability", async ({ page }) => {
+  const { state, form } = await fixture(page, { organisationField: "text", referenceOnly: true });
+  await page.goto(`/FormView?slug=${form.slug}&organization_id=${PREFILL_ORG_ID}`);
+  await expect(orgNameInput(page)).toHaveValue(PREFILL_ORG_NAME);
+  await orgNameInput(page).fill("Independent Arts");
+  await page.getByTestId("button-submit-form").click();
+  await expect.poll(() => state.submissions.length).toBe(1);
+  expect(state.submissions[0].submission_data["org-name"]).toBe("Independent Arts");
+  expect(state.submissions[0].prefill_organization_id).toBe(PREFILL_ORG_ID);
+  expect(state.submissions[0].applicant_continuation_token).toBeUndefined();
+  expect(state.unexpectedWrites).toEqual([]);
 });

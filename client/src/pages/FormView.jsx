@@ -872,14 +872,26 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // visible answer agrees with the server-authoritative submission scope.
   useEffect(() => {
     const organizationId = applicantContinuationGrant?.organization_id;
-    const fieldId = orgCapacityConfig?.sourceFieldId || orgDropdownField?.id;
-    if (!organizationId || !fieldId) return;
-    setFormValues(previous => (
-      previous[fieldId] === organizationId
-        ? previous
-        : { ...previous, [fieldId]: organizationId }
-    ));
-  }, [applicantContinuationGrant?.organization_id, formValues, orgCapacityConfig?.sourceFieldId, orgDropdownField?.id]);
+    if (!organizationId) return;
+    // A uniqueness mapping can contain a name or custom key, not a record ID.
+    // Only reference selectors may be pinned; grant authority is carried
+    // separately by resolvedOrgIdForSubmission above.
+    const fieldIds = new Set(
+      [orgCapacityConfig?.sourceFieldId, orgDropdownField?.id].filter(id =>
+        id && form?.fields?.some(field =>
+          field.id === id && field.type === 'organisation_dropdown'
+        )
+      )
+    );
+    if (!fieldIds.size) return;
+    setFormValues(previous => {
+      const updates = {};
+      for (const id of fieldIds) {
+        if (previous[id] !== organizationId) updates[id] = organizationId;
+      }
+      return Object.keys(updates).length ? { ...previous, ...updates } : previous;
+    });
+  }, [applicantContinuationGrant?.organization_id, formValues, form?.fields, orgCapacityConfig?.sourceFieldId, orgDropdownField?.id]);
 
   const applicantContinuationError = useMemo(() => {
     if (applicantVerificationActive && applicantVerification.isError) {

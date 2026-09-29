@@ -2,6 +2,30 @@
 
 ## Conclusion
 
+### Subsequent browser finding (2026-09-29)
+
+The current FormView continuation effect provided a separate, reproducible
+browser overwrite: it treated the primary organisation uniqueness-key source
+as an ID selector without checking the field type. Executing the baseline
+effect with a synthetic correctly named organisation and verified grant
+replaced the text answer with the grant UUID. This establishes a current-code
+mechanism, not the historical deployment or request responsible for the
+incident described below.
+
+The effect now pins only actual `organisation_dropdown` fields among the
+pipeline source and standalone fallback. Text names and custom uniqueness
+answers are left intact; submission organisation identity still comes from
+the verified grant, independently of answers. Capacity and server authorization
+paths are unchanged.
+
+`tests/form-applicant-continuation.spec.mjs` exercises the mounted FormView
+with intercepted synthetic responses: both grant/entity response orders,
+later name and unrelated-answer edits, custom uniqueness, real selectors,
+ordinary prefill, and separate submitted identity. No production record,
+configuration, workflow, notification or submission was changed or replayed.
+This does not establish live rollout or the reported live form's configuration.
+No database migrations are required or applied.
+
 The available evidence points to a **subsequent overwrite**, not the original application's name answer being wrong.
 
 The specified original submission saved `Testing Uni` in a plain text Organisation field. A second submission, made the next morning to a different form, saved this organisation's UUID in another plain text Organisation field. That second form maps the field directly to `organization.name`, with no transformation. Its processing interval contains the organisation's latest update timestamp. An isolated test of the current processor reproduces precisely this overwrite, including the applicant-continuation authorization used by the second submission.
