@@ -49,6 +49,7 @@ import {
   hasAnyResponsiveValue,
   writeResponsiveValue,
   buildResponsiveImage,
+  resolveEventCarouselImageFit,
   setBlockContentFullBleed,
 } from '@/lib/canvasDesign';
 import {
@@ -1455,7 +1456,8 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
             <img
               src={event.image_url}
               alt=""
-              className="w-full h-full object-cover"
+              className="w-full h-full"
+              style={{ objectFit: resolveEventCarouselImageFit(c.imageFit), objectPosition: 'center' }}
               loading="lazy"
             />
           ) : (
@@ -1664,6 +1666,18 @@ function EventCarouselInspector({ block, update, breakpoint }) {
           { value: 'right', label: 'Right' },
         ]}
         testId="select-event-carousel-image-side"
+      />
+      <SelectField
+        label="Image fit"
+        value={resolveEventCarouselImageFit(c.imageFit)}
+        onChange={(v) => set({ imageFit: v })}
+        options={[
+          { value: 'cover', label: 'Cover (crop to fill)' },
+          { value: 'contain', label: 'Contain (show whole image)' },
+          { value: 'fill', label: 'Fill (stretch)' },
+        ]}
+        hint="Cover crops the image. Contain shows all artwork with possible empty space. Fill stretches and may distort."
+        testId="select-event-carousel-image-fit"
       />
       <SelectField
         label="Image aspect ratio"

@@ -46,6 +46,10 @@ import { getCanvasMembershipDefaults, normalizeCanvasMembershipContent } from '.
 
 export const CANVAS_DESIGN_VERSION = 1;
 
+export function resolveEventCarouselImageFit(value) {
+  return value === 'contain' || value === 'fill' ? value : 'cover';
+}
+
 // Task #2558 — flow (auto-layout) schema. Version 2 documents describe the page
 // as an ordered tree of containers (section → row → group → element) where
 // vertical position is DERIVED from block order + measured height, not stored.
@@ -1409,6 +1413,7 @@ export const BLOCK_DEFAULTS = {
     geom: { w: 800, h: 400 },
     style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
     content: {
+      imageFit: 'cover',
       eventIds: [],
       ctaLabel: 'Find out more',
       showSummary: true,
@@ -3414,6 +3419,9 @@ function normalizeBlock(block) {
   // viewer-local resize preference. In particular, never retain a copied
   // dashboard title/config/data payload in the Canvas document where it could
   // outlive its authorization scope.
+  if (type === BLOCK_TYPES.EVENT_CAROUSEL) {
+    normalized.content.imageFit = resolveEventCarouselImageFit(normalized.content.imageFit);
+  }
   if (type === BLOCK_TYPES.DYNAMIC_WIDGET) {
     normalized.content = normalizeCanvasDynamicWidgetContent(block.content);
   }
