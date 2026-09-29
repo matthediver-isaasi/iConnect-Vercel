@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
+import SubmissionOrganisationValue from "../components/forms/SubmissionOrganisationValue";
 import { CustomFieldFileDisplay } from "../components/CustomFieldFileUpload";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
@@ -164,7 +165,7 @@ export default function FormSubmissionView() {
     },
     enabled: !!submission?.organization_id
   });
-  const { data: organisationsForRepeatableRows = [] } = useQuery({
+  const { data: organisationsForRepeatableRows = [], isLoading: organisationNamesLoading, error: organisationNamesError } = useQuery({
     queryKey: ['organizations-for-repeatable-submission-display'],
     queryFn: async () => base44.entities.Organization.listAll(),
     staleTime: 5 * 60 * 1000,
@@ -334,6 +335,16 @@ export default function FormSubmissionView() {
                 <p className="text-slate-900 dark:text-slate-100">
                   {Array.isArray(notListedDisplayValue) ? notListedDisplayValue.join(', ') : notListedDisplayValue}
                 </p>
+              </div>
+            ) : field.type === 'organisation_dropdown' ? (
+              <div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{field.label || field.id}</p>
+                <SubmissionOrganisationValue
+                  value={value}
+                  namesById={organisationNamesById}
+                  loading={organisationNamesLoading}
+                  error={organisationNamesError}
+                />
               </div>
             ) : isRepeatableRowField(field) ? (
               <div>
