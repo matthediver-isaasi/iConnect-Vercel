@@ -28,6 +28,7 @@ export function normalizeSpeakerAwardConfig(raw) {
       voucher_value: toPositiveNumber(def.voucher_value),
       voucher_expiry: toDateString(def.voucher_expiry),
       badge_id: def.badge_id || null,
+      certificate_template_id: def.certificate_template_id || null,
     },
     overrides: {},
   };
@@ -40,6 +41,8 @@ export function normalizeSpeakerAwardConfig(raw) {
         voucher_value: toPositiveNumber(o.voucher_value),
         voucher_expiry: toDateString(o.voucher_expiry),
         badge_id: o.badge_id || null,
+        ...(Object.hasOwn(o, 'certificate_template_id')
+          ? { certificate_template_id: o.certificate_template_id || null } : {}),
       };
     }
   }
@@ -68,13 +71,16 @@ export function resolveSpeakerAward(config, speakerId) {
     voucher_value: override?.voucher_value ?? c.default.voucher_value,
     voucher_expiry: override?.voucher_expiry ?? c.default.voucher_expiry,
     badge_id: override?.badge_id ?? c.default.badge_id,
+    ...(c.default.certificate_template_id || (override && Object.hasOwn(override, 'certificate_template_id'))
+      ? { certificate_template_id: override && Object.hasOwn(override, 'certificate_template_id')
+        ? override.certificate_template_id : c.default.certificate_template_id } : {}),
   };
   // A voucher needs both a value and an expiry date to be grantable.
   if (!award.voucher_value || !award.voucher_expiry) {
     award.voucher_value = null;
     award.voucher_expiry = null;
   }
-  if (!award.voucher_value && !award.badge_id) return null;
+  if (!award.voucher_value && !award.badge_id && !award.certificate_template_id) return null;
   return award;
 }
 

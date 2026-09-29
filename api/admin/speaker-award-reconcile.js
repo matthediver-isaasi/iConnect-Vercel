@@ -7,6 +7,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { collectSpeakerIds } from '../cron/grant-speaker-awards.js';
 import { reconcileAssignmentSpeakerBadges } from '../_lib/speakerAwards.js';
+import { syncSpeakerRecognition } from '../_lib/speakerRecognition.js';
 
 export function createSpeakerAwardReconcileHandler({
   db = supabase,
@@ -14,6 +15,7 @@ export function createSpeakerAwardReconcileHandler({
   adminAccess = hasAdminAccess,
   reconcile = reconcileAssignmentSpeakerBadges,
   collectIds = collectSpeakerIds,
+  syncRecognition = syncSpeakerRecognition,
 } = {}) {
   return async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -52,6 +54,9 @@ export function createSpeakerAwardReconcileHandler({
         eventType, event, speakers, revokeRemoved,
         actor: { type: 'admin', id: ctx.memberId || null, label: ctx.memberId ? 'Tenant administrator' : 'Tenant administrator' },
       });
+      // Independent authority: no certificate is issued before event start,
+      // and this never sends badge/certificate email to external speakers.
+      await syncRecognition(db, { tenantId: ctx.tenantId, eventType, eventId });
       return res.status(200).json({ ok: true, ...summary });
     } catch (err) {
       console.error('[admin/speaker-award-reconcile]', err.message);

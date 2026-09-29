@@ -1,10 +1,12 @@
 import { Loader2 } from "lucide-react";
 import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
+import SpeakerAwardsHistory from "@/components/SpeakerAwardsHistory";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export function CpdPointsPage({
   useAccess = useMemberAccess,
   HistoryComponent = MemberCpdPointsTab,
+  SpeakerAwardsComponent = SpeakerAwardsHistory,
 }) {
   const {
     authResolved,
@@ -38,6 +40,7 @@ export function CpdPointsPage({
         <p className="text-muted-foreground mt-1">View your current balance and complete award history.</p>
       </div>
       <HistoryComponent memberId={memberInfo.id} enabled />
+      <SpeakerAwardsComponent endpoint="/api/members/me/speaker-awards" member />
     </div>
   );
 }

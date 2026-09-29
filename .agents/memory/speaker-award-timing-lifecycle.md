@@ -14,3 +14,15 @@ Speaker removal and re-addition transitions must be database-serialized. A remov
 **Why:** Client-only checks and sequential updates race, can revoke the wrong provenance, and can strand cancelled grants when a speaker is re-added.
 
 **How to apply:** Use locked server-only database transitions for removal/reactivation. Derive current speaker entitlement from all event-level, agenda, and complex-session references; one remaining reference means the speaker is still assigned.
+
+Speaker certificate snapshots must remain independent from later successful member-badge evidence.
+
+**Why:** A certificate can finish while member badge assignment is retrying. Freezing all recognition fields with the certificate loses the later badge; rewriting the certificate snapshot loses issuance integrity.
+
+**How to apply:** Keep original recipient and certificate values immutable, but attach proven badge grant evidence separately. History must use that evidence even when the original certificate snapshot contained no badge.
+
+Speaker references have mixed database array types across event surfaces.
+
+**Why:** The destination uses native UUID arrays for event/session speakers but JSONB for agenda speakers; JSONB-only fixtures allowed a migration that failed on the destination.
+
+**How to apply:** Normalize reference arrays through `to_jsonb` before JSON expansion and exercise both native arrays and JSONB in database fixtures.

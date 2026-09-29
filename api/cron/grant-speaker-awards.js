@@ -11,6 +11,7 @@
 import { supabase } from '../_lib/database.js';
 import { grantSpeakerAwardsForEvent, normalizeSpeakerAwardConfig } from '../_lib/speakerAwards.js';
 import { sendPendingSpeakerAwardNotifications } from '../_lib/speakerAwardEmails.js';
+import { processSpeakerRecognition } from '../_lib/speakerRecognition.js';
 
 const MAX_EVENTS_PER_RUN = 20;
 
@@ -69,6 +70,7 @@ export function createGrantSpeakerAwardsHandler({
   getCronSecret = () => process.env.CRON_SECRET,
   grantAwards = grantSpeakerAwardsForEvent,
   sendNotifications = sendPendingSpeakerAwardNotifications,
+  processRecognition = processSpeakerRecognition,
   now = () => new Date(),
 } = {}) {
   return async function handler(req, res) {
@@ -162,9 +164,19 @@ export function createGrantSpeakerAwardsHandler({
       summary.errors.push({ error: `${notifySummary.failed} award notification(s) failed, will retry next run` });
     }
 
+    // Certificate and speaker-only recognition errors must never roll back or
+    // suppress existing vouchers, member badges or their notifications.
+    try {
+      summary.recognition = await processRecognition(db, { now: now() });
+    } catch (error) {
+      summary.errors.push({ error: `Speaker recognition: ${error.message}` });
+    }
     return res.status(200).json({ ok: true, ...summary });
   } catch (err) {
     console.error('[cron/grant-speaker-awards] run failed:', err.message);
+    // The independent sweep still runs when the legacy queue has failed.
+    try { summary.recognition = await processRecognition(db, { now: now() }); }
+    catch (error) { summary.errors.push({ error: `Speaker recognition: ${error.message}` }); }
     return res.status(500).json({ error: err.message, ...summary });
   }
   };

@@ -25,6 +25,8 @@ export { configToFormState, formStateToConfig };
 export default function SpeakerAwardsSection({ speakers, value, onChange, eventId, eventType }) {
   const state = value || emptySpeakerAwardConfig();
   const [badges, setBadges] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [templateError, setTemplateError] = useState("");
   const [eligibility, setEligibility] = useState({});
   const [grants, setGrants] = useState(null);
 
@@ -41,6 +43,20 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
       .catch(() => {});
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.enabled]);
+
+  useEffect(() => {
+    if (!state.enabled) return;
+    let cancelled = false;
+    fetch("/api/admin/speakers/certificate-templates", { credentials: "include" })
+      .then(async r => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || body.message || "Could not load certificate templates");
+        return body.templates || [];
+      })
+      .then(list => { if (!cancelled) { setTemplates(list); setTemplateError(""); } })
+      .catch(error => { if (!cancelled) setTemplateError(error.message); });
+    return () => { cancelled = true; };
   }, [state.enabled]);
 
   useEffect(() => {
@@ -83,6 +99,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
   };
 
   const badgeName = (id) => badges.find(b => b.id === id)?.name || "Badge";
+  const templateName = (id) => templates.find(t => t.id === id)?.name || "Certificate template";
 
   const grantStatusLabel = {
     pending: "Pending — will retry shortly",
@@ -119,6 +136,8 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                 {" — "}{grantStatusLabel[g.status] || g.status}
                 {g.voucher_id && g.voucher_value ? `; voucher £${g.voucher_value}` : ""}
                 {g.member_badge_id && g.badge_name ? `; badge "${g.badge_name}"` : ""}
+                {g.speaker_badge_status && g.badge_name ? `; speaker badge "${g.badge_name}" (${g.speaker_badge_status})` : ""}
+                {g.certificate_status ? `; certificate ${g.certificate_status}` : ""}
                 {g.detail ? ` (${g.detail})` : ""}
               </span>
             </div>
@@ -135,6 +154,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
               Badges can be awarded at event start or as soon as a speaker is assigned.
               Training vouchers can only be awarded when the speaker is a member connected to an organisation
               (the voucher is credited to that organisation).
+              Certificates are issued at event start, including to speakers without a linked member or email.
             </span>
           </div>
 
@@ -179,6 +199,25 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Certificate template (optional)</Label>
+            <Select
+              value={state.default.certificate_template_id || NO_BADGE}
+              onValueChange={(v) => updateDefault({ certificate_template_id: v === NO_BADGE ? null : v })}
+            >
+              <SelectTrigger data-testid="select-award-certificate">
+                <SelectValue placeholder="No certificate" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_BADGE}>No certificate</SelectItem>
+                {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {templateError && <p role="alert" className="text-xs text-red-600">{templateError}</p>}
+            {state.default.certificate_template_id && !templates.some(t => t.id === state.default.certificate_template_id) && !templateError && (
+              <p className="text-xs text-amber-700">Selected certificate template is no longer active or available.</p>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Badge timing</Label>
@@ -226,7 +265,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                         ) : elig.badge_eligible ? (
                           <Badge variant="outline" className="text-amber-700 border-amber-300">Member, no organisation — badge only</Badge>
                         ) : (
-                          <Badge variant="outline" className="text-slate-500">No linked member — no award possible</Badge>
+                          <Badge variant="outline" className="text-slate-500">No linked member — speaker recognition and certificates still available</Badge>
                         )
                       )}
                       <div className="ml-auto flex items-center gap-2">
@@ -256,7 +295,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                     {excluded ? (
                       <p className="text-xs text-slate-500">Excluded — this speaker receives no award.</p>
                     ) : hasOverride ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs">Voucher amount (£)</Label>
                           <Input
@@ -295,11 +334,37 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                             </SelectContent>
                           </Select>
                         </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Certificate</Label>
+                            <Select
+                              value={!Object.hasOwn(override, "certificate_template_id")
+                                ? "__inherit__" : override.certificate_template_id || NO_BADGE}
+                              onValueChange={(v) => {
+                                if (v === "__inherit__") {
+                                  const next = { ...override };
+                                  delete next.certificate_template_id;
+                                  update({ overrides: { ...state.overrides, [speaker.id]: next } });
+                                } else {
+                                  updateOverride(speaker.id, { certificate_template_id: v === NO_BADGE ? null : v });
+                                }
+                              }}
+                            >
+                              <SelectTrigger data-testid={`select-override-certificate-${speaker.id}`}>
+                                <SelectValue placeholder="Use default" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__inherit__">Use default</SelectItem>
+                                <SelectItem value={NO_BADGE}>No certificate for this speaker</SelectItem>
+                                {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
                       </div>
                     ) : (
                       <p className="text-xs text-slate-500">
                         {award.voucher_value && award.voucher_expiry ? `Voucher £${award.voucher_value} (expires ${award.voucher_expiry})` : "No voucher"}
                         {award.badge_id ? ` · Badge: ${badgeName(award.badge_id)}` : " · No badge"}
+                        {award.certificate_template_id ? ` · Certificate: ${templateName(award.certificate_template_id)}` : " · No certificate"}
                       </p>
                     )}
                   </div>

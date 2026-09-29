@@ -61,6 +61,9 @@ test('reconcile endpoint scopes event lookup to tenant and passes remove decisio
     adminAccess: async () => true,
     collectIds: async (_db, type) => { assert.equal(type, 'complex_event'); return []; },
     reconcile: async (_db, input) => { calls.push(input); return { timing: 'on_assignment', results: [], removed: 1, revoked: 1 }; },
+    syncRecognition: async (_db, input) => {
+      assert.deepEqual(input, { tenantId: 't1', eventType: 'complex_event', eventId: 'e1' });
+    },
   });
   const res = response();
   await handler({

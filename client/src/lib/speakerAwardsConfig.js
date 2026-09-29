@@ -4,7 +4,7 @@ export function emptySpeakerAwardConfig() {
     // Older configurations did not contain badge_timing. Event start remains
     // the deliberately backwards-compatible default.
     badge_timing: "event_start",
-    default: { voucher_value: "", voucher_expiry: "", badge_id: null },
+    default: { voucher_value: "", voucher_expiry: "", badge_id: null, certificate_template_id: null },
     overrides: {},
   };
 }
@@ -34,6 +34,8 @@ export function configToFormState(raw) {
           voucher_value: o.voucher_value != null ? String(o.voucher_value) : "",
           voucher_expiry: o.voucher_expiry ? String(o.voucher_expiry).slice(0, 10) : "",
           badge_id: o.badge_id || null,
+          // Missing means inherit; null is an explicit per-speaker opt-out.
+          ...('certificate_template_id' in o ? { certificate_template_id: o.certificate_template_id } : {}),
         };
   });
   return {
@@ -43,6 +45,7 @@ export function configToFormState(raw) {
       voucher_value: def.voucher_value != null ? String(def.voucher_value) : "",
       voucher_expiry: def.voucher_expiry ? String(def.voucher_expiry).slice(0, 10) : "",
       badge_id: def.badge_id || null,
+      certificate_template_id: def.certificate_template_id || null,
     },
     overrides,
   };
@@ -65,8 +68,9 @@ export function formStateToConfig(state) {
       voucher_value: num(o.voucher_value),
       voucher_expiry: o.voucher_expiry || null,
       badge_id: o.badge_id || null,
+      ...('certificate_template_id' in o ? { certificate_template_id: o.certificate_template_id } : {}),
     };
-    if (entry.voucher_value || entry.voucher_expiry || entry.badge_id) overrides[id] = entry;
+    if (entry.voucher_value || entry.voucher_expiry || entry.badge_id || 'certificate_template_id' in entry) overrides[id] = entry;
   });
   return {
     enabled: true,
@@ -75,6 +79,7 @@ export function formStateToConfig(state) {
       voucher_value: num(state.default?.voucher_value),
       voucher_expiry: state.default?.voucher_expiry || null,
       badge_id: state.default?.badge_id || null,
+      certificate_template_id: state.default?.certificate_template_id || null,
     },
     overrides,
   };
@@ -89,5 +94,7 @@ export function resolveSpeakerAwardFormValue(state, speakerId) {
     voucher_expiry: (override && override.voucher_expiry)
       ? override.voucher_expiry : state.default?.voucher_expiry,
     badge_id: (override && override.badge_id) ? override.badge_id : state.default?.badge_id,
+    certificate_template_id: override && 'certificate_template_id' in override
+      ? override.certificate_template_id : state.default?.certificate_template_id,
   };
 }

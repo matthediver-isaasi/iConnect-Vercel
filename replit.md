@@ -1,5 +1,7 @@
 - **CPD points recovery:** `20261123_event_cpd_points_safe_reprocessing.sql` was applied to verified DEST (`lvmzliemqnieeoruhkik`) using `scripts/apply-event-cpd-points-reprocessing.mjs` on 2026-09-28. Service-only preview/confirmation/results RPC grants were verified. SOURCE was untouched, no replay was run, and no migration remains outstanding for this feature. Report UI uses a read-only preview before explicit confirmation; confirmed runs use the existing points outbox and ledger. Browser verification used intercepted fixtures, not live awarding.
 # Membership Management Platform
+
+- **Speaker award records:** `20261124_speaker_recognition.sql` and `20261124_speaker_recognition_history.sql` were applied atomically to verified DEST (`lvmzliemqnieeoruhkik`) on 2026-09-29 using `scripts/apply-speaker-recognition.mjs`. Service-only RPC/history privileges and the private certificate bucket were verified. SOURCE was untouched; no awards, PDFs or emails were issued during migration, and no feature migration remains outstanding. Certificate issuance excludes events already started at migration time. Browser verification used isolated fixtures with real PDF bytes; the local tenant preview still reports “Tenant not found,” so this is not authenticated deployed verification. The attendee CPD history certificate feature remains separate.
 A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
 ## BNMS alpha import: historical invoices are mandatory

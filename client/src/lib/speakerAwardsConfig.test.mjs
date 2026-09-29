@@ -9,10 +9,11 @@ import {
 test('configuration round-trips defaults, overrides, exclusions and stored timestamps', () => {
   const form = configToFormState({
     enabled: true,
-    default: { voucher_value: 100, voucher_expiry: '2027-01-31T12:00:00Z', badge_id: 'b1' },
+    default: { voucher_value: 100, voucher_expiry: '2027-01-31T12:00:00Z', badge_id: 'b1', certificate_template_id: 'c1' },
     overrides: {
-      s1: { voucher_value: 50, voucher_expiry: '2027-02-01', badge_id: 'b2' },
+      s1: { voucher_value: 50, voucher_expiry: '2027-02-01', badge_id: 'b2', certificate_template_id: 'c2' },
       s2: { excluded: true },
+      s3: { certificate_template_id: null },
     },
   });
   assert.equal(form.default.voucher_value, '100');
@@ -21,10 +22,11 @@ test('configuration round-trips defaults, overrides, exclusions and stored times
   assert.deepEqual(formStateToConfig(form), {
     enabled: true,
     badge_timing: 'event_start',
-    default: { voucher_value: 100, voucher_expiry: '2027-01-31', badge_id: 'b1' },
+    default: { voucher_value: 100, voucher_expiry: '2027-01-31', badge_id: 'b1', certificate_template_id: 'c1' },
     overrides: {
-      s1: { voucher_value: 50, voucher_expiry: '2027-02-01', badge_id: 'b2' },
+      s1: { voucher_value: 50, voucher_expiry: '2027-02-01', badge_id: 'b2', certificate_template_id: 'c2' },
       s2: { excluded: true },
+      s3: { voucher_value: null, voucher_expiry: null, badge_id: null, certificate_template_id: null },
     },
   });
 });
@@ -42,6 +44,21 @@ test('disabled configuration persists as null and empty overrides are omitted', 
   assert.deepEqual(formStateToConfig(state).overrides, {});
 });
 
+test('certificate-only awards and explicit opt-out survive serialization', () => {
+  const state = configToFormState({
+    enabled: true,
+    default: { certificate_template_id: 'c1' },
+    overrides: { inherit: {}, none: { certificate_template_id: null }, other: { certificate_template_id: 'c2' } },
+  });
+  const saved = formStateToConfig(state);
+  assert.equal(saved.default.certificate_template_id, 'c1');
+  assert.deepEqual(saved.overrides.inherit, undefined);
+  assert.equal(saved.overrides.none.certificate_template_id, null);
+  assert.equal(resolveSpeakerAwardFormValue(state, 'none').certificate_template_id, null);
+  assert.equal(resolveSpeakerAwardFormValue(state, 'inherit').certificate_template_id, 'c1');
+  assert.equal(resolveSpeakerAwardFormValue(state, 'other').certificate_template_id, 'c2');
+});
+
 test('override values take precedence while blank fields inherit defaults', () => {
   const state = configToFormState({
     enabled: true,
@@ -49,7 +66,7 @@ test('override values take precedence while blank fields inherit defaults', () =
     overrides: { s1: { voucher_value: 50 }, s2: { excluded: true } },
   });
   assert.deepEqual(resolveSpeakerAwardFormValue(state, 's1'), {
-    voucher_value: '50', voucher_expiry: '2027-01-31', badge_id: 'b1',
+    voucher_value: '50', voucher_expiry: '2027-01-31', badge_id: 'b1', certificate_template_id: null,
   });
   assert.deepEqual(resolveSpeakerAwardFormValue(state, 's2'), { excluded: true });
 });

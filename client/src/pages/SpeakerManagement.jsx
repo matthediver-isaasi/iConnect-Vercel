@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X, Mic, Settings, Save, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X, Mic, Settings, Save, Search, ChevronLeft, ChevronRight, Loader2, Award } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -28,6 +28,7 @@ import {
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import MemberCombobox from "@/components/MemberCombobox";
+import SpeakerAwardsHistory from "@/components/SpeakerAwardsHistory";
 import {
   createEmptySpeakerForm,
   memberToSpeakerForm,
@@ -61,6 +62,7 @@ export default function SpeakerManagementPage() {
   const [editingSpeaker, setEditingSpeaker] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [speakerToDelete, setSpeakerToDelete] = useState(null);
+  const [awardsSpeaker, setAwardsSpeaker] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [moduleNameSingular, setModuleNameSingular] = useState("Speaker");
@@ -499,6 +501,16 @@ export default function SpeakerManagementPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setAwardsSpeaker(speaker)}
+                      className="flex-1 gap-2"
+                      data-testid={`button-speaker-awards-${speaker.id}`}
+                    >
+                      <Award className="w-4 h-4" />
+                      Awards
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleOpenEditor(speaker)}
                       className="flex-1 gap-2"
                       data-testid={`button-edit-speaker-${speaker.id}`}
@@ -552,6 +564,15 @@ export default function SpeakerManagementPage() {
         )}
 
         {/* Editor Dialog */}
+        <Dialog open={!!awardsSpeaker} onOpenChange={(open) => { if (!open) setAwardsSpeaker(null); }}>
+          <DialogContent className="w-[calc(100%-2rem)] max-w-3xl max-h-[90dvh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{awardsSpeaker?.full_name} — Awards history</DialogTitle>
+            </DialogHeader>
+            {awardsSpeaker && <SpeakerAwardsHistory endpoint={`/api/admin/speakers/awards?speaker_id=${encodeURIComponent(awardsSpeaker.id)}`} />}
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
           <DialogContent className="flex w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] flex-col overflow-hidden">
             <DialogHeader className="shrink-0 pr-6">
