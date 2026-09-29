@@ -53,6 +53,7 @@ import {
 } from "@/lib/formConditionalFilters";
 import { labelSpreadsheetControls } from "@/lib/repeatableRowsLayout";
 import { initializeCommunicationPreferenceDefaults } from "@/lib/formCommunicationPreferenceDefaults";
+import { filterFormCommunicationCategories } from "@/lib/formCommunicationCategoryEligibility";
 import {
   FORM_NOT_LISTED_VALUE,
   FORM_NOT_LISTED_TEXT_MAX_LENGTH,
@@ -418,6 +419,9 @@ function RepeatableRowsField({
   formId,
   formSlug,
   formMemberRoleId,
+  communicationMemberContext,
+  communicationEligibilityError,
+  communicationEligibilityReady,
   prefillData,
   membershipFeeQuote,
   membershipPaymentMemberId,
@@ -775,6 +779,9 @@ function RepeatableRowsField({
         formId={formId}
         formSlug={formSlug}
         formMemberRoleId={formMemberRoleId}
+        communicationMemberContext={communicationMemberContext}
+        communicationEligibilityError={communicationEligibilityError}
+        communicationEligibilityReady={communicationEligibilityReady}
         allFormValues={row}
         allFields={config.children}
         rootAllFields={rootAllFields}
@@ -863,6 +870,9 @@ function RepeatableRowsField({
           formId={formId}
           formSlug={formSlug}
           formMemberRoleId={formMemberRoleId}
+          communicationMemberContext={communicationMemberContext}
+          communicationEligibilityError={communicationEligibilityError}
+          communicationEligibilityReady={communicationEligibilityReady}
           allFormValues={row}
           allFields={config.children}
           rootAllFields={rootAllFields}
@@ -1221,11 +1231,11 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, communicationEligibilityReady, conditionalResolution }) {
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, communicationMemberContext, communicationEligibilityReady, communicationEligibilityError, conditionalResolution }) {
   const initializedDefaults = useRef(false);
-  const { data: allCategories = [], isLoading } = useQuery({
+  const { data: allCategories, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['public-communication-categories'],
-    queryFn: async () => await publicClient.listCommunicationCategories() || [],
+    queryFn: () => publicClient.listCommunicationCategories(),
     staleTime: 5 * 60 * 1000
   });
 
@@ -1238,21 +1248,16 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
 
   const categories = useMemo(() => {
     const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
-    const roleFiltered = allCategories.filter(cat => {
-      if ((effectiveRoleId || memberInfo?.id) && cat.member_enabled === false) return false;
-      const hasRoleScope = cat.role_ids && cat.role_ids.length > 0;
-      if (!hasRoleScope) return true;
-      if (!effectiveRoleId) return false;
-      return cat.role_ids.includes(effectiveRoleId);
+    const staticallyFiltered = filterFormCommunicationCategories(allCategories, {
+      memberContext: communicationMemberContext || Boolean(memberInfo?.id || effectiveRoleId),
+      roleId: effectiveRoleId,
+      allowedIds,
     });
-    const staticallyFiltered = allowedIds.length === 0
-      ? roleFiltered
-      : roleFiltered.filter(cat => new Set(allowedIds).has(cat.id));
     return intersectConditionalOptions(staticallyFiltered, conditionalResolution, cat => cat.id);
-  }, [allCategories, formMemberRoleId, memberInfo?.id, memberInfo?.role_id, allowedIdsKey, conditionalResolution]);
+  }, [allCategories, formMemberRoleId, memberInfo?.id, memberInfo?.role_id, communicationMemberContext, allowedIdsKey, conditionalResolution]);
 
   useEffect(() => {
-    if (!communicationEligibilityReady || initializedDefaults.current || isLoading || categories.length === 0) return;
+    if (!communicationEligibilityReady || initializedDefaults.current || isFetching || isError || !Array.isArray(allCategories) || categories.length === 0) return;
     initializedDefaults.current = true;
     const initialValue = initializeCommunicationPreferenceDefaults({
       value,
@@ -1260,14 +1265,14 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
       defaultSelectedCategoryIds: defaultSelectedIds,
     });
     if (initialValue) onChange(initialValue);
-  }, [categories, communicationEligibilityReady, defaultSelectedIdsKey, isLoading, onChange, value]);
+  }, [categories, communicationEligibilityReady, defaultSelectedIdsKey, isFetching, isError, allCategories, onChange, value]);
 
   useEffect(() => {
-    if (isLoading || !value || typeof value !== 'object' || Array.isArray(value)) return;
+    if (!communicationEligibilityReady || isFetching || isError || !Array.isArray(allCategories) || !value || typeof value !== 'object' || Array.isArray(value)) return;
     const allowed = new Set(categories.map((category) => category.id));
     const next = Object.fromEntries(Object.entries(value).filter(([id]) => allowed.has(id)));
     if (Object.keys(next).length !== Object.keys(value).length) onChange(next);
-  }, [categories, isLoading, value, onChange]);
+  }, [categories, communicationEligibilityReady, isFetching, isError, allCategories, value, onChange]);
 
   if (isLoading) {
     return (
@@ -1276,6 +1281,28 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
         Loading communication preferences...
       </div>
     );
+  }
+
+  if (isError || (!allCategories && !isLoading)) {
+    return (
+      <div role="alert" className="text-sm text-red-700">
+        Could not load communication preferences: {error?.message || 'No categories were returned.'}
+        <button type="button" className="ml-2 underline" onClick={() => refetch()}>Retry</button>
+      </div>
+    );
+  }
+
+  if (communicationEligibilityError) {
+    return (
+      <div role="alert" className="text-sm text-red-700">
+        Could not load member eligibility: {communicationEligibilityError.message || 'Please try again.'}
+        <button type="button" className="ml-2 underline" onClick={() => communicationEligibilityError.retry()}>Retry</button>
+      </div>
+    );
+  }
+
+  if (!communicationEligibilityReady) {
+    return <p role="status" className="text-sm text-slate-500">Loading communication preferences...</p>;
   }
 
   if (categories.length === 0) {
@@ -1331,7 +1358,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationEligibilityReady = true, communicationEligibilityError = null, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2318,6 +2345,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       formId={formId}
       formSlug={formSlug}
       formMemberRoleId={formMemberRoleId}
+      communicationMemberContext={communicationMemberContext}
+      communicationEligibilityError={communicationEligibilityError}
+      communicationEligibilityReady={communicationEligibilityReady}
       prefillData={prefillData}
       membershipFeeQuote={membershipFeeQuote}
       membershipPaymentMemberId={membershipPaymentMemberId}
@@ -3721,6 +3751,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             disabled={isFieldDisabled}
             memberInfo={memberInfo}
             formMemberRoleId={formMemberRoleId}
+            communicationMemberContext={communicationMemberContext}
+            communicationEligibilityError={communicationEligibilityError}
             communicationEligibilityReady={communicationEligibilityReady}
             conditionalResolution={conditionalResolution}
           />

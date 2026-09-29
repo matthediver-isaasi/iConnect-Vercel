@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { resolveDisplayedFloaters } from "@/lib/floaterSiteTargets";
+import { formCommunicationCreationRole } from "@/lib/formCommunicationCategoryEligibility";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   pruneFormNotListedText,
@@ -112,7 +113,7 @@ export default function FloaterDisplay({
   });
 
   // Fetch full member record to get job_title (was base44.entities.Member.list)
-  const { data: memberRecord } = useQuery({
+  const { data: memberRecord, isLoading: memberRecordLoading, error: memberRecordError, refetch: retryMemberRecord } = useQuery({
     queryKey: ["member-record", memberInfo?.email, tenantId],
     enabled: !!memberInfo?.email && !!tenantId,
     queryFn: async () => {
@@ -125,7 +126,7 @@ export default function FloaterDisplay({
 
       if (error) {
         console.error("Error loading member record:", error);
-        return null;
+        throw error;
       }
 
       return data || null;
@@ -457,6 +458,17 @@ export default function FloaterDisplay({
 
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
   const memberData = memberRecord || memberInfo;
+  const floaterMemberPipelines = selectedForm?.entity_pipelines?.members || [];
+  const floaterPrimaryMemberPipeline = floaterMemberPipelines.find(member => member.isPrimary || member.is_primary)
+    || (floaterMemberPipelines.length === 1 ? floaterMemberPipelines[0] : null);
+  const floaterCommunicationRole = memberData?.role_id
+    || (floaterPrimaryMemberPipeline
+      ? formCommunicationCreationRole(floaterPrimaryMemberPipeline, formValues)
+      : selectedForm?.default_member_role_id || null);
+  const floaterMemberContext = Boolean(memberData?.id || floaterMemberPipelines.length
+    || selectedForm?.default_member_role_id
+    || selectedForm?.visibility_rules?.some(rule => rule.actions?.some(action =>
+      action.action_type === 'set_role' || action.action_type === 'clear_role')));
 
   if (visibleFloaters.length === 0) return null;
 
@@ -548,6 +560,10 @@ export default function FloaterDisplay({
                         setFormNotListedText(prev, selectedForm.fields[currentStep].id, text)
                       ))}
                       memberInfo={memberData}
+                      formMemberRoleId={floaterCommunicationRole}
+                      communicationMemberContext={floaterMemberContext}
+                      communicationEligibilityReady={authResolved && !memberRecordLoading && !memberRecordError}
+                      communicationEligibilityError={memberRecordError ? { message: memberRecordError.message, retry: retryMemberRecord } : null}
                       organizationInfo={organizationInfo}
                       formSlug={selectedForm.slug}
                       allFormValues={formValues}
@@ -620,6 +636,10 @@ export default function FloaterDisplay({
                           setFormNotListedText(prev, field.id, text)
                         ))}
                         memberInfo={memberData}
+                        formMemberRoleId={floaterCommunicationRole}
+                        communicationMemberContext={floaterMemberContext}
+                        communicationEligibilityReady={authResolved && !memberRecordLoading && !memberRecordError}
+                        communicationEligibilityError={memberRecordError ? { message: memberRecordError.message, retry: retryMemberRecord } : null}
                         organizationInfo={organizationInfo}
                         formSlug={selectedForm.slug}
                         allFormValues={formValues}

@@ -63,6 +63,7 @@ import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetN
 import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
 import { memberOwnerRequired, memberSignupLoginUrl, PUBLIC_MEMBER_SIGNUP_MODE } from "@/lib/publicMemberSignup";
 import { useLocation } from "react-router-dom";
+import { formCommunicationCreationRole } from "@/lib/formCommunicationCategoryEligibility";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -284,7 +285,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [applicantContinuationStorageKey, applicantContinuationToken]);
 
   // Fetch full member record to get job_title (for logged-in user)
-  const { data: memberRecord, isLoading: memberRecordLoading } = useQuery({
+  const { data: memberRecord, isLoading: memberRecordLoading, isError: memberRecordError, error: memberRecordFailure, refetch: retryMemberRecord } = useQuery({
     queryKey: ['member-record', memberInfo?.id],
     queryFn: async () => {
       if (memberInfo?.id) {
@@ -630,6 +631,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return primaryMember?.role_id || null;
   }, [form?.entity_pipelines?.members]);
 
+  const communicationCreationRoleId = useMemo(() => {
+    const members = form?.entity_pipelines?.members || [];
+    const pipeline = members.find(member => member.isPrimary || member.is_primary)
+      || (members.length === 1 ? members[0] : null);
+    return pipeline
+      ? formCommunicationCreationRole(pipeline, formValues)
+      : form?.default_member_role_id || null;
+  }, [form?.entity_pipelines?.members, form?.default_member_role_id, formValues]);
+
   // Extract organization config for per-org capacity checking
   const orgCapacityConfig = useMemo(() => {
     const orgs = form?.entity_pipelines?.organisations;
@@ -662,7 +672,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     };
   }, [form?.entity_pipelines?.organisations]);
 
-  const { data: prefillMemberData, isLoading: prefillMemberLoading } = useQuery({
+  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember } = useQuery({
     queryKey: ['prefill-member', prefillMemberId, form?.slug || formSlug, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -683,9 +693,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   });
 
   const prefillMember = prefillMemberData?.member || null;
+  const communicationMemberContext = Boolean(
+    memberInfo?.id || prefillMemberId || form?.entity_pipelines?.members?.length || form?.default_member_role_id
+      || form?.visibility_rules?.some(rule => rule.actions?.some(action =>
+        action.action_type === 'set_role' || action.action_type === 'clear_role'))
+  );
   const communicationEligibilityReady = authResolved
     && !(memberInfo?.id && memberRecordLoading)
-    && !(prefillMemberId && form?.prefill_source === 'member' && prefillMemberLoading);
+    && !(prefillMemberId && form?.prefill_source === 'member' && prefillMemberLoading)
+    && !memberRecordError && !prefillMemberError;
+  const communicationEligibilityError = memberRecordError
+    ? { message: memberRecordFailure?.message, retry: retryMemberRecord }
+    : prefillMemberError
+      ? { message: prefillMemberFailure?.message, retry: retryPrefillMember }
+      : null;
 
   // Task #3357: effective org id for member-source forms — member entity's
   // own organization_id, else the authenticated fallback (prefillOrgId).
@@ -2988,7 +3009,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                 formId={form?.id}
                 formSlug={form?.slug}
-                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
@@ -3021,7 +3044,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formSlug={form?.slug}
-                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
@@ -3350,7 +3375,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                 formId={form?.id}
                 formSlug={form?.slug}
-                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
@@ -3394,7 +3421,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   onRepeatableVisibilityChange={handleRepeatableVisibilityChange}
                   formId={form?.id}
                   formSlug={form?.slug}
-                  formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                  formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
+                  communicationMemberContext={communicationMemberContext}
+                  communicationEligibilityError={communicationEligibilityError}
                   communicationEligibilityReady={communicationEligibilityReady}
                   allFormValues={formValues}
                   prefillData={prefillData}

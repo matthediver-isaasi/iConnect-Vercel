@@ -107,8 +107,9 @@ test('communication preference defaults are applied after renderer filtering', (
   assert.match(component, /initializeCommunicationPreferenceDefaults/);
   assert.match(component, /intersectConditionalOptions\(staticallyFiltered/);
   assert.doesNotMatch(component, /cat\.is_public === true\) return true/);
-  assert.match(component, /cat\.role_ids\.includes\(effectiveRoleId\)/);
-  assert.match(component, /\[allCategories, formMemberRoleId, memberInfo\?\.id, memberInfo\?\.role_id/);
+  assert.match(component, /filterFormCommunicationCategories\(allCategories/);
+  assert.match(component, /memberContext: communicationMemberContext/);
+  assert.match(component, /\[allCategories, formMemberRoleId, memberInfo\?\.id, memberInfo\?\.role_id, communicationMemberContext/);
   assert.doesNotMatch(component, /if \(!conditionalResolution\?\.configured \|\| isLoading/);
   assert.match(component, /if \(!communicationEligibilityReady \|\| initializedDefaults\.current/);
 });
