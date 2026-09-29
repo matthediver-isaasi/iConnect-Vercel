@@ -65,3 +65,17 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
   `supabase/migrations/20261121_certificate_survey_grants.sql` and the
   dry-run-by-default pinned DEST runner
   `scripts/apply-certificate-survey-grants.mjs`.
+
+## Campaign invitations share entitlement, not certificate delivery provenance
+Campaign survey placeholders must generate attendee-authorised links, not plain
+assignment URLs. Real and source-recipient test sends share the attendee's
+booking/assignment entitlement but keep separate campaign delivery evidence.
+
+**Why:** Rendering a populated survey list with ordinary assignment URLs passed
+HTML tests but forced logged-out attendees to sign in. A source recipient gives
+personalisation context, not access authority by itself.
+
+**How to apply:** Verify generated-link redemption and submission, not just HTML.
+Only accepted delivery authorises a credential. Never fabricate certificate
+delivery for a campaign. Keep invitation fragments out of click-tracking URLs,
+and disable provider tracking for invitation-bearing messages.

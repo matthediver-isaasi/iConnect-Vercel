@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
+import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
 import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
@@ -1022,6 +1023,9 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
       // tracking redirect uses single `&` separators and its query params
       // arrive intact.
       const cleanUrl = decodeHtmlEntitiesInUrl(url);
+      // Never encode capabilities into the tracking query (or its logs).
+      // Direct fragment links also avoid provider/click analytics ingestion.
+      if (cleanUrl.includes('#certificate_grant=')) return match;
 
       const token = generateTrackingToken(campaignId, recipientId, linkIndex);
       const trackUrl = `${baseUrl}/api/track/click?t=${token}&url=${encodeURIComponent(cleanUrl)}`;
@@ -3409,6 +3413,9 @@ async function resolveRecipientBooking(recipient, campaign, tenantId) {
 }
 
 export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, testDestination = null) {
+  let surveyDelivery = null;
+  let providerAccepted = false;
+  let deliveryUncertain = false;
   try {
     let html = campaign.html_content || '';
     let subject = campaign.subject || '';
@@ -3423,6 +3430,21 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     if (designInfo?.slotValues) {
       html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
       subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
+    }
+    surveyDelivery = await prepareCampaignSurveyDelivery({
+      db: supabase, campaign: { ...campaign, html_content: html, subject }, tenantId, recipient,
+      destination: testDestination || recipient.email, test: Boolean(testDestination || campaign.is_test_mode),
+    });
+    if (surveyDelivery?.alreadyAccepted) {
+      const { error } = await supabase.from('email_campaign_recipient')
+        .update({ status: 'sent', sent_at: new Date().toISOString() })
+        .eq('id', recipient.id).eq('status', 'processing');
+      if (error) throw new Error('Could not reconcile accepted campaign survey delivery.');
+      return 'sent';
+    }
+    if (surveyDelivery) {
+      html = surveyDelivery.html;
+      subject = surveyDelivery.subject;
     }
     const attendeeContent = await resolveCampaignAttendeeContent(supabase, { ...campaign, html_content: html, subject }, tenantId, recipient);
     html = attendeeContent.html;
@@ -3527,6 +3549,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
 
     if (!testDestination) html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
 
+    if (testDestination && surveyDelivery) html = `<p><strong>TEST: These are real attendee survey invitations. Open signed out/private to check access; do not submit a response.</strong></p>${html}`;
     const result = await sendEmail({
       to: testDestination || recipient.email,
       subject: testDestination ? `[TEST] ${subject}` : subject,
@@ -3536,6 +3559,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       skipFooter: designInfo.skipFooter,
       contentWidth: designInfo.contentWidth,
       enableTracking: !testDestination,
+      disableTracking: Boolean(surveyDelivery),
       unsubscribeUrl: oneClickUnsubscribeUrl,
       campaignPreferences: {
         preferencesUrl,
@@ -3544,7 +3568,10 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       testMode: testDestination ? false : !!campaign.is_test_mode
     });
 
-    // Source identity is personalization only. Tests never claim or update delivery rows.
+    providerAccepted = Boolean(result.success);
+    deliveryUncertain = Boolean(result.ambiguousEffect);
+    if (!deliveryUncertain) await finishCampaignSurveyDelivery(supabase, surveyDelivery?.deliveryId, providerAccepted);
+    // Tests record survey provenance, never campaign-recipient delivery state.
     if (testDestination) return result;
     if (result.success) {
       await supabase
@@ -3569,6 +3596,10 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       return 'failed';
     }
   } catch (err) {
+    // Unknown acceptance must remain pending, not falsely marked failed.
+    if (!providerAccepted && !deliveryUncertain && surveyDelivery) {
+      try { await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false); } catch {}
+    }
     console.error(`[Campaign Service] Error sending to ${recipient.email}:`, err);
     if (testDestination) return { success: false, error: err.message };
     await supabase

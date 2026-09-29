@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 import { isStandaloneCampaignPreferencePlaceholder } from './campaignEmailComposition.js';
+import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
 
 function fixture() {
   const rows = {
@@ -121,7 +122,7 @@ test('survey and sponsor tokens coexist without changing survey access rules', a
   assert.equal(result.body, '<a href="https://survey.fixture.invalid/survey/private-token-1">Feedback</a>');
 });
 
-test('actual per-recipient send resolves subject, body and tracked button; retries fail closed without token logs', async () => {
+test('actual per-recipient survey send rejects recipients without confirmed attendees without token logs', async () => {
   const f = fixture();
   const submissions = [];
   const logs = [];
@@ -133,6 +134,7 @@ test('actual per-recipient send resolves subject, body and tracked button; retri
     supabase: f.db, resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
     isStandaloneCampaignPreferencePlaceholder,
     replacePlaceholders: text => text,
+    prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },
     console: { error: (...args) => logs.push(args.join(' ')), warn: (...args) => logs.push(args.join(' ')), log() {} },
   });
@@ -143,17 +145,11 @@ test('actual per-recipient send resolves subject, body and tracked button; retri
         html_content: n === 1 ? f.campaign.html_content : '<a href="{{event_survey_url}}">Survey [[event.survey_url]]</a>',
         event_survey_context: { event_type: 'event', event_id: `e${n}` } },
       't', 'fixture', null, { hasUnsubscribeBlock: true });
-    assert.equal(result, 'sent');
-    const message = submissions.at(-1);
-    const url = `https://survey.fixture.invalid/survey/private-token-${n}`;
-    assert.equal(message.subject, url);
-    assert.ok(message.html.includes(`Survey ${url}`));
-    const href = message.html.match(/href="([^"]+)"/)[1];
-    assert.equal(new URL(href.replaceAll('&amp;', '&')).searchParams.get('url'), url);
+    assert.equal(result, 'failed');
   }
   f.rows.event_survey_assignment[0].status = 'archived';
   assert.equal(await sendToRecipient({ id: 'retry', email: 'recipient@fixture.invalid' },
     f.campaign, 't', 'fixture', null, {}), 'failed');
-  assert.equal(submissions.length, 2);
+  assert.equal(submissions.length, 0);
   assert.doesNotMatch(logs.join('\n'), /private-token|\/survey\//);
 });

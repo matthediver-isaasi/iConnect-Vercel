@@ -9,9 +9,9 @@ export const usesCampaignAttendeeContent = campaign =>
   attendeePattern().test(`${campaign.subject || ''}\n${campaign.html_content || ''}`) ||
   listPattern().test(`${campaign.subject || ''}\n${campaign.html_content || ''}`);
 
-// Ordinary assignment URLs retain their existing authentication/access policy.
-// Do not mint certificate credentials: those require an accepted certificate
-// delivery ledger entry and must never be impersonated by a campaign send.
+// Read-only authoring/validation rendering retains ordinary assignment policy.
+// Actual sends first resolve survey placeholders via campaignSurveyDelivery,
+// which issues shared entitlements with explicit campaign (not CPD) provenance.
 export async function resolveCampaignAttendeeContent(db, campaign, tenantId, recipient) {
   if (!usesCampaignAttendeeContent(campaign)) return { html: campaign.html_content || '', subject: campaign.subject || '' };
   if (!recipient?.email) throw new Error('Select a source attendee to test attendee or event survey list placeholders.');

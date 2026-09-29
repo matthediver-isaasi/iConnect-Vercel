@@ -26,8 +26,8 @@ export async function resolveCertificateSurveyGrantState(db, tenantId, assignmen
     .eq('id', credential.entitlement_id).eq('tenant_id', tenantId)
     .eq('assignment_id', assignment.id).maybeSingle());
   if (!grant || grant.revoked_at || Date.parse(grant.expires_at) <= Date.now()) return null;
-  const delivery = checked(await db.from('attendee_cpd_certificate_delivery').select('id,status')
-    .eq('id', credential.delivery_id).eq('tenant_id', tenantId)
+  const delivery = checked(await db.from(credential.campaign_delivery_id ? 'campaign_survey_delivery' : 'attendee_cpd_certificate_delivery').select('id,status')
+    .eq('id', credential.campaign_delivery_id || credential.delivery_id).eq('tenant_id', tenantId)
     .eq('booking_source', grant.booking_source).eq('booking_id', grant.booking_id).maybeSingle());
   if (delivery?.status !== 'accepted') return null;
   const table = grant.booking_source === 'standard' ? 'booking' : 'complex_event_booking';
@@ -50,7 +50,9 @@ export async function resolveCertificateSurveyGrant(db, tenantId, assignment, to
 
 export async function prepareCertificateSurveyLinks({
   db, tenant, eventType, eventId, bookingSource, bookingId, recipient, preview = true, deliveryId,
+  deliveryKind = 'certificate', assignmentId = null,
 }) {
+  if (!['certificate', 'campaign'].includes(deliveryKind)) throw new Error('Invalid survey delivery provenance');
   if (!tenant?.id || !tenant?.slug || !eventId || !bookingId
     || !['standard', 'complex'].includes(bookingSource)
     || eventType !== (bookingSource === 'standard' ? 'event' : 'complex_event'))
@@ -79,6 +81,7 @@ export async function prepareCertificateSurveyLinks({
   // in the recipient message or entitlement snapshot.
   const omitted = [];
   for (const assignment of assignments || []) {
+    if (assignmentId && assignment.id !== assignmentId) continue;
     const form = checked(await db.from('form').select('id,name,description,form_type,is_active,survey_settings,deactivate_at,deactivate_timezone')
       .eq('id', assignment.form_id).eq('tenant_id', tenant.id).maybeSingle());
     const state = assignmentWindowState(assignment);
@@ -149,7 +152,8 @@ export async function prepareCertificateSurveyLinks({
         }
         const token = randomBytes(32).toString('base64url');
         const credential = checked(await db.from('certificate_survey_credential')
-          .insert({ entitlement_id: entitlement.id, delivery_id: deliveryId,
+          .insert({ entitlement_id: entitlement.id,
+            [deliveryKind === 'campaign' ? 'campaign_delivery_id' : 'delivery_id']: deliveryId,
             token_hash: certificateSurveyTokenHash(token), expires_at: expiry })
           .select('id').single());
         grantIds.push(credential.id);
@@ -157,6 +161,8 @@ export async function prepareCertificateSurveyLinks({
       }
     }
     rows.push({
+      assignmentId: assignment.id,
+      assignmentUrl: `${base}/survey/${encodeURIComponent(assignment.token)}`,
       title: form.name, description: form.description || '',
       closes: assignment.closes_at ? new Date(assignment.closes_at).toLocaleDateString('en-GB', { timeZone: 'UTC' }) : '',
       url, completed,
@@ -171,7 +177,7 @@ export async function prepareCertificateSurveyLinks({
     });
   }
   return {
-    grantIds, snapshot, ...(preview ? { omitted } : {}),
+    grantIds, snapshot, links: rows, ...(preview ? { omitted } : {}),
     html: `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:Arial,sans-serif;border-collapse:collapse"><tr><td style="padding:0 0 12px">Surveys for this event:</td></tr>${rows.map(row =>
       `<tr><td style="padding:0 0 16px"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #ddd"><tr><td style="padding:16px 16px 8px;font-weight:bold">${safe(row.title)}</td></tr>${row.description ? `<tr><td style="padding:0 16px 8px">${safe(row.description)}</td></tr>` : ''}${row.closes ? `<tr><td style="padding:0 16px 8px">Closing date: ${safe(row.closes)}</td></tr>` : ''}<tr><td style="padding:8px 16px 16px">${row.url ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#1e4774" style="background-color:#1e4774;border-radius:4px;padding:10px 16px"><a href="${safe(row.url)}" style="color:#ffffff;text-decoration:none;display:inline-block">Complete survey</a></td></tr></table>` : (row.completed ? 'Response received' : 'Survey link available in the sent email')}</td></tr></table></td></tr>`).join('')}</table>`,
     text: `Surveys for this event:\n\n${rows.map(row => [

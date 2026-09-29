@@ -22,6 +22,8 @@ try {
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
     END $roles$;
     CREATE TABLE public.tenant(id uuid PRIMARY KEY);
+    CREATE TABLE public.email_campaign(id uuid PRIMARY KEY, tenant_id uuid);
+    CREATE TABLE public.email_campaign_recipient(id uuid PRIMARY KEY, campaign_id uuid, email text, status text);
     CREATE TABLE public.event(id uuid PRIMARY KEY);
     CREATE TABLE public.complex_event(id uuid PRIMARY KEY);
     CREATE TABLE public.form(id uuid PRIMARY KEY, tenant_id uuid, form_type text,
@@ -50,6 +52,9 @@ try {
       END $f$;`);
   const sql = await readFile(new URL('../supabase/migrations/20261121_certificate_survey_grants.sql', import.meta.url), 'utf8');
   await client.query(sql);
+  const campaignSql = await readFile(new URL('../supabase/migrations/20261122_campaign_survey_delivery.sql', import.meta.url), 'utf8');
+  await client.query(campaignSql);
+  await client.query(campaignSql); // deployment reruns are safe
   const id = () => randomUUID();
   const tenant = id(); const event = id(); const form = id();
   const version = id(); const assignment = id(); const booking = id();
@@ -180,7 +185,60 @@ try {
   } finally {
     await otherClient.end();
   }
-  console.log('Disposable SQL grant, role, atomic completion and immutable-response checks passed');
+  const campaign = id(); const campaignRecipient = id(); const campaignBooking = id();
+  await client.query('INSERT INTO email_campaign VALUES($1,$2)', [campaign, tenant]);
+  await client.query("INSERT INTO email_campaign_recipient VALUES($1,$2,'campaign@example.org','processing')", [campaignRecipient, campaign]);
+  await client.query("INSERT INTO booking VALUES($1,$2,$3,'confirmed','campaign@example.org')", [campaignBooking, tenant, event]);
+  const campaignEntitlement = (await client.query(`INSERT INTO certificate_survey_entitlement
+    (tenant_id,booking_source,booking_id,assignment_id,recipient_email,expires_at)
+    VALUES($1,'standard',$2,$3,'campaign@example.org',now()+interval '1 day') RETURNING id`,
+  [tenant, campaignBooking, assignment])).rows[0].id;
+  const insertDelivery = (purpose = 'live', destination = 'campaign@example.org') => client.query(`
+    INSERT INTO campaign_survey_delivery(tenant_id,campaign_id,campaign_recipient_id,purpose,booking_source,
+      booking_id,event_type,event_id,source_email,destination_email)
+    VALUES($1,$2,$3,$4,'standard',$5,'event',$6,'campaign@example.org',$7) RETURNING id`,
+  [tenant, campaign, purpose === 'live' ? campaignRecipient : null, purpose, campaignBooking, event, destination]);
+  await assert.rejects(insertDelivery('live', 'other@example.org'), /check constraint/);
+  const failedDelivery = (await insertDelivery()).rows[0].id;
+  await assert.rejects(insertDelivery(), /unique constraint/);
+  const campaignHash = 'd'.repeat(64);
+  const insertCredential = (deliveryId, hash) => client.query(`INSERT INTO certificate_survey_credential
+    (entitlement_id,campaign_delivery_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 day')`,
+  [campaignEntitlement, deliveryId, hash]);
+  await insertCredential(failedDelivery, campaignHash);
+  const campaignClaim = hash => client.query('SELECT * FROM create_certificate_survey_submission($1,$2,$3)',
+    [{ ...payload, submitted_by_email: 'campaign@example.org' }, [], hash]);
+  await assert.rejects(campaignClaim(campaignHash), /invitation unavailable/);
+  await client.query("UPDATE campaign_survey_delivery SET status='failed',resolved_at=now() WHERE id=$1", [failedDelivery]);
+  await assert.rejects(campaignClaim(campaignHash), /invitation unavailable/);
+  const liveDelivery = (await insertDelivery()).rows[0].id;
+  const liveHash = 'e'.repeat(64);
+  await insertCredential(liveDelivery, liveHash);
+  const testDelivery = (await insertDelivery('test', 'reviewer@example.org')).rows[0].id;
+  const testHash = 'f'.repeat(64);
+  await insertCredential(testDelivery, testHash);
+  await client.query("UPDATE campaign_survey_delivery SET status='accepted',resolved_at=now() WHERE id=ANY($1)", [[liveDelivery, testDelivery]]);
+  await assert.rejects(insertCredential(liveDelivery, '9'.repeat(64)), /pending delivery/);
+  await assert.rejects(client.query("UPDATE campaign_survey_delivery SET status='failed' WHERE id=$1", [liveDelivery]), /immutable/);
+  await assert.rejects(insertDelivery(), /unique constraint/);
+  await client.query('SET ROLE anon');
+  await assert.rejects(client.query('SELECT * FROM campaign_survey_delivery'), /permission denied/);
+  await assert.rejects(client.query('SELECT * FROM survey_invitation_delivery'), /permission denied/);
+  await assert.rejects(campaignClaim(testHash), /permission denied/);
+  await client.query('RESET ROLE');
+  for (const change of [
+    ["UPDATE booking SET event_id=$1 WHERE id=$2", [id(), campaignBooking], "UPDATE booking SET event_id=$1 WHERE id=$2", [event, campaignBooking]],
+    ["UPDATE booking SET status='cancelled' WHERE id=$1", [campaignBooking], "UPDATE booking SET status='confirmed' WHERE id=$1", [campaignBooking]],
+  ]) {
+    await client.query(change[0], change[1]);
+    await assert.rejects(campaignClaim(testHash), /booking/);
+    await client.query(change[2], change[3]);
+  }
+  await client.query('SET ROLE service_role');
+  assert.equal((await campaignClaim(testHash)).rowCount, 1);
+  await assert.rejects(campaignClaim(liveHash), /invitation unavailable/);
+  await client.query('RESET ROLE');
+  console.log('Disposable SQL certificate + campaign provenance, role, retry, scope and atomic shared completion checks passed');
 } finally {
   await client.end();
 }

@@ -2,6 +2,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import Mailgun from 'mailgun.js';
+import { randomUUID } from 'node:crypto';
 
 process.env.MAILGUN_API_KEY = 'mock-entry-point-key';
 process.env.APP_DOMAIN = 'example.test';
@@ -76,6 +77,7 @@ function campaign(status = 'draft', id = 'campaign-fixture', overrides = {}) {
 
 function fixtureDatabase(initialCampaign, extraTables = {}) {
   const state = {
+    surveyRows: { campaign_survey_delivery: [], certificate_survey_entitlement: [], certificate_survey_credential: [] },
     campaign: structuredClone(initialCampaign),
     recipients: initialCampaign.status === 'sending'
       ? [{
@@ -149,6 +151,18 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
       maybeSingle() { single = true; return query; },
       then(resolve, reject) {
         Promise.resolve().then(() => {
+          if (Object.hasOwn(state.surveyRows, table)) {
+            const rows = state.surveyRows[table];
+            if (operation === 'insert') {
+              const inserted = values.map(value => ({ id: randomUUID(),
+                ...(table === 'campaign_survey_delivery' ? { status: 'pending' } : {}), ...value }));
+              rows.push(...inserted);
+              return { data: single ? inserted[0] : inserted, error: null };
+            }
+            const matches = rows.filter(row => filters.every(filter => filter(row)));
+            if (operation === 'update') matches.forEach(row => Object.assign(row, values));
+            return { data: single ? matches[0] || null : matches, error: null };
+          }
           if (Object.hasOwn(extraTables, table)) {
             assert.equal(operation, 'select', 'source test must not mutate event or survey records');
             const rows = extraTables[table].filter(row => filters.every(filter => filter(row)));
@@ -350,7 +364,7 @@ test('source test personalization failure does not touch campaign or recipient d
     campaignId: saved.id, sourceRecipientEmail: 'grace@example.test', testEmail: 'reviewer@example.test',
   }), res);
   assert.equal(res.statusCode, 500);
-  assert.match(res.body.failures[0].error, /Event survey/);
+  assert.match(res.body.failures[0].error, /Event context/);
   assert.equal(transportCalls.length, before);
   assert.equal(state.recipients.length, 0);
   assert.deepEqual(state.campaign, saved);
@@ -394,6 +408,10 @@ test('shared live personalization resolves source booking, QR and explicit surve
   assert.match(payload.html, /source-booking grace@example.test/);
   assert.match(payload.html, /checkin-qr\?token=source-qr/);
   assert.match(payload.html, /\/survey\/survey-token/);
+  assert.match(payload.html, /#certificate_grant=/);
+  assert.equal(payload['o:tracking'], 'no');
+  assert.equal(state.surveyRows.campaign_survey_delivery[0].purpose, 'test');
+  assert.equal(state.surveyRows.campaign_survey_delivery[0].status, 'accepted');
   assert.doesNotMatch(payload.html, /wrong-booking|wrong-qr|\{\{event_|\[\[booking/);
   assert.equal(state.recipients.length, 0);
   assert.deepEqual(state.campaign, saved);
