@@ -1,9 +1,10 @@
 import { getTenantContext, hasAdminAccess } from './_lib/tenantContext.js';
 import { supabase } from './_lib/database.js';
+import { validateAudienceCustomObjects } from './_lib/audienceCustomObjects.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
+  if (!tenantContext.isAuthenticated || !tenantContext.tenantId || tenantContext.tenantMismatch) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   if (!(await hasAdminAccess(tenantContext))) {
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
         target_audiences,
         ignore_opt_outs: ignore_opt_outs === true
       };
+      await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
 
       const { data, error } = await supabase
         .from('audience_list')
@@ -65,7 +67,7 @@ export default async function handler(req, res) {
       return res.status(201).json(data);
     } catch (err) {
       console.error('[AudienceLists] POST error:', err);
-      return res.status(500).json({ error: err.message });
+      return res.status(err.status || 500).json({ error: err.message });
     }
   }
 
@@ -91,6 +93,7 @@ export default async function handler(req, res) {
         ignore_opt_outs: ignore_opt_outs === true,
         updated_at: new Date().toISOString()
       };
+      await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
 
       const { data, error } = await supabase
         .from('audience_list')
@@ -108,7 +111,7 @@ export default async function handler(req, res) {
       return res.json(data);
     } catch (err) {
       console.error('[AudienceLists] PATCH error:', err);
-      return res.status(500).json({ error: err.message });
+      return res.status(err.status || 500).json({ error: err.message });
     }
   }
 

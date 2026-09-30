@@ -29,6 +29,7 @@ export default async function handler(req, res) {
     }
 
     const counts = {};
+    const errors = {};
 
     await Promise.all((lists || []).map(async (list) => {
       try {
@@ -38,13 +39,16 @@ export default async function handler(req, res) {
         const result = await getTargetRecipients(fakeCampaign, tenantId, true, false);
         if (result.success) {
           counts[list.id] = result.count;
+        } else {
+          errors[list.id] = result.error || 'Audience could not be resolved. Reopen it and check its filters.';
         }
       } catch (e) {
+        errors[list.id] = e.message;
         console.error('[AudienceListCounts] Failed to resolve count for list', list.id, e.message);
       }
     }));
 
-    return res.json({ success: true, counts });
+    return res.json({ success: true, counts, errors });
   } catch (err) {
     console.error('[AudienceListCounts] Error:', err);
     return res.status(500).json({ error: err.message });

@@ -200,6 +200,36 @@ test('deleting a dual-access team row demotes it instead of deleting portal acce
   assert.equal(db.tables.tenant_membership[0].status, 'active');
 });
 
+test('deleting an already-inactive linked team row cannot restore tenant-switch eligibility', async () => {
+  const db = database({
+    identities: [{ ...portalIdentity }],
+    memberships: [{ ...portalMembership, role: 'admin', membership_type: 'owner', status: 'inactive' }],
+    members: [{ id: 'portal1', identity_id: 'i1', tenant_id: 't1', email: portalIdentity.email }],
+  });
+  const result = await request(db, 'DELETE', { membership_id: 'm1' });
+  assert.equal(result.code, 200);
+  assert.equal(db.tables.tenant_membership[0].member_id, 'portal1');
+  assert.equal(db.tables.tenant_membership[0].role, 'member');
+  assert.equal(db.tables.tenant_membership[0].membership_type, 'member');
+  assert.equal(db.tables.tenant_membership[0].status, 'inactive');
+
+  const switchSource = fs.readFileSync(new URL('../auth/tenant-switch.js', import.meta.url), 'utf8');
+  const switchFn = switchSource.slice(switchSource.indexOf('export default async function handler'))
+    .replace('export default async function handler', 'async function handler');
+  let sessionsCreated = 0;
+  const switchTenant = new Function('supabase', 'getSession', 'createSession',
+    'evaluateMemberPortalLoginGate', 'evaluateMemberOrganisationLoginAccess',
+    `${switchFn}; return handler;`)(db.sb,
+    async () => ({ id: 'current-session', data: { identityId: 'i1', userType: 'member', memberId: 'portal1' } }),
+    async () => { sessionsCreated++; return true; },
+    async () => ({ blocked: false }), async () => ({ blocked: false }));
+  const res = { code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+  await switchTenant({ method: 'POST', body: { tenantId: 't1' }, headers: {} }, res);
+  assert.equal(res.code, 403);
+  assert.match(res.body.error, /do not have access/);
+  assert.equal(sessionsCreated, 0);
+});
+
 test('inactivating dual-access team row revokes team role without deactivating portal membership', async () => {
   const db = database({ identities: [{ ...portalIdentity }], memberships: [{ ...portalMembership, role: 'admin', membership_type: 'owner' }] });
   const result = await request(db, 'PATCH', { membership_id: 'm1', status: 'inactive' });

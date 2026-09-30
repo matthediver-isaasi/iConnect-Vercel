@@ -20,6 +20,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import MemberCommunicationStatusReport from "@/components/communications/MemberCommunicationStatusReport";
+import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import {
@@ -77,6 +78,7 @@ export default function CommunicationsManagementPage() {
   const [listToDelete, setListToDelete] = useState(null);
   const [deletingList, setDeletingList] = useState(false);
   const [showAddListSegment, setShowAddListSegment] = useState(false);
+  const [editingFieldSegment, setEditingFieldSegment] = useState(null);
   const [addListSegmentType, setAddListSegmentType] = useState('');
   const [addListSegmentIds, setAddListSegmentIds] = useState([]);
   const [addListSegmentRoles, setAddListSegmentRoles] = useState([]);
@@ -197,7 +199,7 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
-  const { data: filterableFields = null } = useQuery({
+  const { data: filterableFields = null, isLoading: fieldsLoading, isError: fieldsError, refetch: retryFields } = useQuery({
     queryKey: ['filterable-fields'],
     queryFn: async () => {
       const res = await fetch('/api/audience-lists/filterable-fields', { credentials: 'include' });
@@ -305,7 +307,7 @@ export default function CommunicationsManagementPage() {
     staleTime: 30000,
   });
 
-  const { data: audienceListCounts = {}, isLoading: audienceCountsLoading } = useQuery({
+  const { data: audienceCountResult = {}, isLoading: audienceCountsLoading, error: audienceCountsError, refetch: retryAudienceCounts } = useQuery({
     queryKey: ['audience-list-counts'],
     queryFn: async () => {
       const response = await fetch('/api/audience-lists/counts', {
@@ -313,13 +315,15 @@ export default function CommunicationsManagementPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
-      if (!response.ok) return {};
       const data = await response.json();
-      return data.counts || {};
+      if (!response.ok) throw new Error(data.error || 'Unable to load audience counts.');
+      return data;
     },
     enabled: audienceLists.length > 0,
     staleTime: 30000,
   });
+  const audienceListCounts = audienceCountResult.counts || {};
+  const audienceListCountErrors = audienceCountResult.errors || {};
 
   const { data: blankPageSetting } = useQuery({
     queryKey: ['email-preferences-blank-page-setting'],
@@ -541,6 +545,7 @@ export default function CommunicationsManagementPage() {
       const groups = segment.filter_groups || [];
       const parts = groups.map(g => {
         const conds = (g.conditions || []).map(c => {
+          if (c.entity_scope === 'custom_object') return customObjectSummary(c, filterableFields);
           const fieldLabel = c.field_label || c.field_key;
           const opLabels = { equals: '=', not_equals: '!=', contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty', is_true: 'is true', is_false: 'is false', greater_than: '>', less_than: '<', before: 'before', after: 'after', is_one_of: 'is one of', is_not_one_of: 'is not one of' };
           const opLabel = opLabels[c.operator] || c.operator;
@@ -652,6 +657,7 @@ export default function CommunicationsManagementPage() {
   };
 
   const openEditListDialog = (list) => {
+    setEditingFieldSegment(null);
     setEditingList(list);
     setEditListName(list.name);
     setEditListAudiences(Array.isArray(list.target_audiences) ? [...list.target_audiences] : []);
@@ -665,6 +671,7 @@ export default function CommunicationsManagementPage() {
   };
 
   const openNewListDialog = () => {
+    setEditingFieldSegment(null);
     setEditingList(null);
     setEditListName('');
     setEditListAudiences([]);
@@ -716,6 +723,16 @@ export default function CommunicationsManagementPage() {
 
   const handleSaveListEdit = async () => {
     if (!editListName.trim()) { toast.error('Please enter a list name'); return; }
+    if (showAddListSegment && editingFieldSegment !== null) { toast.error('Apply or cancel your field filter edits before saving the list.'); return; }
+    for (const segment of editListAudiences) {
+      for (const group of segment.filter_groups || []) {
+        for (const condition of group.conditions || []) {
+          if (condition.entity_scope !== 'custom_object') continue;
+          const error = fieldsError ? 'Field definitions could not be loaded. Retry before saving.' : customObjectConditionError(condition, filterableFields);
+          if (error) { toast.error(error); return; }
+        }
+      }
+    }
     setSavingListEdit(true);
     try {
       const isCreating = !editingList;
@@ -1677,7 +1694,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 <h4 className="text-base font-semibold text-slate-900" data-testid={`text-list-name-${list.id}`}>
                                   {list.name}
                                 </h4>
-                                {audienceCountsLoading && audienceListCounts[list.id] === undefined ? (
+                                {audienceListCountErrors[list.id] || audienceCountsError ? (
+                                  <span role="alert" className="text-xs text-destructive" data-testid={`list-count-error-${list.id}`}>
+                                    Count unavailable: {audienceListCountErrors[list.id] || audienceCountsError.message} Open Edit list to review its filters, then retry.
+                                    <Button size="sm" variant="ghost" onClick={() => retryAudienceCounts()}>Retry count</Button>
+                                  </span>
+                                ) : audienceCountsLoading && audienceListCounts[list.id] === undefined ? (
                                   <Badge variant="secondary" className="text-xs" data-testid={`badge-list-count-loading-${list.id}`}>
                                     <Loader2 className="w-3 h-3 animate-spin" />
                                   </Badge>
@@ -3083,11 +3105,22 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <div key={idx} className="flex items-center gap-2 border rounded-md p-2" data-testid={`edit-list-segment-${idx}`}>
                           <div className="flex-1 min-w-0">
                             <span className="text-sm">{getSegmentSummary(segment)}</span>
+                            {segment.type === 'field_filter' && segment.filter_groups?.flatMap(g => g.conditions || []).filter(c => c.entity_scope === 'custom_object').map((c, ci) => {
+                              const error = fieldsError ? 'Unable to load definitions. Open the filter and retry.' : customObjectConditionError(c, filterableFields);
+                              return error ? <p key={ci} role="alert" className="text-xs text-destructive">{error}</p> : null;
+                            })}
                           </div>
+                          {segment.type === 'field_filter' && <Button variant="ghost" size="sm" disabled={showAddListSegment} onClick={() => {
+                            setEditingFieldSegment(idx);
+                            setFieldFilterGroups(JSON.parse(JSON.stringify(segment.filter_groups || [])));
+                            setAddListSegmentType('field_filter');
+                            setShowAddListSegment(true);
+                          }}>Edit filters</Button>}
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
+                            disabled={showAddListSegment && editingFieldSegment !== null}
                             onClick={() => setEditListAudiences(prev => prev.filter((_, i) => i !== idx))}
                             data-testid={`button-remove-edit-segment-${idx}`}
                           >
@@ -3104,6 +3137,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     variant="outline"
                     size="sm"
                     onClick={() => {
+                      setEditingFieldSegment(null);
                       setAddListSegmentType('');
                       setAddListSegmentIds([]);
                       setAddListSegmentRoles([]);
@@ -3118,12 +3152,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 ) : (
                   <div className="border rounded-md p-3 space-y-3 bg-muted/20">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="text-sm font-medium">Add Segment</Label>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowAddListSegment(false)}>
+                      <Label className="text-sm font-medium">{editingFieldSegment !== null ? 'Edit Field Filter' : 'Add Segment'}</Label>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setShowAddListSegment(false); setEditingFieldSegment(null); }}>
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); setAddListSegmentRoles([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
+                    <Select disabled={editingFieldSegment !== null} value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); setAddListSegmentRoles([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
                       <SelectTrigger data-testid="select-add-list-segment-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -3493,8 +3527,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
-                    {addListSegmentType === 'field_filter' && filterableFields && (
+                    {addListSegmentType === 'field_filter' && (
                       <div className="border rounded-md p-2 space-y-3 bg-background">
+                        {fieldsLoading && <p role="status" className="text-xs">Loading field definitions… Saved selections are preserved.</p>}
+                        {fieldsError && <div role="alert" className="text-xs text-destructive">Unable to load field definitions. Saved selections are preserved. <Button size="sm" variant="outline" onClick={() => retryFields()}>Retry</Button></div>}
                         {fieldFilterGroups.map((group, gIdx) => (
                           <div key={gIdx} className="space-y-2">
                             {gIdx > 0 && (
@@ -3507,10 +3543,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             <div className="space-y-2 border rounded-md p-2 bg-muted/10">
                               {group.conditions.map((cond, cIdx) => {
                                 const scopeFields = cond.entity_scope === 'organization'
-                                  ? [...(filterableFields.organization?.core || []), ...(filterableFields.organization?.custom || [])]
+                                  ? [...(filterableFields?.organization?.core || []), ...(filterableFields?.organization?.custom || [])]
                                   : cond.entity_scope === 'event'
-                                  ? [...(filterableFields.event?.core || []), ...(filterableFields.event?.custom || [])]
-                                  : [...(filterableFields.member?.core || []), ...(filterableFields.member?.custom || [])];
+                                  ? [...(filterableFields?.event?.core || []), ...(filterableFields?.event?.custom || [])]
+                                  : [...(filterableFields?.member?.core || []), ...(filterableFields?.member?.custom || [])];
                                 const selectedField = scopeFields.find(f => f.key === cond.field_key);
                                 const operators = getOperatorsForDataType(selectedField?.data_type || cond.data_type || 'text');
                                 const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(cond.operator);
@@ -3518,17 +3554,17 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 const isMultiSelect = isMultiSelectDataType(selectedField?.data_type);
                                 const isEventField = selectedField?.data_type === 'event_id' || cond.data_type === 'event_id';
                                 const fieldOptions = selectedField?.options || [];
-                                const eventScopeCore = filterableFields.event?.core || [];
-                                const eventScopeCustom = filterableFields.event?.custom || [];
+                                const eventScopeCore = filterableFields?.event?.core || [];
+                                const eventScopeCustom = filterableFields?.event?.custom || [];
                                 const scopeCore = cond.entity_scope === 'member'
-                                  ? filterableFields.member?.core
+                                  ? filterableFields?.member?.core
                                   : cond.entity_scope === 'organization'
-                                  ? filterableFields.organization?.core
+                                  ? filterableFields?.organization?.core
                                   : eventScopeCore;
                                 const scopeCustom = cond.entity_scope === 'member'
-                                  ? filterableFields.member?.custom
+                                  ? filterableFields?.member?.custom
                                   : cond.entity_scope === 'organization'
-                                  ? filterableFields.organization?.custom
+                                  ? filterableFields?.organization?.custom
                                   : eventScopeCustom;
                                 const selectedEventValueIds = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : []);
                                 const selectedEventValueObjects = selectedEventValueIds
@@ -3555,8 +3591,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                           <SelectItem value="member">Member</SelectItem>
                                           <SelectItem value="organization">Organisation</SelectItem>
                                           <SelectItem value="event">Event</SelectItem>
+                                          <SelectItem value="custom_object">Custom Object</SelectItem>
                                         </SelectContent>
                                       </Select>
+                                      {cond.entity_scope === 'custom_object' ? <CustomObjectAudienceCondition condition={cond} metadata={filterableFields} disabled={fieldsLoading || fieldsError} onChange={next => setFieldFilterGroups(prev => prev.map((g, gi) => gi === gIdx ? { ...g, conditions: g.conditions.map((c, ci) => ci === cIdx ? next : c) } : g))} /> : <>
                                       <Select
                                         value={cond.field_key}
                                         onValueChange={(v) => {
@@ -3812,6 +3850,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                           />
                                         )
                                       )}
+                                      </>}
                                       {group.conditions.length > 1 && (
                                         <Button
                                           variant="ghost"
@@ -4015,14 +4054,23 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           if (addListSegmentType === 'all_members') {
                             setEditListAudiences(prev => [...prev, { type: 'all_members', ids: [] }]);
                           } else if (addListSegmentType === 'field_filter') {
+                            const customConditions = fieldFilterGroups.flatMap(g => g.conditions).filter(c => c.entity_scope === 'custom_object');
+                            const invalid = customConditions.map(c => customObjectConditionError(c, filterableFields)).find(Boolean);
+                            if (invalid || (customConditions.length && fieldsError)) { toast.error(invalid || 'Retry loading field definitions.'); return; }
                             const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];
+                            if (fieldFilterGroups.some(g => !g.conditions.length || g.conditions.some(c => !c.field_key || !c.operator || (!noValueOps.includes(c.operator) && (c.value === '' || c.value == null || (Array.isArray(c.value) && !c.value.length)))))) {
+                              toast.error('Complete or remove every unfinished condition before applying this filter.');
+                              return;
+                            }
                             const validGroups = fieldFilterGroups
                               .map(g => ({
                                 conditions: g.conditions.filter(c => c.field_key && c.operator && (noValueOps.includes(c.operator) || (c.value !== '' && c.value !== undefined && c.value !== null && (!Array.isArray(c.value) || c.value.length > 0))))
                               }))
                               .filter(g => g.conditions.length > 0);
                             if (validGroups.length > 0) {
-                              setEditListAudiences(prev => [...prev, { type: 'field_filter', ids: [], filter_groups: validGroups }]);
+                              const segment = { type: 'field_filter', ids: [], filter_groups: validGroups };
+                              setEditListAudiences(prev => editingFieldSegment !== null ? prev.map((s, i) => i === editingFieldSegment ? segment : s) : [...prev, segment]);
+                              setEditingFieldSegment(null);
                             }
                           } else if (addListSegmentType === 'event_attendees' && selectedEvents.length > 0) {
                             const newNames = {};
@@ -4160,7 +4208,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         }}
                         disabled={
                           addListSegmentType === 'field_filter'
-                            ? !fieldFilterGroups.some(g => g.conditions.some(c => {
+                            ? fieldsLoading || fieldsError || fieldFilterGroups.some(g => g.conditions.some(c => c.entity_scope === 'custom_object' && customObjectConditionError(c, filterableFields))) || !fieldFilterGroups.some(g => g.conditions.some(c => {
                                 if (!c.field_key || !c.operator) return false;
                                 const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];
                                 if (noValueOps.includes(c.operator)) return true;
@@ -4177,7 +4225,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         data-testid="button-confirm-add-list-segment"
                       >
                         <Check className="w-4 h-4 mr-1" />
-                        Add
+                        {editingFieldSegment !== null ? 'Apply filters' : 'Add'}
                       </Button>
                     )}
                   </div>

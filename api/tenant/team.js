@@ -53,9 +53,10 @@ async function revokeTeamMembership(membership, tenantId, remove = false) {
   await revokeLegacyTeamUsers(membership.identity_id, tenantId);
 
   if (membership.member_id) {
-    // Restore portal access only after legacy admin entitlement is revoked.
+    // Keep an already-inactive portal membership inactive; active linked rows
+    // retain portal access only after legacy admin entitlement is revoked.
     const { data: demoted, error } = await supabase.from('tenant_membership')
-      .update({ role: 'member', membership_type: 'member', status: 'active', updated_at: new Date().toISOString() })
+      .update({ role: 'member', membership_type: 'member', status: membership.status, updated_at: new Date().toISOString() })
       .eq('id', membership.id).eq('tenant_id', tenantId).eq('status', 'inactive')
       .eq('role', membership.role).eq('membership_type', membership.membership_type)
       .select().maybeSingle();

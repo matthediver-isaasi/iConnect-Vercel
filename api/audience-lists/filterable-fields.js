@@ -1,4 +1,5 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { discoverAudienceCustomObjects } from '../_lib/audienceCustomObjects.js';
 import { supabase } from '../_lib/database.js';
 
 const CORE_MEMBER_FIELDS = [
@@ -22,7 +23,7 @@ export default async function handler(req, res) {
   }
 
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext.tenantId) {
+  if (!tenantContext.isAuthenticated || !tenantContext.tenantId || tenantContext.tenantMismatch) {
     return res.status(401).json({ error: 'Unauthorized - tenant required' });
   }
 
@@ -60,6 +61,9 @@ export default async function handler(req, res) {
       }));
 
     return res.json({
+      custom_objects: await discoverAudienceCustomObjects(supabase, tenantContext.tenantId, {
+        context: tenantContext, isAdmin: await hasAdminAccess(tenantContext),
+      }),
       member: {
         core: CORE_MEMBER_FIELDS.map(f => ({ ...f, field_type: 'core' })),
         custom: memberCustomFields,

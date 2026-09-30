@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateCustomObjectCondition, validateAudienceCustomObjects } from './audienceCustomObjects.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
@@ -416,6 +417,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    await validateAudienceCustomObjects(supabase, tenantId, cleanedData.target_audiences);
     if (cleanedData.event_survey_context?.event_id) {
       await resolveEventEmailContext(supabase, cleanedData.event_survey_context, tenantId);
     }
@@ -480,6 +482,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
 
   try {
     const cleanedUpdates = { ...updates };
+    await validateAudienceCustomObjects(supabase, tenantId, cleanedUpdates.target_audiences);
     delete cleanedUpdates.category_review_required;
     delete cleanedUpdates.category_review_reason;
     delete cleanedUpdates.category_review_marked_at;
@@ -2034,11 +2037,15 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     const ALLOWED_SCOPES = new Set(['member', 'organization', 'event']);
 
     const filterGroups = segmentData.filter_groups || [];
+    const customConditions = filterGroups.flatMap(g => g.conditions || []).filter(c => c.entity_scope === 'custom_object');
+    const customMetadata = customConditions.length ? await discoverAudienceCustomObjects(supabase, tenantId) : [];
+    customConditions.forEach(c => validateCustomObjectCondition(c, customMetadata));
     if (filterGroups.length > 0) {
       const groupMemberSets = [];
 
       for (const group of filterGroups) {
         const conditions = (group.conditions || []).filter(c => {
+          if (c.entity_scope === 'custom_object') return true;
           if (!ALLOWED_SCOPES.has(c.entity_scope)) return false;
           if (!ALLOWED_OPERATORS.has(c.operator)) return false;
           if (c.entity_scope === 'event') {
@@ -2403,6 +2410,11 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           }
         }
 
+        const customIds = await resolveCustomObjectConditions(supabase, tenantId,
+          conditions.filter(c => c.entity_scope === 'custom_object'), customMetadata);
+        if (customIds !== null) {
+          memberIds = memberIds === null ? customIds : new Set([...memberIds].filter(id => customIds.has(id)));
+        }
         if (memberIds !== null) {
           groupMemberSets.push(memberIds);
         }
@@ -2419,12 +2431,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           const idBatchSize = 500;
           for (let i = 0; i < idArr.length; i += idBatchSize) {
             const idBatch = idArr.slice(i, i + idBatchSize);
-            const { data: members } = await supabase
+            const { data: members, error: memberError } = await supabase
               .from('member')
               .select('id, email, first_name, last_name, communications_opted_out_all')
               .eq('tenant_id', tenantId)
               .in('id', idBatch)
               .not('email', 'ilike', 'deleted_%@deleted.local');
+            if (memberError && customConditions.length) throw memberError;
             if (members) recipients.push(...members.filter(m => m.email));
           }
         }
