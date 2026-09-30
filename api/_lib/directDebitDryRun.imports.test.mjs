@@ -21,7 +21,9 @@ test('preview shared dependency graph has no raw client, network or effect escap
     for (const [, specifier] of imports) {
       assert.doesNotMatch(specifier, /(?:^|\/)(?:database|supabase)(?:[./]|$)/, `Raw client import in ${file}`);
       if (specifier.startsWith('.')) await inspect(resolve(dirname(file), specifier));
-      else assert.ok(['node:crypto'].includes(specifier), `Unexpected external dependency ${specifier} in ${file}`);
+      // Incentive evidence uses Node's pure deep-equality comparison; neither
+      // this utility nor crypto introduces database/provider mutation clients.
+      else assert.ok(['node:crypto', 'node:util'].includes(specifier), `Unexpected external dependency ${specifier} in ${file}`);
     }
   }
   await inspect(resolve(root, 'directDebitDryRun.js'));

@@ -78,6 +78,33 @@ test('dynamic cron entry constructs identical priced reservation in live and rec
   assert.deepEqual(live.mutations, ['reserve_gocardless_dynamic_collection', 'reserve_gocardless_dynamic_collection', 'createPayment', 'attach_gocardless_dynamic_payment']);
 });
 
+test('automatic live and readonly preview share the exact 10:30 UK boundary', async () => {
+  for (const instant of ['2026-10-01T09:29:59Z', '2026-10-01T09:30:00Z']) {
+    const operations = [];
+    for (const preview of [false, true]) {
+      const f = fixture();
+      const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+      for (const rows of Object.values(f.rows)) for (const row of rows) row.tenant_id = tenant;
+      f.agreement.member_id = '33e5d54d-162e-436d-9bff-ec6676d198f9';
+      const ops = [];
+      const result = await runDynamicCollection({ ...f, now: new Date(instant),
+        db: preview ? readonlyTenantDatabase(f.db, tenant) : f.db,
+        effects: { perform(op) { ops.push(op); return { preview: true }; } } });
+      if (instant.endsWith('29:59Z')) {
+        assert.equal(result.skipped, true);
+        assert.equal(result.nextCheckAt, '2026-10-01T09:30:00.000Z');
+        assert.deepEqual(f.reads, []);
+        assert.deepEqual(ops, []);
+      } else {
+        assert.equal(ops.length, 1);
+        assert.equal(f.reads.length, 1);
+      }
+      operations.push(ops);
+    }
+    assert.deepEqual(operations[0], operations[1]);
+  }
+});
+
 test('manual timing capability changes only timing and preserves the real clock and canonical period', async () => {
   const f = fixture();
   const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
@@ -88,8 +115,8 @@ test('manual timing capability changes only timing and preserves the real clock 
   f.now = new Date('2026-09-30T22:59:59Z');
   const manualTiming = { tenantId: tenant, planId: f.plan.id, dueDate: '2026-10-01',
     resolveDueDate: async n => { assert.equal(n, 1); return '2026-10-01'; } };
-  const before = await runDynamicCollection({ ...f, effects: { perform() { assert.fail('Cron must wait for midnight'); } } });
-  assert.equal(before.nextCheckAt, '2026-09-30T23:00:00.000Z');
+  const before = await runDynamicCollection({ ...f, effects: { perform() { assert.fail('Cron must wait for 10:30 UK'); } } });
+  assert.equal(before.nextCheckAt, '2026-10-01T09:30:00.000Z');
   let operation;
   await runDynamicCollection({ ...f, manualTiming, effects: { perform(op) { operation = op; return { preview: true }; } } });
   assert.equal(operation.payload.params.p_due_date, '2026-10-01');

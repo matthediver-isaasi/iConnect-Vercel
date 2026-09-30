@@ -154,11 +154,11 @@ function pilotFixture(providerDate = '2026-10-07') {
   f.rows.member[0].id = member;
   f.agreement.metadata.dd.commitment.term_start_date = '2026-10-01';
   f.agreement.metadata.dd.commitment.term_key = 'rolling:2026-10-01';
-  f.now = () => new Date('2026-09-30T23:00:00Z');
+  f.now = () => new Date('2026-10-01T09:30:00Z');
   return f;
 }
 
-test('pilot is gated until London midnight, before provider reads or reservation writes, without approval metadata', async () => {
+test('pilot is gated until 10:30 UK, before provider reads or reservation writes, without approval metadata', async () => {
   const f = pilotFixture();
   f.now = () => new Date('2026-09-30T22:59:59.999Z');
   f.gc.getMandate = () => { throw Error('provider must not be read before gate'); };
@@ -170,7 +170,7 @@ test('pilot is gated until London midnight, before provider reads or reservation
   assert.match((await collectDynamicPlan(f.plan, f)).detail, /processing starts/);
 });
 
-test('pilot processes at London midnight with authoritative later collection date and stable retry key', async () => {
+test('pilot processes at 10:30 UK with authoritative later collection date and stable retry key', async () => {
   const f = pilotFixture();
   const create = f.gc.createPayment;
   let request;
@@ -210,7 +210,7 @@ test('beta requires immutable owner-bound release and cannot reserve before Lond
   assert.match((await collectDynamicPlan(f.plan, f)).detail, /processing starts/);
   assert.equal(f.calls.length, 0);
   assert.equal(f.rows.gocardless_collection_reservations.length, 0);
-  f.now = () => new Date('2026-09-30T23:00:00Z');
+  f.now = () => new Date('2026-10-01T09:30:00Z');
   await collectDynamicPlan(f.plan, f);
   assert.equal(f.calls[0].chargeDate, '2026-10-07');
   assert.equal(f.calls[0].amountMinor, 1300);
@@ -481,16 +481,16 @@ test('successful submission with failed bookkeeping remains visible and later ro
   assert.equal(f.calls.length, 2);
 });
 
-test('pre-gate skip does not report repaired and retry is capped at London midnight', async () => {
+test('pre-gate skip does not report repaired and retry is capped at 10:30 UK', async () => {
   const f = pilotFixture();
-  f.now = () => new Date('2026-09-30T22:55:00Z');
+  f.now = () => new Date('2026-10-01T09:29:59Z');
   const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => {
     throw new Error('no provider before gate');
   } });
   assert.equal(result.skipped, 1);
   assert.equal(result.processed + result.errors, 0);
-  assert.equal(f.plan.dynamic_next_check_at, '2026-09-30T23:00:00.000Z');
-  f.now = () => new Date('2026-09-30T23:00:00Z');
+  assert.equal(f.plan.dynamic_next_check_at, '2026-10-01T09:30:00.000Z');
+  f.now = () => new Date('2026-10-01T09:30:00Z');
   const ready = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
   assert.equal(ready.processed, 1);
   assert.equal(ready.errors, 0);
@@ -522,11 +522,47 @@ function alphaCollectionFixture(providerDate = '2026-10-02') {
   f.rows.bnms_dd_alpha_release = [{ adoption_id: adoption.id, tenant_id: BNMS_ALPHA_TENANT,
     member_id: f.agreement.member_id, plan_id: f.plan.id, processing_not_before: BNMS_ALPHA_PROCESSING_NOT_BEFORE,
     evidence: { adoptionId: adoption.id, agreementId: f.agreement.id, memberId: f.agreement.member_id, planId: f.plan.id } }];
-  f.now = () => new Date(BNMS_ALPHA_PROCESSING_NOT_BEFORE);
+  f.now = () => new Date('2026-10-01T09:30:00Z');
   return f;
 }
 
-test('alpha identity gate prevents provider reads and reservations before London October 1 even without held metadata', async () => {
+test('automatic pilot and released alpha wait until exactly 10:30 UK without changing release evidence', async () => {
+  for (const makeFixture of [pilotFixture, alphaCollectionFixture]) {
+    for (const instant of ['2026-09-30T22:59:59Z', '2026-09-30T23:00:00Z', '2026-10-01T09:29:59Z']) {
+      const f = makeFixture();
+      const releaseEvidence = structuredClone(f.rows.bnms_dd_alpha_release);
+      f.now = () => new Date(instant);
+      f.gc.getMandate = async () => assert.fail('No provider read before automatic gate');
+      const result = await collectDynamicPlan(f.plan, f);
+      assert.equal(result.skipped, true);
+      assert.match(result.detail, /10:30 UK/);
+      assert.equal(result.nextCheckAt, '2026-10-01T09:30:00.000Z');
+      assert.equal(f.calls.length, 0);
+      assert.equal(f.rows.gocardless_collection_reservations.length, 0);
+      assert.deepEqual(f.rows.bnms_dd_alpha_release, releaseEvidence);
+    }
+    const ready = makeFixture();
+    ready.now = () => new Date('2026-10-01T09:30:00Z');
+    await collectDynamicPlan(ready.plan, ready);
+    assert.equal(ready.calls.length, 1);
+  }
+});
+
+test('held Beta stays blocked at the automatic gate, including manual timing', async () => {
+  const f = pilotFixture();
+  f.agreement.member_id = 'beta-member';
+  f.plan.metadata.bnms_beta_held = true;
+  f.plan.metadata.bnms_release_required = true;
+  f.gc.getMandate = async () => assert.fail('Held Beta must not read provider');
+  await assert.rejects(collectDynamicPlan(f.plan, f), /collection hold/);
+  assert.equal((await selectDynamicCollections(f.db, f.now())).data.length, 0);
+  assert.equal((await selectDynamicCollections(f.db, f.now(), 100, {
+    tenantId: f.plan.tenant_id, planId: f.plan.id, dueDate: '2026-10-01',
+  })).data.length, 0);
+  assert.equal(f.calls.length, 0);
+});
+
+test('alpha identity gate prevents provider reads and reservations before automatic start even without held metadata', async () => {
   const f = alphaCollectionFixture();
   let reads = 0, reservations = 0;
   f.gc.getMandate = async () => { reads++; throw Error('must not read'); };

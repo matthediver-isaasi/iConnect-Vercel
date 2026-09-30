@@ -7,6 +7,9 @@ import { findAlphaAdoption, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlpha
 import { resolveManualAccountingContext } from './bnmsManualCohort.js';
 
 export const DYNAMIC_RESERVATIONS = 'gocardless_collection_reservations';
+// One-off operational delay, intentionally separate from the immutable midnight
+// consent/release evidence gate. Manual timing remains an explicit override.
+export const BNMS_AUTOMATIC_PROCESSING_NOT_BEFORE = '2026-10-01T09:30:00.000Z';
 const LIVE_STATUSES = ['active', 'mandate_pending', 'first_payment_pending'];
 const day = value => new Date(value).toISOString().slice(0, 10);
 const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
@@ -214,8 +217,9 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption) || Boolean(manualContext);
   if (bnmsProcessing) {
     if (!Number.isFinite(now.getTime())) throw new Error('BNMS pilot processing clock is invalid');
-    if (!manualTiming && now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip(
-      'BNMS processing starts 1 October 2026 Europe/London', { nextCheckAt: '2026-09-30T23:00:00.000Z' });
+    if (!manualTiming && now.getTime() < Date.parse(BNMS_AUTOMATIC_PROCESSING_NOT_BEFORE)) return skip(
+      'BNMS automatic processing starts 1 October 2026 at 10:30 UK (Europe/London, 09:30 UTC)',
+      { nextCheckAt: BNMS_AUTOMATIC_PROCESSING_NOT_BEFORE });
   }
   const arrears = checked(await db.from('membership_monthly_arrears_period').select('id')
     .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).is('settled_at', null).limit(1), 'Check dynamic collection arrears');
