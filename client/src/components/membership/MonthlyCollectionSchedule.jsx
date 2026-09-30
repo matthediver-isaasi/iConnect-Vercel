@@ -186,16 +186,19 @@ export default function MonthlyCollectionSchedule({
       </div>
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-muted-foreground">Regular collection day</dt>
+          <dt className="text-muted-foreground">{provider === "gocardless" ? "Regular billing day" : "Regular collection day"}</dt>
           <dd className="font-medium" data-testid={`text-collection-day-${commitment.id}`}>
             {schedule.regularDay ? `Day ${schedule.regularDay} of each month` : "Not confirmed"}
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Next confirmed collection</dt>
+          <dt className="text-muted-foreground">{provider === "gocardless" ? "Next scheduled bank debit" : "Next confirmed collection"}</dt>
           <dd className="font-medium">{formatDate(schedule.nextConfirmedDate)}</dd>
         </div>
       </dl>
+      {provider === "gocardless" && <p className="text-xs text-muted-foreground">
+        The regular billing day is separate from the scheduled bank debit date. Bank processing can move the debit date; this does not create a second payment. A scheduled debit has not yet been collected.
+      </p>}
       {schedule.reason && (
         <p className="text-xs text-muted-foreground" data-testid={`text-collection-day-reason-${commitment.id}`}>
           {schedule.reason}

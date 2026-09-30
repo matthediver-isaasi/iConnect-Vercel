@@ -65,6 +65,18 @@ test('signup, estimate and provider charge remain distinct', async () => {
   });
 });
 
+test('scheduled bank debit uses UK date and plain-language pending status', async () => {
+  await rendered({ collectionDetails: {
+    state: 'provider_scheduled', amount: 13, dueDate: '2026-10-06',
+    providerStatus: 'pending_submission',
+  } }, text => {
+    assert.match(text, /£13.00/);
+    assert.match(text, /Scheduled bank debit6 Oct 2026/);
+    assert.match(text, /Payment created — awaiting bank submission/);
+    assert.doesNotMatch(text, /2026-10-06|pending_submission/);
+  });
+});
+
 for (const end_policy of ['stop', 'continue']) {
   test(`explicit legacy auto-renew evidence displays ${end_policy}/fixed without a review warning`, async () => {
     await rendered({
@@ -89,7 +101,7 @@ for (const end_policy of ['stop', 'continue']) {
         assert.match(text, pricing_policy === 'dynamic' ? /current active membership structure price/ : /Fixed for the membership term/);
         assert.match(text, /£23.00/);
         assert.match(text, /Accepted by provider — not yet collected/);
-        assert.match(text, /2026-10-01/);
+        assert.match(text, /1 Oct 2026/);
       });
     });
   }

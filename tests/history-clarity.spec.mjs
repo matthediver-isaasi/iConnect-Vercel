@@ -255,6 +255,7 @@ async function installHistoryFixtures(page, {
   delayed = [],
   failingEntities = [],
   delayedEntities = [],
+  instalments = {},
 } = {}) {
   const fixtureMember = withOrganization ? member : { ...member, organization_id: null };
   const state = {
@@ -262,6 +263,7 @@ async function installHistoryFixtures(page, {
     released: new Set(),
     delayReleased: new Set(),
     escapedWrites: [],
+    instalmentRequests: [],
   };
 
   await page.context().route("**/rest/v1/**", route => json(route, []));
@@ -307,6 +309,14 @@ async function installHistoryFixtures(page, {
       return json(route, [{ id: member.role_id, name: "Member", excluded_features: [] }]);
     }
     if (path === "/api/membership/member-history") return json(route, membership);
+    if (path === "/api/membership/historical-dd") return json(route, { payments: [] });
+    if (path === "/api/membership/member-membership" && url.searchParams.get("instalments") === "true") {
+      const recordId = url.searchParams.get("recordId");
+      const source = url.searchParams.get("source");
+      state.instalmentRequests.push({ recordId, source });
+      const result = instalments[`${source}:${recordId}`];
+      return json(route, result?.body || { instalments: [], upcomingCollections: [] }, result?.status || 200);
+    }
 
     const entityMatch = path.match(/^\/api\/entities\/([^/]+)$/);
     if (entityMatch) {
@@ -340,6 +350,76 @@ async function installHistoryFixtures(page, {
 
   return state;
 }
+
+for (const source of ["personal", "organisation"]) {
+  test(`monthly ${source} history shows scoped pending bank payment without another membership or invoice`, async ({ page }) => {
+    const record = {
+      ...membershipBase, id: "pending-dd", membership_source: source,
+      organization_id: source === "organisation" ? organization.id : null,
+      created_at: "2026-09-25T10:00:00Z", membership_year: "2026/27",
+      status: "PendingPaymentSetup", payment_status: "unpaid",
+      payment_method: "direct_debit", payment_frequency: "monthly",
+      billing_agreement_id: "fixture-agreement",
+    };
+    const upcoming = {
+      id: "pending-payment", paymentRef: "PM-FIXTURE", provider: "gocardless",
+      collectionStatus: "submitted", chargeDate: "2026-10-06", amount: 13,
+      currency: "GBP", accountingStatus: "not_recorded",
+    };
+    const body = {
+      instalments: [], upcomingCollections: [upcoming],
+      pagination: { page: 1, pageSize: 25, totalCount: 0, hasNextPage: false },
+    };
+    const state = await installHistoryFixtures(page, {
+      membership: [record], data: {},
+      instalments: { [`${source}:${record.id}`]: { body } },
+    });
+    await page.goto("/History");
+    const card = page.getByTestId(`membership-history-card-${source}-${record.id}`);
+    await expect(card.getByTestId("row-member-instalment-pending-payment")).toContainText("6 Oct 2026");
+    await expect(card.getByTestId("row-member-instalment-pending-payment")).toContainText("£13.00");
+    await expect(card).toContainText("Scheduled bank debit — not yet collected");
+    await expect(card).toContainText("Awaiting bank collection");
+    await expect(card).not.toContainText("PendingPaymentSetup");
+    await expect(card).toContainText("unpaid");
+    await expect(card.locator('[data-testid^="button-view-instalment-invoice-"]')).toHaveCount(0);
+    await expect(page.getByTestId("tab-membership")).toHaveText("Membership (1)");
+    expect(state.instalmentRequests).toEqual([{ recordId: record.id, source }]);
+    if (source === "personal") {
+      await page.screenshot({ path: "tmp/history-pending-dd.png", fullPage: true });
+    }
+
+    // Provider confirmation supersedes the pending representation of the same
+    // payment; no invoice is invented and the membership count stays unchanged.
+    body.instalments = [{ ...upcoming, id: "settled-payment", collectionStatus: "confirmed" }];
+    body.pagination.totalCount = 1;
+    await page.reload();
+    await expect(card.getByTestId("row-member-instalment-settled-payment")).toContainText("Collected");
+    await expect(card.getByTestId("row-member-instalment-pending-payment")).toHaveCount(0);
+    await expect(card.locator('[data-testid^="row-member-instalment-"]')).toHaveCount(1);
+    await expect(page.getByTestId("tab-membership")).toHaveText("Membership (1)");
+    await expect(card).toContainText("PendingPaymentSetup");
+    expect(state.escapedWrites).toEqual([]);
+  });
+}
+
+test("failed monthly payment evidence does not relabel the setup status", async ({ page }) => {
+  const record = {
+    ...membershipBase, id: "failed-evidence", status: "PendingPaymentSetup",
+    payment_method: "direct_debit", payment_frequency: "monthly",
+    billing_agreement_id: "fixture-agreement",
+  };
+  const state = await installHistoryFixtures(page, {
+    membership: [record], data: {},
+    instalments: { [`personal:${record.id}`]: { status: 403, body: { error: "Payment history unavailable" } } },
+  });
+  await page.goto("/History");
+  const card = page.getByTestId(`membership-history-card-personal-${record.id}`);
+  await expect(card.getByRole("alert")).toContainText("Payment history unavailable");
+  await expect(card).toContainText("PendingPaymentSetup");
+  await expect(card).not.toContainText("Awaiting bank collection");
+  expect(state.escapedWrites).toEqual([]);
+});
 
 test("mixed history keeps unfiltered category tabs, grouped counts, and deduplicated fund totals", async ({ page }) => {
   const state = await installHistoryFixtures(page);

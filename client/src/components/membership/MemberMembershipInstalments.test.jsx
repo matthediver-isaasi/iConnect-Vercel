@@ -11,6 +11,7 @@ import MemberMembershipInstalments, {
   isMonthlyMembershipRecord,
   isDynamicMonthlyCommitment,
   normalizeCollection,
+  normalizeInstalmentPage,
 } from "./MemberMembershipInstalments.jsx";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -30,6 +31,22 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { act } = React;
+
+test("pending bank debit adapter keeps upcoming distinct and deduplicates settled transition", () => {
+  const upcoming = { id: "pending", paymentRef: "PM-1", provider: "gocardless",
+    amount: 13, date: "2026-10-06", collectionStatus: "pending_submission" };
+  const pending = normalizeInstalmentPage({ instalments: [], upcomingCollections: [upcoming] });
+  assert.equal(pending.items.length, 1);
+  assert.equal(pending.items[0].upcomingBankDebit, true);
+  assert.equal(pending.items[0].invoiceNumber, null);
+  const settled = normalizeInstalmentPage({
+    instalments: [{ ...upcoming, collectionStatus: "confirmed" }],
+    upcomingCollections: [upcoming],
+  });
+  assert.equal(settled.items.length, 1);
+  assert.equal(settled.items[0].collectionStatus, "collected");
+  assert.equal(settled.items[0].upcomingBankDebit, false);
+});
 
 test("scheduled dynamic monthly plans use normal collection history without annual fee cards", () => {
   const memberId = "dynamic-monthly-test";
@@ -98,7 +115,7 @@ test("scheduled dynamic monthly plans use normal collection history without annu
   assert.match(monthly, /Imported historical payment/);
   assert.match(monthly, /Existing Direct Debit mandate active/);
   assert.match(monthly, /awaiting its first payment/);
-  assert.match(monthly, /do not settle an upcoming term or establish current membership entitlement/);
+  assert.match(monthly, /do not settle an upcoming term, activate payment, or establish current membership entitlement/);
   assert.doesNotMatch(monthly, /card-historical-dd/);
   const annual = render({ pricing_policy: "fixed", end_policy: "stop" });
   assert.match(annual, />Year 1</);
@@ -461,7 +478,7 @@ test("collapsing an in-flight page clears its guard so re-expand retries", async
       });
       await Promise.resolve();
     });
-    assert.match(container.textContent, /No monthly collections recorded/);
+    assert.match(container.textContent, /No payments scheduled or collected yet/);
   } finally {
     await act(async () => {
       root.unmount();

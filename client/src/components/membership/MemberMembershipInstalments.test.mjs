@@ -42,7 +42,7 @@ test("the instalment ledger keeps collection and accounting outcomes distinct", 
   ]) {
     assert.match(source, new RegExp(status));
   }
-  assert.match(source, /No monthly collections recorded/);
+  assert.match(source, /No payments scheduled or collected yet/);
   assert.match(source, /No accounting provider is connected/);
   assert.match(source, /role="alert"/);
   assert.match(source, /Loading monthly instalments/);

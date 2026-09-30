@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import MonthlyCollectionTable from "./MonthlyCollectionTable";
+import { bankDebitStatus } from "./DirectDebitCommitmentDetails";
 
 /**
  * This endpoint is intentionally separate from the member membership summary.
@@ -196,6 +197,8 @@ export function normalizeCollection(item = {}) {
     : hasStripeCollectionRow
       ? "collected"
       : normalizeCollectionStatus(item.status);
+  const upcomingBankDebit = item.provider === "gocardless"
+    && ["pending_submission", "submitted"].includes(explicitCollectionStatus || item.status);
   const rawAccountingStatus = item.accountingStatus
     || item.accountingSyncStatus
     || item.accounting_sync_status
@@ -230,6 +233,8 @@ export function normalizeCollection(item = {}) {
     // be displayed as a pending collection.
     status: accountingStatus,
     collectionStatus,
+    upcomingBankDebit,
+    providerStatus: upcomingBankDebit ? (explicitCollectionStatus || item.status) : null,
     accountingStatus,
     paymentRef: item.paymentRef || item.payment_ref || item.externalPaymentId || item.external_payment_id || null,
     amount: toNumber(item.amount ?? item.amountMajor ?? (
@@ -262,7 +267,10 @@ export function normalizeInstalmentPage(body, requestedPage = 1, pageSize = MEMB
     ? body
     : (payload.instalments || payload.items || payload.records || payload.data || []);
   const pagination = payload.pagination || payload.meta || {};
-  const items = (Array.isArray(source) ? source : []).map(normalizeCollection);
+  const settled = Array.isArray(source) ? source : [];
+  const settledRefs = new Set(settled.map(item => item.paymentRef || item.id));
+  const upcoming = (payload.upcomingCollections || []).filter(item => !settledRefs.has(item.paymentRef || item.id));
+  const items = [...upcoming, ...settled].map(normalizeCollection);
   const page = Number(pagination.page || payload.page || requestedPage) || requestedPage;
   const effectivePageSize = Number(pagination.pageSize || pagination.page_size || payload.pageSize || pageSize) || pageSize;
   const total = pagination.total ?? pagination.totalCount ?? payload.total ?? payload.totalCount ?? null;
@@ -348,7 +356,7 @@ function InvoiceButtons({
     || item.accountingInvoiceId
     || item.invoiceNumber
   );
-  if (!item.invoiceRecordId || !hasInvoice) return null;
+  if (!item.invoiceRecordId || !hasInvoice || (!onViewInvoice && !onDownloadInvoice)) return null;
   const busy = loadingInvoiceId === item.invoiceRecordId || loadingInvoiceId === item.paymentRef;
 
   return (
@@ -390,6 +398,8 @@ export default function MemberMembershipInstalments({
   record,
   expanded = false,
   source = null,
+  layout = "table",
+  onPendingCollectionEvidence,
   onViewInvoice,
   onDownloadInvoice,
   loadingInvoiceId,
@@ -403,13 +413,14 @@ export default function MemberMembershipInstalments({
 
   useEffect(() => {
     setPage(1);
-    setPages({});
+    setPages(previous => Object.keys(previous).length ? {} : previous);
     setLoadingPage(null);
     setError("");
-  }, [historyId, membershipSource]);
+    onPendingCollectionEvidence?.(false);
+  }, [historyId, membershipSource, onPendingCollectionEvidence]);
 
   useEffect(() => {
-    if (!expanded || !historyId || pages[page] || loadingPage === page) return undefined;
+    if (!expanded || !historyId || pages[page]) return undefined;
 
     let active = true;
     const loadPage = async () => {
@@ -427,10 +438,13 @@ export default function MemberMembershipInstalments({
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "Failed to load monthly instalments");
-        if (active) setPages((previous) => ({
-          ...previous,
-          [page]: normalizeInstalmentPage(body, page),
-        }));
+        if (active) {
+          const normalized = normalizeInstalmentPage(body, page);
+          setPages((previous) => ({ ...previous, [page]: normalized }));
+          // Only successful, ownership-scoped responses can alter the parent
+          // presentation. Persisted membership/payment statuses are untouched.
+          onPendingCollectionEvidence?.(normalized.items.some(item => item.upcomingBankDebit));
+        }
       } catch (loadError) {
         if (active) setError(loadError.message || "Failed to load monthly instalments");
       } finally {
@@ -450,7 +464,7 @@ export default function MemberMembershipInstalments({
   // of this request's lifecycle, and including it would run the cleanup,
   // deactivate the request, and leave the row loading forever before the
   // response can populate pages.
-  }, [expanded, historyId, membershipSource, page, pages]);
+  }, [expanded, historyId, membershipSource, page, pages, onPendingCollectionEvidence]);
 
   if (!expanded) return null;
 
@@ -461,9 +475,7 @@ export default function MemberMembershipInstalments({
     && (loaded.hasAccountingProvider === false
       || items.some((item) => item.status === "missing_accounting"));
 
-  return (
-    <tr id={`row-member-instalments-${historyId}`} data-testid={`row-member-instalments-${historyId}`}>
-      <td colSpan={9} className="p-0">
+  const content = (
         <div className="bg-muted/20 border-t border-b px-4 py-3 space-y-3">
           <div className="flex items-start gap-2">
             <FileText className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
@@ -514,7 +526,7 @@ export default function MemberMembershipInstalments({
             <p className="text-sm text-muted-foreground" data-testid={`text-member-instalments-empty-${historyId}`}>
               {loaded.invoicingMode === "annual"
                 ? "No separate monthly accounting invoices are recorded under annual invoicing."
-                : "No monthly collections recorded for this membership yet."}
+                : "No payments scheduled or collected yet."}
             </p>
           )}
 
@@ -522,14 +534,15 @@ export default function MemberMembershipInstalments({
             <MonthlyCollectionTable testId={`table-member-instalments-${historyId}`}>
                   {items.map((item, index) => {
                     const itemKey = item.id || item.paymentRef || `${page}-${index}`;
-                    const collectionLabel = collectionStatusLabel(item.collectionStatus);
+                    const collectionLabel = item.upcomingBankDebit
+                      ? bankDebitStatus(item.providerStatus) : collectionStatusLabel(item.collectionStatus);
                     const accountingLabel = instalmentStatusLabel(item.accountingStatus);
                     return (
                       <tr key={itemKey} className="border-b last:border-0" data-testid={`row-member-instalment-${itemKey}`}>
                         <td className="p-2">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span>{formatDate(item.date)}</span>
-                            <span className="text-xs text-muted-foreground">Collection</span>
+                            <span className="text-xs text-muted-foreground">{item.upcomingBankDebit ? "Scheduled bank debit — not yet collected" : "Collection"}</span>
                             <Badge variant={STATUS_VARIANTS[item.collectionStatus] || "outline"} data-testid={`badge-member-instalment-collection-${itemKey}`}>
                               {collectionLabel}
                             </Badge>
@@ -595,7 +608,17 @@ export default function MemberMembershipInstalments({
             </div>
           )}
         </div>
-      </td>
+  );
+  if (layout === "card") {
+    return (
+      <section aria-label="Monthly payments" data-testid={`row-member-instalments-${historyId}`}>
+        {content}
+      </section>
+    );
+  }
+  return (
+    <tr id={`row-member-instalments-${historyId}`} data-testid={`row-member-instalments-${historyId}`}>
+      <td colSpan={9} className="p-0">{content}</td>
     </tr>
   );
 }

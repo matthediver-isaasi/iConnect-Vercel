@@ -17,6 +17,7 @@ import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import MemberMembershipInstalments, { isMonthlyMembershipRecord } from "@/components/membership/MemberMembershipInstalments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
 
@@ -1437,6 +1438,10 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   const MembershipHistoryCard = ({ record }) => {
+    const [hasPendingCollection, setHasPendingCollection] = useState(false);
+    const statusLabel = (status) => hasPendingCollection
+      && String(status || '').replaceAll('_', '').replaceAll(' ', '').toLowerCase() === 'pendingpaymentsetup'
+      ? 'Awaiting bank collection' : String(status).replaceAll('_', ' ');
     const presentation = getMembershipHistorySchedule(record);
     const membershipSource = getMembershipSource(record);
     const invoiceId = getAccountingInvoiceId(record);
@@ -1469,12 +1474,12 @@ export default function HistoryPage({ hasBanner }) {
               {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
               {record.status && (
                 <Badge variant={record.status === 'active' ? 'secondary' : 'outline'} className="capitalize">
-                  {String(record.status).replaceAll('_', ' ')}
+                  {statusLabel(record.status)}
                 </Badge>
               )}
               {record.payment_status && (
                 <Badge variant={record.payment_status === 'paid' ? 'secondary' : 'outline'} className="capitalize">
-                  {String(record.payment_status).replaceAll('_', ' ')}
+                  {statusLabel(record.payment_status)}
                 </Badge>
               )}
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
@@ -1536,6 +1541,17 @@ export default function HistoryPage({ hasBanner }) {
           </div>
         </div>
         
+        {isMonthlyMembershipRecord(record) && (
+          <MemberMembershipInstalments
+            key={`${membershipSource}:${record.id}`}
+            record={record}
+            source={membershipSource}
+            expanded
+            layout="card"
+            onPendingCollectionEvidence={setHasPendingCollection}
+          />
+        )}
+
         {canAccessInvoices && (
           <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
             {!hasInvoice && (

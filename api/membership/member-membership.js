@@ -580,6 +580,7 @@ async function loadInstalmentAccounting({
   }
 
   let result;
+  let upcomingCollections = [];
   if (provider === 'stripe') {
     let query = db
       .from('membership_instalment_invoices')
@@ -612,6 +613,28 @@ async function loadInstalmentAccounting({
     result = await query;
   }
 
+  // Keep the settled ledger and its counts unchanged for existing consumers.
+  // Upcoming rows use the same history-resolved tenant and plan scope.
+  if (!result?.error && provider === 'gocardless' && plan && page === 1) {
+    const upcoming = await db.from('gocardless_payments')
+      .select('id, gocardless_payment_id, amount_minor, currency, status, charge_date')
+      .eq('tenant_id', tenantId)
+      .in('plan_id', [plan.id])
+      .in('status', ['pending_submission', 'submitted'])
+      .order('charge_date', { ascending: true });
+    if (upcoming.error) throw new Error('Could not load upcoming bank debits');
+    upcomingCollections = (upcoming.data || []).map(row => ({
+      id: row.id,
+      paymentRef: row.gocardless_payment_id,
+      provider: 'gocardless',
+      collectionStatus: row.status,
+      amount: amountFromMinor(row.amount_minor),
+      currency: row.currency || plan.currency || null,
+      date: row.charge_date || null,
+      accountingStatus: 'not_recorded',
+    }));
+  }
+
   if (result?.error) {
     if (INSTALMENT_TABLE_MISSING_CODES.has(result.error.code)) {
       return {
@@ -640,6 +663,7 @@ async function loadInstalmentAccounting({
     provider,
     snapshotSource,
     snapshot,
+    upcomingCollections,
     planCollectedCount: planCollectedCount ?? totalCount,
     ledger: {
       provider,
@@ -860,6 +884,7 @@ async function handleInstalmentGet(req, res, {
       entries: accounting.ledger.entries,
     },
     instalments: accounting.ledger.entries,
+    upcomingCollections: accounting.upcomingCollections || [],
     pagination: {
       page,
       pageSize: INSTALMENT_PAGE_SIZE,

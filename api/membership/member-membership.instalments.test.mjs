@@ -262,6 +262,40 @@ const stripeAgreement = {
   },
 };
 
+test('upcoming bank debits remain separate from settled counts and transition without duplicates', async () => {
+  const payment = {
+    id: 'pending-1', tenant_id: 'tenant-1', plan_id: 'plan-1',
+    gocardless_payment_id: 'PM-pending', amount_minor: 1300, currency: 'GBP',
+    status: 'pending_submission', charge_date: '2026-10-06',
+  };
+  const db = instalmentDb({
+    histories: { member_membership_history: { 'history-1': personalHistory } },
+    agreements: { 'agreement-1': { ...stripeAgreement, provider: 'gocardless', metadata: { dd: { invoicing_mode: 'per_instalment' } } } },
+    plans: { 'agreement-1': [{
+      id: 'plan-1', tenant_id: 'tenant-1', billing_agreement_id: 'agreement-1',
+      member_id: 'member-1', provider: 'gocardless', currency: 'GBP',
+    }] },
+    gcRows: [payment, { ...payment, id: 'other', plan_id: 'other-plan' },
+      { ...payment, id: 'other-tenant', tenant_id: 'other-tenant' }],
+  });
+  const request = { method: 'GET', query: { recordId: 'history-1', instalments: 'true' } };
+  const pending = response();
+  await endpoint({ db })(request, pending);
+  assert.equal(pending.statusCode, 200);
+  assert.equal(pending.payload.instalments.length, 0);
+  assert.equal(pending.payload.planCollectedCount, 0);
+  assert.equal(pending.payload.upcomingCollections.length, 1);
+  assert.equal(pending.payload.upcomingCollections[0].date, '2026-10-06');
+  assert.equal(pending.payload.upcomingCollections[0].amount, 13);
+  assert.equal(pending.payload.upcomingCollections[0].invoiceUrl, undefined);
+  payment.status = 'confirmed';
+  const collected = response();
+  await endpoint({ db })(request, collected);
+  assert.equal(collected.payload.upcomingCollections.length, 0);
+  assert.equal(collected.payload.instalments.length, 1);
+  assert.equal(collected.payload.planCollectedCount, 1);
+});
+
 test('returns a bounded, deterministic Stripe instalment page for the owning member', async () => {
   const db = instalmentDb({
     histories: { member_membership_history: { 'history-1': personalHistory } },

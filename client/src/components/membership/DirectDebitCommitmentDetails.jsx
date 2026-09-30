@@ -15,6 +15,22 @@ const STATE_LABELS = {
   last_collected: 'Last collected amount — not the next collection',
 };
 
+export function bankDebitDate(value) {
+  if (!value) return 'Date not yet available';
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? 'Date not yet available'
+    : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+export function bankDebitStatus(status) {
+  return ({
+    pending_submission: 'Payment created — awaiting bank submission',
+    submitted: 'Awaiting bank collection',
+    confirmed: 'Collected',
+    paid_out: 'Collected — paid out',
+  })[status] || 'Payment status not yet available';
+}
+
 export default function DirectDebitCommitmentDetails({ commitment }) {
   const policy = commitment.collectionPolicy;
   const details = commitment.collectionDetails;
@@ -45,9 +61,9 @@ export default function DirectDebitCommitmentDetails({ commitment }) {
           <dd className="font-medium">{money(details?.amount, details?.currency || commitment.currency)}</dd>
           <dd className="text-xs text-muted-foreground">{STATE_LABELS[details?.state] || STATE_LABELS.unknown}</dd>
         </div>
-        {details?.dueDate && <div>
-          <dt className="text-muted-foreground">Collection date</dt>
-          <dd>{details.dueDate} {details.providerStatus ? `· ${details.providerStatus}` : ''}</dd>
+        {(details?.dueDate || details?.providerStatus) && <div>
+          <dt className="text-muted-foreground">{details.state === 'provider_scheduled' ? 'Scheduled bank debit' : 'Bank debit date'}</dt>
+          <dd>{bankDebitDate(details.dueDate)} {details.providerStatus ? `· ${bankDebitStatus(details.providerStatus)}` : ''}</dd>
         </div>}
         {details?.pricePreview && <div>
           <dt className="text-muted-foreground">Current price preview — not a confirmed charge</dt>
@@ -55,7 +71,7 @@ export default function DirectDebitCommitmentDetails({ commitment }) {
         </div>}
         {details?.lastCollection && details.state !== 'last_collected' && <div>
           <dt className="text-muted-foreground">Last collection</dt>
-          <dd>{money(details.lastCollection.amount, details.lastCollection.currency || commitment.currency)} · {details.lastCollection.dueDate || 'Date unknown'}</dd>
+          <dd>{money(details.lastCollection.amount, details.lastCollection.currency || commitment.currency)} · {bankDebitDate(details.lastCollection.dueDate)}</dd>
         </div>}
       </dl>
       {known && policy.evidence === 'legacy_auto_renew' && <p className="text-xs text-muted-foreground">Based on saved legacy consent.</p>}
